@@ -1,0 +1,7 @@
+{
+  "id": "test-auditor",
+  "blocking": true,
+  "model": "sonnet",
+  "triggerGlobs": ["packages/*/src/**", "packages/stylus/stylus/**"],
+  "contextGlobs": ["docs/specs/testing-strategy.md"]
+}

@@ -5,5 +5,9 @@ if git rev-parse --verify -q HEAD^1 >/dev/null 2>&1; then
 else
   pnpm turbo run test:contracts test:unit
 fi
-# Once review-agents are wired (dev-harness §6), also run:
-# pnpm run review --ci
+
+# Review agents are NOT run here — they fire 4-6 real Claude Code sessions and add
+# 1-2 min to every push. Run them on demand instead, right before opening a PR:
+#   pnpm run review           # this branch vs origin/main
+#   pnpm run review --ci      # exit non-zero on blocking findings
+# See review-agents/README.md.

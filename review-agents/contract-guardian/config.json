@@ -1,0 +1,11 @@
+{
+  "id": "contract-guardian",
+  "blocking": true,
+  "model": "sonnet",
+  "triggerGlobs": ["packages/contracts/**"],
+  "triggerImports": ["@marquee/contracts"],
+  "contextGlobs": [
+    "packages/contracts/schemas/**",
+    "docs/specs/integration-contract.md"
+  ]
+}

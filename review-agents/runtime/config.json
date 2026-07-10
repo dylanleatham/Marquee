@@ -1,0 +1,16 @@
+{
+  "id": "runtime",
+  "blocking": true,
+  "model": "sonnet",
+  "triggerGlobs": [
+    "packages/**/*.ts",
+    "packages/**/*.tsx",
+    "packages/**/*.mjs",
+    "packages/**/*.js",
+    "packages/**/*.py",
+    "contract-tests/**/*.mjs",
+    "e2e/**/*.mjs",
+    "scripts/**/*.mjs",
+    "review-agents/**/*.mjs"
+  ]
+}

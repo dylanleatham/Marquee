@@ -1,0 +1,7 @@
+{
+  "id": "spec-adherence",
+  "blocking": false,
+  "model": "sonnet",
+  "triggerGlobs": ["packages/**/src/**", "packages/stylus/stylus/**"],
+  "includePackageSpecs": true
+}

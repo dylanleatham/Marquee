@@ -1,0 +1,13 @@
+{
+  "name": "@marquee/review-agents",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Claude Code review specialists that gate pushes (dev-harness §6).",
+  "scripts": {
+    "test": "node --test",
+    "test:unit": "node --test",
+    "type-check": "echo \"(no ts here yet)\"",
+    "lint": "echo \"(no linter configured yet)\""
+  }
+}

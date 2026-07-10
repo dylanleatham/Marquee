@@ -3,5 +3,6 @@ packages:
   - "packages/fakes/*"
   - "contract-tests"
   - "e2e"
+  - "review-agents"
 # Note: packages/stylus is a Python package (managed via its own pyproject.toml),
 # not a pnpm workspace member.
