@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "source": {
+    "type": "album",
+    "spotifyId": "1C2h7mLntPSeVYciMRTF4a",
+    "name": "Purple Rain",
+    "artist": "Prince",
+    "year": 1984
+  },
+  "palette": {
+    "colors": [
+      { "hex": "#4B0082", "role": "primary", "sourceSwatch": "DarkVibrant" },
+      { "hex": "#8A2BE2", "role": "secondary", "sourceSwatch": "Vibrant" },
+      { "hex": "#D8BFD8", "role": "accent", "sourceSwatch": "LightMuted" },
+      { "hex": "#FFD700", "role": "accent", "sourceSwatch": "LightVibrant" }
+    ]
+  },
+  "pattern": {
+    "type": "crossfade",
+    "params": { "transitionMs": 12000, "holdMs": 45000 }
+  },
+  "meta": {
+    "generatedAt": "2026-07-05T12:00:00Z",
+    "generator": "palette-press@0.1.0"
+  }
+}

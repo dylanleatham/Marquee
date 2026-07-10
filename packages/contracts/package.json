@@ -1,0 +1,24 @@
+{
+  "name": "@marquee/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared JSON schemas + generated types for every Marquee service boundary.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./schemas/*": "./schemas/*"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "gen": "node ../../scripts/gen-schemas.mjs",
+    "type-check": "tsc --noEmit",
+    "test:contracts": "node --test",
+    "lint": "echo \"(no linter configured yet)\""
+  },
+  "devDependencies": {
+    "json-schema-to-typescript": "^15.0.2",
+    "typescript": "^5.6.2"
+  }
+}

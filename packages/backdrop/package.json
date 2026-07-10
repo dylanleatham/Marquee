@@ -1,0 +1,22 @@
+{
+  "name": "@marquee/backdrop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Plays looping visualizer videos on the display in response to scan events.",
+  "main": "./dist/index.js",
+  "scripts": {
+    "dev": "echo \"(dev server not implemented yet — see README)\"",
+    "build": "tsc -b",
+    "type-check": "tsc --noEmit",
+    "test": "node --test",
+    "test:unit": "node --test",
+    "lint": "echo \"(no linter configured yet)\""
+  },
+  "dependencies": {
+    "@marquee/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.2"
+  }
+}

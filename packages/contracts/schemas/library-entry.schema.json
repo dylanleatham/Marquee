@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "marquee/schemas/library-entry-v1.json",
+  "title": "LibraryEntry",
+  "description": "One entry in Backdrop's library.json (URI -> video file). Pushed by Curator.",
+  "type": "object",
+  "required": ["uri", "filePath"],
+  "properties": {
+    "uri": { "type": "string", "pattern": "^curator:album:[a-z0-9]{8}$" },
+    "filePath": {
+      "type": "string",
+      "description": "Absolute path on Backdrop's SD card."
+    },
+    "durationSec": { "type": "number", "minimum": 0 },
+    "contentHash": {
+      "type": "string",
+      "description": "e.g. sha256:... — lets sync detect updates."
+    }
+  }
+}

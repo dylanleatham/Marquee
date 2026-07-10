@@ -1,0 +1,12 @@
+{
+  "name": "@marquee/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "End-to-end runtime scenarios across all services (runs on merge, not every PR).",
+  "scripts": {
+    "test": "echo \"(e2e not implemented yet)\"",
+    "type-check": "echo \"(no ts here yet)\"",
+    "lint": "echo \"(no linter configured yet)\""
+  }
+}

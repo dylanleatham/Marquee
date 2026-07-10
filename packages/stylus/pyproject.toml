@@ -1,0 +1,34 @@
+[project]
+name = "marquee-stylus"
+version = "0.0.0"
+description = "Reads NFC-tagged sleeves and publishes scan events to Conductor + Backdrop. Runs on a Pi Zero 2 W."
+requires-python = ">=3.11"
+dependencies = [
+    # Hardware + protocol (installed on the Pi, not needed for pure-logic dev on your workstation)
+    "adafruit-circuitpython-pn532",
+    "ndeflib",
+    # HTTP + config
+    "httpx",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "freezegun",       # fake time for the poll loop
+    "hypothesis",      # property tests for the state machine
+    "responses",       # fake HTTP endpoints
+    "jsonschema",      # validate against the shared contracts/*.json
+    "ruff",
+    "mypy",
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

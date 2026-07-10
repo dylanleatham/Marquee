@@ -1,0 +1,48 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+*.tsbuildinfo
+packages/contracts/ts/*.d.ts
+packages/contracts/py/*_generated.py
+
+# Turbo
+.turbo/
+
+# Env / secrets
+.env
+.env.local
+*.local.toml
+config.toml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Test / coverage
+coverage/
+*.log
+
+# Runtime data stores (these live on-device / on your workstation, not in the code repo)
+# NOTE: the *collection* asset store (~/marquee/album-assets) IS git-tracked per the
+# runtime overview — but in its OWN repo, not this code repo. Media is never tracked.
+marquee-data/
+media/
+*.mp4
+*.bak
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Review agent reports (committed intentionally on push; ignore local scratch)
+.review-agents/scratch/

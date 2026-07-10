@@ -1,0 +1,22 @@
+{
+  "name": "@marquee/palette-press",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Presses a Hue-safe palette out of album art. Pure library, no I/O.",
+  "main": "./dist/index.js",
+  "scripts": {
+    "dev": "echo \"(dev server not implemented yet — see README)\"",
+    "build": "tsc -b",
+    "type-check": "tsc --noEmit",
+    "test": "node --test",
+    "test:unit": "node --test",
+    "lint": "echo \"(no linter configured yet)\""
+  },
+  "dependencies": {
+    "@marquee/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.2"
+  }
+}

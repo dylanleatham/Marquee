@@ -1,0 +1,24 @@
+# Copy to ~/stylus/config.toml on the Pi Zero. Do NOT commit the real file.
+[reader]
+id = "primary"                       # identifies this stand in event payloads
+poll_interval_ms = 200
+insertion_debounce_polls = 2
+removal_debounce_polls = 10
+swap_debounce_polls = 1
+
+[downstream.conductor]
+url = "http://conductor.local:4737/api/scan"
+timeout_ms = 1000
+shared_secret = "change-me-lan-only-secret"
+
+[downstream.player]
+url = "http://backdrop.local:4740/api/scan"
+timeout_ms = 1000
+shared_secret = "change-me-lan-only-secret"
+
+[status]
+listen_port = 4741
+
+[led]
+gpio_pin = 17
+enabled = true

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "marquee/schemas/scan-event-v1.json",
+  "title": "ScanEvent",
+  "description": "Emitted by Stylus, consumed by Conductor and Backdrop at /api/scan.",
+  "type": "object",
+  "required": ["event", "at"],
+  "properties": {
+    "event": { "enum": ["start", "stop"] },
+    "uri": {
+      "type": "string",
+      "pattern": "^curator:album:[a-z0-9]{8}$",
+      "description": "Present only on start. Curator internal id, not a Spotify URI."
+    },
+    "tagUid": { "type": "string", "description": "Present only on start." },
+    "readerId": {
+      "type": "string",
+      "default": "primary",
+      "description": "Which physical stand fired the event."
+    },
+    "at": { "type": "string", "format": "date-time" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "event": { "const": "start" } } },
+      "then": { "required": ["uri", "tagUid"] }
+    }
+  ]
+}

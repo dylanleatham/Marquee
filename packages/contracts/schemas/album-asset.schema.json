@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "marquee/schemas/album-asset-v1.json",
+  "title": "AlbumAsset",
+  "description": "Curator's on-disk format: one {curatorId}.json per album. Source of truth for the collection. See curator-spec.md §7 for full field semantics. This schema is a starting point — extend it as the store shape is implemented.",
+  "type": "object",
+  "required": ["version", "curatorId", "createdAt", "metadata", "roadie"],
+  "properties": {
+    "version": { "const": 1 },
+    "curatorId": { "type": "string", "pattern": "^[a-z0-9]{8}$" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "metadata": {
+      "type": "object",
+      "required": ["name", "artist", "source"],
+      "properties": {
+        "name": { "type": "string" },
+        "artist": { "type": "string" },
+        "year": { "type": "integer" },
+        "genres": { "type": "array", "items": { "type": "string" } },
+        "source": { "enum": ["spotify", "manual"] },
+        "spotifyUri": { "type": "string" },
+        "spotifyArtUrl": { "type": "string" }
+      }
+    },
+    "artwork": { "type": "object" },
+    "palette": { "type": "object" },
+    "pattern": { "type": "object" },
+    "promptDrafts": { "type": "object" },
+    "visualizer": { "type": ["object", "null"] },
+    "cardArt": { "type": ["object", "null"] },
+    "tag": { "type": "object" },
+    "verification": { "type": "object" },
+    "roadie": {
+      "type": "object",
+      "required": ["state"],
+      "properties": {
+        "state": {
+          "enum": [
+            "fresh",
+            "fetching_metadata",
+            "downloading_art",
+            "generating_palette",
+            "drafting_prompts",
+            "awaiting_review",
+            "awaiting_video",
+            "awaiting_preview",
+            "awaiting_tag_write",
+            "awaiting_verify",
+            "verified",
+            "errored",
+            "needs_manual"
+          ]
+        },
+        "subState": { "type": ["string", "null"] },
+        "flags": { "type": "object" },
+        "history": { "type": "array" },
+        "lastError": { "type": ["object", "string", "null"] },
+        "retryCount": { "type": "integer", "minimum": 0 },
+        "syncIssues": { "type": "array" }
+      }
+    },
+    "status": {
+      "type": "object",
+      "description": "Derived, recomputed on save."
+    }
+  }
+}

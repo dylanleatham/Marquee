@@ -1,0 +1,243 @@
+# Palette Press — Technical Spec
+
+_Presses a palette out of an album, like a record press. Library, not a service._
+
+## 1. Purpose
+
+A Node.js library that takes album art bytes and produces a `PalettePayload` — the palette + pattern payload defined in the integration contract. Consumed by Roadie (inside Curator) during album onboarding.
+
+The library is pure: no I/O beyond image decoding, no network, no filesystem, no persistent state. Given the same inputs and options, always produces the same output — which is what makes downstream caching and golden-file testing trustworthy.
+
+## 2. Success criteria
+
+**Given Purple Rain's cover, the library returns a palette dominated by purples with a gold accent. Given Kind of Blue, a palette dominated by blues. Given a monochrome cover like The White Album, the library returns a graceful "insufficient color data" result that the caller can handle without special-casing.**
+
+Secondary: **the same album art produces the same palette every time.** Determinism is what lets Roadie cache confidently and lets the test suite catch algorithm changes via golden files.
+
+## 3. Scope
+
+### In scope
+
+- Palette extraction from album art (via node-vibrant)
+- Hue-aware post-processing: gamut clamping, saturation and brightness floors, contrast filtering, role assignment
+- Default pattern selection (static/crossfade rules based on palette size)
+- Emit a well-typed `PalettePayload` matching the integration contract
+- Export lower-level functions (raw swatch extraction, post-processing, pattern selection) for testing and advanced use
+- Graceful handling of album covers that produce insufficient color data
+
+### Out of scope
+
+- Album lookup or artwork fetching (caller provides bytes)
+- Persistence, caching, or memoization (caller's responsibility)
+- Audio-feature-based pattern selection (Spotify's audio features endpoints are deprecated; default patterns are used)
+- Track-level or per-side palette variation
+- HTTP surface, UI, or hosting — this is a library
+
+## 4. Recommended tech stack
+
+- **Runtime**: Node.js 20 LTS, TypeScript
+- **Core dependency**: `node-vibrant` (v4+) — the swatch extractor
+- **Shared types**: imports `PalettePayload` and related from `@marquee/contracts`
+- **Testing**: Vitest, `fast-check` for property-based tests, golden JSON files per fixture album
+- **Package**: publishes as `@marquee/palette-press` inside the Marquee monorepo
+
+No server framework. No storage. No UI. This library does one thing.
+
+## 5. Public API
+
+### Primary entry point
+
+```typescript
+export async function generatePalette(
+  artwork: Buffer,
+  metadata: AlbumMetadata,
+  options?: GenerateOptions,
+): Promise<PalettePayload>;
+```
+
+Takes album art bytes (JPEG or PNG), minimal album metadata (used to populate the `source` field on the returned payload), and optional overrides. Returns a fully-formed `PalettePayload` that validates against the integration contract schema.
+
+Throws only on:
+
+- Invalid image bytes (unreadable format)
+- Missing required metadata fields
+
+An insufficient palette is a _return value_, not an exception — the caller decides what to do with it.
+
+### Lower-level exports
+
+```typescript
+export async function extractRawSwatches(
+  artwork: Buffer,
+  options?: ExtractOptions,
+): Promise<RawSwatches>;
+
+export function postProcessPalette(
+  swatches: RawSwatches,
+  options?: PostProcessOptions,
+): PaletteResult;
+
+export function selectDefaultPattern(palette: Palette): Pattern;
+```
+
+These exist because the testing strategy emphasizes unit tests of pure logic. Exposing each step lets tests exercise it in isolation with fixture inputs and golden outputs, rather than only end-to-end through `generatePalette`.
+
+### Types
+
+```typescript
+type AlbumMetadata = {
+  curatorId: string;
+  name?: string;
+  artist?: string;
+  year?: number;
+  spotifyUri?: string;
+};
+
+type GenerateOptions = ExtractOptions & PostProcessOptions;
+
+type ExtractOptions = {
+  maxColorCount?: number; // default 64
+  quality?: number; // 1..5, default 3
+};
+
+type PostProcessOptions = {
+  minSaturation?: number; // 0..1, default 0.15
+  saturationBoost?: number; // 0..1, default 0.4 (what to boost to if below floor)
+  minBrightness?: number; // 0..1, default 0.25
+  minDeltaE?: number; // default 15
+  maxColors?: number; // default 4
+};
+
+type RawSwatches = {
+  vibrant?: RGB;
+  lightVibrant?: RGB;
+  darkVibrant?: RGB;
+  muted?: RGB;
+  lightMuted?: RGB;
+  darkMuted?: RGB;
+};
+
+type RGB = [number, number, number]; // 0..255 each
+
+type PaletteResult = Palette | InsufficientPaletteResult;
+
+type Palette = {
+  colors: PaletteColor[]; // 2..maxColors
+  insufficient: false;
+};
+
+type PaletteColor = {
+  hex: string; // "#RRGGBB", uppercase
+  cie_xy: [number, number]; // precomputed for Conductor's benefit
+  role: "primary" | "secondary" | "accent";
+  sourceSwatch: string; // e.g. "DarkVibrant" — debug info
+};
+
+type InsufficientPaletteResult = {
+  colors: PaletteColor[]; // 0..1 items; whatever survived
+  insufficient: true;
+  reason: "monochrome" | "all_clamped" | "unusable_art";
+};
+
+type Pattern =
+  | { type: "static"; params: {} }
+  | { type: "crossfade"; params: { transitionMs: number; holdMs: number } };
+```
+
+The `PalettePayload` return type comes from `@marquee/contracts`, so the integration contract is the single source of truth for that shape.
+
+## 6. Color extraction pipeline
+
+Three ordered steps, each testable in isolation.
+
+### Step 1 — extract raw swatches
+
+```typescript
+import Vibrant from "node-vibrant";
+
+const rawSwatches = await Vibrant.from(imageBuffer)
+  .maxColorCount(64) // higher = more accurate on complex art, slower
+  .quality(3) // 1 = best, 5 = fastest; 3 is a fine default
+  .getPalette();
+```
+
+Vibrant returns up to 6 named swatches: `Vibrant`, `LightVibrant`, `DarkVibrant`, `Muted`, `LightMuted`, `DarkMuted`. Any can be `null` if the image doesn't have that population — which is the first signal of a monochrome or restricted-palette cover.
+
+Optional pre-processing: resize the image to 200×200 before analysis. Vibrant handles larger, but smaller is faster and the extracted palette barely changes.
+
+### Step 2 — Hue-aware post-processing
+
+This is where the difference between a "wow, that's Purple Rain" palette and a "why is the room beige" palette lives. For each candidate swatch, in preference order (`Vibrant`, `DarkVibrant`, `LightVibrant`, `Muted`, `DarkMuted`, `LightMuted`):
+
+1. **In-gamut check.** Convert swatch RGB → CIE xy, test against Hue gamut C polygon (most modern color bulbs). If outside, project to the nearest point on the polygon. If the projection is severe (>10% shift on either axis), drop the swatch — projecting a deep red to something else entirely produces surprising results.
+2. **Minimum saturation.** If HSV saturation < `minSaturation` (default 0.15), the light will look nearly white and lose the album mood. Boost to `saturationBoost` (default 0.4), or drop if already close to grey.
+3. **Minimum brightness.** Hue can produce dim colors but they get washed out by room ambient. Enforce brightness ≥ `minBrightness` (default 0.25). Common on black-metal or noir jazz covers — boost preserves the _feeling_ while keeping the light visible.
+4. **Contrast between swatches.** Compute ΔE between adjacent palette entries. If any pair is under `minDeltaE` (default 15), drop one — otherwise the palette looks uniform on the wall.
+5. **Cap at `maxColors`.** Default 4. Room lighting doesn't need more; more just creates dilution.
+
+### Step 3 — role assignment
+
+The surviving colors get roles based on order in the preference list:
+
+- Position 0 → `primary`
+- Position 1 → `secondary`
+- Position 2+ → `accent`
+
+Conductor uses these as a preference-ordered list when mapping to actual lights — primary tends to land on the main/behind-you light, accents on peripherals.
+
+Each color also carries its `sourceSwatch` name (`"DarkVibrant"`, etc.) for debugging when a palette looks wrong.
+
+## 7. Pattern selection
+
+Deterministic default rules. No audio features.
+
+| Palette color count | Pattern                                                |
+| ------------------- | ------------------------------------------------------ |
+| 1                   | `static`                                               |
+| 2                   | `crossfade` — `{ transitionMs: 8000, holdMs: 30000 }`  |
+| 3+                  | `crossfade` — `{ transitionMs: 12000, holdMs: 45000 }` |
+
+Slow, gentle, hard to make ugly. Curator's UI lets the user override on the way out for specific albums. When richer signals become available (track-level audio analysis, audio-feature return, hand-authored album metadata), the pattern-selection function is the seam to plug them into.
+
+## 8. Handling insufficient palettes
+
+Some album art genuinely doesn't produce a usable Hue palette — monochrome covers, black-on-black metal albums, minimalist white sleeves. Rather than fail hard, the library returns an `InsufficientPaletteResult` with a reason:
+
+- `monochrome` — the extracted swatches are all very close in hue (indicates a single-color source image)
+- `all_clamped` — enough swatches existed but every one failed gamut/saturation/brightness checks
+- `unusable_art` — vibrant couldn't extract anything meaningful at all (rare, usually indicates corrupt input)
+
+Roadie translates this into the `palette_insufficient: true` flag on the album's asset file. The album still advances to `awaiting_review`; the human decides whether to hand-craft a palette, override the artwork, or accept the minimal result.
+
+Design intent: an insufficient palette is a valid business outcome, not an error. Throwing would force every caller to try/catch a case that has a legitimate downstream handler.
+
+## 9. Development milestones
+
+Each milestone ends in a state you can demo or test against fixtures.
+
+1. **Bare extraction.** `extractRawSwatches` returns raw swatches for fixture album art via node-vibrant. Success: Purple Rain fixture yields all six named swatches populated.
+2. **Post-processing rules.** Implement gamut, saturation, brightness, and contrast filtering. Success: raw palette becomes a 3-4 color, always-Hue-friendly palette. Purple Rain still looks purple.
+3. **Insufficient handling.** Detect monochrome and unusable inputs, return `InsufficientPaletteResult` gracefully with correct reason. Success: The White Album fixture returns `insufficient: true, reason: "monochrome"` with no throw.
+4. **Role assignment.** Assign primary/secondary/accent based on swatch order. Success: dominant color reliably gets `primary`.
+5. **CIE xy conversion.** Precompute `cie_xy` for each surviving color. Success: all palette colors have valid xy coordinates within gamut C.
+6. **Default pattern selection.** Implement the rules from §7. Success: 4-color palette produces the correct crossfade params; 1-color palette produces static.
+7. **Public entry point.** Wire `generatePalette` end-to-end, return a `PalettePayload` that validates against the contract schema. Success: schema validation passes on all fixture albums.
+8. **Golden test coverage.** Save reference palettes for every fixture album. Success: any algorithm regression is caught by a specific golden diff.
+
+## 10. Testing considerations
+
+Per the testing strategy, Palette Press is one of the most testable components in Marquee: pure functions, deterministic, no external I/O.
+
+- **Unit tests** for each post-processing rule in isolation (gamut clamping, saturation boost, brightness floor, contrast filter, role assignment). Table-driven, exhaustive.
+- **Golden tests** for each fixture album: run `generatePalette`, compare to committed golden JSON. Regressions show up as diffs, reviewed by a human before the golden is updated.
+- **Property tests** (`fast-check`) for post-processor invariants: any output palette must have all colors in-gamut, above minimum saturation and brightness, above minimum contrast between adjacent colors, correctly ordered by role.
+- **Insufficient palette tests** for each `reason` case, using targeted fixtures (monochrome, all-clamped, corrupt input).
+- **No integration tests.** This is a library. Consumers test their own integration.
+
+## 11. Known gotchas
+
+- **node-vibrant on Windows.** Native deps (via `sharp`) sometimes need a rebuild. `npm rebuild sharp` usually fixes it.
+- **Determinism.** node-vibrant results depend on `maxColorCount` and `quality`. Pin them in defaults; don't tweak per-album or golden tests become meaningless.
+- **Gamut C assumption.** Post-processing clamps to gamut C (most current color bulbs). If a user's setup includes older bulbs (gamut A or B), Conductor's runtime clamping may shift colors further — this is intentional and correct, but the palette Palette Press produces may look slightly different on those bulbs than in Curator's preview.
+- **Insufficient is a signal, not an error.** Callers who wrap `generatePalette` in try/catch will still need to check `.insufficient` on the returned payload's palette. Don't confuse graceful degradation with success.
+- **Cover art rights.** The library operates on bytes provided by the caller and doesn't distribute them. Any rights questions live with the caller (Curator/Roadie in Marquee's case).

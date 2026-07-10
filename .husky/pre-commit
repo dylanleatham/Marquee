@@ -1,0 +1,8 @@
+pnpm exec lint-staged
+# Affected-only type-check, but fall back to a full run when there's no parent
+# commit to diff against (initial commit / fresh clone).
+if git rev-parse --verify -q HEAD^1 >/dev/null 2>&1; then
+  pnpm turbo run type-check --filter="...[HEAD^1]"
+else
+  pnpm turbo run type-check
+fi

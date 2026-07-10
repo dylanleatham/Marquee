@@ -1,0 +1,20 @@
+{
+  "name": "@marquee/contract-tests",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Cross-service boundary tests. Validates fixtures + reference payloads against the shared schemas.",
+  "scripts": {
+    "test": "node --test",
+    "test:contracts": "node --test",
+    "type-check": "echo \"(no ts here yet)\"",
+    "lint": "echo \"(no linter configured yet)\""
+  },
+  "dependencies": {
+    "@marquee/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1"
+  }
+}

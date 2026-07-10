@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  node:
+    name: ${{ matrix.task }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        task: [lint, type-check, test:unit, test:integration, build]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm turbo run ${{ matrix.task }}
+
+  python:
+    name: python (stylus)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install stylus (dev)
+        working-directory: packages/stylus
+        # Hardware deps (adafruit/pn532) don't install off-Pi; install dev tools + test only.
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest ruff mypy jsonschema freezegun hypothesis responses
+      - name: Test
+        working-directory: packages/stylus
+        run: pytest -q
