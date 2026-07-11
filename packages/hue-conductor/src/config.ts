@@ -18,7 +18,7 @@ export interface Config {
  * fallbacks and sane defaults. On the workstation there may be no config.toml — env +
  * defaults are enough for dev.
  */
-export function loadConfig(): Config {
+export function loadConfig(override: Partial<Config> = {}): Config {
   const path = process.env.CONDUCTOR_CONFIG ?? join(pkgDir, "config.toml");
   const file = existsSync(path)
     ? (parseToml(readFileSync(path, "utf8")) as Record<
@@ -32,7 +32,7 @@ export function loadConfig(): Config {
   const storage = file.storage ?? {};
   const runtime = file.runtime ?? {};
 
-  return {
+  const base: Config = {
     port: Number(server.port ?? process.env.CONDUCTOR_PORT ?? 4737),
     host: String(server.host ?? "0.0.0.0"),
     sharedSecret:
@@ -42,4 +42,6 @@ export function loadConfig(): Config {
     dataDir: resolve(pkgDir, String(storage.data_dir ?? "data")),
     idleTimeoutMinutes: Number(runtime.idle_timeout_minutes ?? 90),
   };
+  // `override` (used by tests) wins over file/env/defaults.
+  return { ...base, ...override };
 }

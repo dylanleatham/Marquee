@@ -1,26 +1,39 @@
 import { pathToFileURL } from "node:url";
 import Fastify from "fastify";
-import { loadConfig } from "./config.js";
+import { loadConfig, type Config } from "./config.js";
 import { Store } from "./store.js";
-import { BridgeAdapter, NotPairedError } from "./bridge/adapter.js";
+import {
+  BridgeAdapter,
+  NotPairedError,
+  type HueDriver,
+} from "./bridge/adapter.js";
 
-export function buildServer() {
-  const config = loadConfig();
-  const store = new Store(config.dataDir);
-  const bridge = new BridgeAdapter(store);
-  const app = Fastify({ logger: true });
+export interface BuildOptions {
+  /** Config overrides (tests inject a shared secret + temp data dir). */
+  config?: Partial<Config>;
+  /** Pre-built store (tests seed a bridge record). */
+  store?: Store;
+  /** Injected Hue driver (tests pass a fake; prod uses the default node-hue-api driver). */
+  driver?: HueDriver;
+}
+
+export function buildServer(opts: BuildOptions = {}) {
+  const config = loadConfig(opts.config);
+  const store = opts.store ?? new Store(config.dataDir);
+  const bridge = new BridgeAdapter(store, opts.driver);
+  const app = Fastify({
+    logger: { level: process.env.NODE_ENV === "test" ? "silent" : "info" },
+  });
 
   // Shared-secret auth on everything except the health probe (conductor-spec §8).
   app.addHook("onRequest", async (req, reply) => {
     if (req.url === "/healthz" || req.method === "OPTIONS") return;
     if (!config.sharedSecret) return; // dev: auth disabled, warned at boot
     if (req.headers["x-trigger-secret"] !== config.sharedSecret) {
-      await reply
-        .code(401)
-        .send({
-          error: "unauthorized",
-          hint: "send the X-Trigger-Secret header",
-        });
+      await reply.code(401).send({
+        error: "unauthorized",
+        hint: "send the X-Trigger-Secret header",
+      });
     }
   });
 
