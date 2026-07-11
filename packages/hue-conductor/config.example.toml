@@ -1,0 +1,17 @@
+# Copy to config.toml (same folder) on the Pi. config.toml is gitignored.
+# On the dev workstation you can skip this entirely — env vars + defaults are enough.
+
+[server]
+port = 4737
+host = "0.0.0.0"
+
+[auth]
+# Required on every /api/* call via the X-Trigger-Secret header. Same value as the other
+# services + Curator. Falls back to $TRIGGER_SHARED_SECRET if omitted here.
+shared_secret = "change-me-lan-only-secret"
+
+[storage]
+data_dir = "data" # holds conductor.json (bridge application key + settings) — keep out of git
+
+[runtime]
+idle_timeout_minutes = 90

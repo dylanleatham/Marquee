@@ -46,3 +46,6 @@ Thumbs.db
 
 # Review agent reports are local run artifacts, not source
 .review-agents/
+
+# Hue Conductor local data store (holds the bridge application key — a secret)
+packages/hue-conductor/data/
