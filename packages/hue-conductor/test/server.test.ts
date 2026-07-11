@@ -108,4 +108,81 @@ describe("hue-conductor HTTP API", () => {
     });
     expect(res.statusCode).toBe(409);
   });
+
+  it("GET /api/settings returns current settings and PUT persists listeningRoomId", async () => {
+    const { app } = buildServer({
+      config: { sharedSecret: SECRET },
+      store: seededStore(),
+      driver: livingRoom().driver,
+    });
+
+    let res = await app.inject({
+      method: "GET",
+      url: "/api/settings",
+      headers: AUTH,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().listeningRoomId).toBeNull();
+
+    res = await app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      headers: AUTH,
+      payload: { listeningRoomId: "1" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().listeningRoomId).toBe("1");
+
+    res = await app.inject({
+      method: "GET",
+      url: "/api/settings",
+      headers: AUTH,
+    });
+    expect(res.json().listeningRoomId).toBe("1"); // persisted
+  });
+
+  describe("GET /api/bridge/status", () => {
+    it("reports unpaired when no bridge is stored", async () => {
+      const store = new Store(mkdtempSync(join(tmpdir(), "conductor-st-")));
+      const { app } = buildServer({
+        config: { sharedSecret: SECRET },
+        store,
+        driver: makeFakeDriver().driver,
+      });
+      const res = await app.inject({
+        method: "GET",
+        url: "/api/bridge/status",
+        headers: AUTH,
+      });
+      expect(res.json()).toEqual({ paired: false });
+    });
+
+    it("reports paired + reachable when the bridge answers", async () => {
+      const { app } = buildServer({
+        config: { sharedSecret: SECRET },
+        store: seededStore(),
+        driver: makeFakeDriver().driver,
+      });
+      const res = await app.inject({
+        method: "GET",
+        url: "/api/bridge/status",
+        headers: AUTH,
+      });
+      expect(res.json()).toMatchObject({ paired: true, reachable: true });
+    });
+
+    it("reports paired + unreachable when the bridge errors", async () => {
+      const { app } = buildServer({
+        config: { sharedSecret: SECRET },
+        store: seededStore(),
+        driver: makeFakeDriver({ configThrows: true }).driver,
+      });
+      const res = await app.inject({
+        method: "GET",
+        url: "/api/bridge/status",
+        headers: AUTH,
+      });
+      expect(res.json()).toMatchObject({ paired: true, reachable: false });
+    });
+  });
 });

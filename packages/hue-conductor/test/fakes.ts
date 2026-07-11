@@ -44,6 +44,8 @@ export interface FakeOptions {
   linkButtonFailuresBeforeSuccess?: number;
   /** createUser never succeeds (pairing-timeout test). */
   createUserAlwaysFails?: boolean;
+  /** getConfiguration throws — simulates a paired-but-unreachable bridge. */
+  configThrows?: boolean;
 }
 
 export function makeFakeDriver(opts: FakeOptions = {}) {
@@ -70,6 +72,7 @@ export function makeFakeDriver(opts: FakeOptions = {}) {
     },
     configuration: {
       async getConfiguration() {
+        if (opts.configThrows) throw new Error("bridge unreachable");
         return { bridgeid: opts.bridgeId ?? "BID123" };
       },
     },
