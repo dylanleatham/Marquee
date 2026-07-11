@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "source": {
+    "type": "album",
+    "name": "unknown-pleasures"
+  },
+  "palette": {
+    "colors": [
+      {
+        "hex": "#2B2BD4",
+        "cie_xy": [0.16429790664339552, 0.08361825650097175],
+        "role": "primary",
+        "sourceSwatch": "Vibrant"
+      }
+    ],
+    "insufficient": true,
+    "reason": "monochrome"
+  },
+  "pattern": {
+    "type": "static",
+    "params": {}
+  }
+}

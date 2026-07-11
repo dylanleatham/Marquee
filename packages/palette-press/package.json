@@ -5,18 +5,27 @@
   "type": "module",
   "description": "Presses a Hue-safe palette out of album art. Pure library, no I/O.",
   "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
   "scripts": {
-    "dev": "echo \"(dev server not implemented yet — see README)\"",
     "build": "tsc -b",
     "type-check": "tsc --noEmit",
-    "test": "node --test",
-    "test:unit": "node --test",
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "update-goldens": "cross-env UPDATE_GOLDENS=1 vitest run golden",
     "lint": "echo \"(no linter configured yet)\""
   },
   "dependencies": {
-    "@marquee/contracts": "workspace:*"
+    "@marquee/contracts": "workspace:*",
+    "node-vibrant": "^4.0.4"
   },
   "devDependencies": {
-    "typescript": "^5.6.2"
+    "@types/node": "^22.7.5",
+    "cross-env": "^7.0.3",
+    "fast-check": "^3.22.0",
+    "typescript": "^5.6.2",
+    "vitest": "^2.1.3"
   }
 }

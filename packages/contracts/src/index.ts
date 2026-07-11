@@ -8,8 +8,51 @@
 
 export const CONTRACTS_VERSION = 1 as const;
 
-// TODO(build order step 0): wire scripts/gen-schemas.mjs and export generated types:
-//   export type { PalettePayload } from "./generated/palette-payload.js";
-//   export type { ScanEvent } from "./generated/scan-event.js";
-//   export type { LibraryEntry } from "./generated/library-entry.js";
-//   export type { AlbumAsset } from "./generated/album-asset.js";
+// Hand-written types mirroring the JSON schemas in ../schemas/. Kept in sync by the
+// contract tests (which validate real payloads against the schemas). When schema→TS
+// codegen is wired (scripts/gen-schemas.mjs), these get replaced by generated exports.
+
+export type PaletteRole = "primary" | "secondary" | "accent";
+
+export interface PaletteColor {
+  hex: string; // "#RRGGBB", uppercase
+  cie_xy?: [number, number];
+  role: PaletteRole;
+  sourceSwatch?: string;
+}
+
+export type PatternParams =
+  | Record<string, never> // static
+  | { intervalMs: number; direction: "forward" | "reverse" } // rotate
+  | { periodMs: number; minBrightness: number; maxBrightness: number } // pulse
+  | { transitionMs: number; holdMs: number }; // crossfade
+
+export interface PalettePayload {
+  version: 1;
+  source: {
+    type: "album" | "manual" | "test";
+    spotifyId?: string;
+    name?: string;
+    artist?: string;
+    year?: number;
+    artworkUrl?: string;
+  };
+  palette: { colors: PaletteColor[] };
+  pattern: {
+    type: "static" | "rotate" | "pulse" | "crossfade";
+    params: PatternParams;
+  };
+  meta?: {
+    generatedAt?: string;
+    generator?: string;
+    audioFeatures?: {
+      energy?: number;
+      valence?: number;
+      tempo?: number;
+      danceability?: number;
+    };
+  };
+}
+
+// TODO(build order step 0): also export ScanEvent, LibraryEntry, AlbumAsset (hand-written or
+// generated) as those boundaries get built out.

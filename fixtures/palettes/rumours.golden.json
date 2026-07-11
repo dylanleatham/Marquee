@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "source": {
+    "type": "album",
+    "name": "rumours"
+  },
+  "palette": {
+    "colors": [
+      {
+        "hex": "#F0CE0F",
+        "cie_xy": [0.44587931813825393, 0.4812598468834922],
+        "role": "primary",
+        "sourceSwatch": "Vibrant"
+      },
+      {
+        "hex": "#7D6B08",
+        "cie_xy": [0.44339387822042614, 0.4799354979039965],
+        "role": "secondary",
+        "sourceSwatch": "DarkVibrant"
+      },
+      {
+        "hex": "#7F8069",
+        "cie_xy": [0.33724997658775946, 0.37180443019339277],
+        "role": "accent",
+        "sourceSwatch": "Muted"
+      },
+      {
+        "hex": "#FCF5CE",
+        "cie_xy": [0.3414569068142138, 0.3679744861157176],
+        "role": "accent",
+        "sourceSwatch": "LightVibrant"
+      }
+    ]
+  },
+  "pattern": {
+    "type": "crossfade",
+    "params": {
+      "transitionMs": 12000,
+      "holdMs": 45000
+    }
+  }
+}
