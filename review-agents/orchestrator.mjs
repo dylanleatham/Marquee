@@ -203,7 +203,18 @@ async function main() {
       }
       const raw = extractJsonArray(res.text);
       if (raw === null) {
-        console.warn(`  ! ${config.id}: could not parse findings output`);
+        // Persist the unparseable output so the failure is diagnosable (and a regression
+        // test can be written) instead of silently lost. See review-agents/KNOWN-ISSUES.md.
+        const rawPath = join(
+          ROOT,
+          ".review-agents",
+          `raw-${config.id}-${sha.slice(0, 12)}.txt`,
+        );
+        mkdirSync(dirname(rawPath), { recursive: true });
+        writeFileSync(rawPath, res.text ?? "");
+        console.warn(
+          `  ! ${config.id}: could not parse findings output (raw saved to ${rawPath})`,
+        );
         return { id: config.id, status: "error", durationMs, findings: [] };
       }
       const findings = normalizeFindings(raw, {

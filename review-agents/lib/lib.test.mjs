@@ -37,6 +37,17 @@ test("extractJsonArray: handles fenced, bare, and absent arrays", () => {
   assert.equal(extractJsonArray("no json here"), null);
 });
 
+test("extractJsonArray: ignores stray string arrays in prose, finds the object array", () => {
+  // Regression: a specialist quoting code like headers["x"] used to break the naive slice.
+  const reply =
+    'I checked req.headers["x-trigger-secret"] and found: [{"severity":"info","message":"m"}]';
+  assert.deepEqual(extractJsonArray(reply), [
+    { severity: "info", message: "m" },
+  ]);
+  // Pure prose whose only brackets are a string array is treated as "no findings array".
+  assert.equal(extractJsonArray('looked at obj["key"], all good'), null);
+});
+
 test("normalizeFindings: drops malformed, tags specialist, respects blocking", () => {
   const raw = [
     { severity: "blocking", file: "a.ts", line: 3, message: "bad" },
