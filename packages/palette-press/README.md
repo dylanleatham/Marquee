@@ -41,6 +41,8 @@ eight fixture albums (Purple Rain → purple, Kind of Blue → blue, the monochr
 
 - **Regenerate goldens** after an intentional algorithm change, then eyeball the diff before
   committing: `pnpm --filter @marquee/palette-press update-goldens`.
-- Golden tests run locally and on pre-push (where you review them) but are **skipped in CI**:
-  `sharp`'s platform binaries aren't guaranteed to quantize bit-identically across OSes. The
-  deterministic pure-logic + property tests are the cross-platform regression guard.
+- Golden tests run everywhere — locally, on pre-push, and **in CI**. Comparison is **tolerant by
+  choice, not necessity**: node-vibrant decodes via Jimp (pure JS), so extraction is deterministic
+  across platforms and exact comparison would pass in CI too. We compare colors by **ΔE (< 12)**
+  with structure exact so a golden fails on a _meaningful_ experience change (a primary flipping
+  purple→orange is ΔE 50+) rather than on a trivial value nudge from a threshold tweak.

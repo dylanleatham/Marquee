@@ -3,9 +3,10 @@
 //
 // Comparison is TOLERANT, not byte-exact (see palette-press-spec §10): the structural parts
 // that define the experience — color count, roles, insufficient+reason, pattern, source —
-// must match exactly, but each color is compared to its golden by ΔE, absorbing the small
-// cross-platform quantization jitter from sharp's per-OS binaries while still catching
-// dramatic changes (a primary flipping purple→orange is ΔE 50+). That's why these run in CI.
+// must match exactly, but each color is compared to its golden by ΔE. node-vibrant decodes
+// via Jimp (pure JS), so this is deterministic across platforms and exact would pass too —
+// ΔE tolerance is a deliberate choice so goldens fail on a *meaningful* experience change
+// (a primary flipping purple→orange is ΔE 50+), not a trivial threshold-tweak nudge.
 //
 // Regenerate after an intentional algorithm change: `pnpm --filter @marquee/palette-press
 // update-goldens`, then a human reviews the diff before committing.
