@@ -38,7 +38,10 @@ Optimized for Windows dev, Node ecosystem you already know, and Claude Code comp
 
 - **Runtime**: Node.js 20 LTS, TypeScript
 - **Server framework**: Fastify (lower ceremony than Express, great TS support, built-in JSON schema validation which we'll use for the integration contract)
-- **Hue library**: `node-hue-api` v5. Mature, well-documented, TypeScript-friendly, and has first-class Entertainment API support — matters here because streaming visualizers via Entertainment (25 Hz updates per light) is on the roadmap even if not in the initial scope. Handles bridge discovery, pairing, CLIP v2, and the Entertainment DTLS handshake.
+- **Hue library**: `node-hue-api`. Mature, well-documented, TypeScript-friendly, and has first-class Entertainment API support — matters here because streaming visualizers via Entertainment (25 Hz updates per light) is on the roadmap even if not in the initial scope. Handles bridge discovery, pairing, CLIP v2, and the Entertainment DTLS handshake.
+
+  > **Implemented on v4, not v5 (2026-07-11; see [ADR 0002](../adrs/0002-hue-conductor-v4-and-dev-auth.md)).** v5 is still beta; the stable v4.0.x line covers everything step 1 needs (discovery, pairing, rooms/lights, flat color). Entertainment streaming is out of scope until the streaming-visualizer work, and the thin `BridgeAdapter`/`HueDriver` port is the seam to migrate to v5 (and CLIP v2 proper) then. Also per ADR 0002: the `X-Trigger-Secret` check is enforced whenever a shared secret is configured, but the service boots with auth **disabled + a warning** when none is set, as a dev-only affordance (the Pi always sets one).
+
 - **Storage**: SQLite via `better-sqlite3` for bridge credentials, saved palettes, and playback history. In-memory Map is fine if you want to skip SQLite for the very first pass.
 - **Process management**: systemd unit on the runtime Pi. Auto-restart on failure, boot with the system.
 

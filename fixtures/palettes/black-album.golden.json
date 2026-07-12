@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "source": {
+    "type": "album",
+    "name": "black-album"
+  },
+  "palette": {
+    "colors": [
+      {
+        "hex": "#5293AD",
+        "cie_xy": [0.23709746787433988, 0.2837538573711172],
+        "role": "primary",
+        "sourceSwatch": "Vibrant"
+      }
+    ],
+    "insufficient": true,
+    "reason": "monochrome"
+  },
+  "pattern": {
+    "type": "static",
+    "params": {}
+  }
+}
