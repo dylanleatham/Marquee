@@ -189,7 +189,7 @@ This is where the difference between a "wow, that's Purple Rain" palette and a "
 
 ### Step 3 — ordering and role assignment
 
-> **Updated 2026-07-11 (supersedes the original "Vibrant-first" ordering; see [ADR 0003](../adrs/0003-palette-press-ordering.md)).**
+> **Updated 2026-07-11 (supersedes the original "Vibrant-first" ordering; see [ADR 0003](../adrs/0003-palette-press-dominant-first-ordering.md)).**
 > Roles are still assigned by final position (0 → `primary`, 1 → `secondary`, 2+ → `accent`),
 > but the surviving colors are ordered **dominant-color-first**: highest node-vibrant pixel
 > **population**, considered only _among the sufficiently-colorful swatches_ (chroma ≥

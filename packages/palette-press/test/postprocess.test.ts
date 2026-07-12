@@ -54,6 +54,20 @@ describe("postProcessPalette — examples", () => {
     });
   });
 
+  it("returns all_clamped when every colorful swatch fails the gamut check", () => {
+    // maxGamutShift < 0 forces even in-gamut swatches to be treated as out-of-gamut,
+    // exercising the all_clamped classification (testing-strategy §10 wants each reason covered).
+    const result = postProcessPalette(
+      { vibrant: [200, 20, 20], muted: [20, 20, 200] }, // both colorful (pass the chroma guard)
+      { maxGamutShift: -1 },
+    );
+    expect(result).toMatchObject({
+      insufficient: true,
+      reason: "all_clamped",
+      colors: [],
+    });
+  });
+
   it("drops a color too close to one already kept (contrast filter)", () => {
     const result = postProcessPalette({
       vibrant: [200, 20, 20], // red — kept
