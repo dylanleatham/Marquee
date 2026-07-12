@@ -1,9 +1,14 @@
 // Golden tests: run generatePalette over the fixture album covers and compare to committed
-// reference JSON. Skips entirely until you drop JPGs into fixtures/artwork/.
+// reference JSON. Skips only if no artwork has been dropped into fixtures/artwork/.
 //
-// First run for a cover (or `pnpm --filter @marquee/palette-press update-goldens`) writes the
-// golden; commit it after a human eyeballs the palette. Later runs fail on any drift, which a
-// reviewer then accepts (regenerate) or investigates.
+// Comparison is TOLERANT, not byte-exact (see palette-press-spec §10): the structural parts
+// that define the experience — color count, roles, insufficient+reason, pattern, source —
+// must match exactly, but each color is compared to its golden by ΔE, absorbing the small
+// cross-platform quantization jitter from sharp's per-OS binaries while still catching
+// dramatic changes (a primary flipping purple→orange is ΔE 50+). That's why these run in CI.
+//
+// Regenerate after an intentional algorithm change: `pnpm --filter @marquee/palette-press
+// update-goldens`, then a human reviews the diff before committing.
 import { describe, it, expect } from "vitest";
 import {
   readdirSync,
@@ -14,31 +19,59 @@ import {
 } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, basename } from "node:path";
-import { generatePalette, type GeneratedPalettePayload } from "../src/index.js";
+import {
+  generatePalette,
+  deltaE,
+  type GeneratedPalettePayload,
+} from "../src/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const artworkDir = join(here, "..", "..", "..", "fixtures", "artwork");
 const goldenDir = join(here, "..", "..", "..", "fixtures", "palettes");
 
-// Golden palettes run locally (dev machine + pre-push), where you review them, but are
-// skipped in CI: node-vibrant decodes via sharp, whose platform-specific binaries aren't
-// guaranteed to quantize bit-identically across OSes. The deterministic pure-logic + property
-// tests are the cross-platform regression guard; goldens catch *subjective* drift locally.
-const skip = process.env.CI ? true : !existsSync(artworkDir);
-const jpgs =
-  !skip && existsSync(artworkDir)
-    ? readdirSync(artworkDir)
-        .filter((f) => /\.jpe?g$/i.test(f))
-        .sort()
-    : [];
+const MAX_COLOR_DELTA_E = 12; // tolerate OS jitter; catch dramatic shifts
 
-// meta.generatedAt is a timestamp — compare only the deterministic parts.
+const jpgs = existsSync(artworkDir)
+  ? readdirSync(artworkDir)
+      .filter((f) => /\.jpe?g$/i.test(f))
+      .sort()
+  : [];
+
+// meta.generatedAt is a timestamp — exclude it from comparison.
 const stable = (p: GeneratedPalettePayload) => {
   const { meta: _meta, ...rest } = p;
   return rest;
 };
 
-describe.skipIf(skip || jpgs.length === 0)("golden palettes", () => {
+const hexToRgb = (hex: string): [number, number, number] => {
+  const n = Number.parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
+};
+
+type Payload = ReturnType<typeof stable>;
+
+function expectMatchesGolden(payload: Payload, golden: Payload) {
+  // Structure that defines the experience — exact.
+  expect(payload.source).toEqual(golden.source);
+  expect(payload.pattern).toEqual(golden.pattern);
+  expect(Boolean(payload.palette.insufficient)).toBe(
+    Boolean(golden.palette.insufficient),
+  );
+  expect(payload.palette.reason).toBe(golden.palette.reason);
+  expect(payload.palette.colors.length).toBe(golden.palette.colors.length);
+  // Colors — tolerant by ΔE, but roles must line up.
+  payload.palette.colors.forEach((c, i) => {
+    const g = golden.palette.colors[i]!;
+    expect(c.role).toBe(g.role);
+    const d = deltaE(hexToRgb(c.hex), hexToRgb(g.hex));
+    expect(
+      d,
+      `color ${i} ${c.hex} vs golden ${g.hex} ΔE=${d.toFixed(1)}`,
+    ).toBeLessThan(MAX_COLOR_DELTA_E);
+  });
+}
+
+describe.skipIf(jpgs.length === 0)("golden palettes", () => {
   for (const jpg of jpgs) {
     const curatorId = basename(jpg).replace(/\.jpe?g$/i, "");
     it(`${jpg} matches its golden`, async () => {
@@ -52,8 +85,10 @@ describe.skipIf(skip || jpgs.length === 0)("golden palettes", () => {
         mkdirSync(goldenDir, { recursive: true });
         writeFileSync(goldenPath, JSON.stringify(payload, null, 2) + "\n");
       }
-      const golden = JSON.parse(readFileSync(goldenPath, "utf8"));
-      expect(payload).toEqual(golden);
+      expectMatchesGolden(
+        payload,
+        JSON.parse(readFileSync(goldenPath, "utf8")),
+      );
     });
   }
 });

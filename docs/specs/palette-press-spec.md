@@ -75,12 +75,24 @@ export async function extractRawSwatches(
 export function postProcessPalette(
   swatches: RawSwatches,
   options?: PostProcessOptions,
+  populations?: SwatchPopulations, // added 2026-07-11 — enables dominant-first ordering (§6)
 ): PaletteResult;
 
 export function selectDefaultPattern(palette: Palette): Pattern;
 ```
 
 These exist because the testing strategy emphasizes unit tests of pure logic. Exposing each step lets tests exercise it in isolation with fixture inputs and golden outputs, rather than only end-to-end through `generatePalette`.
+
+> **Implementation notes (2026-07-11):**
+>
+> - `postProcessPalette` takes an optional third `populations` argument (per-swatch pixel
+>   counts) used for dominant-first ordering (§6). Omit it and behavior is unchanged. An
+>   internal `extractSwatches` returns swatches **and** populations; the documented
+>   `extractRawSwatches` still returns RGB-only `RawSwatches`.
+> - `generatePalette`'s returned `PalettePayload.palette` carries the insufficient signal as
+>   **additive** fields — `insufficient?: true` and `reason?` — when the palette is
+>   insufficient. The integration contract ignores unknown fields, so the payload still
+>   validates; Roadie reads `palette.insufficient` to set its `palette_insufficient` flag.
 
 ### Types
 
@@ -175,9 +187,20 @@ This is where the difference between a "wow, that's Purple Rain" palette and a "
 4. **Contrast between swatches.** Compute ΔE between adjacent palette entries. If any pair is under `minDeltaE` (default 15), drop one — otherwise the palette looks uniform on the wall.
 5. **Cap at `maxColors`.** Default 4. Room lighting doesn't need more; more just creates dilution.
 
-### Step 3 — role assignment
+### Step 3 — ordering and role assignment
 
-The surviving colors get roles based on order in the preference list:
+> **Updated 2026-07-11 (supersedes the original "Vibrant-first" ordering; see [ADR 0003](../adrs/0003-palette-press-ordering.md)).**
+> Roles are still assigned by final position (0 → `primary`, 1 → `secondary`, 2+ → `accent`),
+> but the surviving colors are ordered **dominant-color-first**: highest node-vibrant pixel
+> **population**, considered only _among the sufficiently-colorful swatches_ (chroma ≥
+> `orderColorFloor`, default 0.2), so a dull high-population background can't outrank the
+> album's signature color. This is what makes Purple Rain lead with purple and Kind of Blue
+> with blue — matching this spec's §2 success criteria and the integration contract's own
+> Purple Rain reference payload (whose `primary` is DarkVibrant, not Vibrant). When
+> populations aren't supplied, the implementation falls back to the original fixed preference
+> order (`Vibrant, DarkVibrant, LightVibrant, Muted, DarkMuted, LightMuted`).
+
+Roles by final position:
 
 - Position 0 → `primary`
 - Position 1 → `secondary`
@@ -229,7 +252,7 @@ Each milestone ends in a state you can demo or test against fixtures.
 Per the testing strategy, Palette Press is one of the most testable components in Marquee: pure functions, deterministic, no external I/O.
 
 - **Unit tests** for each post-processing rule in isolation (gamut clamping, saturation boost, brightness floor, contrast filter, role assignment). Table-driven, exhaustive.
-- **Golden tests** for each fixture album: run `generatePalette`, compare to committed golden JSON. Regressions show up as diffs, reviewed by a human before the golden is updated.
+- **Golden tests** for each fixture album: run `generatePalette` and compare to committed golden JSON. **Comparison is tolerant, not exact (updated 2026-07-11):** structural aspects that define the experience — number of colors, roles, `insufficient`+`reason`, pattern, source — must match exactly, but each color is compared to its golden by **ΔE (< ~12)** rather than byte-identical hex. This absorbs the small cross-platform quantization jitter from `sharp`'s per-OS binaries (a real industry problem for image pipelines) while still catching _dramatic_ experience changes (a primary flipping purple→orange is ΔE 50+). Because the comparison tolerates OS nondeterminism, **golden tests run in CI** alongside the pure-logic and property tests. Regenerate goldens (`pnpm --filter @marquee/palette-press update-goldens`) after an intentional algorithm change; a human reviews the diff before committing.
 - **Property tests** (`fast-check`) for post-processor invariants: any output palette must have all colors in-gamut, above minimum saturation and brightness, above minimum contrast between adjacent colors, correctly ordered by role.
 - **Insufficient palette tests** for each `reason` case, using targeted fixtures (monochrome, all-clamped, corrupt input).
 - **No integration tests.** This is a library. Consumers test their own integration.
