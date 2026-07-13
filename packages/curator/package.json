@@ -4,19 +4,28 @@
   "private": true,
   "type": "module",
   "description": "Admin app + source of truth for the collection. Hosts Roadie. Runs on your workstation.",
-  "main": "./dist/index.js",
+  "main": "./dist/server.js",
   "scripts": {
-    "dev": "echo \"(dev server not implemented yet — see README)\"",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
     "build": "tsc -b",
     "type-check": "tsc --noEmit",
-    "test": "node --test",
-    "test:unit": "node --test",
+    "test": "vitest run",
+    "test:unit": "vitest run",
     "lint": "echo \"(no linter configured yet)\""
   },
   "dependencies": {
-    "@marquee/contracts": "workspace:*"
+    "@marquee/contracts": "workspace:*",
+    "@marquee/palette-press": "workspace:*",
+    "@fastify/multipart": "^9.0.1",
+    "fastify": "^5.1.0",
+    "nanoid": "^5.0.7",
+    "smol-toml": "^1.3.1"
   },
   "devDependencies": {
-    "typescript": "^5.6.2"
+    "@types/node": "^22.7.5",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2",
+    "vitest": "^2.1.3"
   }
 }
