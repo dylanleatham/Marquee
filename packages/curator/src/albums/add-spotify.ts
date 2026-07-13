@@ -1,15 +1,12 @@
-import { writeFileSync, mkdirSync } from "node:fs";
-import { createHash } from "node:crypto";
-import { generatePalette } from "@marquee/palette-press";
 import { generateCuratorId } from "../ids.js";
 import type { AssetStore } from "../store/asset-store.js";
-import type { SpotifyClient } from "../spotify/client.js";
+import type { Roadie } from "../roadie/worker.js";
 import {
-  buildAlbumAsset,
+  buildFreshAsset,
   type AlbumAsset,
   type AlbumMetadata,
 } from "./asset.js";
-import { ValidationError, type PaletteGenerator } from "./add-manual.js";
+import { ValidationError } from "./add-manual.js";
 
 /** Adding an album already in the collection (same Spotify URI). Surfaced as 409. */
 export class DuplicateAlbumError extends Error {
@@ -32,64 +29,34 @@ export function parseAlbumId(input: {
 }
 
 /**
- * Add an album from Spotify: fetch metadata + art, dedup on the Spotify URI, download the cover,
- * run Palette Press, and write the asset (source "spotify", state awaiting_review).
+ * Add an album from Spotify. Dedups on the (normalized) Spotify URI up front — no fetch needed to
+ * reject a duplicate — then writes a `fresh` asset and hands it to Roadie, which fetches metadata,
+ * downloads art, and generates the palette off the request path (roadie-spec §6).
  */
 export async function addSpotifyAlbum(
-  deps: {
-    store: AssetStore;
-    spotify: SpotifyClient;
-    generate?: PaletteGenerator;
-  },
+  deps: { store: AssetStore; roadie: Roadie },
   input: { spotifyUri?: string; spotifyId?: string },
 ): Promise<{ curatorId: string; asset: AlbumAsset }> {
-  const generate = deps.generate ?? generatePalette;
   const spotifyId = parseAlbumId(input);
   if (!spotifyId)
     throw new ValidationError("a valid spotifyUri or spotifyId is required");
+  const spotifyUri = `spotify:album:${spotifyId}`;
 
-  const meta = await deps.spotify.getAlbum(spotifyId);
-
-  const existing = deps.store.findBySpotifyUri(meta.spotifyUri);
+  const existing = deps.store.findBySpotifyUri(spotifyUri);
   if (existing) throw new DuplicateAlbumError(existing.curatorId);
-  if (!meta.artUrl)
-    throw new ValidationError(
-      "album has no cover art on Spotify — add it manually",
-    );
 
-  const art = await deps.spotify.downloadArt(meta.artUrl);
   const curatorId = generateCuratorId((id) => deps.store.exists(id));
 
-  const artworkAbs = deps.store.paths.artworkFile(curatorId);
-  mkdirSync(deps.store.paths.artwork, { recursive: true });
-  writeFileSync(artworkAbs, art);
-  const contentHash =
-    "sha256:" + createHash("sha256").update(art).digest("hex");
-
-  const palette = await generate(art, {
-    curatorId,
-    name: meta.name,
-    artist: meta.artist,
-    year: meta.year,
-  });
-
+  // name/artist are placeholders until Roadie's fetching_metadata step fills them in.
   const metadata: AlbumMetadata = {
-    name: meta.name,
-    artist: meta.artist,
+    name: "",
+    artist: "",
     source: "spotify",
-    spotifyUri: meta.spotifyUri,
-    spotifyArtUrl: meta.artUrl,
-    ...(meta.year !== undefined ? { year: meta.year } : {}),
-    ...(meta.genres.length ? { genres: meta.genres } : {}),
+    spotifyUri,
   };
 
-  const asset = buildAlbumAsset({
-    curatorId,
-    metadata,
-    artworkPosixPath: deps.store.paths.relPosix(artworkAbs),
-    contentHash,
-    palette,
-  });
+  const asset = buildFreshAsset({ curatorId, metadata });
   deps.store.save(asset);
+  deps.roadie.enqueue(curatorId);
   return { curatorId, asset };
 }

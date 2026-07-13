@@ -10,7 +10,8 @@ import {
 } from "./albums/add-manual.js";
 import { addSpotifyAlbum, DuplicateAlbumError } from "./albums/add-spotify.js";
 import { SpotifyClient, SpotifyError } from "./spotify/client.js";
-import type { AlbumAsset } from "./albums/asset.js";
+import { Roadie } from "./roadie/worker.js";
+import type { AlbumAsset, RoadieState } from "./albums/asset.js";
 
 export interface BuildOptions {
   config?: Partial<Config>;
@@ -19,6 +20,8 @@ export interface BuildOptions {
   generate?: PaletteGenerator;
   /** Injected Spotify client (tests pass one backed by fake-spotify); prod builds from config. */
   spotify?: SpotifyClient;
+  /** Injected Roadie (tests pass one with fake time); prod builds one from store/spotify/generate. */
+  roadie?: Roadie;
 }
 
 const summary = (a: AlbumAsset) => ({
@@ -28,18 +31,17 @@ const summary = (a: AlbumAsset) => ({
   source: a.metadata.source,
   state: a.roadie.state,
   createdAt: a.createdAt,
-  artwork: a.artwork.resolvedPath,
-  paletteColors: a.palette.colors.length,
+  artwork: a.artwork?.resolvedPath ?? null,
+  paletteColors: a.palette?.colors.length ?? 0,
   paletteInsufficient: a.roadie.flags.palette_insufficient,
 });
 
+// A newly-added album has only been queued — palette/prompts land later, off the request path.
 const created = (reply: FastifyReply, curatorId: string, asset: AlbumAsset) =>
   reply.code(201).send({
     curatorId,
     source: asset.metadata.source,
     state: asset.roadie.state,
-    paletteColors: asset.palette.colors.length,
-    paletteInsufficient: asset.roadie.flags.palette_insufficient,
   });
 
 // Map a SpotifyError to an HTTP status: pass through 404/504, everything else is a bad gateway.
@@ -53,6 +55,44 @@ const spotifyErr = (err: unknown, reply: FastifyReply) => {
   throw err;
 };
 
+/** Minimal per-album row for the queue view, with the timestamp it entered its current state. */
+const queueEntry = (a: AlbumAsset) => ({
+  curatorId: a.curatorId,
+  title: a.metadata.name,
+  artist: a.metadata.artist,
+  artwork: a.artwork?.resolvedPath ?? null,
+  state: a.roadie.state,
+  subState: a.roadie.subState,
+  enteredStateAt: a.roadie.history.at(-1)?.at ?? a.createdAt,
+  lastError: a.roadie.lastError,
+  flags: a.roadie.flags,
+});
+
+const DONE_RECENTLY_CAP = 20;
+
+/** Group every album by the human-facing bucket the queue view renders (roadie-spec §11). */
+function buildQueue(store: AssetStore) {
+  const groups: Record<string, ReturnType<typeof queueEntry>[]> = {
+    awaiting_review: [],
+    awaiting_video: [],
+    awaiting_preview: [],
+    awaiting_tag_write: [],
+    awaiting_verify: [],
+    processing: [],
+    errored: [],
+    needs_manual: [],
+    done_recently: [],
+  };
+  for (const asset of store.list()) {
+    const state = asset.roadie.state as RoadieState;
+    if (state === "verified") groups.done_recently!.push(queueEntry(asset));
+    else if (state in groups) groups[state]!.push(queueEntry(asset));
+    else groups.processing!.push(queueEntry(asset)); // fresh + all fetching/downloading/… states
+  }
+  groups.done_recently = groups.done_recently!.slice(0, DONE_RECENTLY_CAP);
+  return groups;
+}
+
 export function buildServer(opts: BuildOptions = {}) {
   const config = loadConfig(opts.config);
   const store = opts.store ?? new AssetStore(config.dataDir);
@@ -62,12 +102,25 @@ export function buildServer(opts: BuildOptions = {}) {
   const app = Fastify({
     logger: { level: process.env.NODE_ENV === "test" ? "silent" : "info" },
   });
+  const roadie =
+    opts.roadie ??
+    new Roadie({
+      store,
+      spotify,
+      generate: opts.generate,
+      logger: {
+        info: (m) => app.log.info(m),
+        warn: (m) => app.log.warn(m),
+        error: (m) => app.log.error(m),
+      },
+    });
   app.register(multipart, { limits: { fileSize: 25 * 1024 * 1024 } });
 
   app.get("/healthz", async () => ({
     ok: true,
     albums: store.list().length,
     spotify: Boolean(spotify),
+    roadie: roadie.status(),
   }));
 
   app.get("/api/albums", async () => ({ albums: store.list().map(summary) }));
@@ -83,6 +136,31 @@ export function buildServer(opts: BuildOptions = {}) {
     return store.delete(curatorId)
       ? { deleted: curatorId }
       : reply.code(404).send({ error: "not found" });
+  });
+
+  // --- Roadie: queue view + observability + controls (roadie-spec §10/§11/§12) ---
+  app.get("/api/agent/queue", async () => buildQueue(store));
+
+  app.get("/api/agent/status", async () => roadie.status());
+
+  app.post("/api/agent/retry/:curatorId", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const result = roadie.retry(curatorId);
+    if (result.ok) return { retried: curatorId, resumedFrom: result.state };
+    return reply.code(result.error === "not found" ? 404 : 409).send({
+      error: result.error,
+      state: result.state,
+    });
+  });
+
+  app.post("/api/agent/pause", async () => {
+    roadie.pause();
+    return roadie.status();
+  });
+
+  app.post("/api/agent/resume", async () => {
+    roadie.resume();
+    return roadie.status();
   });
 
   // --- Spotify (read-only preview; add happens through POST /api/albums) ---
@@ -122,7 +200,7 @@ export function buildServer(opts: BuildOptions = {}) {
           else fields[part.fieldname] = String(part.value);
         }
         const { curatorId, asset } = await addManualAlbum(
-          { store, generate: opts.generate },
+          { store, roadie },
           {
             name: fields.name ?? "",
             artist: fields.artist ?? "",
@@ -158,7 +236,7 @@ export function buildServer(opts: BuildOptions = {}) {
     };
     try {
       const { curatorId, asset } = await addSpotifyAlbum(
-        { store, spotify, generate: opts.generate },
+        { store, roadie },
         body,
       );
       return created(reply, curatorId, asset);
@@ -176,7 +254,10 @@ export function buildServer(opts: BuildOptions = {}) {
     }
   });
 
-  return { app, config, store, spotify };
+  // Resume any album left mid-processing by a previous run (roadie-spec §5 crash resilience).
+  roadie.recover();
+
+  return { app, config, store, spotify, roadie };
 }
 
 async function start(): Promise<void> {

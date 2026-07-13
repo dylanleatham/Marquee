@@ -16,9 +16,20 @@ export {
 } from "./albums/add-spotify.js";
 export {
   buildAlbumAsset,
+  buildFreshAsset,
+  deriveStatus,
+  isProcessingState,
   type AlbumAsset,
   type AlbumMetadata,
+  type RoadieState,
 } from "./albums/asset.js";
+export { Roadie, type RoadieOptions } from "./roadie/worker.js";
+export {
+  draftPrompts,
+  VIDEO_TEMPLATES,
+  CARD_ART_TEMPLATES,
+  type PromptDrafts,
+} from "./roadie/prompts.js";
 export {
   SpotifyClient,
   SpotifyError,
