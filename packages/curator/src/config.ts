@@ -1,7 +1,11 @@
 import { readFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { dirname, join, resolve } from "node:path";
 import { parse as parseToml } from "smol-toml";
+
+// Resolve config.toml next to the package (matches hue-conductor), not the process cwd.
+const pkgDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 export interface Config {
   port: number;
@@ -16,7 +20,7 @@ export interface Config {
  * the outbound pushes to Conductor/Backdrop, which arrive in a later step. `override` wins (tests).
  */
 export function loadConfig(override: Partial<Config> = {}): Config {
-  const path = process.env.CURATOR_CONFIG ?? join(process.cwd(), "config.toml");
+  const path = process.env.CURATOR_CONFIG ?? join(pkgDir, "config.toml");
   const file = existsSync(path)
     ? (parseToml(readFileSync(path, "utf8")) as Record<
         string,

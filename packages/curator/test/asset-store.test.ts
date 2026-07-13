@@ -52,4 +52,22 @@ describe("AssetStore", () => {
     bad.curatorId = "NOPE";
     expect(() => s.save(bad)).toThrow(/invalid curatorId/i);
   });
+
+  it("rejects path-traversal / malformed ids in read, exists, and delete", () => {
+    const s = store();
+    s.save(makeAsset("aaaa1111"));
+    for (const evil of [
+      "../../../../etc/passwd",
+      "..",
+      "AAAA1111",
+      "a/b",
+      "toolong12",
+    ]) {
+      expect(s.exists(evil)).toBe(false);
+      expect(s.read(evil)).toBeNull();
+      expect(s.delete(evil)).toBe(false); // must never rmSync outside the store
+    }
+    // the real album is untouched by all that
+    expect(s.exists("aaaa1111")).toBe(true);
+  });
 });

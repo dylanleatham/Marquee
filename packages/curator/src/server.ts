@@ -57,19 +57,19 @@ export function buildServer(opts: BuildOptions = {}) {
   // Manual add. multipart/form-data: text fields name, artist, year?, genres? + an `artwork` file.
   app.post("/api/albums", async (req, reply) => {
     if (!req.isMultipart()) {
-      return reply
-        .code(415)
-        .send({
-          error: "POST an album as multipart/form-data with an artwork file",
-        });
-    }
-    const fields: Record<string, string> = {};
-    let artwork: Buffer | undefined;
-    for await (const part of req.parts()) {
-      if (part.type === "file") artwork = await part.toBuffer();
-      else fields[part.fieldname] = String(part.value);
+      return reply.code(415).send({
+        error: "POST an album as multipart/form-data with an artwork file",
+      });
     }
     try {
+      // Inside the try so multipart/busboy errors (oversized file, malformed stream, aborted
+      // upload) get a clean 4xx instead of falling through to the generic error handler.
+      const fields: Record<string, string> = {};
+      let artwork: Buffer | undefined;
+      for await (const part of req.parts()) {
+        if (part.type === "file") artwork = await part.toBuffer();
+        else fields[part.fieldname] = String(part.value);
+      }
       const { curatorId, asset } = await addManualAlbum(
         { store, generate: opts.generate },
         {
@@ -92,6 +92,11 @@ export function buildServer(opts: BuildOptions = {}) {
     } catch (err) {
       if (err instanceof ValidationError)
         return reply.code(400).send({ error: err.message });
+      // @fastify/multipart raises client errors (413 file too large, 400 malformed) with a
+      // 4xx statusCode — surface those rather than a blanket 500.
+      const status = (err as { statusCode?: number }).statusCode;
+      if (status && status >= 400 && status < 500)
+        return reply.code(status).send({ error: (err as Error).message });
       req.log.error(err);
       return reply.code(500).send({ error: (err as Error).message });
     }

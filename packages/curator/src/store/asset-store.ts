@@ -24,10 +24,13 @@ export class AssetStore {
   }
 
   exists(curatorId: string): boolean {
+    if (!isCuratorId(curatorId)) return false;
     return existsSync(this.paths.assetFile(curatorId));
   }
 
   read(curatorId: string): AlbumAsset | null {
+    // Guard against path traversal — curatorId reaches here straight from a URL param.
+    if (!isCuratorId(curatorId)) return null;
     const file = this.paths.assetFile(curatorId);
     if (!existsSync(file)) return null;
     return JSON.parse(readFileSync(file, "utf8")) as AlbumAsset;
@@ -45,7 +48,11 @@ export class AssetStore {
     writeFileSync(file, JSON.stringify(asset, null, 2) + "\n");
   }
 
-  /** All albums, newest first. Skips `.bak` and any unparseable files (logged by the caller). */
+  /**
+   * All albums, newest first. Skips `.bak` and any unparseable files (logged by the caller).
+   * O(n) synchronous read of every file per call — fine at personal-collection scale (hundreds
+   * to low thousands, per curator-spec §5). Add a lookup index / cache if it ever grows past that.
+   */
   list(): AlbumAsset[] {
     if (!existsSync(this.paths.albumAssets)) return [];
     const assets: AlbumAsset[] = [];
@@ -74,6 +81,8 @@ export class AssetStore {
 
   /** Remove an album's asset file (and its `.bak`). Media removal is the caller's concern. */
   delete(curatorId: string): boolean {
+    // Guard against path traversal — never rmSync a path built from an unvalidated id.
+    if (!isCuratorId(curatorId)) return false;
     const file = this.paths.assetFile(curatorId);
     if (!existsSync(file)) return false;
     rmSync(file, { force: true });

@@ -279,6 +279,14 @@ Runs on `http://localhost:4739` locally.
 
 ### Inventory (adding and removing albums)
 
+> **Implemented shape (build step 3, 2026-07-11):** manual add uses **`multipart/form-data`**
+> (fields `name`, `artist`, `year?`, `genres?` + an `artwork` file), not a JSON `{ mode, … }`
+> body — because manual entry requires a binary cover upload (spec §10), which JSON can't carry
+> cleanly. It returns `{ curatorId, state, paletteColors, paletteInsufficient }` and runs Palette
+> Press synchronously (Roadie makes it a background enqueue in step 5). Step 4 adds the Spotify
+> path (a JSON body, art fetched by URL); the two modes will share this endpoint, with content
+> type selecting the mode. The `{ mode }` envelope below is the original sketch.
+
 | Method | Path                     | Purpose                                                                                                                                                             |
 | ------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | POST   | `/api/albums`            | Add an album. Body: `{ mode: "spotify" \| "manual", spotifyUri?, searchQuery?, manualMetadata? }`. Returns `{ curatorId }`. Enqueues in Roadie for auto-processing. |
