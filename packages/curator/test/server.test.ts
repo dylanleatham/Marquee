@@ -162,6 +162,57 @@ describe("Roadie agent endpoints", () => {
     });
   });
 
+  it("reports queue counts + the needs-you total for the tab badge", async () => {
+    const { app, roadie } = build();
+    await addAlbum(app, "One", "A");
+    await addAlbum(app, "Two", "A");
+    await roadie.drain();
+
+    const { counts, needsYou } = (
+      await app.inject({ method: "GET", url: "/api/agent/queue/counts" })
+    ).json();
+    expect(counts.awaiting_review).toBe(2);
+    expect(counts.errored).toBe(0);
+    // Both albums sit in an awaiting_* bucket → both count toward "needs you right now".
+    expect(needsYou).toBe(2);
+  });
+});
+
+describe("Artwork endpoint", () => {
+  it("streams the cover as image/jpeg once art exists on disk", async () => {
+    const { app } = build();
+    // Manual add writes the uploaded cover up front, so art is available immediately.
+    const { curatorId } = (await addAlbum(app, "Purple Rain", "Prince")).json();
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/albums/${curatorId}/artwork`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("image/jpeg");
+    expect(res.rawPayload.length).toBeGreaterThan(0);
+  });
+
+  it("404s a valid-but-unknown id, and a malformed id (no path traversal)", async () => {
+    const { app } = build();
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/api/albums/zzzzzzzz/artwork",
+        })
+      ).statusCode,
+    ).toBe(404);
+    // A traversal attempt fails the id-shape guard before touching the filesystem.
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/api/albums/..%2f..%2fetc/artwork",
+        })
+      ).statusCode,
+    ).toBe(404);
+  });
+
   it("reports status and supports pause/resume", async () => {
     const { app } = build();
     const status = (
