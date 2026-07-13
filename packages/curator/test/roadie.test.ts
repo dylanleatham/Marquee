@@ -232,6 +232,69 @@ describe("Roadie retry + failure classification", () => {
     expect(done.roadie.lastError?.reason).toBe("album_not_on_spotify");
   });
 
+  it("parks an album whose Spotify record has no cover art at needs_manual (art_unavailable)", async () => {
+    const s = store();
+    const asset = buildFreshAsset({
+      curatorId: "kkkk1234",
+      metadata: {
+        name: "",
+        artist: "",
+        source: "spotify",
+        spotifyUri: "spotify:album:kkkk1234",
+      },
+    });
+    s.save(asset);
+    // Metadata fetch succeeds but the album has no artUrl → downloadArt can't proceed.
+    const spotify = fakeSpotify({
+      getAlbum: (async (id: string) => ({
+        spotifyId: id,
+        spotifyUri: `spotify:album:${id}`,
+        name: "Art-less",
+        artist: "A",
+        genres: [],
+        // no artUrl
+      })) as SpotifyClient["getAlbum"],
+    });
+    const roadie = roadieFor(s, { spotify });
+    roadie.enqueue("kkkk1234");
+    await roadie.drain();
+
+    const done = s.read("kkkk1234")!;
+    expect(done.metadata.name).toBe("Art-less"); // got past fetching_metadata
+    expect(done.roadie.state).toBe("needs_manual");
+    expect(done.roadie.lastError?.reason).toBe("art_unavailable");
+    expect(done.roadie.flags.album_not_on_spotify).toBe(false);
+  });
+
+  it("parks an album whose art download 404s at needs_manual (art_unavailable)", async () => {
+    const s = store();
+    const asset = buildFreshAsset({
+      curatorId: "llll5678",
+      metadata: {
+        name: "",
+        artist: "",
+        source: "spotify",
+        spotifyUri: "spotify:album:llll5678",
+      },
+    });
+    s.save(asset);
+    let artCalls = 0;
+    const spotify = fakeSpotify({
+      downloadArt: (async () => {
+        artCalls++;
+        throw new SpotifyError("art gone", 404);
+      }) as SpotifyClient["downloadArt"],
+    });
+    const roadie = roadieFor(s, { spotify });
+    roadie.enqueue("llll5678");
+    await roadie.drain();
+
+    expect(artCalls).toBe(1); // 404 is permanent — no retry
+    const done = s.read("llll5678")!;
+    expect(done.roadie.state).toBe("needs_manual");
+    expect(done.roadie.lastError?.reason).toBe("art_unavailable");
+  });
+
   it("classifies a 401 as errored (config problem, no retry)", async () => {
     const s = store();
     const asset = buildFreshAsset({
