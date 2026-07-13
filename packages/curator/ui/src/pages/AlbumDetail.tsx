@@ -101,6 +101,7 @@ export function AlbumDetail() {
     refresh,
   } = usePoll<AlbumAsset>(() => api.album(curatorId), 3000);
   const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   if (error)
     return (
@@ -122,11 +123,17 @@ export function AlbumDetail() {
   const canRetry =
     roadie.state === "errored" || roadie.state === "needs_manual";
 
+  const asError = (err: unknown) =>
+    setActionError(err instanceof Error ? err.message : String(err));
+
   const retry = async () => {
     setBusy(true);
+    setActionError(null);
     try {
       await api.retry(curatorId);
       refresh();
+    } catch (err) {
+      asError(err);
     } finally {
       setBusy(false);
     }
@@ -134,8 +141,13 @@ export function AlbumDetail() {
   const del = async () => {
     if (!confirm(`Delete "${m.name || curatorId}"? The asset file is removed.`))
       return;
-    await api.deleteAlbum(curatorId);
-    navigate("/");
+    setActionError(null);
+    try {
+      await api.deleteAlbum(curatorId);
+      navigate("/");
+    } catch (err) {
+      asError(err);
+    }
   };
 
   return (
@@ -177,6 +189,9 @@ export function AlbumDetail() {
             Delete
           </button>
         </div>
+        {actionError && (
+          <div className="banner banner--error">{actionError}</div>
+        )}
         <code className="detail__id">{curatorId}</code>
       </aside>
 

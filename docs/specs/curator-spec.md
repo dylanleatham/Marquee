@@ -311,10 +311,14 @@ Runs on `http://localhost:4739` locally.
 
 ### Queue (primary UI backing)
 
-| Method | Path                | Purpose                                                                                                                                                                                                                                                                                                                       |
-| ------ | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/queue`        | Returns albums grouped by human-facing state. Shape: `{ awaiting_review: [], awaiting_video: [], awaiting_preview: [], awaiting_tag_write: [], awaiting_verify: [], errored: [], needs_manual: [], done_recently: [] }`. Each entry: minimal album summary (curatorId, art thumbnail, title/artist, entered-state timestamp). |
-| GET    | `/api/queue/counts` | Just the counts per bucket. For the tab-title indicator.                                                                                                                                                                                                                                                                      |
+> **2026-07-13 ([ADR 0004](../adrs/0004-curator-agent-endpoint-namespace.md)):** the queue endpoints
+> live under `/api/agent/*` (matching roadie-spec §10 and the Roadie controls below), not the
+> top-level `/api/queue` this table originally listed. Response shapes are unchanged.
+
+| Method | Path                      | Purpose                                                                                                                                                                                                                                                                                                                                       |
+| ------ | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/agent/queue`        | Returns albums grouped by human-facing state. Shape: `{ awaiting_review: [], awaiting_video: [], awaiting_preview: [], awaiting_tag_write: [], awaiting_verify: [], processing: [], errored: [], needs_manual: [], done_recently: [] }`. Each entry: minimal album summary (curatorId, art thumbnail, title/artist, entered-state timestamp). |
+| GET    | `/api/agent/queue/counts` | Per-bucket counts + the "needs you right now" total. For the tab-title indicator.                                                                                                                                                                                                                                                             |
 
 ### Palettes
 

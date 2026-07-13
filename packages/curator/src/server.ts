@@ -1,5 +1,5 @@
 import { pathToFileURL, fileURLToPath } from "node:url";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, createReadStream } from "node:fs";
 import { join } from "node:path";
 import Fastify, { type FastifyReply } from "fastify";
 import multipart from "@fastify/multipart";
@@ -14,6 +14,7 @@ import {
 import { addSpotifyAlbum, DuplicateAlbumError } from "./albums/add-spotify.js";
 import { SpotifyClient, SpotifyError } from "./spotify/client.js";
 import { Roadie } from "./roadie/worker.js";
+import { isCuratorId } from "./ids.js";
 import type { AlbumAsset, RoadieState } from "./albums/asset.js";
 
 export interface BuildOptions {
@@ -160,19 +161,20 @@ export function buildServer(opts: BuildOptions = {}) {
       : reply.code(404).send({ error: "not found" });
   });
 
-  // Serve an album's resolved cover art (the UI shows thumbnails). Keyed on the validated
-  // curatorId via store.read, so there's no path-traversal surface. 404 until art is downloaded.
+  // Serve an album's cover art (the UI shows a thumbnail per row, polled every 2s). Validate the
+  // id shape ourselves — no path-traversal surface — and stream the bytes rather than a synchronous
+  // read, so this hot path never blocks the event loop Roadie also runs on. 404 until art exists.
   app.get("/api/albums/:curatorId/artwork", async (req, reply) => {
     const { curatorId } = req.params as { curatorId: string };
-    const asset = store.read(curatorId);
-    if (!asset) return reply.code(404).send({ error: "not found" });
+    if (!isCuratorId(curatorId))
+      return reply.code(404).send({ error: "not found" });
     const file = store.paths.artworkFile(curatorId);
     if (!existsSync(file))
       return reply.code(404).send({ error: "artwork not available yet" });
     return reply
       .header("content-type", "image/jpeg")
       .header("cache-control", "no-cache")
-      .send(readFileSync(file));
+      .send(createReadStream(file));
   });
 
   // --- Roadie: queue view + observability + controls (roadie-spec §10/§11/§12) ---
