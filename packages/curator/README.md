@@ -6,12 +6,16 @@ Admin app + source of truth for the collection; hosts Roadie. Runs on your works
 [roadie](../../docs/specs/roadie-spec.md) ·
 [onboarding workflow](../../docs/specs/album-onboarding-workflow.md).
 
-## Status — build step 3 (asset store + manual add + Palette Press)
+## Status — build steps 3–4 (asset store + manual & Spotify add + Palette Press)
 
 Implemented: the album-assets store (`{curatorId}.json`, `.bak` on overwrite), curatorId
-generation, and **manual add-album** — which saves the cover, runs Palette Press, and writes
-the asset (state `awaiting_review`). Spotify add (step 4), Roadie's background worker (step 5),
+generation, **manual add-album** (cover upload), and **Spotify add** (by URI/search — real
+metadata + art fetch via the client-credentials flow, deduped on the Spotify URI). Both run
+Palette Press and write the asset (state `awaiting_review`). Roadie's background worker (step 5),
 video/preview/tag flows, and the UI come later.
+
+Spotify is optional: set `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` (env or `config.toml
+[spotify]`). Without them, `/api/spotify/*` and JSON add return 503; manual add still works.
 
 ## Run
 
@@ -23,24 +27,31 @@ Data lives under `~/marquee/` by default (`album-assets/` + `media/`); override 
 `MARQUEE_DATA_DIR` or `config.toml`. Curator's own API is unauthenticated (LAN-only, like
 Home Assistant — runtime-overview §8).
 
-## Endpoints (step 3)
+## Endpoints (steps 3–4)
 
-| Method | Path                     | Purpose                                                                                                                             |
-| ------ | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/healthz`               | `{ ok, albums }`                                                                                                                    |
-| POST   | `/api/albums`            | Manual add. `multipart/form-data`: fields `name`, `artist`, `year?`, `genres?` (comma-sep) + an `artwork` file. Runs Palette Press. |
-| GET    | `/api/albums`            | List album summaries (newest first).                                                                                                |
-| GET    | `/api/albums/:curatorId` | Full asset JSON.                                                                                                                    |
-| DELETE | `/api/albums/:curatorId` | Remove the asset (media untouched).                                                                                                 |
+| Method | Path                            | Purpose                                                                                                                                                                   |
+| ------ | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/healthz`                      | `{ ok, albums, spotify }`                                                                                                                                                 |
+| POST   | `/api/albums`                   | **Multipart** → manual add (`name`, `artist`, `year?`, `genres?` + `artwork` file). **JSON** → Spotify add (`{ spotifyUri }` or `{ spotifyId }`). Both run Palette Press. |
+| GET    | `/api/albums`                   | List album summaries (newest first).                                                                                                                                      |
+| GET    | `/api/albums/:curatorId`        | Full asset JSON.                                                                                                                                                          |
+| DELETE | `/api/albums/:curatorId`        | Remove the asset (media untouched).                                                                                                                                       |
+| GET    | `/api/spotify/search-albums?q=` | Autocomplete album search (503 if Spotify unconfigured).                                                                                                                  |
+| GET    | `/api/spotify/album/:spotifyId` | Preview one album's Spotify metadata.                                                                                                                                     |
 
-## Smoke test (the step-3 payoff)
+## Smoke test (the steps 3–4 payoff)
 
 ```bash
+# Manual (cover upload)
 curl -s -X POST http://127.0.0.1:4739/api/albums \
   -F name="Purple Rain" -F artist="Prince" -F year=1984 \
   -F artwork=@fixtures/artwork/purple-rain.jpg
-# → { "curatorId": "…", "state": "awaiting_review", "paletteColors": 4, "paletteInsufficient": false }
-curl -s http://127.0.0.1:4739/api/albums/<curatorId>   # palette saved on disk
+
+# Spotify (needs SPOTIFY_CLIENT_ID/SECRET) — fetches real metadata + art
+curl -s -X POST http://127.0.0.1:4739/api/albums \
+  -H content-type:application/json -d '{"spotifyUri":"spotify:album:1C2h7mLntPSeVYciMRTF4a"}'
+# → { curatorId, source, state: "awaiting_review", paletteColors, paletteInsufficient }
+curl -s http://127.0.0.1:4739/api/albums/<curatorId>   # palette + metadata saved on disk
 ```
 
 ## Notes

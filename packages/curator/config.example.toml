@@ -7,3 +7,9 @@ host = "127.0.0.1"
 [storage]
 # Root for the album-assets store and media store. Default: ~/marquee
 data_dir = "~/marquee"
+
+# Optional — enables /api/spotify/* and JSON add-by-URI. Or use env vars
+# SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET (client-credentials flow, no user login).
+# [spotify]
+# client_id = "..."
+# client_secret = "..."

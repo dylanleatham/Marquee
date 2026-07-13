@@ -3,16 +3,21 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Fake Spotify Web API for Curator/Roadie tests.",
-  "main": "./dist/index.js",
+  "description": "Fake Spotify Web API for Curator/Roadie tests (a fetch-compatible fake).",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
-    "build": "tsc -b",
+    "build": "echo \"(no build — consumed as TS source by vitest/tsx)\"",
     "type-check": "tsc --noEmit",
-    "test": "node --test",
-    "test:unit": "node --test",
+    "test": "vitest run",
+    "test:unit": "vitest run",
     "lint": "echo \"(no linter configured yet)\""
   },
   "devDependencies": {
-    "typescript": "^5.6.2"
+    "@types/node": "^22.7.5",
+    "typescript": "^5.6.2",
+    "vitest": "^2.1.3"
   }
 }

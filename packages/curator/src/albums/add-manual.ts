@@ -7,7 +7,7 @@ import {
 import { generateCuratorId } from "../ids.js";
 import type { AssetStore } from "../store/asset-store.js";
 import {
-  buildManualAsset,
+  buildAlbumAsset,
   type AlbumAsset,
   type AlbumMetadata,
 } from "./asset.js";
@@ -74,7 +74,7 @@ export async function addManualAlbum(
     ...(input.genres?.length ? { genres: input.genres } : {}),
   };
 
-  const asset = buildManualAsset({
+  const asset = buildAlbumAsset({
     curatorId,
     metadata,
     artworkPosixPath: deps.store.paths.relPosix(artworkAbs),

@@ -10,9 +10,20 @@ export {
   type PaletteGenerator,
 } from "./albums/add-manual.js";
 export {
-  buildManualAsset,
+  addSpotifyAlbum,
+  DuplicateAlbumError,
+  parseAlbumId,
+} from "./albums/add-spotify.js";
+export {
+  buildAlbumAsset,
   type AlbumAsset,
   type AlbumMetadata,
 } from "./albums/asset.js";
+export {
+  SpotifyClient,
+  SpotifyError,
+  type SpotifyAlbumMeta,
+  type SpotifyClientOptions,
+} from "./spotify/client.js";
 export { generateCuratorId, isCuratorId } from "./ids.js";
 export { loadConfig, type Config } from "./config.js";
