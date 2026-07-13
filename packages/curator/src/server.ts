@@ -42,11 +42,14 @@ const created = (reply: FastifyReply, curatorId: string, asset: AlbumAsset) =>
     paletteInsufficient: asset.roadie.flags.palette_insufficient,
   });
 
+// Map a SpotifyError to an HTTP status: pass through 404/504, everything else is a bad gateway.
+const spotifyStatus = (err: SpotifyError): number =>
+  err.status === 404 ? 404 : err.status === 504 ? 504 : 502;
+
+// For the read-only GET routes: send SpotifyErrors, rethrow anything else.
 const spotifyErr = (err: unknown, reply: FastifyReply) => {
   if (err instanceof SpotifyError)
-    return reply
-      .code(err.status === 404 ? 404 : 502)
-      .send({ error: err.message });
+    return reply.code(spotifyStatus(err)).send({ error: err.message });
   throw err;
 };
 
@@ -167,9 +170,7 @@ export function buildServer(opts: BuildOptions = {}) {
       if (err instanceof ValidationError)
         return reply.code(400).send({ error: err.message });
       if (err instanceof SpotifyError)
-        return reply
-          .code(err.status === 404 ? 404 : 502)
-          .send({ error: err.message });
+        return reply.code(spotifyStatus(err)).send({ error: err.message });
       req.log.error(err);
       return reply.code(500).send({ error: (err as Error).message });
     }

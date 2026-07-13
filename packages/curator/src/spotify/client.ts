@@ -23,6 +23,8 @@ export interface SpotifyClientOptions {
   apiBase?: string;
   accountsBase?: string;
   now?: () => number;
+  /** Per-request timeout (ms). A hung Spotify connection must fail fast, not hang the request. */
+  timeoutMs?: number;
 }
 
 export class SpotifyError extends Error {
@@ -48,13 +50,14 @@ interface AlbumResponse {
 /**
  * Thin Spotify Web API client using the client-credentials flow (no user login). Reads public
  * catalog metadata + cover art; genres come from the artist endpoint (Spotify doesn't put them
- * on the album). Token is cached until shortly before expiry.
+ * on the album). Token is cached until shortly before expiry; every request has a timeout.
  */
 export class SpotifyClient {
   private readonly fetch: FetchLike;
   private readonly apiBase: string;
   private readonly accountsBase: string;
   private readonly now: () => number;
+  private readonly timeoutMs: number;
   private token?: { value: string; expiresAt: number };
 
   constructor(private readonly opts: SpotifyClientOptions) {
@@ -62,6 +65,29 @@ export class SpotifyClient {
     this.apiBase = opts.apiBase ?? "https://api.spotify.com";
     this.accountsBase = opts.accountsBase ?? "https://accounts.spotify.com";
     this.now = opts.now ?? Date.now;
+    this.timeoutMs = opts.timeoutMs ?? 10_000;
+  }
+
+  /** fetch with an AbortController timeout — a hung connection rejects instead of hanging forever. */
+  private async fetchT(
+    input: string | URL,
+    init: RequestInit = {},
+  ): Promise<Response> {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), this.timeoutMs);
+    try {
+      return await this.fetch(input, { ...init, signal: ctrl.signal });
+    } catch (err) {
+      if ((err as Error)?.name === "AbortError") {
+        throw new SpotifyError(
+          `Spotify request timed out after ${this.timeoutMs}ms`,
+          504,
+        );
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   private async accessToken(): Promise<string> {
@@ -70,7 +96,7 @@ export class SpotifyClient {
     const basic = Buffer.from(
       `${this.opts.clientId}:${this.opts.clientSecret}`,
     ).toString("base64");
-    const res = await this.fetch(`${this.accountsBase}/api/token`, {
+    const res = await this.fetchT(`${this.accountsBase}/api/token`, {
       method: "POST",
       headers: {
         Authorization: `Basic ${basic}`,
@@ -93,7 +119,7 @@ export class SpotifyClient {
 
   private async api<T>(path: string): Promise<T> {
     const token = await this.accessToken();
-    const res = await this.fetch(`${this.apiBase}${path}`, {
+    const res = await this.fetchT(`${this.apiBase}${path}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (res.status === 404) throw new SpotifyError(`Not found: ${path}`, 404);
@@ -143,7 +169,7 @@ export class SpotifyClient {
   }
 
   async downloadArt(url: string): Promise<Buffer> {
-    const res = await this.fetch(url);
+    const res = await this.fetchT(url);
     if (!res.ok)
       throw new SpotifyError(`Art download failed (${res.status})`, res.status);
     return Buffer.from(await res.arrayBuffer());

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { createFakeSpotify, type FakeAlbum } from "@marquee/fake-spotify";
-import { SpotifyClient } from "../src/spotify/client.js";
+import { SpotifyClient, type FetchLike } from "../src/spotify/client.js";
 
 const album: FakeAlbum = {
   id: "1C2h7mLntPSeVYciMRTF4a",
@@ -56,5 +56,24 @@ describe("SpotifyClient", () => {
     const fs = createFakeSpotify([album]);
     const buf = await client(fs).downloadArt(fs.imageUrl(album.id));
     expect(buf.toString()).toBe("IMG");
+  });
+
+  it("times out a hung request (504) instead of hanging forever", async () => {
+    const hanging: FetchLike = (_input, init) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () =>
+          reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
+        );
+      });
+    const c = new SpotifyClient({
+      clientId: "id",
+      clientSecret: "s",
+      fetch: hanging,
+      timeoutMs: 20,
+    });
+    await expect(c.getAlbum("x")).rejects.toMatchObject({
+      name: "SpotifyError",
+      status: 504,
+    });
   });
 });

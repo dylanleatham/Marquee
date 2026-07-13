@@ -8,8 +8,8 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "//": "No build: this is a test fake consumed as TS source by vitest/tsx (main -> src).",
   "scripts": {
-    "build": "echo \"(no build — consumed as TS source by vitest/tsx)\"",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
     "test:unit": "vitest run",
