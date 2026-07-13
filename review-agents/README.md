@@ -46,7 +46,8 @@ pnpm run review --ci                # hook mode: write report, exit 1 on blockin
 
 Env: `CLAUDE_CODE_PATH` (binary override, default `claude`), `REVIEW_MOCK=1` (skip real calls —
 used by tests/CI to exercise the pipeline without tokens; `REVIEW_MOCK_OUTPUT` supplies a
-canned findings array).
+canned findings array), `REVIEW_TIMEOUT_MS` (per-specialist spawn budget in ms, default
+`90000` — bump it on a slow/loaded machine if a specialist gets marked unavailable).
 
 ## Anatomy of a specialist
 

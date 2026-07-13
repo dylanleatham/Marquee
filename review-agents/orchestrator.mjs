@@ -8,7 +8,8 @@
 //     --base <ref>         diff against an explicit base
 //     --reviewer <id>      run a single specialist
 //     --explain            print the context sent to each specialist
-//   Env: REVIEW_MOCK=1 (skip real Claude calls), CLAUDE_CODE_PATH (binary override)
+//   Env: REVIEW_MOCK=1 (skip real Claude calls), CLAUDE_CODE_PATH (binary override),
+//        REVIEW_TIMEOUT_MS (per-specialist spawn budget in ms, default 90000)
 
 import {
   readFileSync,

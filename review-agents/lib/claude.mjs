@@ -7,10 +7,24 @@
 import { spawnSync } from "node:child_process";
 
 const BIN = process.env.CLAUDE_CODE_PATH || "claude";
-const TIMEOUT_MS = 90_000; // per-specialist budget (dev-harness §6 failure modes)
+const DEFAULT_TIMEOUT_MS = 90_000; // per-specialist budget (dev-harness §6 failure modes)
 const IS_WIN = process.platform === "win32";
 
 export const isMock = () => process.env.REVIEW_MOCK === "1";
+
+/**
+ * Per-specialist spawn budget in ms. Defaults to 90s; override with REVIEW_TIMEOUT_MS
+ * (a positive integer) when a slow/loaded machine pushes a specialist past the default
+ * and it gets marked unavailable — see review-agents/KNOWN-ISSUES.md (RA-2). A missing,
+ * non-numeric, or non-positive value falls back to the default rather than throwing, so
+ * a bad env var degrades to the old behaviour instead of breaking the harness.
+ */
+export function resolveTimeoutMs(env = process.env) {
+  const raw = env.REVIEW_TIMEOUT_MS;
+  if (raw == null || raw === "") return DEFAULT_TIMEOUT_MS;
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : DEFAULT_TIMEOUT_MS;
+}
 
 export function claudeAvailable() {
   if (isMock()) return true;
@@ -36,7 +50,7 @@ export function runSpecialist({ prompt, model }) {
   const r = spawnSync(BIN, args, {
     input: prompt,
     encoding: "utf8",
-    timeout: TIMEOUT_MS,
+    timeout: resolveTimeoutMs(),
     maxBuffer: 32 * 1024 * 1024,
     shell: IS_WIN,
   });

@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { globToRegExp, matchesAny } from "./util.mjs";
 import { extractJsonArray, normalizeFindings, dedupe } from "./findings.mjs";
+import { resolveTimeoutMs } from "./claude.mjs";
 
 test("globToRegExp: ** spans directories, * does not", () => {
   assert.match(
@@ -107,6 +108,20 @@ test("normalizeFindings: drops malformed, tags specialist, respects blocking", (
   // A non-blocking specialist can never produce a blocking finding.
   const info = normalizeFindings(raw, { specialist: "y", blocking: false });
   assert.ok(info.every((f) => f.severity === "info"));
+});
+
+test("resolveTimeoutMs: env override, with fallback to default on bad input", () => {
+  const DEFAULT = 90_000;
+  // Missing / empty -> default.
+  assert.equal(resolveTimeoutMs({}), DEFAULT);
+  assert.equal(resolveTimeoutMs({ REVIEW_TIMEOUT_MS: "" }), DEFAULT);
+  // Valid positive integer -> honored.
+  assert.equal(resolveTimeoutMs({ REVIEW_TIMEOUT_MS: "180000" }), 180_000);
+  // Garbage / non-positive / non-integer -> default, never throws.
+  assert.equal(resolveTimeoutMs({ REVIEW_TIMEOUT_MS: "nope" }), DEFAULT);
+  assert.equal(resolveTimeoutMs({ REVIEW_TIMEOUT_MS: "0" }), DEFAULT);
+  assert.equal(resolveTimeoutMs({ REVIEW_TIMEOUT_MS: "-5" }), DEFAULT);
+  assert.equal(resolveTimeoutMs({ REVIEW_TIMEOUT_MS: "1.5" }), DEFAULT);
 });
 
 test("dedupe: collapses same file+line+message, prefers blocking", () => {
