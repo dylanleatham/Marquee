@@ -1,6 +1,9 @@
-import { pathToFileURL } from "node:url";
+import { pathToFileURL, fileURLToPath } from "node:url";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import Fastify, { type FastifyReply } from "fastify";
 import multipart from "@fastify/multipart";
+import fastifyStatic from "@fastify/static";
 import { loadConfig, type Config } from "./config.js";
 import { AssetStore } from "./store/asset-store.js";
 import {
@@ -93,6 +96,25 @@ function buildQueue(store: AssetStore) {
   return groups;
 }
 
+/** The buckets that count as "needs you right now" — drives the browser-tab badge (spec §10). */
+const NEEDS_YOU = [
+  "awaiting_review",
+  "awaiting_video",
+  "awaiting_preview",
+  "awaiting_tag_write",
+  "awaiting_verify",
+] as const;
+
+/** Per-bucket counts + the "needs you right now" total for the tab-title indicator (spec §10). */
+function queueCounts(store: AssetStore) {
+  const groups = buildQueue(store);
+  const counts = Object.fromEntries(
+    Object.entries(groups).map(([k, v]) => [k, v.length]),
+  );
+  const needsYou = NEEDS_YOU.reduce((n, k) => n + (counts[k] ?? 0), 0);
+  return { counts, needsYou };
+}
+
 export function buildServer(opts: BuildOptions = {}) {
   const config = loadConfig(opts.config);
   const store = opts.store ?? new AssetStore(config.dataDir);
@@ -138,8 +160,26 @@ export function buildServer(opts: BuildOptions = {}) {
       : reply.code(404).send({ error: "not found" });
   });
 
+  // Serve an album's resolved cover art (the UI shows thumbnails). Keyed on the validated
+  // curatorId via store.read, so there's no path-traversal surface. 404 until art is downloaded.
+  app.get("/api/albums/:curatorId/artwork", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const asset = store.read(curatorId);
+    if (!asset) return reply.code(404).send({ error: "not found" });
+    const file = store.paths.artworkFile(curatorId);
+    if (!existsSync(file))
+      return reply.code(404).send({ error: "artwork not available yet" });
+    return reply
+      .header("content-type", "image/jpeg")
+      .header("cache-control", "no-cache")
+      .send(readFileSync(file));
+  });
+
   // --- Roadie: queue view + observability + controls (roadie-spec §10/§11/§12) ---
   app.get("/api/agent/queue", async () => buildQueue(store));
+
+  // Just the counts — backs the browser-tab "needs you right now" badge (curator-spec §10).
+  app.get("/api/agent/queue/counts", async () => queueCounts(store));
 
   app.get("/api/agent/status", async () => roadie.status());
 
@@ -253,6 +293,23 @@ export function buildServer(opts: BuildOptions = {}) {
       return reply.code(500).send({ error: (err as Error).message });
     }
   });
+
+  // Serve the built React UI (packages/curator/dist-ui) when present. It's absent in dev/test —
+  // there the Vite dev server serves the UI and proxies /api here (see ui/vite.config.ts). Same
+  // path resolves from src/ (tsx) and dist/ (prod): both sit one level under packages/curator/.
+  const uiDir = fileURLToPath(new URL("../dist-ui", import.meta.url));
+  if (existsSync(uiDir)) {
+    app.register(fastifyStatic, { root: uiDir, wildcard: false });
+    // SPA fallback: a non-/api GET that isn't a real asset returns index.html so client-side
+    // routes (e.g. /albums/:id) deep-link and reload correctly.
+    const indexHtml = readFileSync(join(uiDir, "index.html"));
+    app.setNotFoundHandler((req, reply) => {
+      if (req.method === "GET" && !req.url.startsWith("/api")) {
+        return reply.type("text/html").send(indexHtml);
+      }
+      return reply.code(404).send({ error: "not found" });
+    });
+  }
 
   // Resume any album left mid-processing by a previous run (roadie-spec §5 crash resilience).
   roadie.recover();

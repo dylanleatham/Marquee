@@ -4,6 +4,7 @@ node_modules/
 
 # Build output
 dist/
+dist-ui/
 *.tsbuildinfo
 packages/contracts/ts/*.d.ts
 packages/contracts/py/*_generated.py
