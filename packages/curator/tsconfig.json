@@ -1,6 +1,10 @@
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "outDir": "./dist", "rootDir": "./src" },
-  "references": [{ "path": "../contracts" }],
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "types": ["node"]
+  },
+  "references": [{ "path": "../contracts" }, { "path": "../palette-press" }],
   "include": ["src/**/*"]
 }
