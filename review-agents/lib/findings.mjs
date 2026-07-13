@@ -81,6 +81,33 @@ export function extractJsonArray(text) {
   return looseFindings.length ? looseFindings : null;
 }
 
+/**
+ * RA-1 last resort: a specialist replied with substantive prose but no findings array *or*
+ * lone finding object the parsers above could recover (e.g. a paragraph describing one issue,
+ * which is exactly how `test-auditor` reported the Roadie `downloadArt` gap on 2026-07-13).
+ * `extractJsonArray` returns null for that, and the orchestrator would otherwise drop the whole
+ * review silently. Instead, surface the prose as a single **info** finding so the reviewer's
+ * substance still reaches the human. Returns a one-element raw findings array, or null for an
+ * empty/trivial reply (so a genuinely blank response stays "no findings", not a phantom one).
+ */
+export function salvageProse(text, { maxLen = 500 } = {}) {
+  if (!text) return null;
+  // Drop code fences and collapse whitespace so the surfaced message prints on one line.
+  const clean = text.replace(/```/g, " ").replace(/\s+/g, " ").trim();
+  // Require real sentence-like content: enough length and an actual word. Blank/garbage → null.
+  if (clean.length < 40 || !/[a-z]{3}/i.test(clean)) return null;
+  const snippet =
+    clean.length > maxLen ? `${clean.slice(0, maxLen)} […]` : clean;
+  return [
+    {
+      severity: "info",
+      file: "(unparsed)",
+      line: null,
+      message: `Specialist replied in prose, not the JSON findings contract — review manually: ${snippet}`,
+    },
+  ];
+}
+
 /** Every balanced top-level `{...}` span that parses as a JSON object (string-aware). */
 function extractObjects(text) {
   const objs = [];

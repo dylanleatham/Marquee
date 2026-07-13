@@ -26,8 +26,11 @@ else is informational.
 1. Resolves the diff base (`origin/main` merge-base for a branch; `--staged` or `--base` to override).
 2. Computes changed files + a capped unified diff.
 3. Routes: each specialist's `config.json` declares what triggers it and what context to load.
-4. Runs the relevant specialists **in parallel** via Claude Code headless (`claude -p --output-format json`).
-5. Parses each reply into findings, aggregates, dedupes by file+line+message.
+4. Runs each relevant specialist via Claude Code headless (`claude -p --output-format json`). The
+   call is a blocking `spawnSync`, so specialists run **one at a time** — gentler on a loaded
+   machine than N concurrent sessions. A specialist that overruns its budget retries once (RA-2).
+5. Parses each reply into findings (recovering a lone object or, failing that, surfacing prose as
+   an info finding rather than dropping it — RA-1), aggregates, dedupes by file+line+message.
 6. Writes `.review-agents/report-<sha>.json` (gitignored) and prints a summary.
 7. In `--ci` mode, exits non-zero if there's any blocking finding.
 
@@ -47,7 +50,8 @@ pnpm run review --ci                # hook mode: write report, exit 1 on blockin
 Env: `CLAUDE_CODE_PATH` (binary override, default `claude`), `REVIEW_MOCK=1` (skip real calls —
 used by tests/CI to exercise the pipeline without tokens; `REVIEW_MOCK_OUTPUT` supplies a
 canned findings array), `REVIEW_TIMEOUT_MS` (per-specialist spawn budget in ms, default
-`90000` — bump it on a slow/loaded machine if a specialist gets marked unavailable).
+`90000` — bump it on a slow/loaded machine if a specialist gets marked unavailable),
+`REVIEW_TIMEOUT_RETRIES` (extra attempts on a timeout, default `1`; set `0` to disable).
 
 ## Anatomy of a specialist
 

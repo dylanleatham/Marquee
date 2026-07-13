@@ -9,7 +9,8 @@
 //     --reviewer <id>      run a single specialist
 //     --explain            print the context sent to each specialist
 //   Env: REVIEW_MOCK=1 (skip real Claude calls), CLAUDE_CODE_PATH (binary override),
-//        REVIEW_TIMEOUT_MS (per-specialist spawn budget in ms, default 90000)
+//        REVIEW_TIMEOUT_MS (per-specialist spawn budget in ms, default 90000),
+//        REVIEW_TIMEOUT_RETRIES (extra attempts on a timeout, default 1)
 
 import {
   readFileSync,
@@ -29,6 +30,7 @@ import {
 import { claudeAvailable, runSpecialist, isMock } from "./lib/claude.mjs";
 import {
   extractJsonArray,
+  salvageProse,
   normalizeFindings,
   dedupe,
 } from "./lib/findings.mjs";
@@ -215,6 +217,19 @@ async function main() {
         );
         mkdirSync(dirname(rawPath), { recursive: true });
         writeFileSync(rawPath, res.text ?? "");
+        // RA-1: a specialist that spoke in prose still found something worth saying. Surface it
+        // as an info finding rather than dropping the review; only a truly empty reply is "error".
+        const salvaged = salvageProse(res.text);
+        if (salvaged) {
+          const findings = normalizeFindings(salvaged, {
+            specialist: config.id,
+            blocking: false, // prose can't be trusted to gate a push — never blocking
+          });
+          console.warn(
+            `  ! ${config.id}: reply wasn't JSON — surfaced its prose as an info finding (raw saved to ${rawPath})`,
+          );
+          return { id: config.id, status: "unformatted", durationMs, findings };
+        }
         console.warn(
           `  ! ${config.id}: could not parse findings output (raw saved to ${rawPath})`,
         );
