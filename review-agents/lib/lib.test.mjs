@@ -48,6 +48,50 @@ test("extractJsonArray: ignores stray string arrays in prose, finds the object a
   assert.equal(extractJsonArray('looked at obj["key"], all good'), null);
 });
 
+test("extractJsonArray: recovers a lone finding object emitted without the array wrapper", () => {
+  // Regression (RA-1): the runtime specialist intermittently returns a single finding as a
+  // bare object — mirroring the single-object template it was shown — instead of wrapping it
+  // in an array. That used to parse as null and the whole specialist's review was dropped.
+  assert.deepEqual(
+    extractJsonArray(
+      '{"severity":"blocking","file":"a.ts","line":3,"message":"fetch has no timeout"}',
+    ),
+    [
+      {
+        severity: "blocking",
+        file: "a.ts",
+        line: 3,
+        message: "fetch has no timeout",
+      },
+    ],
+  );
+  // Same shape inside a ```json fence.
+  assert.deepEqual(
+    extractJsonArray('```json\n{"severity":"info","message":"leak"}\n```'),
+    [{ severity: "info", message: "leak" }],
+  );
+});
+
+test("extractJsonArray: recovers multiple lone finding objects (one per line)", () => {
+  // Regression (RA-1): sonnet occasionally emits one object per finding with no array,
+  // echoing the two separate examples it was given.
+  const reply =
+    '{"severity":"blocking","file":"a.ts","message":"m1"}\n{"severity":"info","file":"b.ts","message":"m2"}';
+  assert.deepEqual(extractJsonArray(reply), [
+    { severity: "blocking", file: "a.ts", message: "m1" },
+    { severity: "info", file: "b.ts", message: "m2" },
+  ]);
+});
+
+test("extractJsonArray: incidental JSON-ish prose objects are not findings", () => {
+  // A bare object with no `message` isn't a finding; such prose must still yield null so a
+  // genuine parse failure stays visible instead of becoming a phantom finding.
+  assert.equal(
+    extractJsonArray('config was {"retries": 3, "timeout": null}'),
+    null,
+  );
+});
+
 test("normalizeFindings: drops malformed, tags specialist, respects blocking", () => {
   const raw = [
     { severity: "blocking", file: "a.ts", line: 3, message: "bad" },
