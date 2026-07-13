@@ -161,6 +161,14 @@ Two important properties:
 
 ### Backdrop sync triggers
 
+> **Implementation note (2026-07-13, build step 5):** the sync triggers below (★ in §5) are
+> **not yet implemented.** Step 5 built Roadie's forward pipeline (`fresh` → … → `awaiting_review` /
+> `needs_manual` / `errored`), retry/backoff, failure classification, prompt drafting, and the
+> `/api/agent/*` endpoints. The ★sync/★verify hooks are deferred until Backdrop exists (step 8):
+> there is no downstream to sync to, and the human-driven transitions they observe
+> (`awaiting_video` → `awaiting_preview`, any → `verified`) have no endpoints to fire them yet. The
+> `roadie.syncIssues` field is present in the asset shape so no migration is needed when they land.
+
 In addition to the sub-states above, Roadie observes two transitions in the human-driven part of the lifecycle and triggers Backdrop synchronization:
 
 **On video attach** (`awaiting_video` → `awaiting_preview`): Roadie initiates an rsync of the newly attached video file from Curator's media store to Backdrop's SD card. Video files are large; syncing eagerly at attach time means the preview and simulate-scan flows have the real file available on the Pi when the user tries them. The metadata push to Backdrop's `library.json` already happened via Curator's post-save hook — Roadie doesn't duplicate that work, only the file sync.

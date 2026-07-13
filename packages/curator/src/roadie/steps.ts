@@ -1,0 +1,171 @@
+// The Roadie-driven sub-steps (roadie-spec §6). Each step mutates the in-memory asset and returns
+// the next state; the worker owns persistence, history, and retry classification. Every step is
+// idempotent (roadie-spec §15) so a crash-restart can safely re-run it from where it left off.
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { generatePalette } from "@marquee/palette-press";
+import type { AssetStore } from "../store/asset-store.js";
+import type { SpotifyClient } from "../spotify/client.js";
+import { SpotifyError } from "../spotify/client.js";
+import type { PaletteGenerator } from "../albums/add-manual.js";
+import type {
+  AlbumAsset,
+  AlbumMetadata,
+  RoadieState,
+} from "../albums/asset.js";
+import { parseAlbumId } from "../albums/add-spotify.js";
+import { draftPrompts } from "./prompts.js";
+import { TransientError, PermanentError, ConfigError } from "./errors.js";
+
+export interface StepDeps {
+  store: AssetStore;
+  spotify?: SpotifyClient;
+  generate: PaletteGenerator;
+  now: () => string;
+}
+
+/** A step: advance the album one sub-step, mutating it in place; return the next state. */
+export type Step = (asset: AlbumAsset, deps: StepDeps) => Promise<RoadieState>;
+
+/** Translate a Spotify HTTP error into a Roadie failure class. */
+function classifySpotify(err: SpotifyError, notFoundReason: string): never {
+  if (err.status === 404) throw new PermanentError(err.message, notFoundReason);
+  if (err.status === 401 || err.status === 403)
+    throw new ConfigError(`Spotify auth problem: ${err.message}`, err);
+  // 429 rate limit, 5xx, 504 timeout, or unknown → retry.
+  throw new TransientError(err.message, err);
+}
+
+/** fetching_metadata → downloading_art. Fills name/artist/year/genres/art URL from Spotify. */
+const fetchMetadata: Step = async (asset, deps) => {
+  if (!deps.spotify)
+    throw new ConfigError(
+      "Spotify not configured but album needs a metadata fetch",
+    );
+  const spotifyId = parseAlbumId({ spotifyUri: asset.metadata.spotifyUri });
+  if (!spotifyId)
+    throw new PermanentError(
+      `Album has no valid Spotify URI (${asset.metadata.spotifyUri})`,
+      "invalid_spotify_uri",
+    );
+
+  let meta;
+  try {
+    meta = await deps.spotify.getAlbum(spotifyId);
+  } catch (err) {
+    if (err instanceof SpotifyError)
+      classifySpotify(err, "album_not_on_spotify");
+    throw err;
+  }
+
+  const next: AlbumMetadata = {
+    name: meta.name,
+    artist: meta.artist,
+    source: "spotify",
+    spotifyUri: meta.spotifyUri,
+    ...(meta.artUrl ? { spotifyArtUrl: meta.artUrl } : {}),
+    ...(meta.year !== undefined ? { year: meta.year } : {}),
+    ...(meta.genres.length ? { genres: meta.genres } : {}),
+  };
+  asset.metadata = next;
+  return "downloading_art";
+};
+
+/** downloading_art → generating_palette. Spotify-only; manual albums arrive with art already saved. */
+const downloadArt: Step = async (asset, deps) => {
+  if (!deps.spotify)
+    throw new ConfigError("Spotify not configured but album needs its art");
+  const url = asset.metadata.spotifyArtUrl;
+  if (!url)
+    throw new PermanentError(
+      "Album has no cover art on Spotify — provide art manually",
+      "art_unavailable",
+    );
+
+  let art: Buffer;
+  try {
+    art = await deps.spotify.downloadArt(url);
+  } catch (err) {
+    if (err instanceof SpotifyError) classifySpotify(err, "art_unavailable");
+    throw err;
+  }
+
+  const abs = deps.store.paths.artworkFile(asset.curatorId);
+  mkdirSync(deps.store.paths.artwork, { recursive: true });
+  writeFileSync(abs, art);
+  asset.artwork = {
+    resolvedPath: deps.store.paths.relPosix(abs),
+    overrideActive: false,
+    contentHash: "sha256:" + createHash("sha256").update(art).digest("hex"),
+  };
+  return "generating_palette";
+};
+
+/**
+ * generating_palette → drafting_prompts (or awaiting_review if the art is monochrome). Reads the
+ * saved cover, runs Palette Press. Insufficient palettes are not a failure — a real album can be
+ * monochrome; we save what we found, flag it, and let the human decide (roadie-spec §6/§8).
+ */
+const generatePaletteStep: Step = async (asset, deps) => {
+  const abs = deps.store.paths.artworkFile(asset.curatorId);
+  let bytes: Buffer;
+  try {
+    bytes = readFileSync(abs);
+  } catch (err) {
+    throw new ConfigError(`Cover art missing on disk at ${abs}`, err);
+  }
+
+  const payload = await deps.generate(bytes, {
+    curatorId: asset.curatorId,
+    name: asset.metadata.name,
+    artist: asset.metadata.artist,
+    year: asset.metadata.year,
+  });
+
+  const insufficient = Boolean(payload.palette.insufficient);
+  asset.palette = {
+    colors: payload.palette.colors,
+    generatedAt: payload.meta?.generatedAt ?? deps.now(),
+    algorithm: payload.meta?.generator ?? "palette-press",
+    handEdited: false,
+    ...(insufficient
+      ? { insufficient: true, reason: payload.palette.reason }
+      : {}),
+  };
+  asset.pattern = {
+    type: payload.pattern.type,
+    params: payload.pattern.params,
+    handEdited: false,
+  };
+
+  if (insufficient) {
+    asset.roadie.flags.palette_insufficient = true;
+    return "awaiting_review";
+  }
+  return "drafting_prompts";
+};
+
+/** drafting_prompts → awaiting_review. Pure draft of the video + card-art prompts. */
+const draftPromptsStep: Step = async (asset, deps) => {
+  const colors = (asset.palette?.colors ?? []).map((c) => ({
+    hex: c.hex,
+    role: c.role,
+  }));
+  asset.promptDrafts = draftPrompts(asset.metadata, colors, { now: deps.now });
+  return "awaiting_review";
+};
+
+/** The step for each Roadie-driven state. `fresh` routes to the source's first real step. */
+export const STEPS: Record<string, Step> = {
+  fresh: async (asset) =>
+    asset.metadata.source === "spotify"
+      ? "fetching_metadata"
+      : "generating_palette",
+  fetching_metadata: fetchMetadata,
+  downloading_art: downloadArt,
+  generating_palette: generatePaletteStep,
+  drafting_prompts: draftPromptsStep,
+};
+
+/** Real Palette Press generator; the worker default when the caller doesn't inject a fake. */
+export const defaultGenerate: PaletteGenerator = generatePalette;

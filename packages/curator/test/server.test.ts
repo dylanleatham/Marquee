@@ -6,7 +6,7 @@ import { createFakeSpotify, type FakeAlbum } from "@marquee/fake-spotify";
 import { AssetStore } from "../src/store/asset-store.js";
 import { SpotifyClient } from "../src/spotify/client.js";
 import { buildServer } from "../src/server.js";
-import { fakeGenerate, buildMultipart } from "./helpers.js";
+import { fakeGenerate, fakeRoadie, buildMultipart } from "./helpers.js";
 
 const spotifyAlbum: FakeAlbum = {
   id: "abc12345",
@@ -24,14 +24,17 @@ const buildWithSpotify = () => {
     clientSecret: "s",
     fetch: fs.fetch,
   });
-  const { app } = buildServer({ store, generate: fakeGenerate, spotify });
-  return { app, store };
+  // Inject a fake-time Roadie so adds complete synchronously under drain().
+  const roadie = fakeRoadie(store, { spotify });
+  const { app } = buildServer({ store, spotify, roadie });
+  return { app, store, roadie };
 };
 
 const build = () => {
   const store = new AssetStore(mkdtempSync(join(tmpdir(), "curator-srv-")));
-  const { app } = buildServer({ store, generate: fakeGenerate });
-  return { app, store };
+  const roadie = fakeRoadie(store);
+  const { app } = buildServer({ store, generate: fakeGenerate, roadie });
+  return { app, store, roadie };
 };
 
 const addAlbum = (
@@ -64,15 +67,19 @@ describe("Curator HTTP API", () => {
     expect(res.json()).toMatchObject({ ok: true, albums: 0 });
   });
 
-  it("POST /api/albums (manual, multipart) creates the album and returns 201", async () => {
-    const { app, store } = build();
+  it("POST /api/albums (manual) queues the album, and Roadie drives it to awaiting_review", async () => {
+    const { app, store, roadie } = build();
     const res = await addAlbum(app, "Purple Rain", "Prince");
     expect(res.statusCode).toBe(201);
-    const { curatorId, state, paletteColors } = res.json();
+    const { curatorId, state } = res.json();
     expect(curatorId).toMatch(/^[a-z0-9]{8}$/);
-    expect(state).toBe("awaiting_review");
-    expect(paletteColors).toBe(2);
-    expect(store.read(curatorId)?.metadata.name).toBe("Purple Rain");
+    expect(state).toBe("generating_palette"); // queued, not yet processed
+
+    await roadie.drain();
+    const asset = store.read(curatorId)!;
+    expect(asset.metadata.name).toBe("Purple Rain");
+    expect(asset.roadie.state).toBe("awaiting_review");
+    expect(asset.palette!.colors).toHaveLength(2);
   });
 
   it("400s a multipart POST with no artwork file; 503s a JSON POST when Spotify is unconfigured", async () => {
@@ -96,16 +103,19 @@ describe("Curator HTTP API", () => {
   });
 
   it("lists, fetches one, 404s on missing, and deletes", async () => {
-    const { app, store } = build();
+    const { app, store, roadie } = build();
     const { curatorId } = (
       await addAlbum(app, "Kind of Blue", "Miles Davis")
     ).json();
+    await roadie.drain();
 
     const list = await app.inject({ method: "GET", url: "/api/albums" });
     expect(list.json().albums).toHaveLength(1);
     expect(list.json().albums[0]).toMatchObject({
       title: "Kind of Blue",
       source: "manual",
+      state: "awaiting_review",
+      paletteColors: 2,
     });
 
     const one = await app.inject({
@@ -129,6 +139,76 @@ describe("Curator HTTP API", () => {
     expect(
       (await app.inject({ method: "DELETE", url: `/api/albums/${curatorId}` }))
         .statusCode,
+    ).toBe(404);
+  });
+});
+
+describe("Roadie agent endpoints", () => {
+  it("groups the queue by human-facing state", async () => {
+    const { app, roadie } = build();
+    await addAlbum(app, "Album One", "Artist");
+    await addAlbum(app, "Album Two", "Artist");
+    await roadie.drain();
+
+    const queue = (
+      await app.inject({ method: "GET", url: "/api/agent/queue" })
+    ).json();
+    expect(queue.awaiting_review).toHaveLength(2);
+    expect(queue.errored).toHaveLength(0);
+    expect(queue.done_recently).toHaveLength(0);
+    expect(queue.awaiting_review[0]).toMatchObject({
+      title: expect.any(String),
+      state: "awaiting_review",
+    });
+  });
+
+  it("reports status and supports pause/resume", async () => {
+    const { app } = build();
+    const status = (
+      await app.inject({ method: "GET", url: "/api/agent/status" })
+    ).json();
+    expect(status).toMatchObject({ queueDepth: 0, paused: false });
+
+    const paused = (
+      await app.inject({ method: "POST", url: "/api/agent/pause" })
+    ).json();
+    expect(paused.paused).toBe(true);
+    const resumed = (
+      await app.inject({ method: "POST", url: "/api/agent/resume" })
+    ).json();
+    expect(resumed.paused).toBe(false);
+  });
+
+  it("retries a needs_manual album and 409s an album that isn't retryable", async () => {
+    const { app, store, roadie } = buildWithSpotify();
+    // Unknown id → 404 → needs_manual.
+    const { curatorId } = (
+      await app.inject({
+        method: "POST",
+        url: "/api/albums",
+        payload: { spotifyId: "ghostghost" },
+      })
+    ).json();
+    await roadie.drain();
+    expect(store.read(curatorId)!.roadie.state).toBe("needs_manual");
+
+    // Still 404 in the catalog, but the retry is accepted and re-runs the pipeline.
+    const retry = await app.inject({
+      method: "POST",
+      url: `/api/agent/retry/${curatorId}`,
+    });
+    expect(retry.statusCode).toBe(200);
+    await roadie.drain();
+    expect(store.read(curatorId)!.roadie.state).toBe("needs_manual");
+
+    // 404 for an unknown album; 409 for one that's already awaiting_review.
+    expect(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/api/agent/retry/zzzzzzzz",
+        })
+      ).statusCode,
     ).toBe(404);
   });
 });
@@ -184,7 +264,7 @@ describe("Curator Spotify API", () => {
   });
 
   it("adds via a JSON body and rejects duplicates with the existing curatorId", async () => {
-    const { app, store } = buildWithSpotify();
+    const { app, store, roadie } = buildWithSpotify();
     const add = await app.inject({
       method: "POST",
       url: "/api/albums",
@@ -193,10 +273,13 @@ describe("Curator Spotify API", () => {
     expect(add.statusCode).toBe(201);
     expect(add.json()).toMatchObject({
       source: "spotify",
-      state: "awaiting_review",
+      state: "fetching_metadata",
     });
     const curatorId = add.json().curatorId;
-    expect(store.read(curatorId)?.metadata.source).toBe("spotify");
+    await roadie.drain();
+    const asset = store.read(curatorId)!;
+    expect(asset.metadata.source).toBe("spotify");
+    expect(asset.roadie.state).toBe("awaiting_review");
 
     const dup = await app.inject({
       method: "POST",
@@ -207,13 +290,15 @@ describe("Curator Spotify API", () => {
     expect(dup.json().curatorId).toBe(curatorId);
   });
 
-  it("404s adding a nonexistent album", async () => {
-    const { app } = buildWithSpotify();
+  it("a nonexistent album is accepted (201) then parked at needs_manual by Roadie", async () => {
+    const { app, store, roadie } = buildWithSpotify();
     const res = await app.inject({
       method: "POST",
       url: "/api/albums",
       payload: { spotifyId: "doesnotexist" },
     });
-    expect(res.statusCode).toBe(404);
+    expect(res.statusCode).toBe(201);
+    await roadie.drain();
+    expect(store.read(res.json().curatorId)!.roadie.state).toBe("needs_manual");
   });
 });
