@@ -134,7 +134,9 @@ function buildContext(config, { files, diff }) {
 
 const OUTPUT_CONTRACT = `
 # Output contract (STRICT)
-Respond with ONLY a JSON array of findings — no prose before or after. Each finding:
+Respond with ONLY a JSON array of findings — no prose, and no markdown fences, before or after.
+The response MUST be a JSON array even for a single finding — wrap it as [ { ... } ], never a bare object.
+Each element of the array is one finding object:
 { "severity": "blocking" | "info", "file": "<repo-relative path>", "line": <int or null>, "message": "<one sentence>", "suggestion": "<optional fix>" }
 Emit "blocking" ONLY for issues your role is defined to block on. When in doubt, use "info".
 If you find nothing worth reporting, respond with exactly: []

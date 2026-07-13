@@ -15,6 +15,11 @@
  * collect every balanced `[...]` span that parses as JSON, plus the whole text and any
  * fenced block, then pick an array *of objects* (what a findings array is). This avoids
  * grabbing a stray string array from the explanation.
+ *
+ * Fallback (RA-1): when there's no array at all, the model may have emitted a lone finding
+ * as a bare object `{…}` (or one object per line), mirroring the single-object template in
+ * the output contract instead of wrapping it in `[ … ]`. Recover any object that looks like
+ * a finding rather than dropping the whole specialist's review.
  */
 export function extractJsonArray(text) {
   if (!text) return null;
@@ -60,11 +65,58 @@ export function extractJsonArray(text) {
   const isObjectArray = (a) =>
     a.every((x) => x && typeof x === "object" && !Array.isArray(x));
   const objectArrays = candidates.filter(isObjectArray);
-  if (objectArrays.length === 0) return null;
-  return objectArrays.reduce(
-    (best, a) => (a.length > best.length ? a : best),
-    objectArrays[0],
+  if (objectArrays.length > 0) {
+    return objectArrays.reduce(
+      (best, a) => (a.length > best.length ? a : best),
+      objectArrays[0],
+    );
+  }
+
+  // No array found. Recover lone finding object(s) emitted without the array wrapper.
+  // Only objects with a `message` count as findings — incidental JSON-ish prose objects
+  // (e.g. `{"retries": 3}`) must still yield null, not a phantom finding.
+  const looseFindings = extractObjects(text).filter(
+    (o) => typeof o.message === "string" && o.message.trim(),
   );
+  return looseFindings.length ? looseFindings : null;
+}
+
+/** Every balanced top-level `{...}` span that parses as a JSON object (string-aware). */
+function extractObjects(text) {
+  const objs = [];
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] !== "{") {
+      i++;
+      continue;
+    }
+    let depth = 0;
+    let inStr = false;
+    let esc = false;
+    let end = -1;
+    for (let j = i; j < text.length; j++) {
+      const c = text[j];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (c === "\\") esc = true;
+        else if (c === '"') inStr = false;
+      } else if (c === '"') inStr = true;
+      else if (c === "{") depth++;
+      else if (c === "}" && --depth === 0) {
+        end = j;
+        break;
+      }
+    }
+    if (end === -1) break; // unbalanced — stop
+    try {
+      const v = JSON.parse(text.slice(i, end + 1));
+      if (v && typeof v === "object" && !Array.isArray(v)) objs.push(v);
+    } catch {
+      /* not JSON — ignore */
+    }
+    i = end + 1; // skip past this span so nested braces aren't re-captured
+  }
+  return objs;
 }
 
 /** Normalize + tag raw model findings for one specialist. Drops malformed entries. */
