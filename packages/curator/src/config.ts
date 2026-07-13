@@ -12,6 +12,8 @@ export interface Config {
   host: string;
   /** Root for the album-assets store and the media store (default ~/marquee). */
   dataDir: string;
+  /** Spotify client-credentials, if configured. Absent → the Spotify add/search routes 503. */
+  spotify?: { clientId: string; clientSecret: string };
 }
 
 /**
@@ -29,6 +31,14 @@ export function loadConfig(override: Partial<Config> = {}): Config {
     : {};
   const server = file.server ?? {};
   const storage = file.storage ?? {};
+  const spotifyFile = file.spotify ?? {};
+
+  const clientId =
+    (spotifyFile.client_id as string | undefined) ??
+    process.env.SPOTIFY_CLIENT_ID;
+  const clientSecret =
+    (spotifyFile.client_secret as string | undefined) ??
+    process.env.SPOTIFY_CLIENT_SECRET;
 
   const base: Config = {
     port: Number(server.port ?? process.env.CURATOR_PORT ?? 4739),
@@ -40,6 +50,9 @@ export function loadConfig(override: Partial<Config> = {}): Config {
           join(homedir(), "marquee"),
       ),
     ),
+    ...(clientId && clientSecret
+      ? { spotify: { clientId, clientSecret } }
+      : {}),
   };
   return { ...base, ...override };
 }

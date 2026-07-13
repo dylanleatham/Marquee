@@ -68,8 +68,8 @@ export interface AlbumAsset {
   status: { highLevel: string; next: string | null; issues: string[] };
 }
 
-/** Build a fresh asset for a manually-added album whose palette has been generated. */
-export function buildManualAsset(args: {
+/** Build a fresh asset for a newly-added album whose palette has been generated (manual or Spotify). */
+export function buildAlbumAsset(args: {
   curatorId: string;
   metadata: AlbumMetadata;
   artworkPosixPath: string;

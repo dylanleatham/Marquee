@@ -1,5 +1,5 @@
 import { pathToFileURL } from "node:url";
-import Fastify from "fastify";
+import Fastify, { type FastifyReply } from "fastify";
 import multipart from "@fastify/multipart";
 import { loadConfig, type Config } from "./config.js";
 import { AssetStore } from "./store/asset-store.js";
@@ -8,6 +8,8 @@ import {
   ValidationError,
   type PaletteGenerator,
 } from "./albums/add-manual.js";
+import { addSpotifyAlbum, DuplicateAlbumError } from "./albums/add-spotify.js";
+import { SpotifyClient, SpotifyError } from "./spotify/client.js";
 import type { AlbumAsset } from "./albums/asset.js";
 
 export interface BuildOptions {
@@ -15,6 +17,8 @@ export interface BuildOptions {
   store?: AssetStore;
   /** Injected palette generator (tests pass a fake; prod uses real Palette Press). */
   generate?: PaletteGenerator;
+  /** Injected Spotify client (tests pass one backed by fake-spotify); prod builds from config. */
+  spotify?: SpotifyClient;
 }
 
 const summary = (a: AlbumAsset) => ({
@@ -29,15 +33,42 @@ const summary = (a: AlbumAsset) => ({
   paletteInsufficient: a.roadie.flags.palette_insufficient,
 });
 
+const created = (reply: FastifyReply, curatorId: string, asset: AlbumAsset) =>
+  reply.code(201).send({
+    curatorId,
+    source: asset.metadata.source,
+    state: asset.roadie.state,
+    paletteColors: asset.palette.colors.length,
+    paletteInsufficient: asset.roadie.flags.palette_insufficient,
+  });
+
+// Map a SpotifyError to an HTTP status: pass through 404/504, everything else is a bad gateway.
+const spotifyStatus = (err: SpotifyError): number =>
+  err.status === 404 ? 404 : err.status === 504 ? 504 : 502;
+
+// For the read-only GET routes: send SpotifyErrors, rethrow anything else.
+const spotifyErr = (err: unknown, reply: FastifyReply) => {
+  if (err instanceof SpotifyError)
+    return reply.code(spotifyStatus(err)).send({ error: err.message });
+  throw err;
+};
+
 export function buildServer(opts: BuildOptions = {}) {
   const config = loadConfig(opts.config);
   const store = opts.store ?? new AssetStore(config.dataDir);
+  const spotify =
+    opts.spotify ??
+    (config.spotify ? new SpotifyClient(config.spotify) : undefined);
   const app = Fastify({
     logger: { level: process.env.NODE_ENV === "test" ? "silent" : "info" },
   });
   app.register(multipart, { limits: { fileSize: 25 * 1024 * 1024 } });
 
-  app.get("/healthz", async () => ({ ok: true, albums: store.list().length }));
+  app.get("/healthz", async () => ({
+    ok: true,
+    albums: store.list().length,
+    spotify: Boolean(spotify),
+  }));
 
   app.get("/api/albums", async () => ({ albums: store.list().map(summary) }));
 
@@ -54,61 +85,108 @@ export function buildServer(opts: BuildOptions = {}) {
       : reply.code(404).send({ error: "not found" });
   });
 
-  // Manual add. multipart/form-data: text fields name, artist, year?, genres? + an `artwork` file.
+  // --- Spotify (read-only preview; add happens through POST /api/albums) ---
+  app.get("/api/spotify/search-albums", async (req, reply) => {
+    if (!spotify)
+      return reply.code(503).send({ error: "Spotify not configured" });
+    const q = (req.query as { q?: string }).q;
+    if (!q) return reply.code(400).send({ error: "q is required" });
+    try {
+      return { results: await spotify.searchAlbums(q) };
+    } catch (err) {
+      return spotifyErr(err, reply);
+    }
+  });
+
+  app.get("/api/spotify/album/:spotifyId", async (req, reply) => {
+    if (!spotify)
+      return reply.code(503).send({ error: "Spotify not configured" });
+    try {
+      return await spotify.getAlbum(
+        (req.params as { spotifyId: string }).spotifyId,
+      );
+    } catch (err) {
+      return spotifyErr(err, reply);
+    }
+  });
+
+  // --- Add an album. Multipart → manual entry (with cover upload); JSON → Spotify. ---
   app.post("/api/albums", async (req, reply) => {
-    if (!req.isMultipart()) {
-      return reply.code(415).send({
-        error: "POST an album as multipart/form-data with an artwork file",
+    if (req.isMultipart()) {
+      try {
+        // Parse inside the try so multipart/busboy errors get a clean 4xx.
+        const fields: Record<string, string> = {};
+        let artwork: Buffer | undefined;
+        for await (const part of req.parts()) {
+          if (part.type === "file") artwork = await part.toBuffer();
+          else fields[part.fieldname] = String(part.value);
+        }
+        const { curatorId, asset } = await addManualAlbum(
+          { store, generate: opts.generate },
+          {
+            name: fields.name ?? "",
+            artist: fields.artist ?? "",
+            year: fields.year ? Number(fields.year) : undefined,
+            genres: fields.genres
+              ?.split(",")
+              .map((s) => s.trim())
+              .filter(Boolean),
+            artwork: artwork ?? Buffer.alloc(0),
+          },
+        );
+        return created(reply, curatorId, asset);
+      } catch (err) {
+        if (err instanceof ValidationError)
+          return reply.code(400).send({ error: err.message });
+        const status = (err as { statusCode?: number }).statusCode;
+        if (status && status >= 400 && status < 500)
+          return reply.code(status).send({ error: (err as Error).message });
+        req.log.error(err);
+        return reply.code(500).send({ error: (err as Error).message });
+      }
+    }
+
+    // JSON body → Spotify add.
+    if (!spotify) {
+      return reply.code(503).send({
+        error: "Spotify not configured (set SPOTIFY_CLIENT_ID/SECRET)",
       });
     }
+    const body = (req.body ?? {}) as {
+      spotifyUri?: string;
+      spotifyId?: string;
+    };
     try {
-      // Inside the try so multipart/busboy errors (oversized file, malformed stream, aborted
-      // upload) get a clean 4xx instead of falling through to the generic error handler.
-      const fields: Record<string, string> = {};
-      let artwork: Buffer | undefined;
-      for await (const part of req.parts()) {
-        if (part.type === "file") artwork = await part.toBuffer();
-        else fields[part.fieldname] = String(part.value);
-      }
-      const { curatorId, asset } = await addManualAlbum(
-        { store, generate: opts.generate },
-        {
-          name: fields.name ?? "",
-          artist: fields.artist ?? "",
-          year: fields.year ? Number(fields.year) : undefined,
-          genres: fields.genres
-            ?.split(",")
-            .map((s) => s.trim())
-            .filter(Boolean),
-          artwork: artwork ?? Buffer.alloc(0),
-        },
+      const { curatorId, asset } = await addSpotifyAlbum(
+        { store, spotify, generate: opts.generate },
+        body,
       );
-      return reply.code(201).send({
-        curatorId,
-        state: asset.roadie.state,
-        paletteInsufficient: asset.roadie.flags.palette_insufficient,
-        paletteColors: asset.palette.colors.length,
-      });
+      return created(reply, curatorId, asset);
     } catch (err) {
+      if (err instanceof DuplicateAlbumError)
+        return reply
+          .code(409)
+          .send({ error: err.message, curatorId: err.curatorId });
       if (err instanceof ValidationError)
         return reply.code(400).send({ error: err.message });
-      // @fastify/multipart raises client errors (413 file too large, 400 malformed) with a
-      // 4xx statusCode — surface those rather than a blanket 500.
-      const status = (err as { statusCode?: number }).statusCode;
-      if (status && status >= 400 && status < 500)
-        return reply.code(status).send({ error: (err as Error).message });
+      if (err instanceof SpotifyError)
+        return reply.code(spotifyStatus(err)).send({ error: err.message });
       req.log.error(err);
       return reply.code(500).send({ error: (err as Error).message });
     }
   });
 
-  return { app, config, store };
+  return { app, config, store, spotify };
 }
 
 async function start(): Promise<void> {
   const { app, config } = buildServer();
   await app.listen({ port: config.port, host: config.host });
   app.log.info(`Curator data dir: ${config.dataDir}`);
+  if (!config.spotify)
+    app.log.warn(
+      "Spotify not configured — /api/spotify/* and JSON add will 503.",
+    );
 }
 
 if (

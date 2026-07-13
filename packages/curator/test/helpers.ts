@@ -1,5 +1,5 @@
 import type { GeneratedPalettePayload } from "@marquee/palette-press";
-import { buildManualAsset, type AlbumAsset } from "../src/albums/asset.js";
+import { buildAlbumAsset, type AlbumAsset } from "../src/albums/asset.js";
 
 /** A canned palette payload so tests don't run node-vibrant. */
 export const fakePayload = (): GeneratedPalettePayload => ({
@@ -27,7 +27,7 @@ export const makeAsset = (
   name = "N",
   artist = "A",
 ): AlbumAsset =>
-  buildManualAsset({
+  buildAlbumAsset({
     curatorId,
     metadata: { name, artist, source: "manual" },
     artworkPosixPath: `media/artwork/${curatorId}.jpg`,

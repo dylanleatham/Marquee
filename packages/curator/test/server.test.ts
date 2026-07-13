@@ -2,9 +2,31 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createFakeSpotify, type FakeAlbum } from "@marquee/fake-spotify";
 import { AssetStore } from "../src/store/asset-store.js";
+import { SpotifyClient } from "../src/spotify/client.js";
 import { buildServer } from "../src/server.js";
 import { fakeGenerate, buildMultipart } from "./helpers.js";
+
+const spotifyAlbum: FakeAlbum = {
+  id: "abc12345",
+  name: "Kind of Blue",
+  artist: { id: "miles1", name: "Miles Davis" },
+  year: 1959,
+  genres: ["jazz"],
+  artwork: Buffer.from("IMG"),
+};
+const buildWithSpotify = () => {
+  const store = new AssetStore(mkdtempSync(join(tmpdir(), "curator-sp-")));
+  const fs = createFakeSpotify([spotifyAlbum]);
+  const spotify = new SpotifyClient({
+    clientId: "id",
+    clientSecret: "s",
+    fetch: fs.fetch,
+  });
+  const { app } = buildServer({ store, generate: fakeGenerate, spotify });
+  return { app, store };
+};
 
 const build = () => {
   const store = new AssetStore(mkdtempSync(join(tmpdir(), "curator-srv-")));
@@ -53,7 +75,7 @@ describe("Curator HTTP API", () => {
     expect(store.read(curatorId)?.metadata.name).toBe("Purple Rain");
   });
 
-  it("rejects a POST with no artwork file (400) and a non-multipart POST (415)", async () => {
+  it("400s a multipart POST with no artwork file; 503s a JSON POST when Spotify is unconfigured", async () => {
     const { app } = build();
     const noFile = buildMultipart({ name: "X", artist: "Y" });
     const r400 = await app.inject({
@@ -64,12 +86,13 @@ describe("Curator HTTP API", () => {
     });
     expect(r400.statusCode).toBe(400);
 
-    const r415 = await app.inject({
+    // Non-multipart body → Spotify path, which 503s without configured creds.
+    const r503 = await app.inject({
       method: "POST",
       url: "/api/albums",
-      payload: { name: "x" },
+      payload: { spotifyId: "x" },
     });
-    expect(r415.statusCode).toBe(415);
+    expect(r503.statusCode).toBe(503);
   });
 
   it("lists, fetches one, 404s on missing, and deletes", async () => {
@@ -107,5 +130,90 @@ describe("Curator HTTP API", () => {
       (await app.inject({ method: "DELETE", url: `/api/albums/${curatorId}` }))
         .statusCode,
     ).toBe(404);
+  });
+});
+
+describe("Curator Spotify API", () => {
+  it("healthz reflects whether Spotify is configured", async () => {
+    expect(
+      (await build().app.inject({ method: "GET", url: "/healthz" })).json()
+        .spotify,
+    ).toBe(false);
+    expect(
+      (
+        await buildWithSpotify().app.inject({ method: "GET", url: "/healthz" })
+      ).json().spotify,
+    ).toBe(true);
+  });
+
+  it("503s the Spotify routes when unconfigured", async () => {
+    const { app } = build();
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/api/spotify/search-albums?q=x",
+        })
+      ).statusCode,
+    ).toBe(503);
+    expect(
+      (await app.inject({ method: "GET", url: "/api/spotify/album/abc12345" }))
+        .statusCode,
+    ).toBe(503);
+  });
+
+  it("searches and previews albums", async () => {
+    const { app } = buildWithSpotify();
+    const search = await app.inject({
+      method: "GET",
+      url: "/api/spotify/search-albums?q=blue",
+    });
+    expect(search.statusCode).toBe(200);
+    expect(search.json().results[0].name).toBe("Kind of Blue");
+
+    const preview = await app.inject({
+      method: "GET",
+      url: "/api/spotify/album/abc12345",
+    });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.json()).toMatchObject({
+      name: "Kind of Blue",
+      artist: "Miles Davis",
+      year: 1959,
+    });
+  });
+
+  it("adds via a JSON body and rejects duplicates with the existing curatorId", async () => {
+    const { app, store } = buildWithSpotify();
+    const add = await app.inject({
+      method: "POST",
+      url: "/api/albums",
+      payload: { spotifyUri: "spotify:album:abc12345" },
+    });
+    expect(add.statusCode).toBe(201);
+    expect(add.json()).toMatchObject({
+      source: "spotify",
+      state: "awaiting_review",
+    });
+    const curatorId = add.json().curatorId;
+    expect(store.read(curatorId)?.metadata.source).toBe("spotify");
+
+    const dup = await app.inject({
+      method: "POST",
+      url: "/api/albums",
+      payload: { spotifyId: "abc12345" },
+    });
+    expect(dup.statusCode).toBe(409);
+    expect(dup.json().curatorId).toBe(curatorId);
+  });
+
+  it("404s adding a nonexistent album", async () => {
+    const { app } = buildWithSpotify();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/albums",
+      payload: { spotifyId: "doesnotexist" },
+    });
+    expect(res.statusCode).toBe(404);
   });
 });

@@ -286,6 +286,13 @@ Runs on `http://localhost:4739` locally.
 > Press synchronously (Roadie makes it a background enqueue in step 5). Step 4 adds the Spotify
 > path (a JSON body, art fetched by URL); the two modes will share this endpoint, with content
 > type selecting the mode. The `{ mode }` envelope below is the original sketch.
+>
+> **Spotify add (build step 4):** a JSON body `{ spotifyUri }` or `{ spotifyId }` fetches real
+> metadata + cover art (client-credentials flow), dedupes on the Spotify URI (**409** with the
+> existing `curatorId` if already added), then runs Palette Press. The add response includes a
+> `source` field (`"manual" | "spotify"`). `GET /api/spotify/search-albums?q=` and
+> `GET /api/spotify/album/:spotifyId` back the search/preview UI. All Spotify routes **503** when
+> no credentials are configured.
 
 | Method | Path                     | Purpose                                                                                                                                                             |
 | ------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
