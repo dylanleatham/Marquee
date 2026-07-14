@@ -1,7 +1,13 @@
 import { pathToFileURL, fileURLToPath } from "node:url";
-import { existsSync, readFileSync, createReadStream } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  createReadStream,
+  readdirSync,
+  statSync,
+} from "node:fs";
 import { join } from "node:path";
-import Fastify, { type FastifyReply } from "fastify";
+import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import { loadConfig, type Config } from "./config.js";
@@ -15,7 +21,16 @@ import { addSpotifyAlbum, DuplicateAlbumError } from "./albums/add-spotify.js";
 import { SpotifyClient, SpotifyError } from "./spotify/client.js";
 import { Roadie } from "./roadie/worker.js";
 import { isCuratorId } from "./ids.js";
-import type { AlbumAsset, RoadieState } from "./albums/asset.js";
+import {
+  TransitionError,
+  type AlbumAsset,
+  type RoadieState,
+} from "./albums/asset.js";
+import * as actions from "./albums/actions.js";
+import { NotFoundError, type ActionDeps } from "./albums/actions.js";
+import { ffmpegProber, VideoError, type VideoProber } from "./media/video.js";
+import { ImageError } from "./media/images.js";
+import type { PromptType } from "./roadie/prompts.js";
 
 export interface BuildOptions {
   config?: Partial<Config>;
@@ -26,6 +41,8 @@ export interface BuildOptions {
   spotify?: SpotifyClient;
   /** Injected Roadie (tests pass one with fake time); prod builds one from store/spotify/generate. */
   roadie?: Roadie;
+  /** Injected video prober (tests pass a fake); prod uses ffprobe/ffmpeg. */
+  prober?: VideoProber;
 }
 
 const summary = (a: AlbumAsset) => ({
@@ -58,6 +75,40 @@ const spotifyErr = (err: unknown, reply: FastifyReply) => {
     return reply.code(spotifyStatus(err)).send({ error: err.message });
   throw err;
 };
+
+// Map an onboarding-action error to a status: not found → 404, bad input → 400, illegal state
+// transition → 409, rejected media → 422; anything else is an unexpected 500.
+const actionError = (
+  err: unknown,
+  reply: FastifyReply,
+  req: FastifyRequest,
+) => {
+  if (err instanceof NotFoundError)
+    return reply.code(404).send({ error: err.message });
+  if (err instanceof ValidationError)
+    return reply.code(400).send({ error: err.message });
+  if (err instanceof TransitionError)
+    return reply.code(409).send({ error: err.message });
+  if (err instanceof VideoError || err instanceof ImageError)
+    return reply.code(422).send({ error: err.message });
+  req.log.error(err);
+  return reply.code(500).send({ error: (err as Error).message });
+};
+
+/** Read a multipart request into plain fields + an optional single file buffer. */
+async function readUpload(req: FastifyRequest): Promise<{
+  fields: Record<string, string>;
+  file?: { buffer: Buffer; filename: string };
+}> {
+  const fields: Record<string, string> = {};
+  let file: { buffer: Buffer; filename: string } | undefined;
+  for await (const part of req.parts()) {
+    if (part.type === "file")
+      file = { buffer: await part.toBuffer(), filename: part.filename };
+    else fields[part.fieldname] = String(part.value);
+  }
+  return { fields, file };
+}
 
 /** Minimal per-album row for the queue view, with the timestamp it entered its current state. */
 const queueEntry = (a: AlbumAsset) => ({
@@ -137,7 +188,10 @@ export function buildServer(opts: BuildOptions = {}) {
         error: (m) => app.log.error(m),
       },
     });
-  app.register(multipart, { limits: { fileSize: 25 * 1024 * 1024 } });
+  const prober = opts.prober ?? ffmpegProber;
+  const actionDeps: ActionDeps = { store, prober };
+  // 500 MB ceiling — visualizer videos are the large uploads; cover/card art are tiny.
+  app.register(multipart, { limits: { fileSize: 500 * 1024 * 1024 } });
 
   app.get("/healthz", async () => ({
     ok: true,
@@ -175,6 +229,248 @@ export function buildServer(opts: BuildOptions = {}) {
       .header("content-type", "image/jpeg")
       .header("cache-control", "no-cache")
       .send(createReadStream(file));
+  });
+
+  // Stream a media file by absolute path, or 404. `download` sets a Content-Disposition attachment.
+  const sendFile = (
+    reply: FastifyReply,
+    file: string,
+    contentType: string,
+    download?: string,
+  ) => {
+    if (!existsSync(file))
+      return reply.code(404).send({ error: "not available yet" });
+    reply
+      .header("content-type", contentType)
+      .header("cache-control", "no-cache");
+    if (download)
+      reply.header("content-disposition", `attachment; filename="${download}"`);
+    return reply.send(createReadStream(file));
+  };
+
+  app.get("/api/albums/:curatorId/video", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    if (!isCuratorId(curatorId))
+      return reply.code(404).send({ error: "not found" });
+    return sendFile(reply, store.paths.visualizerFile(curatorId), "video/mp4");
+  });
+
+  app.get("/api/albums/:curatorId/thumbnail", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    if (!isCuratorId(curatorId))
+      return reply.code(404).send({ error: "not found" });
+    return sendFile(reply, store.paths.thumbnailFile(curatorId), "image/jpeg");
+  });
+
+  app.get("/api/albums/:curatorId/card-art", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const asset = store.read(curatorId);
+    if (!asset?.cardArt) return reply.code(404).send({ error: "no card art" });
+    const { ext } = asset.cardArt;
+    return sendFile(
+      reply,
+      store.paths.cardArtFile(curatorId, ext),
+      ext === "png" ? "image/png" : "image/jpeg",
+    );
+  });
+
+  // Print version: same image as a download. TODO: embed 300-DPI metadata / resize once we add an
+  // image pipeline (curator-spec recommends 1050x600 @ 300 DPI); v1 serves the stored art verbatim.
+  app.get("/api/albums/:curatorId/card-art/print", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const asset = store.read(curatorId);
+    if (!asset?.cardArt) return reply.code(404).send({ error: "no card art" });
+    const { ext } = asset.cardArt;
+    return sendFile(
+      reply,
+      store.paths.cardArtFile(curatorId, ext),
+      ext === "png" ? "image/png" : "image/jpeg",
+      `${curatorId}-card.${ext}`,
+    );
+  });
+
+  // --- Prompt actions (curator-spec §Prompts) ---
+  app.post(
+    "/api/albums/:curatorId/prompts/:type/redraft",
+    async (req, reply) => {
+      const { curatorId, type } = req.params as {
+        curatorId: string;
+        type: PromptType;
+      };
+      const { template } = (req.body ?? {}) as { template?: string };
+      try {
+        const asset = actions.redraftPrompt(
+          actionDeps,
+          curatorId,
+          type,
+          template,
+        );
+        return { promptDrafts: asset.promptDrafts };
+      } catch (err) {
+        return actionError(err, reply, req);
+      }
+    },
+  );
+
+  app.post(
+    "/api/albums/:curatorId/prompts/:type/copied",
+    async (req, reply) => {
+      const { curatorId, type } = req.params as {
+        curatorId: string;
+        type: PromptType;
+      };
+      try {
+        const asset = actions.markPromptCopied(actionDeps, curatorId, type);
+        return { state: asset.roadie.state };
+      } catch (err) {
+        return actionError(err, reply, req);
+      }
+    },
+  );
+
+  // --- Video: upload / incoming / attach / detach ---
+  app.post("/api/videos/upload", async (req, reply) => {
+    if (!req.isMultipart())
+      return reply.code(400).send({ error: "expected multipart/form-data" });
+    try {
+      const { fields, file } = await readUpload(req);
+      if (!file?.buffer.length)
+        return reply.code(400).send({ error: "a video file is required" });
+      if (fields.curatorId) {
+        const asset = await actions.attachVideoUpload(
+          actionDeps,
+          fields.curatorId,
+          file.buffer,
+          file.filename,
+        );
+        return reply
+          .code(201)
+          .send({ curatorId: fields.curatorId, state: asset.roadie.state });
+      }
+      const { name } = actions.saveIncoming(store, file.filename, file.buffer);
+      return reply.code(201).send({ incoming: name });
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
+  });
+
+  app.get("/api/incoming", async () => {
+    if (!existsSync(store.paths.incoming)) return { files: [] };
+    const files = readdirSync(store.paths.incoming)
+      .filter((n) => !n.startsWith(".")) // skip in-flight upload temp files
+      .map((name) => ({
+        name,
+        sizeBytes: statSync(store.paths.incomingFile(name)).size,
+      }));
+    return { files };
+  });
+
+  app.post("/api/albums/:curatorId/attach-video", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const { fileId } = (req.body ?? {}) as { fileId?: string };
+    if (!fileId) return reply.code(400).send({ error: "fileId is required" });
+    try {
+      const asset = await actions.attachVideoIncoming(
+        actionDeps,
+        curatorId,
+        fileId,
+      );
+      return { state: asset.roadie.state, visualizer: asset.visualizer };
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
+  });
+
+  app.post("/api/albums/:curatorId/detach-video", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const del = (req.query as { delete?: string }).delete === "1";
+    try {
+      const asset = actions.detachVideo(actionDeps, curatorId, del);
+      return { state: asset.roadie.state };
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
+  });
+
+  // --- Card art: upload / attach / detach ---
+  app.post("/api/card-art/upload", async (req, reply) => {
+    if (!req.isMultipart())
+      return reply.code(400).send({ error: "expected multipart/form-data" });
+    try {
+      const { fields, file } = await readUpload(req);
+      if (!file?.buffer.length)
+        return reply.code(400).send({ error: "an image file is required" });
+      if (fields.curatorId) {
+        const asset = actions.attachCardArtUpload(
+          actionDeps,
+          fields.curatorId,
+          file.buffer,
+          file.filename,
+        );
+        return reply
+          .code(201)
+          .send({ curatorId: fields.curatorId, cardArt: asset.cardArt });
+      }
+      const { name } = actions.saveIncoming(store, file.filename, file.buffer);
+      return reply.code(201).send({ incoming: name });
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
+  });
+
+  app.post("/api/albums/:curatorId/attach-card-art", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const { fileId } = (req.body ?? {}) as { fileId?: string };
+    if (!fileId) return reply.code(400).send({ error: "fileId is required" });
+    try {
+      const asset = actions.attachCardArtIncoming(
+        actionDeps,
+        curatorId,
+        fileId,
+      );
+      return { cardArt: asset.cardArt };
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
+  });
+
+  app.post("/api/albums/:curatorId/detach-card-art", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const del = (req.query as { delete?: string }).delete === "1";
+    try {
+      actions.detachCardArt(actionDeps, curatorId, del);
+      return { detached: curatorId };
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
+  });
+
+  // --- Preview: approve / reject ---
+  app.post("/api/albums/:curatorId/preview/approve", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    try {
+      const asset = actions.approvePreview(actionDeps, curatorId);
+      return { state: asset.roadie.state };
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
+  });
+
+  app.post("/api/albums/:curatorId/preview/reject", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const { to } = (req.body ?? {}) as {
+      to?: "awaiting_review" | "awaiting_video";
+    };
+    if (to !== "awaiting_review" && to !== "awaiting_video")
+      return reply
+        .code(400)
+        .send({ error: 'to must be "awaiting_review" or "awaiting_video"' });
+    try {
+      const asset = actions.rejectPreview(actionDeps, curatorId, to);
+      return { state: asset.roadie.state };
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
   });
 
   // --- Roadie: queue view + observability + controls (roadie-spec §10/§11/§12) ---

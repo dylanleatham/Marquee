@@ -358,6 +358,13 @@ Runs on `http://localhost:4739` locally.
 
 ### Card art
 
+> **Implementation notes (2026-07-13, build step 7):** two intentional gaps against the tables in
+> this section. (1) `attach-video` / `attach-card-art` currently claim a file from `/incoming/`
+> only — re-attaching a file that's already in `visualizers/`/`card-art/` isn't wired yet (the
+> drag-drop and `/incoming/` flows cover the real cases). (2) `/card-art/print` serves the stored
+> image verbatim; the 300-DPI print render is deferred until Curator gains an image pipeline (see
+> the curator README). Video ingest validation + thumbnails require `ffmpeg`.
+
 | Method | Path                                     | Purpose                                                                                                                                                                                                                                                                 |
 | ------ | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | POST   | `/api/card-art/upload`                   | Multipart upload. Body includes optional `curatorId` to attach immediately. Stores in `/incoming/` if no curatorId. Validates image format (PNG or JPG) and reasonable dimensions (recommends 1050x600 landscape or 600x1050 portrait, but doesn't reject other sizes). |

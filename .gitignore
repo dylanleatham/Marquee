@@ -36,6 +36,9 @@ coverage/
 # runtime overview — but in its OWN repo, not this code repo. Media is never tracked.
 marquee-data/
 media/
+# ...but `media/` above must not swallow SOURCE dirs named media (e.g. curator's ingest code).
+!packages/**/src/media/
+!packages/**/src/media/**
 *.mp4
 *.bak
 

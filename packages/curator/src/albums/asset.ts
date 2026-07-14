@@ -68,6 +68,34 @@ export interface PatternSection {
   handEdited: boolean;
 }
 
+/** The runtime-facing visualizer video (curator-spec §7), present once a video is attached. */
+export interface VisualizerSection {
+  fileId: string;
+  originalFilename: string;
+  durationSec?: number;
+  resolution?: string;
+  loopStrategy: "loop";
+  attachedAt: string;
+  notes?: string;
+}
+
+/** The Curator-only printed card art (curator-spec §7), present once card art is attached. */
+export interface CardArtSection {
+  fileId: string;
+  originalFilename: string;
+  /** Stored file extension (png/jpg) — needed to resolve the file on disk. */
+  ext: string;
+  resolution?: string;
+  orientation?: "landscape" | "portrait";
+  attachedAt: string;
+  notes?: string;
+}
+
+export interface VerificationSection {
+  previewApprovedAt?: string;
+  physicallyVerifiedAt?: string;
+}
+
 export interface RoadieSection {
   state: RoadieState;
   subState: string | null;
@@ -99,6 +127,12 @@ export interface AlbumAsset {
   pattern?: PatternSection;
   /** Present once Roadie has drafted the video + card-art prompts. */
   promptDrafts?: PromptDrafts;
+  /** Present once a video is attached (step 7). */
+  visualizer?: VisualizerSection;
+  /** Present once card art is attached (step 7). */
+  cardArt?: CardArtSection;
+  /** Preview-approval and physical-verification timestamps (steps 7/11). */
+  verification?: VerificationSection;
   roadie: RoadieSection;
   status: { highLevel: string; next: string | null; issues: string[] };
 }
@@ -132,6 +166,63 @@ export function deriveStatus(roadie: RoadieSection): AlbumAsset["status"] {
     next: NEXT_ACTION[roadie.state] ?? null,
     issues,
   };
+}
+
+/**
+ * Legal human-driven transitions (roadie-spec §5). Roadie only ever forward-transitions its own
+ * processing states; the human steps are advanced from the UI. `awaiting_preview` can also step
+ * *back* to review/video — the preview's "Something's off" escape hatch (curator-spec §10).
+ */
+const HUMAN_TRANSITIONS: Record<string, RoadieHumanState[]> = {
+  awaiting_review: ["awaiting_video"],
+  awaiting_video: ["awaiting_preview"],
+  awaiting_preview: ["awaiting_tag_write", "awaiting_review", "awaiting_video"],
+  awaiting_tag_write: ["awaiting_verify"],
+  awaiting_verify: ["verified"],
+};
+
+export const canTransition = (
+  from: RoadieState,
+  to: RoadieHumanState,
+): boolean => HUMAN_TRANSITIONS[from]?.includes(to) ?? false;
+
+export class TransitionError extends Error {
+  constructor(
+    readonly from: RoadieState,
+    readonly to: RoadieHumanState,
+  ) {
+    super(`Cannot move album from ${from} to ${to}`);
+    this.name = "TransitionError";
+  }
+}
+
+/** Append a history entry, capped at HISTORY_CAP (shared with the worker's advance path). */
+export function pushHistory(
+  roadie: RoadieSection,
+  state: RoadieState,
+  at: string,
+): void {
+  roadie.history.push({ state, at });
+  if (roadie.history.length > HISTORY_CAP)
+    roadie.history.splice(0, roadie.history.length - HISTORY_CAP);
+}
+
+/**
+ * Apply a human-driven state transition, or throw TransitionError if it isn't legal from the
+ * album's current state. Clears any stale error and recomputes the derived status. Callers persist.
+ */
+export function transitionTo(
+  asset: AlbumAsset,
+  to: RoadieHumanState,
+  now: () => string,
+): void {
+  if (!canTransition(asset.roadie.state, to))
+    throw new TransitionError(asset.roadie.state, to);
+  asset.roadie.state = to;
+  asset.roadie.subState = null;
+  asset.roadie.lastError = null;
+  pushHistory(asset.roadie, to, now());
+  asset.status = deriveStatus(asset.roadie);
 }
 
 function freshRoadie(state: RoadieState, at: string): RoadieSection {
