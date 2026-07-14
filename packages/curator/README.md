@@ -6,19 +6,24 @@ Specs: [curator](../../docs/specs/curator-spec.md) ·
 [roadie](../../docs/specs/roadie-spec.md) ·
 [onboarding workflow](../../docs/specs/album-onboarding-workflow.md).
 
-## Status — build step 6 (Curator UI: queue view + album detail)
+## Status — build step 7 (video upload + attachment + preview)
 
-The primary screens are live (Vite + React + TypeScript under `ui/`, built to `dist-ui/` and
-served by Fastify at `/`):
+The onboarding workflow now runs through the human steps. From the album detail you can copy the
+video prompt (which moves the album to `awaiting_video`), attach a video (upload or claim one from
+`/incoming/`), preview it against the animating palette, and approve — walking
+`awaiting_review → awaiting_video → awaiting_preview → awaiting_tag_write`. Card art can be attached
+at any point (independent of the state machine), with a print-download.
 
-- **Queue view** — albums grouped by human-facing state ("Needs you right now" / "Roadie is on
-  it" / "Needs your attention" / "Done"), live-polled so they flow as Roadie processes them, with
-  cover thumbnails, search, and the browser-tab "needs you" badge.
-- **Album detail** — read-mostly: state stepper, palette swatches, pattern, and the drafted
-  video + card-art prompts with Copy buttons; Retry/Delete actions. Palette editing, video/preview,
-  and tag/verify flows arrive with their own steps (7+).
-- **Add album** — Spotify search (debounced), paste-URI, and manual-entry (cover upload) tabs.
-- **Roadie strip** — persistent footer showing what Roadie's doing, with pause/resume.
+Video ingest validates the upload is **H.264/H.265 in MP4** via `ffprobe` and renders a thumbnail
+via `ffmpeg` (both required on `PATH`, or set `FFPROBE_PATH`/`FFMPEG_PATH`). The prober is injected,
+so the test suite never shells out to ffmpeg.
+
+### The UI (step 6)
+
+Primary screens (Vite + React + TypeScript under `ui/`, built to `dist-ui/`, served by Fastify at
+`/`): **Queue view** (grouped, live-polled, tab badge), **Album detail** (stepper, palette, prompts,
+and — as of step 7 — the video / card-art / preview sections), **Add album** (Spotify search /
+paste-URI / manual), and a persistent **Roadie strip** with pause/resume.
 
 ## Roadie (step 5)
 
@@ -40,9 +45,10 @@ The in-process worker then drives each album forward through its sub-states
 - **Controls + observability**: pause/resume, manual retry, a queue grouped by human-facing
   state, and a status/activity feed.
 
-Not yet built (later steps): video/preview/tag flows and palette editing (steps 7+), and Roadie's
+Not yet built (later steps): tag-write / physical-verify flows and palette editing, and Roadie's
 **Backdrop sync triggers** (★ in roadie-spec §6) — deferred until Backdrop exists (step 8), since
-there's no downstream to sync to and no human-driven transitions to observe yet.
+there's no downstream to sync to yet. `card-art/print` serves the stored image verbatim for now;
+embedding 300-DPI metadata waits on an image pipeline.
 
 Spotify is optional: set `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` (env or `config.toml
 [spotify]`). Without them, `/api/spotify/*` and JSON add return 503; manual add still works.
@@ -57,11 +63,14 @@ pnpm --filter @marquee/curator dev:ui  # UI: Vite dev server on :4738, proxies /
 For a production-style run, `pnpm --filter @marquee/curator build` (compiles the API and builds
 the UI to `dist-ui/`), then `pnpm --filter @marquee/curator start` — Fastify serves the UI at `/`.
 
+Video attach needs **ffmpeg** (`ffprobe` + `ffmpeg`) on `PATH`, or point at them with
+`FFPROBE_PATH` / `FFMPEG_PATH`. Everything else works without it.
+
 Data lives under `~/marquee/` by default (`album-assets/` + `media/`); override with
 `MARQUEE_DATA_DIR` or `config.toml`. Curator's own API is unauthenticated (LAN-only, like
 Home Assistant — runtime-overview §8).
 
-## Endpoints (through step 6)
+## Endpoints (through step 7)
 
 | Method | Path                             | Purpose                                                                                                                                                                                                       |
 | ------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -78,6 +87,21 @@ Home Assistant — runtime-overview §8).
 | POST   | `/api/agent/pause` · `/resume`   | Stop / start picking up new work (in-flight work finishes).                                                                                                                                                   |
 | GET    | `/api/spotify/search-albums?q=`  | Autocomplete album search (503 if Spotify unconfigured).                                                                                                                                                      |
 | GET    | `/api/spotify/album/:spotifyId`  | Preview one album's Spotify metadata.                                                                                                                                                                         |
+
+### Onboarding actions (step 7)
+
+| Method | Path                                                                     | Purpose                                                                                           |
+| ------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| POST   | `/api/albums/:id/prompts/:type/copied`                                   | Mark a prompt copied. Video → advances `awaiting_review → awaiting_video`.                        |
+| POST   | `/api/albums/:id/prompts/:type/redraft`                                  | Regenerate a prompt (`{ template? }`). `type` is `video` or `cardArt`.                            |
+| POST   | `/api/videos/upload`                                                     | Multipart. With `curatorId` → ingest + attach (`→ awaiting_preview`); else stash in `/incoming/`. |
+| GET    | `/api/incoming`                                                          | List unclaimed files in `/incoming/`.                                                             |
+| POST   | `/api/albums/:id/attach-video`                                           | Claim an `/incoming/` file by `{ fileId }` and attach it.                                         |
+| POST   | `/api/albums/:id/detach-video`                                           | Remove the visualizer (`?delete=1` deletes the file); steps back to `awaiting_video`.             |
+| POST   | `/api/card-art/upload` · `attach-card-art` · `detach-card-art`           | Same shape as video, for the Curator-only card art (state-independent).                           |
+| POST   | `/api/albums/:id/preview/approve`                                        | "Looks good" → `awaiting_tag_write`.                                                              |
+| POST   | `/api/albums/:id/preview/reject`                                         | "Something's off" → `{ to: awaiting_review \| awaiting_video }`.                                  |
+| GET    | `/api/albums/:id/video` · `/thumbnail` · `/card-art` · `/card-art/print` | Stream the attached media.                                                                        |
 
 ## Smoke test (the step-5 payoff: add, walk away, come back to `awaiting_review`)
 

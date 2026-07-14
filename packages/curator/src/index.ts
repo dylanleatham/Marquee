@@ -19,10 +19,29 @@ export {
   buildFreshAsset,
   deriveStatus,
   isProcessingState,
+  transitionTo,
+  canTransition,
+  TransitionError,
   type AlbumAsset,
   type AlbumMetadata,
   type RoadieState,
 } from "./albums/asset.js";
+export * as actions from "./albums/actions.js";
+export { NotFoundError } from "./albums/actions.js";
+export {
+  validateVideo,
+  ingestVideo,
+  ffmpegProber,
+  VideoError,
+  type VideoProber,
+  type VideoInfo,
+} from "./media/video.js";
+export {
+  detectImage,
+  imageSize,
+  ingestCardArt,
+  ImageError,
+} from "./media/images.js";
 export { Roadie, type RoadieOptions } from "./roadie/worker.js";
 export {
   draftPrompts,

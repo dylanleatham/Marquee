@@ -71,6 +71,8 @@ export interface DraftedPrompt {
   text: string;
   template: string;
   generatedAt: string;
+  /** Set when the human copies the prompt to hand to their video/card-art tool (step 7). */
+  copiedAt?: string;
 }
 
 export type PromptDrafts = Partial<Record<PromptType, DraftedPrompt>>;

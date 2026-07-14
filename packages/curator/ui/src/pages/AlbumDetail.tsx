@@ -1,30 +1,24 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import {
-  api,
-  type AlbumAsset,
-  type DraftedPrompt,
-  type PaletteColor,
-} from "../api";
+import { api, type AlbumAsset, type PaletteColor } from "../api";
 import { STATE_LABEL, STEPPER, stepperIndex, isProcessing } from "../format";
 import { usePoll } from "../hooks";
 import { Cover, StateBadge, Spinner } from "../components/common";
+import {
+  PromptBlock,
+  VideoSection,
+  CardArtSection,
+  PreviewSection,
+  type Run,
+} from "../components/workflow";
 
 /** Horizontal stepper of the human-driven milestones, current step highlighted (spec §10). */
 function Stepper({ asset }: { asset: AlbumAsset }) {
   const idx = stepperIndex(asset.roadie.state);
-  const processing = isProcessing(asset.roadie.state);
   return (
     <ol className="stepper">
       {STEPPER.map((s, i) => {
-        const cls =
-          i < idx
-            ? "done"
-            : i === idx
-              ? "current"
-              : processing
-                ? "pending"
-                : "pending";
+        const cls = i < idx ? "done" : i === idx ? "current" : "pending";
         return (
           <li key={s} className={`stepper__step stepper__step--${cls}`}>
             {STATE_LABEL[s]}
@@ -45,34 +39,6 @@ function Swatches({ colors }: { colors: PaletteColor[] }) {
           <span className="swatch__role">{c.role}</span>
         </div>
       ))}
-    </div>
-  );
-}
-
-/** A drafted prompt in a code block with a Copy button (the seam humans hand to their video tool). */
-function PromptBlock({
-  label,
-  prompt,
-}: {
-  label: string;
-  prompt: DraftedPrompt;
-}) {
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    await navigator.clipboard.writeText(prompt.text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
-  return (
-    <div className="prompt">
-      <div className="prompt__head">
-        <h3>{label}</h3>
-        <span className="tag">{prompt.template}</span>
-        <button className="btn btn--sm" onClick={copy}>
-          {copied ? "Copied ✓" : "Copy prompt"}
-        </button>
-      </div>
-      <pre className="prompt__text">{prompt.text}</pre>
     </div>
   );
 }
@@ -103,6 +69,23 @@ export function AlbumDetail() {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  // Shared action runner: clear any error, await the action, re-poll, and surface failures.
+  const run = useCallback<Run>(
+    async (fn) => {
+      setBusy(true);
+      setActionError(null);
+      try {
+        await fn();
+        await refresh();
+      } catch (err) {
+        setActionError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [refresh],
+  );
+
   if (error)
     return (
       <div className="page">
@@ -122,22 +105,10 @@ export function AlbumDetail() {
   const { metadata: m, roadie, palette, pattern, promptDrafts } = asset;
   const canRetry =
     roadie.state === "errored" || roadie.state === "needs_manual";
+  const processing = isProcessing(roadie.state);
+  // Once Roadie has drafted prompts (awaiting_review onward), the workflow sections are relevant.
+  const inWorkflow = !processing && palette != null;
 
-  const asError = (err: unknown) =>
-    setActionError(err instanceof Error ? err.message : String(err));
-
-  const retry = async () => {
-    setBusy(true);
-    setActionError(null);
-    try {
-      await api.retry(curatorId);
-      refresh();
-    } catch (err) {
-      asError(err);
-    } finally {
-      setBusy(false);
-    }
-  };
   const del = async () => {
     if (!confirm(`Delete "${m.name || curatorId}"? The asset file is removed.`))
       return;
@@ -146,7 +117,7 @@ export function AlbumDetail() {
       await api.deleteAlbum(curatorId);
       navigate("/");
     } catch (err) {
-      asError(err);
+      setActionError(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -179,10 +150,10 @@ export function AlbumDetail() {
           {canRetry && (
             <button
               className="btn btn--primary"
-              onClick={retry}
+              onClick={() => run(() => api.retry(curatorId))}
               disabled={busy}
             >
-              {busy ? "Retrying…" : "Retry"}
+              {busy ? "Working…" : "Retry"}
             </button>
           )}
           <button className="btn btn--danger" onClick={del}>
@@ -226,27 +197,52 @@ export function AlbumDetail() {
           </Section>
         )}
 
-        {promptDrafts?.video && (
+        {roadie.state === "awaiting_preview" && (
+          <Section title="Preview">
+            <PreviewSection curatorId={curatorId} asset={asset} run={run} />
+          </Section>
+        )}
+
+        {inWorkflow && promptDrafts?.video && (
           <Section title="Video prompt">
             <PromptBlock
-              label="For your video tool"
+              curatorId={curatorId}
+              type="video"
               prompt={promptDrafts.video}
+              canMarkCopied={roadie.state === "awaiting_review"}
+              run={run}
             />
           </Section>
         )}
-        {promptDrafts?.cardArt && (
+
+        {inWorkflow && (
+          <Section title="Video">
+            <VideoSection curatorId={curatorId} asset={asset} run={run} />
+          </Section>
+        )}
+
+        {inWorkflow && promptDrafts?.cardArt && (
           <Section title="Card art prompt">
             <PromptBlock
-              label="For your card-art tool"
+              curatorId={curatorId}
+              type="cardArt"
               prompt={promptDrafts.cardArt}
+              canMarkCopied={false}
+              run={run}
             />
+          </Section>
+        )}
+
+        {inWorkflow && (
+          <Section title="Card art">
+            <CardArtSection curatorId={curatorId} asset={asset} run={run} />
           </Section>
         )}
 
         <Section title="Coming in later steps">
           <p className="muted">
-            Palette editing, video upload &amp; preview, tag writing, and
-            physical verification arrive in subsequent build steps.
+            Palette editing, tag writing, and physical verification arrive in
+            subsequent build steps.
           </p>
         </Section>
       </main>

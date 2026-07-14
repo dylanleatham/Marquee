@@ -511,6 +511,96 @@ em {
   font-size: 13px;
 }
 
+/* --- workflow: prompts, dropzone, media, preview --- */
+.select {
+  font: inherit;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.select:focus {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
+.dropzone {
+  display: grid;
+  place-items: center;
+  min-height: 96px;
+  padding: 18px;
+  text-align: center;
+  color: var(--muted);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+.dropzone:hover {
+  border-color: var(--amber-soft);
+  background: var(--panel);
+}
+.dropzone--disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.dropzone--disabled:hover {
+  border-color: var(--line);
+  background: transparent;
+}
+
+.media-frame {
+  width: 100%;
+  max-width: 520px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: #000;
+  display: block;
+}
+.media-frame--art {
+  background: var(--panel-2);
+  object-fit: contain;
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.row-actions .muted {
+  margin-right: auto;
+  font-size: 12px;
+}
+
+.preview__stage {
+  position: relative;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  aspect-ratio: 16 / 9;
+  max-width: 620px;
+  background: #000;
+}
+.palette-stage {
+  position: absolute;
+  inset: 0;
+}
+.preview__video {
+  position: absolute;
+  inset: 8%;
+  width: 84%;
+  height: 84%;
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+}
+
 /* --- add screen --- */
 .tabs {
   display: flex;
