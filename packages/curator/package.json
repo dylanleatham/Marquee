@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "dev:ui": "vite ui",
+    "app": "pnpm build && node dist/server.js --open",
     "start": "node dist/server.js",
     "build": "tsc -b && vite build ui",
     "build:ui": "vite build ui",

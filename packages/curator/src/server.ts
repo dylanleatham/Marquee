@@ -1,4 +1,5 @@
 import { pathToFileURL, fileURLToPath } from "node:url";
+import { spawn } from "node:child_process";
 import {
   existsSync,
   readFileSync,
@@ -6,7 +7,7 @@ import {
   readdirSync,
   statSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, resolve, dirname } from "node:path";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
@@ -28,7 +29,12 @@ import {
 } from "./albums/asset.js";
 import * as actions from "./albums/actions.js";
 import { NotFoundError, type ActionDeps } from "./albums/actions.js";
-import { ffmpegProber, VideoError, type VideoProber } from "./media/video.js";
+import {
+  ffmpegProber,
+  ffmpegAvailable,
+  VideoError,
+  type VideoProber,
+} from "./media/video.js";
 import { ImageError } from "./media/images.js";
 import type { PromptType } from "./roadie/prompts.js";
 
@@ -615,14 +621,54 @@ export function buildServer(opts: BuildOptions = {}) {
   return { app, config, store, spotify, roadie };
 }
 
+/**
+ * Load the repo-root `.env` into process.env before config is read, so Spotify creds (and any other
+ * secrets kept there) work in both `dev` and the built server with no `--env-file` flag or
+ * `config.toml`. Missing/malformed `.env` is fine — we fall back to the real environment.
+ */
+function loadRootEnv(): void {
+  const load = (process as { loadEnvFile?: (p: string) => void }).loadEnvFile;
+  if (typeof load !== "function") return; // older Node — skip silently
+  const envPath = join(
+    resolve(dirname(fileURLToPath(import.meta.url)), "../../.."),
+    ".env",
+  );
+  if (!existsSync(envPath)) return;
+  try {
+    load(envPath);
+  } catch {
+    /* malformed .env — ignore and use the real environment */
+  }
+}
+
+/** Best-effort "open the app in the browser" for the `--open` convenience flag. */
+function openBrowser(url: string): void {
+  const win = process.platform === "win32";
+  const cmd = win ? "cmd" : process.platform === "darwin" ? "open" : "xdg-open";
+  const args = win ? ["/c", "start", "", url] : [url];
+  try {
+    spawn(cmd, args, { stdio: "ignore", detached: true }).unref();
+  } catch {
+    /* no browser / headless — the logged URL is enough */
+  }
+}
+
 async function start(): Promise<void> {
+  loadRootEnv();
   const { app, config } = buildServer();
   await app.listen({ port: config.port, host: config.host });
-  app.log.info(`Curator data dir: ${config.dataDir}`);
+  const url = `http://${config.host}:${config.port}`;
+  app.log.info(`Curator ready → ${url}  (data: ${config.dataDir})`);
   if (!config.spotify)
     app.log.warn(
-      "Spotify not configured — /api/spotify/* and JSON add will 503.",
+      "Spotify not configured — search + add-by-URI disabled (manual add still works). " +
+        "Set SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET in .env or config.toml.",
     );
+  if (!ffmpegAvailable())
+    app.log.warn(
+      "ffmpeg not found — video attach will fail. Install ffmpeg on PATH, or set FFPROBE_PATH / FFMPEG_PATH.",
+    );
+  if (process.argv.includes("--open")) openBrowser(url);
 }
 
 if (

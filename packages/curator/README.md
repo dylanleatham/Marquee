@@ -55,13 +55,22 @@ Spotify is optional: set `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` (env or `
 
 ## Run
 
+One command from the repo root — builds the API + UI, starts the server, and opens the browser:
+
 ```bash
-pnpm --filter @marquee/curator dev     # API: tsx watch, http://127.0.0.1:4739
-pnpm --filter @marquee/curator dev:ui  # UI: Vite dev server on :4738, proxies /api → :4739
+pnpm curator          # → builds, serves API+UI at http://127.0.0.1:4739, opens it
 ```
 
-For a production-style run, `pnpm --filter @marquee/curator build` (compiles the API and builds
-the UI to `dist-ui/`), then `pnpm --filter @marquee/curator start` — Fastify serves the UI at `/`.
+The server auto-loads the repo-root `.env`, so `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET`
+there enable Spotify search + add-by-URI with no extra flags. Without them, manual add (cover
+upload) still works. On startup it prints the URL and warns if Spotify or ffmpeg is missing.
+
+**Developing** (hot reload) — two terminals:
+
+```bash
+pnpm --filter @marquee/curator dev     # API: tsx watch, http://127.0.0.1:4739 (also loads .env)
+pnpm --filter @marquee/curator dev:ui  # UI: Vite on :4738, proxies /api → :4739  → open :4738
+```
 
 Video attach needs **ffmpeg** (`ffprobe` + `ffmpeg`) on `PATH`, or point at them with
 `FFPROBE_PATH` / `FFMPEG_PATH`. Everything else works without it.

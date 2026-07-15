@@ -1,7 +1,7 @@
 // Video ingest (curator-spec §9): probe → validate (H.264/H.265 in MP4) → thumbnail → place in
 // visualizers/. The prober is an interface so tests inject a fake and never shell out to ffmpeg
 // (same pattern as the Spotify/palette fakes); production uses FfmpegProber over the real binaries.
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, copyFileSync, rmSync } from "node:fs";
 import type { Paths } from "../store/paths.js";
 import type { VisualizerSection } from "../albums/asset.js";
@@ -131,6 +131,15 @@ function run(bin: string, args: string[]): Promise<string> {
         : reject(new VideoError(`${bin} exited ${code}: ${err.slice(0, 300)}`)),
     );
   });
+}
+
+/** Is ffprobe runnable? Used at startup to warn early when video attach won't work. */
+export function ffmpegAvailable(): boolean {
+  try {
+    return spawnSync(resolveBin(FFPROBE), ["-version"], { windowsHide: true }).status === 0;
+  } catch {
+    return false;
+  }
 }
 
 export const ffmpegProber: VideoProber = {
