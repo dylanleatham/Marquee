@@ -133,11 +133,21 @@ function run(bin: string, args: string[]): Promise<string> {
   });
 }
 
-/** Is ffprobe runnable? Used at startup to warn early when video attach won't work. */
-export function ffmpegAvailable(): boolean {
+/**
+ * Is ffprobe runnable? Backs the startup warning. `spawn` is injectable (mirroring VideoProber) so
+ * tests never shell out, and the probe is capped by a timeout: this is a *synchronous* spawn, so a
+ * hung ffprobe would otherwise block the event loop. Callers run it before accepting requests.
+ */
+export function ffmpegAvailable(spawn: typeof spawnSync = spawnSync): boolean {
   try {
-    return spawnSync(resolveBin(FFPROBE), ["-version"], { windowsHide: true }).status === 0;
+    return (
+      spawn(resolveBin(FFPROBE), ["-version"], {
+        windowsHide: true,
+        timeout: 5_000,
+      }).status === 0
+    );
   } catch {
+    // Missing or unspawnable binary — that *is* the answer ("no ffmpeg"), not an error to surface.
     return false;
   }
 }

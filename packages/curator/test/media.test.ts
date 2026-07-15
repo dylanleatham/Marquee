@@ -3,9 +3,11 @@ import { mkdtempSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Paths } from "../src/store/paths.js";
+import type { spawnSync } from "node:child_process";
 import {
   validateVideo,
   ingestVideo,
+  ffmpegAvailable,
   VideoError,
   type VideoInfo,
 } from "../src/media/video.js";
@@ -85,6 +87,34 @@ describe("ingestVideo", () => {
       ),
     ).rejects.toThrow(VideoError);
     expect(existsSync(p.visualizerFile("abcd1234"))).toBe(false);
+  });
+});
+
+describe("ffmpegAvailable", () => {
+  // The injected spawn stands in for spawnSync; only `status` and throwing behaviour matter.
+  const fakeSpawn = (result: { status: number } | Error) =>
+    ((..._args: unknown[]) => {
+      if (result instanceof Error) throw result;
+      return result;
+    }) as unknown as typeof spawnSync;
+
+  it("is true only when ffprobe exits 0", () => {
+    expect(ffmpegAvailable(fakeSpawn({ status: 0 }))).toBe(true);
+    expect(ffmpegAvailable(fakeSpawn({ status: 1 }))).toBe(false);
+  });
+
+  it("reports false (not throw) when the binary can't be spawned at all", () => {
+    expect(ffmpegAvailable(fakeSpawn(new Error("ENOENT")))).toBe(false);
+  });
+
+  it("caps the probe with a timeout so a hung ffprobe can't block the event loop", () => {
+    let opts: { timeout?: number } | undefined;
+    const capture = ((_bin: string, _args: string[], o: { timeout?: number }) => {
+      opts = o;
+      return { status: 0 };
+    }) as unknown as typeof spawnSync;
+    ffmpegAvailable(capture);
+    expect(opts?.timeout).toBeGreaterThan(0);
   });
 });
 

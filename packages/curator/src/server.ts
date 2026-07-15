@@ -656,6 +656,10 @@ function openBrowser(url: string): void {
 async function start(): Promise<void> {
   loadRootEnv();
   const { app, config } = buildServer();
+  // Probe ffmpeg *before* listening: it's a synchronous spawn, so doing it once we're serving would
+  // block the event loop (and every in-flight request) if the binary hangs.
+  const haveFfmpeg = ffmpegAvailable();
+
   await app.listen({ port: config.port, host: config.host });
   const url = `http://${config.host}:${config.port}`;
   app.log.info(`Curator ready → ${url}  (data: ${config.dataDir})`);
@@ -664,7 +668,7 @@ async function start(): Promise<void> {
       "Spotify not configured — search + add-by-URI disabled (manual add still works). " +
         "Set SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET in .env or config.toml.",
     );
-  if (!ffmpegAvailable())
+  if (!haveFfmpeg)
     app.log.warn(
       "ffmpeg not found — video attach will fail. Install ffmpeg on PATH, or set FFPROBE_PATH / FFMPEG_PATH.",
     );
