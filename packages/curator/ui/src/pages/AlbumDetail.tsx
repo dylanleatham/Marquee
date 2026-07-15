@@ -209,7 +209,6 @@ export function AlbumDetail() {
               curatorId={curatorId}
               type="video"
               prompt={promptDrafts.video}
-              canMarkCopied={roadie.state === "awaiting_review"}
               run={run}
             />
           </Section>
@@ -227,7 +226,6 @@ export function AlbumDetail() {
               curatorId={curatorId}
               type="cardArt"
               prompt={promptDrafts.cardArt}
-              canMarkCopied={false}
               run={run}
             />
           </Section>

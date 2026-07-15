@@ -100,12 +100,13 @@ The album onboarding workflow already defined per-album states. Roadie doesn't i
                             │  Human-driven states│  ┌───────────────────┐
                             │                     │  │  Terminal states  │
                             │  awaiting_review    │  │                   │
-                            │           │         │  │  verified         │
-                            │           ▼         │  │  (done)           │
-                            │  awaiting_video     │  │                   │
-                            │           │ ★sync   │  │  needs_manual     │
-                            │           ▼         │  │  (Roadie gave up, │
-                            │  awaiting_preview   │  │   labeled clearly)│
+                            │        │  │         │  │  verified         │
+                            │        │  ▼         │  │  (done)           │
+                            │        │ awaiting_  │  │                   │
+                            │        │  video     │  │  needs_manual     │
+                            │        │  │ ★sync   │  │  (Roadie gave up, │
+                            │        ▼  ▼         │  │   labeled clearly)│
+                            │  awaiting_preview   │  │                   │
                             │           │         │  │                   │
                             │           ▼         │  └───────────────────┘
                             │  awaiting_tag_write │
@@ -171,7 +172,9 @@ Two important properties:
 
 In addition to the sub-states above, Roadie observes two transitions in the human-driven part of the lifecycle and triggers Backdrop synchronization:
 
-**On video attach** (`awaiting_video` → `awaiting_preview`): Roadie initiates an rsync of the newly attached video file from Curator's media store to Backdrop's SD card. Video files are large; syncing eagerly at attach time means the preview and simulate-scan flows have the real file available on the Pi when the user tries them. The metadata push to Backdrop's `library.json` already happened via Curator's post-save hook — Roadie doesn't duplicate that work, only the file sync.
+**On video attach** (→ `awaiting_preview`, from either `awaiting_video` or — when you already had
+the video — `awaiting_review`; [ADR 0005](../adrs/0005-video-attach-does-not-require-copying-the-prompt.md)):
+Roadie initiates an rsync of the newly attached video file from Curator's media store to Backdrop's SD card. Video files are large; syncing eagerly at attach time means the preview and simulate-scan flows have the real file available on the Pi when the user tries them. The metadata push to Backdrop's `library.json` already happened via Curator's post-save hook — Roadie doesn't duplicate that work, only the file sync.
 
 **On verified** (any → `verified`): Roadie runs a final sync verification by calling Curator's `POST /api/backdrop/verify-sync` endpoint. Any discrepancies (missing files, stale metadata) are logged as issues on the album — the album stays `verified` because the human confirmed it works physically, but the sync warning surfaces on the album's detail view so it can be resolved before the next play.
 

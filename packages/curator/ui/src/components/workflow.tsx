@@ -1,6 +1,6 @@
-// The interactive onboarding sections of the album detail (step 7): prompt (copy / regenerate /
-// mark-copied), video (upload / player / detach), card art, and the preview checkpoint. Each action
-// goes through the `run` helper the page provides, which handles errors + re-polls the album.
+// The interactive onboarding sections of the album detail (step 7): prompt (copy / regenerate),
+// video (upload / player / detach), card art, and the preview checkpoint. Each action goes through
+// the `run` helper the page provides, which handles errors + re-polls the album.
 import { useEffect, useRef, useState } from "react";
 import {
   api,
@@ -27,26 +27,30 @@ function pickFile(onFile: (f: File) => void) {
   };
 }
 
-/** A drafted prompt: copy, regenerate with a template, and (for video, at review) mark-copied. */
+/** A drafted prompt: copy (which records the copy) and regenerate with a template. */
 export function PromptBlock({
   curatorId,
   type,
   prompt,
-  canMarkCopied,
   run,
 }: {
   curatorId: string;
   type: PromptType;
   prompt: DraftedPrompt;
-  canMarkCopied: boolean;
   run: Run;
 }) {
   const [copied, setCopied] = useState(false);
   const templates = type === "video" ? VIDEO_TEMPLATES : CARD_ART_TEMPLATES;
+  // Copying the prompt *is* the signal (ADR 0005) — no second "Mark copied" click. The server
+  // decides what that means: for the video prompt at review it advances to awaiting_video; for
+  // card art it's bookkeeping. The clipboard write is best-effort on purpose: a denied permission
+  // or unfocused document must not strand the album at review, and the text is on screen to take
+  // by hand either way. The click is the signal, not the clipboard.
   const copy = async () => {
-    await navigator.clipboard.writeText(prompt.text);
+    await navigator.clipboard.writeText(prompt.text).catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
+    run(() => api.markPromptCopied(curatorId, type));
   };
   return (
     <div className="prompt">
@@ -65,24 +69,16 @@ export function PromptBlock({
             </option>
           ))}
         </select>
-        <button className="btn btn--sm" onClick={copy}>
+        <button className="btn btn--primary btn--sm" onClick={copy}>
           {copied ? "Copied ✓" : "Copy prompt"}
         </button>
-        {canMarkCopied && (
-          <button
-            className="btn btn--primary btn--sm"
-            onClick={() => run(() => api.markPromptCopied(curatorId, type))}
-          >
-            Mark copied →
-          </button>
-        )}
       </div>
       <pre className="prompt__text">{prompt.text}</pre>
     </div>
   );
 }
 
-/** Video: a drop zone until attached (only once past review), then an inline player + replace/detach. */
+/** Video: a drop zone until attached (open from review onward), then an inline player + replace/detach. */
 export function VideoSection({
   curatorId,
   asset,
@@ -94,7 +90,12 @@ export function VideoSection({
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const state = asset.roadie.state;
-  const canUpload = state === "awaiting_video" || state === "awaiting_preview";
+  // Mirrors the server's VIDEO_ATTACHABLE (albums/actions.ts): attachable from review onward, so
+  // a video you already have doesn't need the prompt touched first (issue #11 / ADR 0005).
+  const canUpload =
+    state === "awaiting_review" ||
+    state === "awaiting_video" ||
+    state === "awaiting_preview";
   const upload = (f: File) => {
     const form = new FormData();
     form.set("file", f);
@@ -163,7 +164,7 @@ export function VideoSection({
       />
       {canUpload
         ? "Drop an H.264 MP4 here, or click to choose"
-        : "Copy the video prompt above first, then attach your video here"}
+        : "Available once Roadie has the album ready for review"}
     </label>
   );
 }

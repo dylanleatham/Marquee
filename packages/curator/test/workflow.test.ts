@@ -176,6 +176,50 @@ describe("onboarding workflow", () => {
   });
 });
 
+// Issue #11: you may already have the video in hand. Attaching one must not require first
+// announcing you copied the prompt — that gate only made sense when the prompt was the only way
+// to get a video. Both attach entry points (upload, /incoming/ claim) share the gate.
+describe("video attach from awaiting_review (issue #11)", () => {
+  it("attaches an uploaded video straight from awaiting_review", async () => {
+    const { app, store, curatorId } = await serverWithReviewedAlbum();
+    expect(store.read(curatorId)!.roadie.state).toBe("awaiting_review");
+
+    const up = await uploadVideo(app, curatorId);
+    expect(up.statusCode).toBe(201);
+    expect(up.json().state).toBe("awaiting_preview");
+    expect(store.read(curatorId)!.visualizer).toMatchObject({
+      resolution: "1920x1080",
+    });
+  });
+
+  it("claims an /incoming/ video straight from awaiting_review", async () => {
+    const { app, store, curatorId } = await serverWithReviewedAlbum();
+    const mp = buildMultipart(
+      {},
+      {
+        field: "file",
+        filename: "clip.mp4",
+        contentType: "video/mp4",
+        data: Buffer.from("VID"),
+      },
+    );
+    const stash = await app.inject({
+      method: "POST",
+      url: "/api/videos/upload",
+      headers: { "content-type": mp.contentType },
+      payload: mp.body,
+    });
+    const name = stash.json().incoming;
+
+    expect(store.read(curatorId)!.roadie.state).toBe("awaiting_review");
+    const attach = await post(app, `/api/albums/${curatorId}/attach-video`, {
+      fileId: name,
+    });
+    expect(attach.statusCode).toBe(200);
+    expect(attach.json().state).toBe("awaiting_preview");
+  });
+});
+
 describe("incoming claim flow", () => {
   it("stashes a video in /incoming/, lists it, and attaches it by fileId", async () => {
     const { app, store, curatorId } = await serverWithReviewedAlbum();
@@ -259,8 +303,14 @@ describe("incoming claim flow", () => {
 });
 
 describe("workflow guards", () => {
-  it("409s attaching a video from the wrong state", async () => {
-    const { app, curatorId } = await serverWithReviewedAlbum(); // awaiting_review, not awaiting_video
+  // Attaching from awaiting_review is legal as of #11, so the guard now bites where it should:
+  // an album still in Roadie's pipeline has no palette or prompts yet — a video is premature.
+  it("409s attaching a video to an album Roadie hasn't finished yet", async () => {
+    const { app, store, curatorId } = await serverWithReviewedAlbum();
+    const asset = store.read(curatorId)!;
+    asset.roadie.state = "generating_palette";
+    store.save(asset);
+
     const res = await uploadVideo(app, curatorId);
     expect(res.statusCode).toBe(409);
   });
