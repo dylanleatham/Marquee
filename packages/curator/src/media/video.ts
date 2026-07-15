@@ -1,7 +1,7 @@
 // Video ingest (curator-spec §9): probe → validate (H.264/H.265 in MP4) → thumbnail → place in
 // visualizers/. The prober is an interface so tests inject a fake and never shell out to ffmpeg
 // (same pattern as the Spotify/palette fakes); production uses FfmpegProber over the real binaries.
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, copyFileSync, rmSync } from "node:fs";
 import type { Paths } from "../store/paths.js";
 import type { VisualizerSection } from "../albums/asset.js";
@@ -131,6 +131,25 @@ function run(bin: string, args: string[]): Promise<string> {
         : reject(new VideoError(`${bin} exited ${code}: ${err.slice(0, 300)}`)),
     );
   });
+}
+
+/**
+ * Is ffprobe runnable? Backs the startup warning. `spawn` is injectable (mirroring VideoProber) so
+ * tests never shell out, and the probe is capped by a timeout: this is a *synchronous* spawn, so a
+ * hung ffprobe would otherwise block the event loop. Callers run it before accepting requests.
+ */
+export function ffmpegAvailable(spawn: typeof spawnSync = spawnSync): boolean {
+  try {
+    return (
+      spawn(resolveBin(FFPROBE), ["-version"], {
+        windowsHide: true,
+        timeout: 5_000,
+      }).status === 0
+    );
+  } catch {
+    // Missing or unspawnable binary — that *is* the answer ("no ffmpeg"), not an error to surface.
+    return false;
+  }
 }
 
 export const ffmpegProber: VideoProber = {

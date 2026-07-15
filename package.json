@@ -9,6 +9,7 @@
   },
   "scripts": {
     "setup": "node scripts/setup.mjs",
+    "curator": "pnpm --filter @marquee/curator app",
     "dev": "turbo run dev",
     "build": "turbo run build",
     "test": "turbo run test",
