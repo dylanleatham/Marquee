@@ -12,9 +12,16 @@ export interface Config {
   host: string;
   /** Root for the album-assets store and the media store (default ~/marquee). */
   dataDir: string;
+  /** Ceiling for a single multipart upload. Visualizer videos are the only large uploads. */
+  maxUploadBytes: number;
   /** Spotify client-credentials, if configured. Absent → the Spotify add/search routes 503. */
   spotify?: { clientId: string; clientSecret: string };
 }
+
+// Upload ceiling. A compiled-in 500 MB cap rejected real 1 GB visualizer videos (issue #12), so
+// this is configurable and defaults high enough for them. It stays bounded on purpose: uploads are
+// buffered in memory before ffprobe sees them, so "unlimited" would be a way to OOM the box.
+const DEFAULT_MAX_UPLOAD_MB = 2048;
 
 /**
  * Curator config from config.toml / env / defaults. Curator's own UI+API runs unauthenticated
@@ -40,9 +47,23 @@ export function loadConfig(override: Partial<Config> = {}): Config {
     (spotifyFile.client_secret as string | undefined) ??
     process.env.SPOTIFY_CLIENT_SECRET;
 
+  // A malformed value (NaN, zero, negative) falls back to the default rather than silently
+  // wedging every upload behind a nonsense ceiling.
+  const maxUploadMb = Number(
+    storage.max_upload_mb ??
+      process.env.CURATOR_MAX_UPLOAD_MB ??
+      DEFAULT_MAX_UPLOAD_MB,
+  );
+
   const base: Config = {
     port: Number(server.port ?? process.env.CURATOR_PORT ?? 4739),
     host: String(server.host ?? "127.0.0.1"),
+    maxUploadBytes:
+      (Number.isFinite(maxUploadMb) && maxUploadMb > 0
+        ? maxUploadMb
+        : DEFAULT_MAX_UPLOAD_MB) *
+      1024 *
+      1024,
     dataDir: resolve(
       String(
         storage.data_dir ??

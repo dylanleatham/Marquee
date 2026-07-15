@@ -70,6 +70,10 @@ Data lives under `~/marquee/` by default (`album-assets/` + `media/`); override 
 `MARQUEE_DATA_DIR` or `config.toml`. Curator's own API is unauthenticated (LAN-only, like
 Home Assistant — runtime-overview §8).
 
+Uploads are capped at **2048 MB** per file — override with `CURATOR_MAX_UPLOAD_MB` (env) or
+`storage.max_upload_mb` (`config.toml`). Only visualizer videos get anywhere near it; going over
+returns a `413` naming the limit (spec §9).
+
 ## Endpoints (through step 7)
 
 | Method | Path                             | Purpose                                                                                                                                                                                                       |

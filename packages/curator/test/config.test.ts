@@ -56,4 +56,32 @@ describe("loadConfig", () => {
     expect(loadConfig().port).toBe(4800);
     expect(loadConfig({ port: 9999 }).port).toBe(9999);
   });
+
+  // Upload ceiling (issue #12): a compiled-in 500 MB cap rejected real ~1 GB visualizer videos.
+  it("defaults the upload ceiling high enough for a ~1 GB visualizer video", () => {
+    noFile();
+    delete process.env.CURATOR_MAX_UPLOAD_MB;
+    const c = loadConfig();
+    expect(c.maxUploadBytes).toBe(2048 * 1024 * 1024);
+    expect(c.maxUploadBytes).toBeGreaterThanOrEqual(1024 ** 3);
+  });
+
+  it("takes the upload ceiling from env or config.toml, file winning", () => {
+    noFile();
+    process.env.CURATOR_MAX_UPLOAD_MB = "256";
+    expect(loadConfig().maxUploadBytes).toBe(256 * 1024 * 1024);
+
+    withFile("[storage]\nmax_upload_mb = 512\n");
+    expect(loadConfig().maxUploadBytes).toBe(512 * 1024 * 1024);
+  });
+
+  // A nonsense ceiling would otherwise wedge every upload behind a NaN/zero limit.
+  it.each(["not-a-number", "0", "-1", ""])(
+    "falls back to the default ceiling for a malformed value (%j)",
+    (value) => {
+      noFile();
+      process.env.CURATOR_MAX_UPLOAD_MB = value;
+      expect(loadConfig().maxUploadBytes).toBe(2048 * 1024 * 1024);
+    },
+  );
 });

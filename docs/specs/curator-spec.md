@@ -349,12 +349,12 @@ Runs on `http://localhost:4739` locally.
 
 ### Videos
 
-| Method | Path                                  | Purpose                                                                                                                      |
-| ------ | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| POST   | `/api/videos/upload`                  | Multipart upload. Body includes optional `curatorId` to attach immediately. Stores in `/incoming/` if no curatorId.          |
-| GET    | `/api/incoming`                       | Lists files in `/incoming/` with thumbnails and inferred metadata.                                                           |
-| POST   | `/api/albums/:curatorId/attach-video` | Body: `{ fileId }` — either an ID of a file already in `visualizers/`, or the filename of a file in `/incoming/` (moves it). |
-| POST   | `/api/albums/:curatorId/detach-video` | Removes the visualizer reference. File stays on disk unless `?delete=1`.                                                     |
+| Method | Path                                  | Purpose                                                                                                                                                   |
+| ------ | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/api/videos/upload`                  | Multipart upload. Body includes optional `curatorId` to attach immediately. Stores in `/incoming/` if no curatorId. Over the upload ceiling → `413` (§9). |
+| GET    | `/api/incoming`                       | Lists files in `/incoming/` with thumbnails and inferred metadata.                                                                                        |
+| POST   | `/api/albums/:curatorId/attach-video` | Body: `{ fileId }` — either an ID of a file already in `visualizers/`, or the filename of a file in `/incoming/` (moves it).                              |
+| POST   | `/api/albums/:curatorId/detach-video` | Removes the visualizer reference. File stays on disk unless `?delete=1`.                                                                                  |
 
 ### Card art
 
@@ -365,13 +365,13 @@ Runs on `http://localhost:4739` locally.
 > image verbatim; the 300-DPI print render is deferred until Curator gains an image pipeline (see
 > the curator README). Video ingest validation + thumbnails require `ffmpeg`.
 
-| Method | Path                                     | Purpose                                                                                                                                                                                                                                                                 |
-| ------ | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| POST   | `/api/card-art/upload`                   | Multipart upload. Body includes optional `curatorId` to attach immediately. Stores in `/incoming/` if no curatorId. Validates image format (PNG or JPG) and reasonable dimensions (recommends 1050x600 landscape or 600x1050 portrait, but doesn't reject other sizes). |
-| POST   | `/api/albums/:curatorId/attach-card-art` | Body: `{ fileId }`. Same shape as video attach.                                                                                                                                                                                                                         |
-| POST   | `/api/albums/:curatorId/detach-card-art` | Removes the card art reference. File stays on disk unless `?delete=1`.                                                                                                                                                                                                  |
-| GET    | `/api/albums/:curatorId/card-art`        | Serves the current card art image.                                                                                                                                                                                                                                      |
-| GET    | `/api/albums/:curatorId/card-art/print`  | Serves a print-optimized version (300 DPI, standard business-card dimensions) suitable for sending to a printer.                                                                                                                                                        |
+| Method | Path                                     | Purpose                                                                                                                                                                                                                                                                                                       |
+| ------ | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/api/card-art/upload`                   | Multipart upload. Body includes optional `curatorId` to attach immediately. Stores in `/incoming/` if no curatorId. Validates image format (PNG or JPG) and reasonable dimensions (recommends 1050x600 landscape or 600x1050 portrait, but doesn't reject other sizes). Over the upload ceiling → `413` (§9). |
+| POST   | `/api/albums/:curatorId/attach-card-art` | Body: `{ fileId }`. Same shape as video attach.                                                                                                                                                                                                                                                               |
+| POST   | `/api/albums/:curatorId/detach-card-art` | Removes the card art reference. File stays on disk unless `?delete=1`.                                                                                                                                                                                                                                        |
+| GET    | `/api/albums/:curatorId/card-art`        | Serves the current card art image.                                                                                                                                                                                                                                                                            |
+| GET    | `/api/albums/:curatorId/card-art/print`  | Serves a print-optimized version (300 DPI, standard business-card dimensions) suitable for sending to a printer.                                                                                                                                                                                              |
 
 ### Preview and verification
 
@@ -447,6 +447,20 @@ Two entry points depending on how you like to work:
 2. Validate: H.264 in MP4 required (or H.265 in MP4 if targeting Pi 5). Reject with a clear error otherwise.
 3. Generate thumbnails — first frame and midpoint, 320px wide, jpg.
 4. Move to final location if attaching now, or leave in `/incoming/`.
+
+**Upload ceiling.** A single multipart upload is capped at `storage.max_upload_mb` in
+`config.toml` (env `CURATOR_MAX_UPLOAD_MB`), default **2048 MB**. Visualizer videos are the only
+large uploads; cover and card art are tiny. An over-ceiling upload is rejected with **413** and a
+message naming the limit — it is never truncated or partially written. The cap is bounded rather
+than unlimited on purpose: uploads are buffered in memory before `ffprobe` sees a path, so an
+unbounded ceiling is a way to OOM the box.
+
+> **Note (2026-07-14, [issue #12](https://github.com/dylanleatham/Marquee/issues/12)):** the
+> ceiling was previously a hardcoded 500 MB and this section didn't mention it, so real ~1 GB
+> visualizer videos were rejected — and `/api/videos/upload` and `/api/card-art/upload` surfaced
+> the rejection as a generic `500` rather than a `413`. Both fixed; the ceiling is now configurable
+> and specified here. Streaming uploads straight to disk (removing the in-memory buffer, and with
+> it the reason for a low cap) is a possible future change.
 
 ## 10. UI screens
 

@@ -77,11 +77,13 @@ const spotifyErr = (err: unknown, reply: FastifyReply) => {
 };
 
 // Map an onboarding-action error to a status: not found → 404, bad input → 400, illegal state
-// transition → 409, rejected media → 422; anything else is an unexpected 500.
+// transition → 409, rejected media → 422, over the upload ceiling → 413; anything else is an
+// unexpected 500. `maxUploadBytes` is only needed by the multipart handlers, so it's optional.
 const actionError = (
   err: unknown,
   reply: FastifyReply,
   req: FastifyRequest,
+  maxUploadBytes?: number,
 ) => {
   if (err instanceof NotFoundError)
     return reply.code(404).send({ error: err.message });
@@ -91,6 +93,14 @@ const actionError = (
     return reply.code(409).send({ error: err.message });
   if (err instanceof VideoError || err instanceof ImageError)
     return reply.code(422).send({ error: err.message });
+  // @fastify/multipart aborts an over-ceiling file mid-stream. That's the caller sending too much,
+  // not a server fault — answer 413 and name the limit so they know what to aim under (issue #12).
+  if ((err as { code?: string }).code === "FST_REQ_FILE_TOO_LARGE")
+    return reply.code(413).send({
+      error: maxUploadBytes
+        ? `file too large — the upload limit is ${Math.round(maxUploadBytes / 1024 / 1024)} MB`
+        : "file too large",
+    });
   req.log.error(err);
   return reply.code(500).send({ error: (err as Error).message });
 };
@@ -190,8 +200,9 @@ export function buildServer(opts: BuildOptions = {}) {
     });
   const prober = opts.prober ?? ffmpegProber;
   const actionDeps: ActionDeps = { store, prober };
-  // 500 MB ceiling — visualizer videos are the large uploads; cover/card art are tiny.
-  app.register(multipart, { limits: { fileSize: 500 * 1024 * 1024 } });
+  // Upload ceiling comes from config (default 2 GB) — visualizer videos are the large uploads;
+  // cover/card art are tiny. Over-ceiling uploads surface as a 413 via actionError (issue #12).
+  app.register(multipart, { limits: { fileSize: config.maxUploadBytes } });
 
   app.get("/healthz", async () => ({
     ok: true,
@@ -350,7 +361,7 @@ export function buildServer(opts: BuildOptions = {}) {
       const { name } = actions.saveIncoming(store, file.filename, file.buffer);
       return reply.code(201).send({ incoming: name });
     } catch (err) {
-      return actionError(err, reply, req);
+      return actionError(err, reply, req, config.maxUploadBytes);
     }
   });
 
@@ -414,7 +425,7 @@ export function buildServer(opts: BuildOptions = {}) {
       const { name } = actions.saveIncoming(store, file.filename, file.buffer);
       return reply.code(201).send({ incoming: name });
     } catch (err) {
-      return actionError(err, reply, req);
+      return actionError(err, reply, req, config.maxUploadBytes);
     }
   });
 
