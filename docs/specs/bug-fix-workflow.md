@@ -62,6 +62,25 @@ So the order is fixed:
 If step 1 won't go red, you don't yet understand the bug — stop and reproduce it by hand first
 (§4). Never skip to the fix because "it's obvious."
 
+### 3.1 When a test genuinely can't go first — mutate to earn the green
+
+Sometimes a test legitimately arrives after the code. The usual case isn't laziness: you fix a bug,
+and then review (or your own second look) finds an adjacent guard you wrote but never covered — a
+validation branch, a fallback, an invariant you asserted in a comment. Writing that test now is
+right. But it goes green on the first run, which is exactly the situation §3 says proves nothing.
+
+**The remedy is a mutation check: break the thing on purpose and watch the test fail.** Temporarily
+revert the guard (delete the clamp, invert the condition, drop the branch), run the test, confirm it
+goes red _for the reason you expect_, then restore. Thirty seconds, and the green is earned rather
+than assumed — you've seen the test discriminate between working and broken code, which is the only
+thing the red step was ever for.
+
+If the test still passes with the guard removed, it isn't testing the guard. That's the bug the
+mutation check exists to find, and it's a common one.
+
+Use it as the exception, not the routine. A repro test for the reported bug still goes first — a
+mutation check is what you owe a test that couldn't.
+
 ## 4. The procedure, end to end
 
 For anything past a one-character typo, follow all of it. It is short by design.
@@ -87,10 +106,33 @@ on PATH). One issue per defect. The issue body is the hand-repro from step 0:
 Label `bug` plus a `sev:*` label. The issue number is the anchor: the branch, the test, and the
 PR all reference it, so a year from now the test comment leads straight back to the story.
 
-### 2. Branch
+### 2. Branch — before you touch code
 
 `fix/<issue#>-<short-slug>` off `main` (e.g. `fix/23-queue-count-stale`). Conventional Commits;
 never commit the fix straight to `main` (the hooks are the gate — [CLAUDE.md](../../CLAUDE.md)).
+
+**Branch _first_, not once the fix looks promising.** A bug is easy to start investigating on
+whatever branch you happen to be standing on, and by the time you notice, the fix is tangled with
+unrelated work.
+
+**If you're mid-WIP on another branch** — the common case, since bugs arrive while you're doing
+something else — deal with the WIP before starting, not after:
+
+1. **Commit it** on the branch it belongs to, if it's at a sensible point. Cleanest; do this by
+   default.
+2. **Stash it** (`git stash push -u`) if it isn't, then branch off `main` and pop it back later.
+3. Only if neither fits: branch off `main` carrying the WIP, and accept that you'll have to
+   untangle it at commit time (see the warning below).
+
+**Do not plan to separate the changes by staging only some hunks.** `lint-staged` runs
+`prettier --write` and re-stages **whole files**, so a partially-staged file gets its unstaged
+hunks swept into your commit — silently, and `--amend` repeats the trick. If unrelated changes
+share a file with your fix, the reliable move is to make the working tree contain **only** what
+you're committing (reset the file, re-apply just the wanted edits), `git add -A` so tree and index
+agree, commit, then restore the other work from a copy. Always confirm with `git show --stat HEAD`
+before you trust it.
+
+The cheap version of all this: start from a clean tree.
 
 ### 3. Red — write the failing test
 
@@ -203,6 +245,8 @@ allowed; declaring the bug _closed_ without the guard is not.
 A bug is fixed when **all** of these are true:
 
 - [ ] A test existed that failed **because of this bug**, and now passes (you watched both).
+- [ ] Every test added along the way has been seen to fail — written first, or mutation-checked
+      after (§3.1). No test in the PR has only ever been green.
 - [ ] The surrounding suite and `pnpm run type` are green.
 - [ ] The bug's **family** was checked and covered, not just the reported instance (§5).
 - [ ] You can answer §2 — the blind spot is named and now guarded (test, contract, property, or
