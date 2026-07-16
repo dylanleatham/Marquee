@@ -143,17 +143,23 @@ Each state has a shape: what the album needs from you, what you do, how the UI s
 
 1. Land on album detail from the queue
 2. Look at the palette next to the album art. Feels right? Great. Something off? Edit the colors, adjust the pattern, or apply a template. Mark handEdited when you change.
-3. Look at the drafted **video prompt**. Copy it. Optionally regenerate with a different style template if the default isn't the vibe you want.
+3. Look at the drafted **video prompt**. Copy it — copying moves the album to Awaiting Video, no confirmation step. Optionally regenerate with a different style template if the default isn't the vibe you want.
 4. Look at the drafted **card art prompt**. Copy it (or defer if you're not making a card for this album). Same template picker.
-5. Click **"Prompt(s) copied → move to Awaiting Video"**
 
-**Multi-item flow**: after clicking that button, offer "Next album in Awaiting Review" — this is when you're in "review mode" and want to blast through several palettes in a row before switching gears.
+**Or skip the prompt entirely.** If you already have the video — you made it by hand, it predates the album, you generated it somewhere Curator never saw — drag it onto the video drop zone right here. The album goes straight to Awaiting Preview, skipping Awaiting Video. Copying the prompt was never a precondition for having a video; it's just the usual way you get one ([ADR 0005](../adrs/0005-video-attach-does-not-require-copying-the-prompt.md)).
+
+**Multi-item flow**: after copying, offer "Next album in Awaiting Review" — this is when you're in "review mode" and want to blast through several palettes in a row before switching gears.
 
 **Time per album**: 30s–2min depending on how much palette editing you do.
 
 ### Awaiting video
 
 **What it needs**: The video file, generated externally.
+
+**How you get here**: by copying the video prompt — i.e. "I've sent this off to my video tool and
+I'm waiting on it." It's not a mandatory checkpoint: an album whose video you already had skips
+this state entirely and lands in Awaiting Preview ([ADR 0005](../adrs/0005-video-attach-does-not-require-copying-the-prompt.md)).
+The state exists for the parallel flow below — it's how you see what you're waiting on.
 
 **What you do**:
 
@@ -256,7 +262,7 @@ Once added, Roadie takes over. You can walk away.
 
 Real workflows have interruptions. Some to design for:
 
-**Session interrupted mid-flow.** You approve a palette and close the browser before copying the prompt. Album stays in `awaiting_review`. Coming back, the state is unchanged; the "prompt copied" button is still ready. No lost work; no confusion.
+**Session interrupted mid-flow.** You approve a palette and close the browser before copying the prompt. Album stays in `awaiting_review`. Coming back, the state is unchanged; the prompt is still there to copy, and the video drop zone is still open if you turn out not to need it. No lost work; no confusion.
 
 **Video generation failed / you hate the result.** Regenerate the prompt (potentially with a different template), send back to the video tool, try again. Album stays in awaiting-video the whole time. No state churn.
 

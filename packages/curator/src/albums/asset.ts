@@ -174,7 +174,8 @@ export function deriveStatus(roadie: RoadieSection): AlbumAsset["status"] {
  * *back* to review/video — the preview's "Something's off" escape hatch (curator-spec §10).
  */
 const HUMAN_TRANSITIONS: Record<string, RoadieHumanState[]> = {
-  awaiting_review: ["awaiting_video"],
+  // review → preview skips awaiting_video: attaching a video you already have (ADR 0005).
+  awaiting_review: ["awaiting_video", "awaiting_preview"],
   awaiting_video: ["awaiting_preview"],
   awaiting_preview: ["awaiting_tag_write", "awaiting_review", "awaiting_video"],
   awaiting_tag_write: ["awaiting_verify"],

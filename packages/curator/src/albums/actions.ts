@@ -106,16 +106,22 @@ export function markPromptCopied(
 
 // --- video -------------------------------------------------------------------------------------
 
-const VIDEO_ATTACHABLE: RoadieState[] = ["awaiting_video", "awaiting_preview"];
+// A video can be attached from review onward (issue #11 / ADR 0005): having the file in hand is
+// reason enough — copying the prompt was never a precondition, only the usual way you got a video.
+const VIDEO_ATTACHABLE: RoadieState[] = [
+  "awaiting_review",
+  "awaiting_video",
+  "awaiting_preview",
+];
 
-/** Set/replace the visualizer and advance awaiting_video → awaiting_preview (replace keeps state). */
+/** Set/replace the visualizer and advance to awaiting_preview (replacing at preview keeps state). */
 function finishVideoAttach(
   deps: ActionDeps,
   asset: AlbumAsset,
   vis: AlbumAsset["visualizer"],
 ): void {
   asset.visualizer = vis;
-  if (asset.roadie.state === "awaiting_video")
+  if (asset.roadie.state !== "awaiting_preview")
     transitionTo(asset, "awaiting_preview", clock(deps));
   else asset.status = deriveStatus(asset.roadie);
   deps.store.save(asset);

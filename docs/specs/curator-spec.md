@@ -340,12 +340,12 @@ Runs on `http://localhost:4739` locally.
 
 ### Prompts
 
-| Method | Path                                           | Purpose                                                                                                                                                                  |
-| ------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| POST   | `/api/albums/:curatorId/prompts/:type/redraft` | Regenerate a prompt. `type` is `video` or `cardArt`. Body: `{ template?: string }`.                                                                                      |
-| POST   | `/api/albums/:curatorId/prompts/:type/copied`  | Marks a prompt as copied. For `video`, transitions from `awaiting_review` toward `awaiting_video`. For `cardArt`, marks the card side as "prompt ready to generate art." |
-| GET    | `/api/prompt-templates/:type`                  | List of style templates for the given type.                                                                                                                              |
-| POST   | `/api/prompt-templates/:type`                  | Save a new template. Body: `{ name, preamble, body }`.                                                                                                                   |
+| Method | Path                                           | Purpose                                                                                                                                                                                                                          |
+| ------ | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/api/albums/:curatorId/prompts/:type/redraft` | Regenerate a prompt. `type` is `video` or `cardArt`. Body: `{ template?: string }`.                                                                                                                                              |
+| POST   | `/api/albums/:curatorId/prompts/:type/copied`  | Marks a prompt as copied — sent by the UI's Copy Prompt button itself (ADR 0005). For `video`, transitions from `awaiting_review` toward `awaiting_video`. For `cardArt`, marks the card side as "prompt ready to generate art." |
+| GET    | `/api/prompt-templates/:type`                  | List of style templates for the given type.                                                                                                                                                                                      |
+| POST   | `/api/prompt-templates/:type`                  | Save a new template. Body: `{ name, preamble, body }`.                                                                                                                                                                           |
 
 ### Videos
 
@@ -510,8 +510,8 @@ _Right, scrolling_ — sections in the order of the workflow:
 
 - **Palette** — swatches + editor + role dropdowns + template dropdown + "reset to auto"
 - **Pattern** — type + params
-- **Video prompt** — generated text in code block + Copy Prompt + Regenerate + template selector + "Mark as copied" button
-- **Video** — drop zone or attached preview + Detach + Replace
+- **Video prompt** — generated text in code block + Copy Prompt + Regenerate + template selector. Copy Prompt records the copy itself (moving the album to `awaiting_video`); there is no separate "mark as copied" button ([ADR 0005](../adrs/0005-video-attach-does-not-require-copying-the-prompt.md)).
+- **Video** — drop zone or attached preview + Detach + Replace. The drop zone is live from `awaiting_review` onward, so a video you already have can be attached without touching the prompt (ADR 0005).
 - **Card art prompt** — generated text + Copy Prompt + Regenerate + template selector (independent from video prompt template)
 - **Card art** — drop zone or attached preview + Detach + Replace + "Download print version" button
 - **Preview** — combined palette + video (see below)
