@@ -54,10 +54,15 @@ export function devEntries(repoRoot: string): {
   };
 }
 
+// Per-probe cap so a socket that connects but never answers can't hang boot: the fetch aborts and
+// the caller falls through to its deadline check / false result (review: runtime).
+const PROBE_TIMEOUT_MS = 2000;
+
 /** One-shot health probe — used to adopt an already-running service instead of forking a duplicate. */
 export async function isHealthy(url: string): Promise<boolean> {
   try {
-    return (await fetch(url)).ok;
+    return (await fetch(url, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) }))
+      .ok;
   } catch {
     return false;
   }
@@ -72,13 +77,26 @@ export async function waitForHealth(
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+      });
       if (res.ok) return;
     } catch {
-      // service isn't accepting connections yet — keep polling
+      // not accepting connections yet, or a probe timed out — keep polling until the deadline
     }
     if (Date.now() >= deadline)
       throw new Error(`Timed out after ${timeoutMs}ms waiting for ${url}`);
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
+}
+
+/**
+ * Given each spec's current health (aligned by index), the services we must start ourselves — the
+ * already-healthy ones are adopted. Pure so the adopt-vs-fork decision is unit-testable.
+ */
+export function servicesToStart(
+  specs: ServiceSpec[],
+  healthy: boolean[],
+): ServiceSpec[] {
+  return specs.filter((_, i) => !healthy[i]);
 }

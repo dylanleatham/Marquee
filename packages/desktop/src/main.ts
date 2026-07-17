@@ -10,6 +10,7 @@ import {
   devEntries,
   waitForHealth,
   isHealthy,
+  servicesToStart,
   CURATOR_PORT,
   type ServiceSpec,
 } from "./services";
@@ -42,6 +43,17 @@ function startService(spec: ServiceSpec): void {
   });
   child.stdout?.on("data", (d) => process.stdout.write(`[${spec.name}] ${d}`));
   child.stderr?.on("data", (d) => process.stderr.write(`[${spec.name}] ${d}`));
+  // A spawn failure (e.g. a missing bundled server) emits 'error'; without this listener it would
+  // throw unhandled and crash the main process instead of showing the dialog + quitting.
+  child.on("error", (err) => {
+    if (shuttingDown) return;
+    dialog.showErrorBox(
+      "Marquee failed to start",
+      `Could not start ${spec.name}: ${err.message}`,
+    );
+    shutdown();
+    app.quit();
+  });
   child.on("exit", (code) => {
     if (code && code !== 0 && !shuttingDown)
       dialog.showErrorBox(
@@ -74,10 +86,9 @@ async function boot(): Promise<void> {
     );
   const specs = serviceSpecs(entries);
   // Adopt an already-running instance (e.g. a Conductor started by hand) rather than forking a
-  // duplicate onto a taken port; otherwise start our own.
-  for (const spec of specs) {
-    if (!(await isHealthy(spec.healthUrl))) startService(spec);
-  }
+  // duplicate onto a taken port; start only the ones that aren't already answering.
+  const health = await Promise.all(specs.map((s) => isHealthy(s.healthUrl)));
+  servicesToStart(specs, health).forEach(startService);
   await Promise.all(specs.map((s) => waitForHealth(s.healthUrl)));
 }
 

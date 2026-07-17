@@ -1,14 +1,14 @@
 {
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "target": "ES2022",
+    // The Electron main process is CommonJS, unlike the ESM services — override the base's NodeNext.
     "module": "CommonJS",
     "moduleResolution": "Node",
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
     "outDir": "dist",
     "rootDir": ".",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
     "types": ["node"]
   },
   "include": ["src", "test"]

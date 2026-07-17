@@ -5,6 +5,7 @@ import {
   waitForHealth,
   isHealthy,
   serviceSpecs,
+  servicesToStart,
   devEntries,
   CURATOR_PORT,
   CONDUCTOR_PORT,
@@ -73,5 +74,21 @@ describe("serviceSpecs / devEntries", () => {
     expect(curator.env.CONDUCTOR_URL).toBe(
       `http://localhost:${CONDUCTOR_PORT}`,
     );
+  });
+});
+
+describe("servicesToStart (adopt vs fork)", () => {
+  const specs = serviceSpecs(devEntries("/repo")); // [hue-conductor, curator]
+
+  it("starts only the services that aren't already healthy", () => {
+    // Conductor already up (adopt), Curator down (start).
+    expect(servicesToStart(specs, [true, false]).map((s) => s.name)).toEqual([
+      "curator",
+    ]);
+  });
+
+  it("starts both when nothing is up, and none when both are already up", () => {
+    expect(servicesToStart(specs, [false, false])).toHaveLength(2);
+    expect(servicesToStart(specs, [true, true])).toHaveLength(0);
   });
 });
