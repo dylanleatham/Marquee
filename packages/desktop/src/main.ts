@@ -26,8 +26,8 @@ function resolveEntries(): { curator: string; conductor: string } {
   if (app.isPackaged) {
     const servers = join(process.resourcesPath, "servers");
     return {
-      curator: join(servers, "curator-server.cjs"),
-      conductor: join(servers, "conductor-server.cjs"),
+      curator: join(servers, "curator-server.mjs"),
+      conductor: join(servers, "conductor-server.mjs"),
     };
   }
   return devEntries(repoRoot());

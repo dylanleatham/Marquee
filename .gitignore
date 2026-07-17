@@ -9,6 +9,10 @@ dist-ui/
 packages/contracts/ts/*.d.ts
 packages/contracts/py/*_generated.py
 
+# Desktop app packaging output
+packages/desktop/staged/
+packages/desktop/release/
+
 # Turbo
 .turbo/
 

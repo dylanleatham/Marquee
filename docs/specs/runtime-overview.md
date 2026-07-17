@@ -169,6 +169,12 @@ Fired to both Conductor (`/api/scan`) and Backdrop (`/api/scan`) in parallel. Bo
 - **Pi 5 near TV**: runs Conductor + Backdrop as sibling processes.
 - **Pi Zero 2 W in stand**: runs Stylus.
 
+> **Launcher (2026-07-17, [ADR 0008](../adrs/0008-desktop-app-supervises-services.md)):** on the
+> workstation, Curator (and a co-located Conductor, for the Demo Room's real-lights preview before
+> the Pi exists) can be launched as a single **desktop app** (`packages/desktop`, Electron) instead
+> of hand-started dev servers. It's purely a launcher/shell — the services and this topology are
+> unchanged.
+
 The mental model is **config vs. runtime**: Curator is a configuration/admin tool that runs on your usual dev machine when you're actively working with the collection; the runtime Pi is an always-on appliance that runs whenever the experience is active. They don't need to be running simultaneously — you can add albums today with the runtime off, or listen to records tonight with your laptop shut.
 
 Advantages of this split:

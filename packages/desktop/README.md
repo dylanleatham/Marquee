@@ -31,12 +31,20 @@ window opens on the queue with both services live behind it.
 
 ## Build the installer
 
+**Prerequisite (one-time): turn on Windows Developer Mode** — Settings → Privacy & security → For
+developers → _Developer Mode: On_. electron-builder extracts its `winCodeSign` tool, which contains
+symlinks; creating those needs the symlink privilege Developer Mode grants (otherwise the build fails
+with "Cannot create symbolic link : A required privilege is not held by the client"). Running the
+build from an **admin** terminal also works.
+
 ```bash
 pnpm --filter @marquee/desktop dist   # → packages/desktop/release/ (Windows NSIS installer)
 ```
 
-The installer drops a **Desktop + Start-Menu shortcut**. It's **unsigned**, so Windows SmartScreen
-warns on first run — choose "More info → Run anyway" (personal use; code-signing is a later step).
+This bundles each server with esbuild (`scripts/bundle-servers.mjs` → `staged/`), then packages with
+[electron-builder.yml](electron-builder.yml). The installer drops a **Desktop + Start-Menu shortcut**.
+It's **unsigned**, so Windows SmartScreen warns on first run — choose "More info → Run anyway"
+(personal use; code-signing is a later step).
 
 ## Notes
 
