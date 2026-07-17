@@ -25,7 +25,11 @@ export function buildServer(opts: BuildOptions = {}) {
   const config = loadConfig(opts.config);
   const store = opts.store ?? new Store(config.dataDir);
   const bridge = new BridgeAdapter(store, opts.driver);
-  const engine = new PlaybackEngine(bridge, { timers: opts.timers });
+  const engine = new PlaybackEngine(bridge, {
+    timers: opts.timers,
+    // Honor config.toml's [runtime] idle_timeout_minutes (spec §9) — was previously inert.
+    idleTimeoutMs: config.idleTimeoutMinutes * 60_000,
+  });
   const app = Fastify({
     logger: { level: process.env.NODE_ENV === "test" ? "silent" : "info" },
   });

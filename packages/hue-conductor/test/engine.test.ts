@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { PalettePayload, PaletteColor } from "@marquee/contracts";
 import { Store } from "../src/store.js";
 import { BridgeAdapter } from "../src/bridge/adapter.js";
-import { PlaybackEngine } from "../src/playback/engine.js";
+import { PlaybackEngine, type EngineOptions } from "../src/playback/engine.js";
 import { makeFakeDriver, FakeTimers, type FakeOptions } from "./fakes.js";
 
 const ROOM = {
@@ -21,7 +21,10 @@ const COLORS: PaletteColor[] = [
   { hex: "#0000FF", role: "accent" },
 ];
 
-function setup(opts: FakeOptions = {}) {
+function setup(
+  opts: FakeOptions = {},
+  engineOpts: Partial<EngineOptions> = {},
+) {
   const store = new Store(mkdtempSync(join(tmpdir(), "conductor-engine-")));
   store.saveBridge({
     id: "BID",
@@ -32,7 +35,7 @@ function setup(opts: FakeOptions = {}) {
   const { driver, setCalls } = makeFakeDriver({ groups: [ROOM], ...opts });
   const bridge = new BridgeAdapter(store, driver);
   const timers = new FakeTimers();
-  const engine = new PlaybackEngine(bridge, { timers });
+  const engine = new PlaybackEngine(bridge, { timers, ...engineOpts });
   return { engine, timers, setCalls };
 }
 
@@ -157,6 +160,25 @@ describe("PlaybackEngine", () => {
     const { engine } = setup();
     await expect(engine.start("1", payload("static", {}, []))).rejects.toThrow(
       /no colors/i,
+    );
+  });
+
+  it("auto-stops and restores when the idle timeout fires (lost-stop safety net)", async () => {
+    const { engine, timers, setCalls } = setup({}, { idleTimeoutMs: 5000 });
+    await engine.start("1", payload("static", {}));
+    expect(engine.isPlaying("1")).toBe(true);
+    setCalls.length = 0;
+
+    await timers.tick(5000, 1); // idle timeout → stop → restore
+    expect(engine.isPlaying("1")).toBe(false);
+    expect(setCalls.length).toBeGreaterThan(0); // room was restored
+    expect(setCalls.every((c) => c.transitionMs === 800)).toBe(true);
+  });
+
+  it("times out a wedged bridge instead of hanging start", async () => {
+    const { engine } = setup({ hangLightState: true }, { bridgeTimeoutMs: 20 });
+    await expect(engine.start("1", payload("static", {}))).rejects.toThrow(
+      /timed out/i,
     );
   });
 });

@@ -546,6 +546,9 @@ export function buildServer(opts: BuildOptions = {}) {
       headers["x-trigger-secret"] = config.conductor.sharedSecret;
     return fetch(`${config.conductor.url}${path}`, {
       ...init,
+      // Cap the call so a wedged (not just down) Conductor can't hang a /api/demo/* request; the
+      // abort surfaces as a fetch rejection → conductorDown → 502 (review: runtime).
+      signal: AbortSignal.timeout(5000),
       headers: { ...headers, ...(init?.headers as Record<string, string>) },
     });
   };

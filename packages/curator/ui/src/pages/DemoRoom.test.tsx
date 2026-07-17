@@ -112,6 +112,38 @@ describe("DemoRoom", () => {
     await waitFor(() => expect(api.demoSetRoom).toHaveBeenCalledWith("7"));
   });
 
+  it("next swaps to the other video album and crossfades its lights", async () => {
+    vi.mocked(api.albums).mockResolvedValue({
+      albums: [
+        {
+          curatorId: "abcd1234",
+          title: "Purple Rain",
+          artist: "Prince",
+          source: "manual",
+          state: "awaiting_preview",
+          artwork: null,
+          paletteColors: 2,
+          hasVideo: true,
+        },
+        {
+          curatorId: "wxyz5678",
+          title: "Kind of Blue",
+          artist: "Miles Davis",
+          source: "manual",
+          state: "verified",
+          artwork: null,
+          paletteColors: 3,
+          hasVideo: true,
+        },
+      ],
+    });
+
+    renderDemo();
+    const next = await screen.findByRole("button", { name: /next album/i });
+    fireEvent.click(next);
+    await waitFor(() => expect(api.demoPlay).toHaveBeenCalledWith("wxyz5678"));
+  });
+
   it("shows the lights offline when Conductor is unreachable, but still lets the video play", async () => {
     vi.mocked(api.demoStatus).mockResolvedValue({
       reachable: false,

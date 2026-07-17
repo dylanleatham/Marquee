@@ -102,6 +102,8 @@ export interface FakeOptions {
   lights?: Array<{ id: string; name: string; type: string }>;
   /** Current live state per light id, served by getLightState (drives snapshot tests). */
   lightStates?: Record<string, FakeLightStateValue>;
+  /** getLightState never resolves — simulates a wedged bridge for the timeout test. */
+  hangLightState?: boolean;
   /** createUser throws "link button not pressed" this many times before succeeding. */
   linkButtonFailuresBeforeSuccess?: number;
   /** createUser never succeeds (pairing-timeout test). */
@@ -153,6 +155,7 @@ export function makeFakeDriver(opts: FakeOptions = {}) {
         return opts.lights ?? [];
       },
       async getLightState(id: string | number) {
+        if (opts.hangLightState) return new Promise<never>(() => {}); // never resolves
         return opts.lightStates?.[String(id)] ?? { on: true, bri: 200 };
       },
       async setLightState(id: string | number, state: FakeLightState) {

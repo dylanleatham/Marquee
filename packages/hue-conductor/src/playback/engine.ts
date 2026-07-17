@@ -26,6 +26,28 @@ const STOP_TRANSITION_MS = 800;
 /** Hue's per-light ceiling is ~10/s; keep a little headroom and a small burst. */
 const RATE_PER_SEC = 8;
 const RATE_BURST = 4;
+/** Cap on an awaited bridge call so a wedged (not just offline) bridge can't hang a request. */
+const BRIDGE_TIMEOUT_MS = 8000;
+
+/** Reject if `p` doesn't settle within `ms`; clears its timer either way so nothing leaks. */
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`Hue bridge ${label} timed out after ${ms}ms`)),
+      ms,
+    );
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+}
 
 /** One command the engine wants to send to one light this frame. */
 interface Frame {
@@ -57,6 +79,8 @@ export interface EngineOptions {
   now?: () => number;
   /** Auto-stop after this long with no new start (safety net for a lost stop event). */
   idleTimeoutMs?: number;
+  /** Per-call cap on awaited bridge ops (tests set this tiny). */
+  bridgeTimeoutMs?: number;
 }
 
 export class PlaybackEngine {
@@ -64,6 +88,7 @@ export class PlaybackEngine {
   private readonly timers: Timers;
   private readonly rate: RateLimiter;
   private readonly idleTimeoutMs: number;
+  private readonly bridgeTimeoutMs: number;
 
   constructor(
     private readonly bridge: BridgeAdapter,
@@ -71,6 +96,7 @@ export class PlaybackEngine {
   ) {
     this.timers = opts.timers ?? realTimers;
     this.idleTimeoutMs = opts.idleTimeoutMs ?? 90 * 60 * 1000;
+    this.bridgeTimeoutMs = opts.bridgeTimeoutMs ?? BRIDGE_TIMEOUT_MS;
     this.rate = new RateLimiter(RATE_PER_SEC, RATE_BURST, opts.now);
   }
 
@@ -94,9 +120,20 @@ export class PlaybackEngine {
     const existing = this.sessions.get(roomId);
     if (existing?.timer) this.timers.clear(existing.timer);
 
-    const lightIds = await this.bridge.getRoomLightIds(roomId);
+    // These bridge calls are on the /api/playback request path — cap them so a wedged bridge 502s
+    // fast instead of hanging the request (review: runtime).
+    const lightIds = await withTimeout(
+      this.bridge.getRoomLightIds(roomId),
+      this.bridgeTimeoutMs,
+      "getRoomLightIds",
+    );
     const snapshot =
-      existing?.snapshot ?? (await this.bridge.snapshotRoom(roomId));
+      existing?.snapshot ??
+      (await withTimeout(
+        this.bridge.snapshotRoom(roomId),
+        this.bridgeTimeoutMs,
+        "snapshotRoom",
+      ));
 
     const session: Session = {
       roomId,
@@ -111,7 +148,11 @@ export class PlaybackEngine {
     this.sessions.set(roomId, session);
 
     // First frame fades in / crossfades over SWAP_TRANSITION_MS (not rate-limited: one cmd per light).
-    await this.applyFrames(session.plan.frames(0), SWAP_TRANSITION_MS, false);
+    await withTimeout(
+      this.applyFrames(session.plan.frames(0), SWAP_TRANSITION_MS, false),
+      this.bridgeTimeoutMs,
+      "applyFrames",
+    );
 
     if (session.plan.intervalMs != null) {
       session.timer = this.timers.set(() => {
@@ -132,7 +173,11 @@ export class PlaybackEngine {
     if (session.timer) this.timers.clear(session.timer);
     if (session.idleTimer) this.timers.clear(session.idleTimer);
     this.sessions.delete(roomId);
-    await this.bridge.restoreRoom(roomId, session.snapshot, STOP_TRANSITION_MS);
+    await withTimeout(
+      this.bridge.restoreRoom(roomId, session.snapshot, STOP_TRANSITION_MS),
+      this.bridgeTimeoutMs,
+      "restoreRoom",
+    );
   }
 
   /** Stop every active session (used on shutdown / test teardown). */
