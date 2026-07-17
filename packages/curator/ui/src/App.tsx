@@ -5,6 +5,7 @@ import { usePoll } from "./hooks";
 import { QueueView } from "./pages/QueueView";
 import { AlbumDetail } from "./pages/AlbumDetail";
 import { AddAlbum } from "./pages/AddAlbum";
+import { DemoRoom } from "./pages/DemoRoom";
 import { RoadieStrip } from "./components/RoadieStrip";
 
 /** Keep the browser-tab title showing the "needs you right now" count — answers "sit down now?". */
@@ -31,6 +32,7 @@ export function App() {
           <Route path="/" element={<QueueView />} />
           <Route path="/add" element={<AddAlbum />} />
           <Route path="/albums/:curatorId" element={<AlbumDetail />} />
+          <Route path="/demo/:curatorId" element={<DemoRoom />} />
           <Route
             path="*"
             element={

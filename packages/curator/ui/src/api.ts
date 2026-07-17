@@ -142,6 +142,33 @@ export interface SpotifyAlbumMeta {
   artUrl?: string;
 }
 
+/** A row from GET /api/albums — the Demo Room uses `hasVideo` to build its swap list. */
+export interface AlbumSummary {
+  curatorId: string;
+  title: string;
+  artist: string;
+  source: string;
+  state: RoadieState;
+  artwork: string | null;
+  paletteColors: number;
+  hasVideo: boolean;
+}
+
+/** A Hue room/zone Conductor can drive (GET /api/demo/rooms). */
+export interface DemoRoomInfo {
+  id: string;
+  name: string;
+  type: string;
+  lightIds: string[];
+}
+
+/** Aggregate Conductor health for the Demo Room header (GET /api/demo/status). */
+export interface DemoStatus {
+  reachable: boolean;
+  paired: boolean;
+  listeningRoomId: string | null;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -174,9 +201,26 @@ export const api = {
   resume: () => req<AgentStatus>("/api/agent/resume", { method: "POST" }),
   retry: (id: string) =>
     req<{ retried: string }>(`/api/agent/retry/${id}`, { method: "POST" }),
+  albums: () => req<{ albums: AlbumSummary[] }>("/api/albums"),
   album: (id: string) => req<AlbumAsset>(`/api/albums/${id}`),
   deleteAlbum: (id: string) =>
     req<{ deleted: string }>(`/api/albums/${id}`, { method: "DELETE" }),
+
+  // --- Demo Room: drive the real Hue lights via Conductor (runtime preview) ---
+  demoStatus: () => req<DemoStatus>("/api/demo/status"),
+  demoRooms: () => req<{ rooms: DemoRoomInfo[] }>("/api/demo/rooms"),
+  demoSetRoom: (roomId: string) =>
+    req<{ listeningRoomId: string | null }>("/api/demo/room", {
+      method: "PUT",
+      body: JSON.stringify({ roomId }),
+    }),
+  demoPlay: (curatorId: string) =>
+    req<{ playbackId?: string }>("/api/demo/play", {
+      method: "POST",
+      body: JSON.stringify({ curatorId }),
+    }),
+  demoStop: () =>
+    req<{ stopped?: boolean }>("/api/demo/stop", { method: "POST" }),
 
   // --- onboarding actions (step 7) ---
   redraftPrompt: (id: string, type: PromptType, template: string) =>

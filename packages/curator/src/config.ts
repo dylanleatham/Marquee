@@ -16,6 +16,12 @@ export interface Config {
   maxUploadBytes: number;
   /** Spotify client-credentials, if configured. Absent → the Spotify add/search routes 503. */
   spotify?: { clientId: string; clientSecret: string };
+  /**
+   * How Curator reaches Hue Conductor for the runtime demo (the Demo Room drives real lights via
+   * Conductor). `sharedSecret` is the same `X-Trigger-Secret` the other services use; absent → the
+   * demo calls Conductor unauthenticated (fine only when Conductor also runs with auth disabled).
+   */
+  conductor: { url: string; sharedSecret?: string };
 }
 
 // Upload ceiling. A compiled-in 500 MB cap rejected real 1 GB visualizer videos (issue #12), so
@@ -40,6 +46,7 @@ export function loadConfig(override: Partial<Config> = {}): Config {
   const server = file.server ?? {};
   const storage = file.storage ?? {};
   const spotifyFile = file.spotify ?? {};
+  const conductorFile = file.conductor ?? {};
 
   const clientId =
     (spotifyFile.client_id as string | undefined) ??
@@ -72,6 +79,20 @@ export function loadConfig(override: Partial<Config> = {}): Config {
           join(homedir(), "marquee"),
       ),
     ),
+    conductor: {
+      url: String(
+        conductorFile.url ??
+          process.env.CONDUCTOR_URL ??
+          "http://localhost:4737",
+      ),
+      ...((conductorFile.shared_secret ?? process.env.TRIGGER_SHARED_SECRET)
+        ? {
+            sharedSecret: String(
+              conductorFile.shared_secret ?? process.env.TRIGGER_SHARED_SECRET,
+            ),
+          }
+        : {}),
+    },
     ...(clientId && clientSecret
       ? { spotify: { clientId, clientSecret } }
       : {}),

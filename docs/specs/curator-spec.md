@@ -398,6 +398,20 @@ Runs on `http://localhost:4739` locally.
 | POST   | `/api/agent/pause`            | Stop processing new items.                          |
 | POST   | `/api/agent/resume`           | Resume processing.                                  |
 
+### Demo / runtime preview
+
+Proxies to Conductor so the browser never holds the shared secret (ADR 0007). Conductor URL + secret
+live in Curator's config (`[conductor] url`, `shared_secret`, or env `CONDUCTOR_URL` /
+`TRIGGER_SHARED_SECRET`).
+
+| Method | Path               | Purpose                                                                                             |
+| ------ | ------------------ | --------------------------------------------------------------------------------------------------- |
+| POST   | `/api/demo/play`   | Body `{ curatorId }` → build the album's palette payload, `POST` it to Conductor's `/api/playback`. |
+| POST   | `/api/demo/stop`   | Stop playback; Conductor restores the pre-demo lighting.                                            |
+| GET    | `/api/demo/rooms`  | Proxy Conductor's `/api/rooms` for the first-run room picker.                                       |
+| PUT    | `/api/demo/room`   | Body `{ roomId }` → set Conductor's listening room.                                                 |
+| GET    | `/api/demo/status` | `{ reachable, paired, listeningRoomId }` — Conductor-down is reported, not an error.                |
+
 ### Backdrop sync
 
 | Method | Path                                  | Purpose                                                    |
@@ -537,6 +551,29 @@ The confidence checkpoint. Full-screen (or modal from album detail):
 - **Something's off** button (jump back to palette or video edit without leaving)
 
 No hardware required. Catches most "this doesn't feel like the album" issues before you touch a sleeve.
+
+### Demo Room (runtime preview)
+
+> **Added 2026-07-17 ([ADR 0007](../adrs/0007-demo-room-drives-conductor-via-curator-proxy.md)).**
+> An expansion of the Preview idea into a full runtime rehearsal, so you can experience "the room
+> becomes the record" from the workstation before the Backdrop/Stylus Pis exist.
+
+A full-viewport screen (`/demo/:curatorId`, opened from the album detail's **Demo Room** button) that
+plays the visualizer fullscreen with Backdrop-accurate transitions (dim idle overlay → play, a
+two-layer crossfade on swap) while driving the **real Hue lights** through Conductor:
+
+- **Place sleeve / Lift sleeve** call `POST /api/demo/play` / `/api/demo/stop`. `play` builds the
+  album's palette+pattern payload and hands it to Conductor's `POST /api/playback` (which snapshots
+  the room and animates the pattern); `stop` restores the pre-demo lighting.
+- **Swap** (prev/next over albums with a video) crossfades the video and calls `play` again, so
+  Conductor crossfades the lights to the new palette — the "run several records back-to-back for a
+  visitor" moment.
+- **First-run room picker** if no listening room is set (`GET /api/demo/rooms` → `PUT /api/demo/room`),
+  plus a lights-status badge. Conductor being unreachable is shown, not fatal — the local video still
+  plays (lights degrade to no-op).
+
+Curator proxies Conductor under `/api/demo/*` so the shared secret stays server-side and there's no
+browser CORS (ADR 0007). This is also the reference implementation for Backdrop's eventual SPA.
 
 ### Incoming
 

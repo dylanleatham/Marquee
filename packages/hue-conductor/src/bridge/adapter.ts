@@ -24,6 +24,18 @@ export interface LightInfo {
   colorCapable: boolean;
 }
 
+/** One light's captured state (conductor-spec §9 restoration). `bri` is Hue's 0–254 scale. */
+export interface LightSnapshot {
+  on: boolean;
+  bri?: number;
+  xy?: [number, number];
+}
+
+/** A room's captured lighting, keyed by light id — restored verbatim on `stop`. */
+export interface RoomSnapshot {
+  lights: Record<string, LightSnapshot>;
+}
+
 /**
  * The only surface the adapter needs from node-hue-api. Injecting this (rather than
  * importing the library directly everywhere) is what makes the adapter testable without a
@@ -193,15 +205,78 @@ export class BridgeAdapter {
     roomId: string,
     hex: string,
   ): Promise<{ lightsSet: number }> {
+    const ids = await this.getRoomLightIds(roomId);
+    for (const id of ids) await this.setLightColor(id, hex);
+    return { lightsSet: ids.length };
+  }
+
+  /** The light ids belonging to a room/zone. The playback engine caches these per session. */
+  async getRoomLightIds(roomId: string): Promise<string[]> {
     const api = await this.api();
     const group = await api.groups.getGroup(roomId);
+    return (group.lights ?? []).map(String);
+  }
+
+  /**
+   * Set one light's color, optionally with a brightness (0–100) and a fade time. The fade is the
+   * bridge's own `transitiontime` — cheap and smooth, so the playback engine's crossfades don't
+   * have to interpolate in software (conductor-spec §9).
+   */
+  async setLightColor(
+    lightId: string,
+    hex: string,
+    opts: { brightnessPct?: number; transitionMs?: number } = {},
+  ): Promise<void> {
+    const api = await this.api();
     const { r, g, b } = hexToRgb(hex);
-    const ids = (group.lights ?? []).map(String);
+    let state = this.driver.newLightState().on().rgb(r, g, b);
+    if (opts.brightnessPct != null)
+      state = state.brightness(opts.brightnessPct);
+    if (opts.transitionMs != null)
+      state = state.transitionInMillis(opts.transitionMs);
+    await api.lights.setLightState(lightId, state);
+  }
+
+  /**
+   * Capture the current on/color/brightness of every light in a room, so a playback session can
+   * put the room back exactly as it found it when the sleeve is lifted (conductor-spec §9 state
+   * restoration). Unreachable lights are captured as best-effort `off`.
+   */
+  async snapshotRoom(roomId: string): Promise<RoomSnapshot> {
+    const api = await this.api();
+    const ids = await this.getRoomLightIds(roomId);
+    const lights: Record<string, LightSnapshot> = {};
     for (const id of ids) {
-      const state = this.driver.newLightState().on().rgb(r, g, b);
+      try {
+        const s = await api.lights.getLightState(id);
+        lights[id] = { on: s.on, bri: s.bri, xy: s.xy };
+      } catch {
+        lights[id] = { on: false };
+      }
+    }
+    return { lights };
+  }
+
+  /** Fade a room back to a previously captured snapshot over `transitionMs`. */
+  async restoreRoom(
+    roomId: string,
+    snapshot: RoomSnapshot,
+    transitionMs: number,
+  ): Promise<void> {
+    const api = await this.api();
+    for (const [id, snap] of Object.entries(snapshot.lights)) {
+      let state = this.driver.newLightState();
+      if (!snap.on) {
+        state = state.off().transitionInMillis(transitionMs);
+      } else {
+        state = state.on();
+        if (snap.xy) state = state.xy(snap.xy[0], snap.xy[1]);
+        if (snap.bri != null)
+          state = state.brightness(Math.round((snap.bri / 254) * 100));
+        state = state.transitionInMillis(transitionMs);
+      }
       await api.lights.setLightState(id, state);
     }
-    return { lightsSet: ids.length };
   }
 
   private async api(): Promise<HueApi> {

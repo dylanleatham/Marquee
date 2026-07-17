@@ -41,6 +41,7 @@ import {
   type VideoProber,
 } from "./media/video.js";
 import { ImageError } from "./media/images.js";
+import { buildPalettePayload, DemoNotReadyError } from "./demo/payload.js";
 import type { PromptType } from "./roadie/prompts.js";
 
 export interface BuildOptions {
@@ -66,6 +67,8 @@ const summary = (a: AlbumAsset) => ({
   artwork: a.artwork?.resolvedPath ?? null,
   paletteColors: a.palette?.colors.length ?? 0,
   paletteInsufficient: a.roadie.flags.palette_insufficient,
+  // The Demo Room lists albums with a video to swap between; palette drives the lights either way.
+  hasVideo: Boolean(a.visualizer),
 });
 
 // A newly-added album has only been queued — palette/prompts land later, off the request path.
@@ -525,6 +528,132 @@ export function buildServer(opts: BuildOptions = {}) {
       return { state: asset.roadie.state };
     } catch (err) {
       return actionError(err, reply, req);
+    }
+  });
+
+  // --- Demo / runtime preview: drive the real Hue lights via Conductor (runtime-overview §6) ---
+  // Curator proxies Conductor so the browser never holds the shared secret and there's no CORS.
+  // See ADR 0007. `fetch`/`Response` are Node 22 globals; type via the fetch signature to avoid
+  // naming DOM lib types the server tsconfig doesn't pull in.
+  type FetchInit = Parameters<typeof fetch>[1];
+  type FetchResponse = Awaited<ReturnType<typeof fetch>>;
+
+  const callConductor = (path: string, init?: FetchInit) => {
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+    };
+    if (config.conductor.sharedSecret)
+      headers["x-trigger-secret"] = config.conductor.sharedSecret;
+    return fetch(`${config.conductor.url}${path}`, {
+      ...init,
+      // Cap the call so a wedged (not just down) Conductor can't hang a /api/demo/* request; the
+      // abort surfaces as a fetch rejection → conductorDown → 502 (review: runtime).
+      signal: AbortSignal.timeout(5000),
+      headers: { ...headers, ...(init?.headers as Record<string, string>) },
+    });
+  };
+
+  // Forward a Conductor response (status + JSON body) straight back to the browser.
+  const forwardConductor = async (reply: FastifyReply, res: FetchResponse) => {
+    const body = await res.json().catch(() => ({}));
+    return reply.code(res.status).send(body);
+  };
+
+  // A fetch that throws means Conductor is down/unreachable — a clean 502 the UI can render.
+  const conductorDown = (reply: FastifyReply, err: unknown) =>
+    reply.code(502).send({
+      error: `Hue Conductor not reachable at ${config.conductor.url} — is it running? (${(err as Error).message})`,
+    });
+
+  // Start (or crossfade to) an album's palette+pattern on the configured listening room.
+  app.post("/api/demo/play", async (req, reply) => {
+    const { curatorId } = (req.body ?? {}) as { curatorId?: string };
+    if (!curatorId)
+      return reply.code(400).send({ error: "curatorId is required" });
+    const asset = store.read(curatorId);
+    if (!asset) return reply.code(404).send({ error: "not found" });
+    let payload;
+    try {
+      payload = buildPalettePayload(asset);
+    } catch (err) {
+      if (err instanceof DemoNotReadyError)
+        return reply.code(409).send({ error: err.message });
+      throw err;
+    }
+    try {
+      return forwardConductor(
+        reply,
+        await callConductor("/api/playback", {
+          method: "POST",
+          body: JSON.stringify({ palette: payload }),
+        }),
+      );
+    } catch (err) {
+      return conductorDown(reply, err);
+    }
+  });
+
+  // Lift the sleeve: stop playback and let Conductor restore the room's pre-demo lighting.
+  app.post("/api/demo/stop", async (_req, reply) => {
+    try {
+      return forwardConductor(
+        reply,
+        await callConductor("/api/playback/stop", {
+          method: "POST",
+          body: "{}",
+        }),
+      );
+    } catch (err) {
+      return conductorDown(reply, err);
+    }
+  });
+
+  // The rooms/zones Conductor sees — for the first-run room picker.
+  app.get("/api/demo/rooms", async (_req, reply) => {
+    try {
+      return forwardConductor(reply, await callConductor("/api/rooms"));
+    } catch (err) {
+      return conductorDown(reply, err);
+    }
+  });
+
+  // Choose the listening room (persisted in Conductor's settings).
+  app.put("/api/demo/room", async (req, reply) => {
+    const { roomId } = (req.body ?? {}) as { roomId?: string | null };
+    try {
+      return forwardConductor(
+        reply,
+        await callConductor("/api/settings", {
+          method: "PUT",
+          body: JSON.stringify({ listeningRoomId: roomId ?? null }),
+        }),
+      );
+    } catch (err) {
+      return conductorDown(reply, err);
+    }
+  });
+
+  // Aggregate status for the Demo Room header: reachable? paired? which room is set? Conductor being
+  // down is a normal state to render (reachable:false), not a Curator error — hence 200 either way.
+  app.get("/api/demo/status", async () => {
+    try {
+      const [statusRes, settingsRes] = await Promise.all([
+        callConductor("/api/bridge/status"),
+        callConductor("/api/settings"),
+      ]);
+      const status = (await statusRes.json().catch(() => ({}))) as {
+        paired?: boolean;
+      };
+      const settings = (await settingsRes.json().catch(() => ({}))) as {
+        listeningRoomId?: string | null;
+      };
+      return {
+        reachable: true,
+        paired: Boolean(status.paired),
+        listeningRoomId: settings.listeningRoomId ?? null,
+      };
+    } catch {
+      return { reachable: false, paired: false, listeningRoomId: null };
     }
   });
 
