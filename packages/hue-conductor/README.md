@@ -3,11 +3,15 @@
 Headless Fastify service that drives Hue lights. Runs on the Pi 5 near the TV.
 Spec: [../../docs/specs/hue-conductor-spec.md](../../docs/specs/hue-conductor-spec.md).
 
-## Status — build step 1 (bridge + read + flat color)
+## Status — build step 5 (playback engine)
 
-Implemented: bridge discovery + pairing CLI, room/light enumeration, and a flat-color
-test endpoint. The palette playback engine (patterns, rate limiting, snapshot/restore,
-scan handling) comes in later steps.
+Implemented: bridge discovery + pairing CLI, room/light enumeration, a flat-color test
+endpoint, and the **palette+pattern playback engine** (spec §9): `static`/`rotate`/`pulse`/
+`crossfade`, per-light token-bucket rate limiting, room snapshot on start + restore on stop,
+crossfade to a new palette on a mid-session swap, and a 90-minute idle safety-net. Driven via
+`POST /api/playback`. Store-backed `POST /api/scan` (URI → palette lookup) waits on the
+Curator→Conductor asset-store sync — the Curator Demo Room drives playback with explicit payloads
+in the meantime (see [ADR 0007](../../docs/adrs/0007-demo-room-drives-conductor-via-curator-proxy.md)).
 
 ## Setup
 
@@ -31,26 +35,34 @@ pnpm --filter @marquee/hue-conductor dev     # tsx watch, port 4737
 
 ## Endpoints (all require `X-Trigger-Secret` except `/healthz`)
 
-| Method  | Path                   | Purpose                                   |
-| ------- | ---------------------- | ----------------------------------------- |
-| GET     | `/healthz`             | `{ ok, paired }` — no auth                |
-| GET     | `/api/bridge/discover` | list bridges on the LAN                   |
-| GET     | `/api/bridge/status`   | paired state + reachability               |
-| GET     | `/api/rooms`           | rooms/zones with their light ids          |
-| GET     | `/api/lights`          | flat list of lights                       |
-| POST    | `/api/test/color`      | body `{ roomId, hex }` → set a flat color |
-| GET/PUT | `/api/settings`        | `{ listeningRoomId }`                     |
+| Method  | Path                   | Purpose                                                                   |
+| ------- | ---------------------- | ------------------------------------------------------------------------- |
+| GET     | `/healthz`             | `{ ok, paired }` — no auth                                                |
+| GET     | `/api/bridge/discover` | list bridges on the LAN                                                   |
+| GET     | `/api/bridge/status`   | paired state + reachability                                               |
+| GET     | `/api/rooms`           | rooms/zones with their light ids                                          |
+| GET     | `/api/lights`          | flat list of lights                                                       |
+| POST    | `/api/test/color`      | body `{ roomId, hex }` → set a flat color                                 |
+| GET/PUT | `/api/settings`        | `{ listeningRoomId }`                                                     |
+| POST    | `/api/playback`        | body `{ roomId?, palette }` → play a palette+pattern (snapshots the room) |
+| POST    | `/api/playback/stop`   | body `{ roomId? }` → stop and restore the pre-session lighting            |
 
-## Smoke test (the build-step-1 payoff)
+`roomId` defaults to the configured `listeningRoomId` on both playback routes.
+
+## Smoke test (the playback-engine payoff)
 
 ```bash
 SECRET=change-me-lan-only-secret
-curl -s localhost:4737/api/rooms -H "X-Trigger-Secret: $SECRET"
-# pick a roomId from the output, then:
-curl -s -X POST localhost:4737/api/test/color \
+curl -s localhost:4737/api/rooms -H "X-Trigger-Secret: $SECRET"   # pick a roomId
+# animate the room with a two-colour crossfade:
+curl -s -X POST localhost:4737/api/playback \
   -H "X-Trigger-Secret: $SECRET" -H "content-type: application/json" \
-  -d '{"roomId":"1","hex":"#4B0082"}'
-# → your lights turn purple.
+  -d '{"roomId":"1","palette":{"version":1,"source":{"type":"test"},
+       "palette":{"colors":[{"hex":"#4B0082","role":"primary"},{"hex":"#FFD700","role":"secondary"}]},
+       "pattern":{"type":"crossfade","params":{"transitionMs":1500,"holdMs":3000}}}}'
+# → the room fades between purple and gold. Then restore what was there before:
+curl -s -X POST localhost:4737/api/playback/stop \
+  -H "X-Trigger-Secret: $SECRET" -H "content-type: application/json" -d '{"roomId":"1"}'
 ```
 
 ## Notes

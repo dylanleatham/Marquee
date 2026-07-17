@@ -13,3 +13,9 @@ data_dir = "~/marquee"
 # [spotify]
 # client_id = "..."
 # client_secret = "..."
+
+# How the Demo Room reaches Hue Conductor to drive the real lights (ADR 0007). Defaults shown; or use
+# env vars CONDUCTOR_URL / TRIGGER_SHARED_SECRET. The shared secret must match Conductor's [auth].
+# [conductor]
+# url = "http://localhost:4737"
+# shared_secret = "change-me-lan-only-secret"
