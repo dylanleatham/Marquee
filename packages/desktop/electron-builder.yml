@@ -1,0 +1,26 @@
+appId: com.marquee.desktop
+productName: Marquee
+directories:
+  output: release
+# The Electron main + the two esbuild-bundled servers (+ their runtime files) are all this app needs;
+# no pnpm node_modules are shipped (the servers are self-contained bundles — see scripts/bundle-servers.mjs).
+files:
+  - dist/**/*
+  - package.json
+extraResources:
+  - from: staged/servers
+    to: servers
+  - from: staged/dist-ui
+    to: dist-ui
+  - from: staged/data
+    to: data
+win:
+  target: nsis
+  # icon: build/icon.ico   # TODO: ship a Marquee icon; default Electron icon until then.
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Marquee
