@@ -1,0 +1,26 @@
+{
+  "name": "@marquee/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Desktop app that launches Curator + Conductor in one native window.",
+  "main": "dist/main.js",
+  "scripts": {
+    "build:services": "pnpm --filter @marquee/curator build && pnpm --filter @marquee/hue-conductor build",
+    "build:main": "tsc -p tsconfig.build.json",
+    "build": "pnpm run build:main",
+    "start": "pnpm run build:services && pnpm run build:main && electron dist/main.js",
+    "dist": "pnpm run build:services && node scripts/bundle-servers.mjs && pnpm run build:main && electron-builder",
+    "type-check": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "lint": "echo \"(no linter configured yet)\""
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.2",
+    "vitest": "^2.1.3"
+  }
+}
