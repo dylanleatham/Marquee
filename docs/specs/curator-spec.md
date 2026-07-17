@@ -451,16 +451,23 @@ Two entry points depending on how you like to work:
 **Upload ceiling.** A single multipart upload is capped at `storage.max_upload_mb` in
 `config.toml` (env `CURATOR_MAX_UPLOAD_MB`), default **2048 MB**. Visualizer videos are the only
 large uploads; cover and card art are tiny. An over-ceiling upload is rejected with **413** and a
-message naming the limit — it is never truncated or partially written. The cap is bounded rather
-than unlimited on purpose: uploads are buffered in memory before `ffprobe` sees a path, so an
-unbounded ceiling is a way to OOM the box.
+message naming the limit — it is never truncated or partially written into the store (the streamed
+temp file is discarded on rejection). Uploads are **streamed straight to a temp file on disk**
+before `ffprobe` sees a path — never buffered in memory — so the ceiling is a disk/policy limit,
+not a memory-safety knob, and can be raised as far as disk allows without risking an OOM.
 
 > **Note (2026-07-14, [issue #12](https://github.com/dylanleatham/Marquee/issues/12)):** the
 > ceiling was previously a hardcoded 500 MB and this section didn't mention it, so real ~1 GB
 > visualizer videos were rejected — and `/api/videos/upload` and `/api/card-art/upload` surfaced
 > the rejection as a generic `500` rather than a `413`. Both fixed; the ceiling is now configurable
-> and specified here. Streaming uploads straight to disk (removing the in-memory buffer, and with
-> it the reason for a low cap) is a possible future change.
+> and specified here.
+>
+> **Note (2026-07-16, [issue #16](https://github.com/dylanleatham/Marquee/issues/16),
+> [ADR 0006](../adrs/0006-stream-uploads-to-disk.md)):** uploads previously buffered the whole file
+> in memory (`part.toBuffer()`) before staging it for `ffprobe`, so a large ceiling was an OOM risk
+> — the reason the cap existed at all. The file part now streams to a temp file
+> (`pipeline(part.file, createWriteStream(...))`); the ceiling is now a plain disk limit. The 413
+> behavior is unchanged — @fastify/multipart still truncates an over-ceiling file mid-stream.
 
 ## 10. UI screens
 

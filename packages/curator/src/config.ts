@@ -19,8 +19,9 @@ export interface Config {
 }
 
 // Upload ceiling. A compiled-in 500 MB cap rejected real 1 GB visualizer videos (issue #12), so
-// this is configurable and defaults high enough for them. It stays bounded on purpose: uploads are
-// buffered in memory before ffprobe sees them, so "unlimited" would be a way to OOM the box.
+// this is configurable and defaults high enough for them. Uploads stream straight to a temp file
+// (issue #16 / ADR 0006), so this is a disk/policy limit, not a memory-safety bound — raise it as
+// far as disk allows. It's still bounded (not unlimited) so a runaway upload can't fill the disk.
 const DEFAULT_MAX_UPLOAD_MB = 2048;
 
 /**

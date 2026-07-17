@@ -5,7 +5,7 @@ import {
   mkdirSync,
   existsSync,
   rmSync,
-  writeFileSync,
+  renameSync,
   readFileSync,
 } from "node:fs";
 import type { AssetStore } from "../store/asset-store.js";
@@ -127,26 +127,24 @@ function finishVideoAttach(
   deps.store.save(asset);
 }
 
-/** Attach a freshly-uploaded video (raw bytes). Ingests into visualizers/{curatorId}.mp4. */
+/**
+ * Attach a freshly-uploaded video by its on-disk path. Ingests into visualizers/{curatorId}.mp4.
+ * The upload is already streamed to `srcPath` by the route (issue #16), which also owns removing it —
+ * so ingest copies rather than moves, and this never buffers the file.
+ */
 export async function attachVideoUpload(
   deps: ActionDeps,
   curatorId: string,
-  buffer: Buffer,
+  srcPath: string,
   originalFilename: string,
 ): Promise<AlbumAsset> {
   const asset = load(deps.store, curatorId);
   if (!VIDEO_ATTACHABLE.includes(asset.roadie.state))
     throw new TransitionError(asset.roadie.state, "awaiting_preview");
 
-  // ffprobe needs a path; stage the bytes in /incoming/ under a temp name, then ingest + remove.
-  mkdirSync(deps.store.paths.incoming, { recursive: true });
-  const tmp = deps.store.paths.incomingFile(
-    `.upload-${curatorId}-${Date.now()}.mp4`,
-  );
-  writeFileSync(tmp, buffer);
   const vis = await ingestVideo(
     { prober: deps.prober, paths: deps.store.paths, now: deps.now },
-    { srcPath: tmp, fileId: curatorId, originalFilename, removeSrc: true },
+    { srcPath, fileId: curatorId, originalFilename },
   );
   finishVideoAttach(deps, asset, vis);
   return asset;
@@ -203,14 +201,16 @@ export function detachVideo(
 export function attachCardArtUpload(
   deps: ActionDeps,
   curatorId: string,
-  buffer: Buffer,
+  srcPath: string,
   originalFilename: string,
 ): AlbumAsset {
   const asset = load(deps.store, curatorId);
   // Card art is independent of the state machine — it can be added at any point, even after verified.
+  // Card art is small (cover-sized), so reading the streamed temp file back into a buffer here is
+  // fine — the memory concern in issue #16 is the multi-GB video path, not this one.
   asset.cardArt = ingestCardArt(
     { paths: deps.store.paths, now: deps.now },
-    { buffer, fileId: curatorId, originalFilename },
+    { buffer: readFileSync(srcPath), fileId: curatorId, originalFilename },
   );
   asset.status = deriveStatus(asset.roadie);
   deps.store.save(asset);
@@ -309,15 +309,21 @@ const basenameOnly = (name: string): string =>
     .replace(/^\.+/, "")
     .slice(0, 200);
 
-/** Save a raw upload with no curatorId into /incoming/ for a later claim (curator-spec §9). */
+/**
+ * Move a raw upload with no curatorId into /incoming/ for a later claim (curator-spec §9). The bytes
+ * are already streamed to `srcPath` (a temp in /incoming/), so this is a same-directory rename rather
+ * than a re-copy of a potentially multi-GB file (issue #16). Overwrites any prior file of that name,
+ * matching the previous write-through behavior (renameSync onto an existing path throws on Windows).
+ */
 export function saveIncoming(
   store: AssetStore,
   originalFilename: string,
-  buffer: Buffer,
+  srcPath: string,
 ): { name: string } {
   const name = basenameOnly(originalFilename) || `upload-${Date.now()}`;
   mkdirSync(store.paths.incoming, { recursive: true });
   const dest = store.paths.incomingFile(name);
-  writeFileSync(dest, buffer);
+  rmSync(dest, { force: true });
+  renameSync(srcPath, dest);
   return { name };
 }
