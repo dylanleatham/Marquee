@@ -4,9 +4,14 @@ import {
   existsSync,
   readFileSync,
   createReadStream,
+  createWriteStream,
+  mkdirSync,
+  rmSync,
   readdirSync,
   statSync,
 } from "node:fs";
+import { pipeline } from "node:stream/promises";
+import { randomUUID } from "node:crypto";
 import { join, resolve, dirname } from "node:path";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import multipart from "@fastify/multipart";
@@ -111,17 +116,39 @@ const actionError = (
   return reply.code(500).send({ error: (err as Error).message });
 };
 
-/** Read a multipart request into plain fields + an optional single file buffer. */
-async function readUpload(req: FastifyRequest): Promise<{
+/**
+ * Stream a multipart request to disk (issue #16): plain fields are collected in memory, but the
+ * single file part is piped straight to a temp file under /incoming/ rather than buffered — so a
+ * multi-GB visualizer video is bytes-to-disk, not a heap allocation, and the upload ceiling is a
+ * disk/policy limit instead of a memory-safety knob. The returned temp file belongs to the *caller*,
+ * which must remove it (the routes do so in a `finally`). An over-ceiling file is truncated
+ * mid-stream by @fastify/multipart (`part.file.truncated`); we surface that as its 413 error so the
+ * caller sees a clean "too large" and the partial temp is cleaned up (issue #12).
+ */
+async function readUpload(
+  req: FastifyRequest,
+  store: AssetStore,
+): Promise<{
   fields: Record<string, string>;
-  file?: { buffer: Buffer; filename: string };
+  file?: { path: string; filename: string; size: number };
 }> {
+  mkdirSync(store.paths.incoming, { recursive: true });
+  const tmp = store.paths.incomingFile(`.upload-${randomUUID()}`);
   const fields: Record<string, string> = {};
-  let file: { buffer: Buffer; filename: string } | undefined;
-  for await (const part of req.parts()) {
-    if (part.type === "file")
-      file = { buffer: await part.toBuffer(), filename: part.filename };
-    else fields[part.fieldname] = String(part.value);
+  let file: { path: string; filename: string; size: number } | undefined;
+  try {
+    for await (const part of req.parts()) {
+      if (part.type === "file") {
+        const sink = createWriteStream(tmp);
+        await pipeline(part.file, sink);
+        if (part.file.truncated)
+          throw new req.server.multipartErrors.RequestFileTooLargeError();
+        file = { path: tmp, filename: part.filename, size: sink.bytesWritten };
+      } else fields[part.fieldname] = String(part.value);
+    }
+  } catch (err) {
+    rmSync(tmp, { force: true });
+    throw err;
   }
   return { fields, file };
 }
@@ -350,22 +377,29 @@ export function buildServer(opts: BuildOptions = {}) {
     if (!req.isMultipart())
       return reply.code(400).send({ error: "expected multipart/form-data" });
     try {
-      const { fields, file } = await readUpload(req);
-      if (!file?.buffer.length)
-        return reply.code(400).send({ error: "a video file is required" });
-      if (fields.curatorId) {
-        const asset = await actions.attachVideoUpload(
-          actionDeps,
-          fields.curatorId,
-          file.buffer,
-          file.filename,
-        );
-        return reply
-          .code(201)
-          .send({ curatorId: fields.curatorId, state: asset.roadie.state });
+      const { fields, file } = await readUpload(req, store);
+      try {
+        if (!file || file.size === 0)
+          return reply.code(400).send({ error: "a video file is required" });
+        if (fields.curatorId) {
+          const asset = await actions.attachVideoUpload(
+            actionDeps,
+            fields.curatorId,
+            file.path,
+            file.filename,
+          );
+          return reply
+            .code(201)
+            .send({ curatorId: fields.curatorId, state: asset.roadie.state });
+        }
+        const { name } = actions.saveIncoming(store, file.filename, file.path);
+        return reply.code(201).send({ incoming: name });
+      } finally {
+        // The temp file is ours; remove it whatever happened (ingest/saveIncoming may already have
+        // consumed it — `force` makes the double-remove a no-op, and it plugs the leak on a rejected
+        // codec or a wrong-state attach, where the action throws before consuming the file).
+        if (file) rmSync(file.path, { force: true });
       }
-      const { name } = actions.saveIncoming(store, file.filename, file.buffer);
-      return reply.code(201).send({ incoming: name });
     } catch (err) {
       return actionError(err, reply, req, config.maxUploadBytes);
     }
@@ -414,22 +448,26 @@ export function buildServer(opts: BuildOptions = {}) {
     if (!req.isMultipart())
       return reply.code(400).send({ error: "expected multipart/form-data" });
     try {
-      const { fields, file } = await readUpload(req);
-      if (!file?.buffer.length)
-        return reply.code(400).send({ error: "an image file is required" });
-      if (fields.curatorId) {
-        const asset = actions.attachCardArtUpload(
-          actionDeps,
-          fields.curatorId,
-          file.buffer,
-          file.filename,
-        );
-        return reply
-          .code(201)
-          .send({ curatorId: fields.curatorId, cardArt: asset.cardArt });
+      const { fields, file } = await readUpload(req, store);
+      try {
+        if (!file || file.size === 0)
+          return reply.code(400).send({ error: "an image file is required" });
+        if (fields.curatorId) {
+          const asset = actions.attachCardArtUpload(
+            actionDeps,
+            fields.curatorId,
+            file.path,
+            file.filename,
+          );
+          return reply
+            .code(201)
+            .send({ curatorId: fields.curatorId, cardArt: asset.cardArt });
+        }
+        const { name } = actions.saveIncoming(store, file.filename, file.path);
+        return reply.code(201).send({ incoming: name });
+      } finally {
+        if (file) rmSync(file.path, { force: true });
       }
-      const { name } = actions.saveIncoming(store, file.filename, file.buffer);
-      return reply.code(201).send({ incoming: name });
     } catch (err) {
       return actionError(err, reply, req, config.maxUploadBytes);
     }
