@@ -162,6 +162,10 @@ em {
   padding: 4px 10px;
   font-size: 13px;
 }
+.btn--lg {
+  padding: 12px 28px;
+  font-size: 17px;
+}
 .btn:disabled {
   opacity: 0.5;
   cursor: default;
@@ -738,4 +742,107 @@ em {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
   }
+}
+
+/* --- Demo Room (runtime preview): a fullscreen overlay above the app chrome. --- */
+.demo {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  background: #000;
+  color: var(--text);
+}
+.demo__bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 18px;
+  background: rgba(20, 17, 15, 0.72);
+  backdrop-filter: blur(6px);
+  z-index: 2;
+}
+.demo__bar--bottom {
+  justify-content: center;
+}
+.demo__title {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.demo__lights {
+  font-size: 13px;
+  color: var(--sage);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 12px;
+  white-space: nowrap;
+}
+.demo__lights--off {
+  color: var(--muted);
+}
+.demo__roompick {
+  position: absolute;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+.demo__stage {
+  position: relative;
+  overflow: hidden;
+  background: #000;
+}
+.demo__video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: opacity 500ms ease-in-out; /* Backdrop-spec §7 crossfade feel */
+}
+.demo__idle {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  transition: opacity 600ms ease-in-out;
+  /* A dim, non-distracting idle wash — the "waiting for a sleeve" state. */
+  background: radial-gradient(
+    120% 100% at 50% 40%,
+    #241d16 0%,
+    #0c0a08 70%,
+    #000 100%
+  );
+}
+.demo__idle-hint {
+  color: var(--muted);
+  font-size: 15px;
+  letter-spacing: 0.02em;
+}
+.demo__lights-error {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 3;
+  font-size: 13px;
+  color: var(--text);
+  background: rgba(229, 72, 77, 0.85);
+  border-radius: 999px;
+  padding: 5px 14px;
+  max-width: 80vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

@@ -67,6 +67,8 @@ const summary = (a: AlbumAsset) => ({
   artwork: a.artwork?.resolvedPath ?? null,
   paletteColors: a.palette?.colors.length ?? 0,
   paletteInsufficient: a.roadie.flags.palette_insufficient,
+  // The Demo Room lists albums with a video to swap between; palette drives the lights either way.
+  hasVideo: Boolean(a.visualizer),
 });
 
 // A newly-added album has only been queued — palette/prompts land later, off the request path.

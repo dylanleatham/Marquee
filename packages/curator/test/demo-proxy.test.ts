@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify from "fastify";
 import { AssetStore } from "../src/store/asset-store.js";
 import { buildServer } from "../src/server.js";
 import { buildFreshAsset } from "../src/albums/asset.js";

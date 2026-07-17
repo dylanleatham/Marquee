@@ -156,6 +156,15 @@ export function AlbumDetail() {
               {busy ? "Working…" : "Retry"}
             </button>
           )}
+          {palette && (
+            <button
+              className="btn"
+              onClick={() => navigate(`/demo/${curatorId}`)}
+              title="Preview the runtime experience: video + your real Hue lights"
+            >
+              ▶ Demo Room
+            </button>
+          )}
           <button className="btn btn--danger" onClick={del}>
             Delete
           </button>
