@@ -7,6 +7,8 @@ import {
   NotPairedError,
   type HueDriver,
 } from "./bridge/adapter.js";
+import { PlaybackEngine, type Timers } from "./playback/engine.js";
+import type { PalettePayload } from "@marquee/contracts";
 
 export interface BuildOptions {
   /** Config overrides (tests inject a shared secret + temp data dir). */
@@ -15,12 +17,15 @@ export interface BuildOptions {
   store?: Store;
   /** Injected Hue driver (tests pass a fake; prod uses the default node-hue-api driver). */
   driver?: HueDriver;
+  /** Injected timers for the playback engine (tests step patterns deterministically). */
+  timers?: Timers;
 }
 
 export function buildServer(opts: BuildOptions = {}) {
   const config = loadConfig(opts.config);
   const store = opts.store ?? new Store(config.dataDir);
   const bridge = new BridgeAdapter(store, opts.driver);
+  const engine = new PlaybackEngine(bridge, { timers: opts.timers });
   const app = Fastify({
     logger: { level: process.env.NODE_ENV === "test" ? "silent" : "info" },
   });
@@ -67,6 +72,43 @@ export function buildServer(opts: BuildOptions = {}) {
       listeningRoomId?: string | null;
     };
     return store.setListeningRoom(listeningRoomId ?? null);
+  });
+
+  // Resolve the target room: explicit roomId wins, else the configured listening room.
+  const resolveRoom = (roomId?: string): string | null =>
+    roomId ?? store.settings.listeningRoomId ?? null;
+
+  // Start (or crossfade to) a palette+pattern on a room (conductor-spec §8/§9). The playback engine
+  // snapshots the room on the first start and restores it on stop.
+  app.post("/api/playback", async (req, reply) => {
+    const body = (req.body ?? {}) as {
+      roomId?: string;
+      palette?: PalettePayload;
+    };
+    const roomId = resolveRoom(body.roomId);
+    if (!roomId)
+      return reply.code(400).send({
+        error:
+          "no room specified and no listening room configured — set one via PUT /api/settings",
+      });
+    const payload = body.palette;
+    if (!payload?.palette?.colors?.length)
+      return reply
+        .code(400)
+        .send({ error: "palette with at least one color is required" });
+    return engine.start(roomId, payload);
+  });
+
+  // Stop a room's playback and fade the lights back to their pre-session snapshot.
+  app.post("/api/playback/stop", async (req, reply) => {
+    const { roomId } = (req.body ?? {}) as { roomId?: string };
+    const target = resolveRoom(roomId);
+    if (!target)
+      return reply.code(400).send({
+        error: "no room specified and no listening room configured",
+      });
+    await engine.stop(target);
+    return { stopped: true, roomId: target };
   });
 
   app.setErrorHandler((err, req, reply) => {

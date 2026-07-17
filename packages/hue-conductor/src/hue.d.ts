@@ -23,6 +23,17 @@ declare module "node-hue-api" {
     type: string;
   }
 
+  /** A light's live state as returned by `lights.getLightState` (the subset we snapshot). */
+  export interface HueLightStateValue {
+    on: boolean;
+    bri?: number; // 0–254
+    xy?: [number, number];
+    ct?: number;
+    hue?: number;
+    sat?: number;
+    reachable?: boolean;
+  }
+
   export interface HueApi {
     users: {
       createUser(
@@ -39,6 +50,7 @@ declare module "node-hue-api" {
     };
     lights: {
       getAll(): Promise<HueLight[]>;
+      getLightState(id: string | number): Promise<HueLightStateValue>;
       setLightState(id: string | number, state: LightState): Promise<boolean>;
     };
   }

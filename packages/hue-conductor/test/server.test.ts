@@ -4,10 +4,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Store } from "../src/store.js";
 import { buildServer } from "../src/server.js";
-import { makeFakeDriver } from "./fakes.js";
+import { makeFakeDriver, FakeTimers } from "./fakes.js";
 
 const SECRET = "test-secret";
 const AUTH = { "x-trigger-secret": SECRET };
+
+// A minimal static palette payload for the playback endpoints.
+const PALETTE = {
+  version: 1,
+  source: { type: "album" },
+  palette: { colors: [{ hex: "#4B0082", role: "primary" }] },
+  pattern: { type: "static", params: {} },
+};
 
 const seededStore = () => {
   const s = new Store(mkdtempSync(join(tmpdir(), "conductor-srv-")));
@@ -183,6 +191,91 @@ describe("hue-conductor HTTP API", () => {
         headers: AUTH,
       });
       expect(res.json()).toMatchObject({ paired: true, reachable: false });
+    });
+  });
+
+  describe("playback (conductor-spec §9)", () => {
+    const build = (store: Store, driver: ReturnType<typeof livingRoom>) =>
+      buildServer({
+        config: { sharedSecret: SECRET },
+        store,
+        driver: driver.driver,
+        timers: new FakeTimers(), // no real 90-min idle interval leaks out of the test
+      });
+
+    it("POST /api/playback starts a session and drives the room's lights", async () => {
+      const fake = livingRoom();
+      const { app } = build(seededStore(), fake);
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/playback",
+        headers: AUTH,
+        payload: { roomId: "1", palette: PALETTE },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().playbackId).toBeTruthy();
+      expect(fake.setCalls).toHaveLength(2); // both lights in Living
+    });
+
+    it("POST /api/playback falls back to the configured listening room", async () => {
+      const store = seededStore();
+      store.setListeningRoom("1");
+      const fake = livingRoom();
+      const { app } = build(store, fake);
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/playback",
+        headers: AUTH,
+        payload: { palette: PALETTE }, // no roomId
+      });
+      expect(res.statusCode).toBe(200);
+      expect(fake.setCalls.length).toBeGreaterThan(0);
+    });
+
+    it("POST /api/playback 400s when no room is given or configured", async () => {
+      const { app } = build(seededStore(), livingRoom());
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/playback",
+        headers: AUTH,
+        payload: { palette: PALETTE },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it("POST /api/playback 400s on a palette with no colors", async () => {
+      const { app } = build(seededStore(), livingRoom());
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/playback",
+        headers: AUTH,
+        payload: {
+          roomId: "1",
+          palette: { ...PALETTE, palette: { colors: [] } },
+        },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it("POST /api/playback/stop stops the session and restores the room", async () => {
+      const store = seededStore();
+      store.setListeningRoom("1");
+      const fake = livingRoom();
+      const { app } = build(store, fake);
+      await app.inject({
+        method: "POST",
+        url: "/api/playback",
+        headers: AUTH,
+        payload: { palette: PALETTE },
+      });
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/playback/stop",
+        headers: AUTH,
+        payload: {},
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ stopped: true, roomId: "1" });
     });
   });
 });
