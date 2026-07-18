@@ -25,7 +25,8 @@ import {
 } from "./albums/add-manual.js";
 import { addSpotifyAlbum, DuplicateAlbumError } from "./albums/add-spotify.js";
 import { SpotifyClient, SpotifyError } from "./spotify/client.js";
-import { writeSpotifyCreds } from "./settings.js";
+import { GeminiClient } from "./gemini/client.js";
+import { writeSpotifyCreds, writeGeminiCreds } from "./settings.js";
 import { Roadie } from "./roadie/worker.js";
 import { isCuratorId } from "./ids.js";
 import {
@@ -52,6 +53,8 @@ export interface BuildOptions {
   generate?: PaletteGenerator;
   /** Injected Spotify client (tests pass one backed by fake-spotify); prod builds from config. */
   spotify?: SpotifyClient;
+  /** Injected Gemini client (tests pass one backed by fake-gemini); prod builds from config. */
+  gemini?: GeminiClient;
   /** Injected Roadie (tests pass one with fake time); prod builds one from store/spotify/generate. */
   roadie?: Roadie;
   /** Injected video prober (tests pass a fake); prod uses ffprobe/ffmpeg. */
@@ -220,6 +223,9 @@ export function buildServer(opts: BuildOptions = {}) {
   const spotify =
     opts.spotify ??
     (config.spotify ? new SpotifyClient(config.spotify) : undefined);
+  const gemini =
+    opts.gemini ??
+    (config.gemini ? new GeminiClient(config.gemini) : undefined);
   const app = Fastify({
     logger: { level: process.env.NODE_ENV === "test" ? "silent" : "info" },
   });
@@ -228,6 +234,7 @@ export function buildServer(opts: BuildOptions = {}) {
     new Roadie({
       store,
       spotify,
+      gemini,
       generate: opts.generate,
       logger: {
         info: (m) => app.log.info(m),
@@ -236,7 +243,7 @@ export function buildServer(opts: BuildOptions = {}) {
       },
     });
   const prober = opts.prober ?? ffmpegProber;
-  const actionDeps: ActionDeps = { store, prober };
+  const actionDeps: ActionDeps = { store, prober, gemini };
   // Upload ceiling comes from config (default 2 GB) — visualizer videos are the large uploads;
   // cover/card art are tiny. Over-ceiling uploads surface as a 413 via actionError (issue #12).
   app.register(multipart, { limits: { fileSize: config.maxUploadBytes } });
@@ -245,6 +252,7 @@ export function buildServer(opts: BuildOptions = {}) {
     ok: true,
     albums: store.list().length,
     spotify: Boolean(spotify),
+    gemini: Boolean(gemini),
     roadie: roadie.status(),
   }));
 
@@ -370,6 +378,50 @@ export function buildServer(opts: BuildOptions = {}) {
       try {
         const asset = actions.markPromptCopied(actionDeps, curatorId, type);
         return { state: asset.roadie.state };
+      } catch (err) {
+        return actionError(err, reply, req);
+      }
+    },
+  );
+
+  // Choose which drafted variant is active (the one Copy hands off / generation uses).
+  app.post(
+    "/api/albums/:curatorId/prompts/:type/select",
+    async (req, reply) => {
+      const { curatorId, type } = req.params as {
+        curatorId: string;
+        type: PromptType;
+      };
+      const { index } = (req.body ?? {}) as { index?: number };
+      try {
+        const asset = actions.selectPromptVariant(
+          actionDeps,
+          curatorId,
+          type,
+          Number(index),
+        );
+        return { promptDrafts: asset.promptDrafts };
+      } catch (err) {
+        return actionError(err, reply, req);
+      }
+    },
+  );
+
+  // Regenerate one prompt as a fresh grounded LLM variant set (on-demand "Regenerate with AI").
+  app.post(
+    "/api/albums/:curatorId/prompts/:type/regenerate-ai",
+    async (req, reply) => {
+      const { curatorId, type } = req.params as {
+        curatorId: string;
+        type: PromptType;
+      };
+      try {
+        const asset = await actions.regeneratePromptWithAI(
+          actionDeps,
+          curatorId,
+          type,
+        );
+        return { promptDrafts: asset.promptDrafts };
       } catch (err) {
         return actionError(err, reply, req);
       }
@@ -695,6 +747,21 @@ export function buildServer(opts: BuildOptions = {}) {
     configured: Boolean(spotify),
     clientId: config.spotify?.clientId ?? null,
   }));
+
+  // Gemini API key: same trust model + settings.json store as Spotify. configured is the only
+  // read-back — the key itself is write-only and never returned.
+  app.get("/api/settings/gemini", async () => ({
+    configured: Boolean(gemini),
+  }));
+
+  app.put("/api/settings/gemini", async (req, reply) => {
+    const { apiKey } = (req.body ?? {}) as { apiKey?: string };
+    if (!apiKey || !apiKey.trim())
+      return reply.code(400).send({ error: "apiKey is required" });
+    writeGeminiCreds(config.dataDir, { apiKey: apiKey.trim() });
+    // The Gemini client + Roadie are built once at boot, so a new key takes effect on restart.
+    return { ok: true, restartRequired: true };
+  });
 
   app.put("/api/settings/spotify", async (req, reply) => {
     const { clientId, clientSecret } = (req.body ?? {}) as {

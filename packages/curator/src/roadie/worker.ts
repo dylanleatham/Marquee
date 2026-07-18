@@ -14,6 +14,7 @@ import {
   deriveStatus,
 } from "../albums/asset.js";
 import { STEPS, defaultGenerate, type Step, type StepDeps } from "./steps.js";
+import type { GeminiClient } from "../gemini/client.js";
 import { TransientError, PermanentError, ConfigError } from "./errors.js";
 import { backoffDelay, maxRetries, realSleep } from "./backoff.js";
 
@@ -28,6 +29,8 @@ const noopLogger: RoadieLogger = { info() {}, warn() {}, error() {} };
 export interface RoadieOptions {
   store: AssetStore;
   spotify?: SpotifyClient;
+  /** Gemini client for LLM-authored prompts; absent → the drafter uses the deterministic templates. */
+  gemini?: GeminiClient;
   /** Palette generator; defaults to real Palette Press. Tests inject a fake. */
   generate?: PaletteGenerator;
   /** Injectable clock + sleep so tests run with fake time (roadie-spec §13). */
@@ -70,8 +73,10 @@ export class Roadie {
     this.deps = {
       store: opts.store,
       spotify: opts.spotify,
+      gemini: opts.gemini,
       generate: opts.generate ?? defaultGenerate,
       now: this.now,
+      logger: this.log,
     };
   }
 

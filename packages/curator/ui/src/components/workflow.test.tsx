@@ -21,8 +21,21 @@ beforeEach(() => {
 });
 
 const prompt: DraftedPrompt = {
-  text: "draft text",
+  variants: [{ text: "draft text", nudge: "abstract_flow" }],
+  selectedIndex: 0,
+  generator: "template",
   template: "abstract_flow",
+  generatedAt: "2026-07-13T00:00:00Z",
+};
+
+/** A grounded, multi-variant LLM draft (for the variant-selection tests). */
+const aiPrompt: DraftedPrompt = {
+  variants: [
+    { text: "first variant text", nudge: "cover motifs" },
+    { text: "second variant text", nudge: "atmospheric shimmer" },
+  ],
+  selectedIndex: 0,
+  generator: "gemini",
   generatedAt: "2026-07-13T00:00:00Z",
 };
 
@@ -104,6 +117,38 @@ describe("PromptBlock", () => {
     fireEvent.change(screen.getByLabelText("prompt template"), {
       target: { value: "psychedelic" },
     });
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the active variant text and offers a chip per variant (LLM draft)", () => {
+    const run = vi.fn();
+    render(
+      <PromptBlock
+        curatorId="abcd1234"
+        type="video"
+        prompt={aiPrompt}
+        run={run}
+      />,
+    );
+    // Active variant (index 0) is shown; the AI-provenance badge is present.
+    expect(screen.getByText("first variant text")).toBeTruthy();
+    expect(screen.getByText(/AI · grounded/)).toBeTruthy();
+    // Selecting the second variant routes through run.
+    fireEvent.click(screen.getByText(/atmospheric shimmer/));
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("regenerates with AI through run", () => {
+    const run = vi.fn();
+    render(
+      <PromptBlock
+        curatorId="abcd1234"
+        type="cardArt"
+        prompt={prompt}
+        run={run}
+      />,
+    );
+    fireEvent.click(screen.getByText("Regenerate with AI"));
     expect(run).toHaveBeenCalledTimes(1);
   });
 });

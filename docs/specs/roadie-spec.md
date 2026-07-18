@@ -155,10 +155,10 @@ Two important properties:
 
 ### drafting_prompts
 
-- Input: album metadata (title, artist, year, genres) + generated palette + user-selected style templates per prompt type
+- Input: album metadata (title, artist, year, genres) + generated palette; a Gemini key if the LLM path is configured
 - Action: run the prompt-drafting logic (see §7) for both `video` and `cardArt` prompt types, save both to `promptDrafts` in the asset file
 - Success: transition to `awaiting_review`
-- Failure modes: prompt-drafting is deterministic and should not fail. If it does, log verbosely, transition to `errored`.
+- Failure modes: the step **cannot fail** (ADR 0009). The LLM path is attempted first; on a missing key or any Gemini error it falls back to the deterministic templates (logging the fallback), so the album always reaches `awaiting_review` with prompts drafted. Only an unexpected bug in the fallback itself would `errored` — log verbosely if so.
 
 ### Backdrop sync triggers
 
@@ -182,7 +182,24 @@ Sync failures never move albums backward through the state machine. They're reco
 
 ## 7. Prompt drafting
 
+> **Amended 2026-07-18 by [ADR 0009](../adrs/0009-llm-authored-grounded-prompts-via-gemini.md).**
+> Roadie now drafts prompts with **Gemini by default** — a grounded two-pass flow that references
+> real, album-specific detail and returns a **set of variants** per type — and falls back to the
+> deterministic templates below only when Gemini is unavailable. The "no external dependencies /
+> pure function" property described in this section now holds for the **template fallback only**,
+> not the primary path. See the ADR for the two-pass design and the LLM/fallback split; the sections
+> below describe the deterministic templates, which remain the fallback and the on-demand style
+> `redraft`.
+
 Roadie drafts two prompts per album: one for the visualizer video that plays on Backdrop, and one for the business-card art that gets printed and stuck onto the physical card. Both use the same inputs — album metadata + palette — but have different templates suited to their output medium.
+
+**LLM path (default, ADR 0009).** When a Gemini key is configured, the `drafting_prompts` step runs
+the grounded two-pass drafter: pass 1 researches the album's real visual identity (cover subjects,
+booklet/music-video motifs, era aesthetic) with Google Search grounding; pass 2 turns that research
+plus the matching metaprompt (`docs/prompts/`, bundled at `gemini/metaprompts.ts`) into
+`PROMPT_VARIANTS` (5) distinct variants with variance nudges. Each drafted prompt records provenance
+(`generator: "gemini" | "template"`) and the human picks the active variant in the detail UI.
+Grounding and structured JSON can't share one Gemini call, hence the two passes.
 
 ### Video prompt structure
 
@@ -233,9 +250,9 @@ Card art style templates (static, emblem-oriented):
 
 ### Common properties
 
-Users pick templates independently for each type on the album's detail page — you might want a `psychedelic` video paired with a `typographic` card. Roadie's defaults when unspecified: `abstract_flow` for video, `iconic_emblem` for card art.
+Users pick templates independently for each type on the album's detail page — you might want a `psychedelic` video paired with a `typographic` card. Roadie's defaults when unspecified: `abstract_flow` for video, `iconic_emblem` for card art. These templates remain available on the detail page as the on-demand `redraft` (a deterministic style switch), independent of the LLM path.
 
-Prompt drafting has no external dependencies — pure function of album metadata + palette + template. Fast, testable, deterministic given inputs. Same testing story for both prompt types.
+The **template path** has no external dependencies — pure function of album metadata + palette + template, fast and deterministic given inputs (goldens cover it). The **LLM path** (ADR 0009, the default) is an external, non-deterministic Gemini call; it's tested structurally (variant count, provenance, grounded/structured call shape) against `@marquee/fake-gemini`, not by golden-exact text.
 
 **Why this matters even without a video API.** The prompt is the seam. Today, human copies each prompt, pastes into the respective tool, generates the output. If either service ever gets an API, the same prompts drive automated calls. Same output, different consumer. No rearchitecture.
 

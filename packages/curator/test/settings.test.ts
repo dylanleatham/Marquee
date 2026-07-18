@@ -19,6 +19,7 @@ function serverAt(dataDir: string) {
   process.env.MARQUEE_DATA_DIR = dataDir;
   delete process.env.SPOTIFY_CLIENT_ID;
   delete process.env.SPOTIFY_CLIENT_SECRET;
+  delete process.env.GEMINI_API_KEY;
   const store = new AssetStore(dataDir);
   const { app } = buildServer({ store, roadie: fakeRoadie(store) });
   return app;
@@ -70,5 +71,68 @@ describe("Spotify settings", () => {
     const dir = mkdtempSync(join(tmpdir(), "curator-set-"));
     serverAt(dir);
     expect(existsSync(join(dir, "settings.json"))).toBe(false);
+  });
+});
+
+describe("Gemini settings", () => {
+  it("400s when the apiKey is missing", async () => {
+    const app = serverAt(mkdtempSync(join(tmpdir(), "curator-gem-")));
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/settings/gemini",
+      payload: {},
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("persists the key to settings.json and a fresh boot reads it back", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "curator-gem-"));
+
+    const app1 = serverAt(dir);
+    expect((await app1.inject({ url: "/api/settings/gemini" })).json()).toEqual(
+      {
+        configured: false,
+      },
+    );
+
+    const put = await app1.inject({
+      method: "PUT",
+      url: "/api/settings/gemini",
+      payload: { apiKey: "  key-123  " }, // trims
+    });
+    expect(put.statusCode).toBe(200);
+    expect(put.json()).toEqual({ ok: true, restartRequired: true });
+
+    const written = JSON.parse(
+      readFileSync(join(dir, "settings.json"), "utf8"),
+    );
+    expect(written.gemini).toEqual({ apiKey: "key-123" });
+
+    // The Gemini client is built at boot, so a new server (same data dir) is the "restart".
+    const app2 = serverAt(dir);
+    const status = (await app2.inject({ url: "/api/settings/gemini" })).json();
+    expect(status).toEqual({ configured: true });
+    // The key is write-only — the GET must not leak it.
+    expect(JSON.stringify(status)).not.toContain("key-123");
+  });
+
+  it("keeps Spotify creds intact when saving a Gemini key (merge, not overwrite)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "curator-gem-"));
+    const app = serverAt(dir);
+    await app.inject({
+      method: "PUT",
+      url: "/api/settings/spotify",
+      payload: { clientId: "cid", clientSecret: "csec" },
+    });
+    await app.inject({
+      method: "PUT",
+      url: "/api/settings/gemini",
+      payload: { apiKey: "gkey" },
+    });
+    const written = JSON.parse(
+      readFileSync(join(dir, "settings.json"), "utf8"),
+    );
+    expect(written.spotify).toEqual({ clientId: "cid", clientSecret: "csec" });
+    expect(written.gemini).toEqual({ apiKey: "gkey" });
   });
 });

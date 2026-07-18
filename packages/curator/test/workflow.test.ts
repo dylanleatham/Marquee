@@ -11,6 +11,7 @@ import {
   buildMultipart,
   pngBytes,
 } from "./helpers.js";
+import { activePromptText } from "../src/roadie/prompts.js";
 
 /** Build a server with fake Roadie + prober, and add one manual album already at awaiting_review. */
 async function serverWithReviewedAlbum(
@@ -137,9 +138,9 @@ describe("onboarding workflow", () => {
     );
     expect(res.statusCode).toBe(200);
     expect(res.json().promptDrafts.video.template).toBe("psychedelic");
-    expect(store.read(curatorId)!.promptDrafts!.video!.text).toContain(
-      "Kaleidoscopic",
-    );
+    expect(
+      activePromptText(store.read(curatorId)!.promptDrafts!.video!),
+    ).toContain("Kaleidoscopic");
   });
 
   it("attaches and serves card art independently of the state machine", async () => {

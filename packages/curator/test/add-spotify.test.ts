@@ -7,6 +7,7 @@ import { createFakeSpotify, type FakeAlbum } from "@marquee/fake-spotify";
 import { AssetStore } from "../src/store/asset-store.js";
 import { SpotifyClient } from "../src/spotify/client.js";
 import { addSpotifyAlbum, parseAlbumId } from "../src/albums/add-spotify.js";
+import { activePromptText } from "../src/roadie/prompts.js";
 import { fakeRoadie } from "./helpers.js";
 
 const ID = "1C2h7mLntPSeVYciMRTF4a";
@@ -63,7 +64,9 @@ describe("addSpotifyAlbum", () => {
     expect(done.metadata.genres).toEqual(["funk"]);
     expect(done.metadata.spotifyArtUrl).toContain("i.scdn.co");
     expect(existsSync(s.paths.artworkFile(curatorId))).toBe(true);
-    expect(done.promptDrafts!.video!.text).toContain("Purple Rain");
+    expect(activePromptText(done.promptDrafts!.video!)).toContain(
+      "Purple Rain",
+    );
     expect(done.roadie.state).toBe("awaiting_review");
   });
 

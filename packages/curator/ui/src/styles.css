@@ -498,6 +498,9 @@ em {
   margin: 0;
   margin-right: auto;
 }
+.prompt__head {
+  flex-wrap: wrap;
+}
 .prompt__text {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -509,6 +512,45 @@ em {
   margin: 0;
   max-height: 320px;
   overflow: auto;
+}
+/* provenance of a drafted prompt: grounded LLM vs deterministic template */
+.badge--ai {
+  color: var(--cyan);
+  border-color: color-mix(in srgb, var(--cyan) 35%, transparent);
+  background: color-mix(in srgb, var(--cyan) 10%, transparent);
+}
+.badge--template {
+  color: var(--muted);
+  border-color: var(--line);
+}
+/* the variant chooser: one chip per drafted variant, the active one lit */
+.prompt__variants {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.chip {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 12px;
+  cursor: pointer;
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chip:hover {
+  border-color: var(--cyan);
+}
+.chip--on {
+  color: var(--cyan);
+  border-color: color-mix(in srgb, var(--cyan) 50%, transparent);
+  background: color-mix(in srgb, var(--cyan) 12%, transparent);
 }
 .tag {
   font-size: 11px;

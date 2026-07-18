@@ -22,6 +22,8 @@ import {
   type PromptType,
   type DraftOptions,
 } from "../roadie/prompts.js";
+import { draftOnePromptWithGemini } from "../gemini/draft.js";
+import type { GeminiClient } from "../gemini/client.js";
 import { ingestVideo, type VideoProber } from "../media/video.js";
 import { ingestCardArt } from "../media/images.js";
 
@@ -35,6 +37,8 @@ export class NotFoundError extends Error {
 export interface ActionDeps {
   store: AssetStore;
   prober: VideoProber;
+  /** Gemini client for on-demand "Regenerate with AI"; absent → that action 503s. */
+  gemini?: GeminiClient;
   now?: () => string;
 }
 
@@ -77,6 +81,64 @@ export function redraftPrompt(
 
   const drafted = draftPrompts(asset.metadata, colors, opts);
   asset.promptDrafts = { ...asset.promptDrafts, [type]: drafted[type] };
+  deps.store.save(asset);
+  return asset;
+}
+
+/** Choose which variant of a drafted prompt is active (the one Copy hands off / generation uses). */
+export function selectPromptVariant(
+  deps: ActionDeps,
+  curatorId: string,
+  type: PromptType,
+  index: number,
+): AlbumAsset {
+  if (!PROMPT_TYPES.includes(type))
+    throw new ValidationError(`unknown prompt type ${type}`);
+  const asset = load(deps.store, curatorId);
+  const prompt = asset.promptDrafts?.[type];
+  if (!prompt) throw new ValidationError(`no ${type} prompt drafted yet`);
+  if (!Number.isInteger(index) || index < 0 || index >= prompt.variants.length)
+    throw new ValidationError(
+      `variant index ${index} out of range (0..${prompt.variants.length - 1})`,
+    );
+  prompt.selectedIndex = index;
+  deps.store.save(asset);
+  return asset;
+}
+
+/**
+ * Regenerate one prompt as a fresh grounded LLM variant set (on-demand "Regenerate with AI").
+ * Requires a configured Gemini client — unlike the pipeline step there's no silent template
+ * fallback: on failure the existing draft is left untouched and the error surfaces to the user.
+ */
+export async function regeneratePromptWithAI(
+  deps: ActionDeps,
+  curatorId: string,
+  type: PromptType,
+): Promise<AlbumAsset> {
+  if (!PROMPT_TYPES.includes(type))
+    throw new ValidationError(`unknown prompt type ${type}`);
+  if (!deps.gemini)
+    throw new ValidationError(
+      "Gemini is not configured — set an API key in Settings",
+    );
+  const asset = load(deps.store, curatorId);
+  if (!asset.palette)
+    throw new ValidationError(
+      "palette isn't generated yet — nothing to draft from",
+    );
+  const colors = asset.palette.colors.map((c) => ({
+    hex: c.hex,
+    role: c.role,
+  }));
+  const drafted = await draftOnePromptWithGemini(
+    deps.gemini,
+    type,
+    asset.metadata,
+    colors,
+    { now: clock(deps) },
+  );
+  asset.promptDrafts = { ...asset.promptDrafts, [type]: drafted };
   deps.store.save(asset);
   return asset;
 }

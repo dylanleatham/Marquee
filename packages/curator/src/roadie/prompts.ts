@@ -67,13 +67,35 @@ export const CARD_ART_TEMPLATES: Record<string, PromptTemplate> = {
 export const DEFAULT_VIDEO_TEMPLATE = "abstract_flow";
 export const DEFAULT_CARD_ART_TEMPLATE = "iconic_emblem";
 
-export interface DraftedPrompt {
+/** How many prompt variants Roadie asks the LLM to draft per type (the "generate in sets" knob). */
+export const PROMPT_VARIANTS = 5;
+
+/** One prompt option. `nudge` is a short label for the variance angle the LLM leaned into. */
+export interface PromptVariant {
   text: string;
-  template: string;
+  nudge: string;
+}
+
+/**
+ * A drafted prompt: one or more variants the human chooses between. `generator` records provenance
+ * — `gemini` (grounded, LLM-authored) or `template` (the deterministic fallback). Template drafts
+ * carry exactly one variant and a `template` name (also the UI style selector).
+ */
+export interface DraftedPrompt {
+  variants: PromptVariant[];
+  /** Which variant is active — the one Copy hands off and downstream generation uses. */
+  selectedIndex: number;
+  generator: "gemini" | "template";
+  /** Style template name (template generator only). */
+  template?: string;
   generatedAt: string;
   /** Set when the human copies the prompt to hand to their video/card-art tool (step 7). */
   copiedAt?: string;
 }
+
+/** The active variant's text — what Copy hands off and generation consumes. */
+export const activePromptText = (p: DraftedPrompt): string =>
+  p.variants[p.selectedIndex]?.text ?? p.variants[0]?.text ?? "";
 
 export type PromptDrafts = Partial<Record<PromptType, DraftedPrompt>>;
 
@@ -83,15 +105,15 @@ export interface PaletteColorRef {
   role: string;
 }
 
-const paletteBlock = (colors: PaletteColorRef[]): string =>
+export const paletteBlock = (colors: PaletteColorRef[]): string =>
   colors.map((c) => `  - ${c.hex} (${c.role})`).join("\n");
 
-const albumLine = (m: AlbumMetadata): string => {
+export const albumLine = (m: AlbumMetadata): string => {
   const year = m.year !== undefined ? ` (${m.year})` : "";
   return `"${m.name}" by ${m.artist}${year}`;
 };
 
-const genreLine = (m: AlbumMetadata): string =>
+export const genreLine = (m: AlbumMetadata): string =>
   `Genre context: ${m.genres?.length ? m.genres.join(", ") : "unspecified"}.`;
 
 /** Join the non-empty parts of a prompt with blank lines, trimming stray whitespace. */
@@ -100,6 +122,15 @@ const assemble = (parts: string[]): string =>
     .map((p) => p.trim())
     .filter(Boolean)
     .join("\n");
+
+/** Wrap a single deterministic template string as a one-variant, template-provenance draft. */
+const templateDraft = (text: string, template: string): DraftedPrompt => ({
+  variants: [{ text, nudge: template }],
+  selectedIndex: 0,
+  generator: "template",
+  template,
+  generatedAt: "",
+});
 
 function draftVideo(
   metadata: AlbumMetadata,
@@ -120,7 +151,7 @@ function draftVideo(
     "Duration: 3 minutes, seamlessly loopable.",
     "Aspect ratio: 16:9.",
   ]);
-  return { text, template: name, generatedAt: "" };
+  return templateDraft(text, name);
 }
 
 function draftCardArt(
@@ -143,7 +174,7 @@ function draftCardArt(
     "Dimensions: 1050x600 pixels (business-card landscape at 300 DPI).",
     "Style: iconic, evocative, reads clearly at small size.",
   ]);
-  return { text, template: name, generatedAt: "" };
+  return templateDraft(text, name);
 }
 
 export interface DraftOptions {

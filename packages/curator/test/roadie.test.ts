@@ -6,6 +6,8 @@ import { AssetStore } from "../src/store/asset-store.js";
 import { Roadie } from "../src/roadie/worker.js";
 import { buildFreshAsset, type AlbumMetadata } from "../src/albums/asset.js";
 import { SpotifyError, type SpotifyClient } from "../src/spotify/client.js";
+import { GeminiClient } from "../src/gemini/client.js";
+import { createFakeGemini } from "@marquee/fake-gemini";
 import { fakeGenerate, fakePayload } from "./helpers.js";
 
 const store = () =>
@@ -74,6 +76,47 @@ describe("Roadie state machine", () => {
       "drafting_prompts",
       "awaiting_review",
     ]);
+    expect(asset.promptDrafts!.video!.template).toBe("abstract_flow");
+  });
+
+  it("drafts grounded LLM variant sets when a Gemini client is configured", async () => {
+    const s = store();
+    const id = seedManual(s);
+    const variants = Array.from({ length: 5 }, (_, i) => ({
+      text: `Variant ${i} grounded in the cover art`,
+      nudge: `angle ${i}`,
+    }));
+    const fg = createFakeGemini({
+      research: "cover facts",
+      json: { variants },
+    });
+    const gemini = new GeminiClient({ apiKey: "k", fetch: fg.fetch });
+    const roadie = roadieFor(s, { gemini });
+    roadie.enqueue(id);
+    await roadie.drain();
+
+    const drafts = s.read(id)!.promptDrafts!;
+    expect(drafts.video!.generator).toBe("gemini");
+    expect(drafts.video!.variants).toHaveLength(5);
+    expect(drafts.cardArt!.generator).toBe("gemini");
+    // One grounded research call + two structured drafting calls (video + card art).
+    expect(fg.calls().filter((c) => c.grounded)).toHaveLength(1);
+    expect(fg.calls().filter((c) => c.structured)).toHaveLength(2);
+  });
+
+  it("falls back to the deterministic templates when the Gemini call fails", async () => {
+    const s = store();
+    const id = seedManual(s);
+    const fg = createFakeGemini({ failStatus: 500 });
+    const gemini = new GeminiClient({ apiKey: "k", fetch: fg.fetch });
+    const roadie = roadieFor(s, { gemini });
+    roadie.enqueue(id);
+    await roadie.drain();
+
+    // A dead key must not strand the album: it still reaches review, on templates.
+    const asset = s.read(id)!;
+    expect(asset.roadie.state).toBe("awaiting_review");
+    expect(asset.promptDrafts!.video!.generator).toBe("template");
     expect(asset.promptDrafts!.video!.template).toBe("abstract_flow");
   });
 

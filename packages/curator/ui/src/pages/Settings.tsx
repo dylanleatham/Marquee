@@ -17,6 +17,15 @@ export function Settings() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
+  const { data: gemini, refresh: refreshGemini } = usePoll(
+    api.geminiSettings,
+    15000,
+  );
+  const [apiKey, setApiKey] = useState("");
+  const [geminiBusy, setGeminiBusy] = useState(false);
+  const [geminiError, setGeminiError] = useState<string | null>(null);
+  const [geminiSaved, setGeminiSaved] = useState(false);
+
   const save = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setBusy(true);
@@ -31,6 +40,23 @@ export function Settings() {
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const saveGemini = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setGeminiBusy(true);
+    setGeminiError(null);
+    setGeminiSaved(false);
+    try {
+      await api.saveGeminiSettings(apiKey.trim());
+      setGeminiSaved(true);
+      setApiKey(""); // don't keep the key in the field after saving
+      await refreshGemini();
+    } catch (err) {
+      setGeminiError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setGeminiBusy(false);
     }
   };
 
@@ -106,6 +132,62 @@ export function Settings() {
         {saved && (
           <div className="banner banner--warn">
             Saved. <b>Restart Marquee</b> to connect Spotify.
+          </div>
+        )}
+      </section>
+
+      <section className="detail-section">
+        <h2>Gemini</h2>
+        <p className="muted">
+          A Gemini API key lets Roadie draft richer, album-specific prompts
+          (grounded in real details of each record) and generate the card art
+          and visualizer clips. Create a key in{" "}
+          <a
+            href="https://aistudio.google.com/apikey"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Google AI Studio
+          </a>{" "}
+          and paste it below. It's stored in your local data folder and never
+          leaves this machine. Without it, Roadie falls back to the built-in
+          prompt templates.
+        </p>
+
+        {gemini &&
+          (gemini.configured ? (
+            <div className="banner banner--ok">Connected.</div>
+          ) : (
+            <div className="banner banner--warn">
+              Not configured — Roadie uses the built-in prompt templates.
+            </div>
+          ))}
+
+        <form className="form" onSubmit={saveGemini}>
+          <label>
+            API Key
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </label>
+          <button
+            className="btn btn--primary"
+            disabled={geminiBusy || !apiKey.trim()}
+          >
+            {geminiBusy ? "Saving…" : "Save"}
+          </button>
+        </form>
+
+        {geminiError && (
+          <div className="banner banner--error">{geminiError}</div>
+        )}
+        {geminiSaved && (
+          <div className="banner banner--warn">
+            Saved. <b>Restart Marquee</b> to enable Gemini.
           </div>
         )}
       </section>

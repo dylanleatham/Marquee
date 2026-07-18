@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   api,
+  activePromptText,
   videoUrl,
   thumbnailUrl,
   cardArtUrl,
@@ -27,7 +28,11 @@ function pickFile(onFile: (f: File) => void) {
   };
 }
 
-/** A drafted prompt: copy (which records the copy) and regenerate with a template. */
+/**
+ * A drafted prompt. Grounded LLM drafts carry several variants (the human picks one); template
+ * drafts carry a single one. Copy hands off the active variant; the template <select> reruns the
+ * deterministic template; "Regenerate with AI" re-runs the grounded LLM drafter.
+ */
 export function PromptBlock({
   curatorId,
   type,
@@ -41,13 +46,18 @@ export function PromptBlock({
 }) {
   const [copied, setCopied] = useState(false);
   const templates = type === "video" ? VIDEO_TEMPLATES : CARD_ART_TEMPLATES;
+  const defaultTemplate = templates[0];
+  const isAI = prompt.generator === "gemini";
+  const multiple = prompt.variants.length > 1;
   // Copying the prompt *is* the signal (ADR 0005) — no second "Mark copied" click. The server
   // decides what that means: for the video prompt at review it advances to awaiting_video; for
   // card art it's bookkeeping. The clipboard write is best-effort on purpose: a denied permission
   // or unfocused document must not strand the album at review, and the text is on screen to take
   // by hand either way. The click is the signal, not the clipboard.
   const copy = async () => {
-    await navigator.clipboard.writeText(prompt.text).catch(() => {});
+    await navigator.clipboard
+      .writeText(activePromptText(prompt))
+      .catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
     run(() => api.markPromptCopied(curatorId, type));
@@ -55,9 +65,26 @@ export function PromptBlock({
   return (
     <div className="prompt">
       <div className="prompt__head">
+        <span
+          className={`badge ${isAI ? "badge--ai" : "badge--template"}`}
+          title={
+            isAI
+              ? "Grounded, LLM-authored — references real details of this album"
+              : "Deterministic template fallback"
+          }
+        >
+          {isAI ? "AI · grounded" : "Template"}
+        </span>
+        <button
+          className="btn btn--sm"
+          onClick={() => run(() => api.regeneratePromptAI(curatorId, type))}
+          title="Re-draft with Gemini, grounded in real album details"
+        >
+          Regenerate with AI
+        </button>
         <select
           className="select"
-          value={prompt.template}
+          value={prompt.template ?? defaultTemplate}
           aria-label="prompt template"
           onChange={(e) =>
             run(() => api.redraftPrompt(curatorId, type, e.target.value))
@@ -73,7 +100,29 @@ export function PromptBlock({
           {copied ? "Copied ✓" : "Copy prompt"}
         </button>
       </div>
-      <pre className="prompt__text">{prompt.text}</pre>
+      {multiple && (
+        <div
+          className="prompt__variants"
+          role="radiogroup"
+          aria-label="prompt variants"
+        >
+          {prompt.variants.map((v, i) => (
+            <button
+              key={i}
+              role="radio"
+              aria-checked={i === prompt.selectedIndex}
+              className={`chip ${i === prompt.selectedIndex ? "chip--on" : ""}`}
+              onClick={() =>
+                run(() => api.selectPromptVariant(curatorId, type, i))
+              }
+              title={v.text}
+            >
+              {i + 1}. {v.nudge || `Variant ${i + 1}`}
+            </button>
+          ))}
+        </div>
+      )}
+      <pre className="prompt__text">{activePromptText(prompt)}</pre>
     </div>
   );
 }

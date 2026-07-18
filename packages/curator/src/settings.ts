@@ -6,6 +6,7 @@ import { join } from "node:path";
 
 export interface CuratorSettings {
   spotify?: { clientId: string; clientSecret: string };
+  gemini?: { apiKey: string };
 }
 
 const settingsFile = (dataDir: string): string =>
@@ -32,6 +33,20 @@ export function writeSpotifyCreds(
   creds: { clientId: string; clientSecret: string },
 ): void {
   const next: CuratorSettings = { ...readSettings(dataDir), spotify: creds };
+  mkdirSync(dataDir, { recursive: true });
+  writeFileSync(settingsFile(dataDir), JSON.stringify(next, null, 2));
+}
+
+/**
+ * Persist the Gemini API key, merged with any existing settings (same read-modify-write story as
+ * `writeSpotifyCreds` — the sole writer is the human-driven Settings form). Used by the packaged
+ * app, which has no repo `.env`, to configure LLM prompt drafting + artifact generation in-app.
+ */
+export function writeGeminiCreds(
+  dataDir: string,
+  creds: { apiKey: string },
+): void {
+  const next: CuratorSettings = { ...readSettings(dataDir), gemini: creds };
   mkdirSync(dataDir, { recursive: true });
   writeFileSync(settingsFile(dataDir), JSON.stringify(next, null, 2));
 }

@@ -18,6 +18,11 @@ export interface Config {
   /** Spotify client-credentials, if configured. Absent → the Spotify add/search routes 503. */
   spotify?: { clientId: string; clientSecret: string };
   /**
+   * Gemini API key, if configured. Powers LLM prompt drafting + artifact generation. Absent →
+   * Roadie falls back to the deterministic prompt templates and the generate routes 503.
+   */
+  gemini?: { apiKey: string };
+  /**
    * How Curator reaches Hue Conductor for the runtime demo (the Demo Room drives real lights via
    * Conductor). `sharedSecret` is the same `X-Trigger-Secret` the other services use; absent → the
    * demo calls Conductor unauthenticated (fine only when Conductor also runs with auth disabled).
@@ -47,6 +52,7 @@ export function loadConfig(override: Partial<Config> = {}): Config {
   const server = file.server ?? {};
   const storage = file.storage ?? {};
   const spotifyFile = file.spotify ?? {};
+  const geminiFile = file.gemini ?? {};
   const conductorFile = file.conductor ?? {};
 
   // Resolve the data dir first: it holds settings.json, the user-writable credential store the
@@ -68,6 +74,11 @@ export function loadConfig(override: Partial<Config> = {}): Config {
     (spotifyFile.client_secret as string | undefined) ??
     process.env.SPOTIFY_CLIENT_SECRET ??
     settings.spotify?.clientSecret;
+
+  const geminiApiKey =
+    (geminiFile.api_key as string | undefined) ??
+    process.env.GEMINI_API_KEY ??
+    settings.gemini?.apiKey;
 
   // A malformed value (NaN, zero, negative) falls back to the default rather than silently
   // wedging every upload behind a nonsense ceiling.
@@ -104,6 +115,7 @@ export function loadConfig(override: Partial<Config> = {}): Config {
     ...(clientId && clientSecret
       ? { spotify: { clientId, clientSecret } }
       : {}),
+    ...(geminiApiKey ? { gemini: { apiKey: geminiApiKey } } : {}),
   };
   return { ...base, ...override };
 }
