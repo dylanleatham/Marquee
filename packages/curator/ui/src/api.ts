@@ -79,12 +79,24 @@ export interface PaletteColor {
   sourceSwatch?: string;
 }
 
-export interface DraftedPrompt {
+export interface PromptVariant {
   text: string;
-  template: string;
+  nudge: string;
+}
+
+export interface DraftedPrompt {
+  variants: PromptVariant[];
+  selectedIndex: number;
+  generator: "gemini" | "template";
+  /** Style template name (template generator only). */
+  template?: string;
   generatedAt: string;
   copiedAt?: string;
 }
+
+/** The active variant's text — what Copy hands off. Mirrors activePromptText on the server. */
+export const activePromptText = (p: DraftedPrompt): string =>
+  p.variants[p.selectedIndex]?.text ?? p.variants[0]?.text ?? "";
 
 export interface Visualizer {
   fileId: string;
@@ -175,6 +187,11 @@ export interface SpotifySettings {
   clientId: string | null;
 }
 
+/** Gemini credential status for the Settings screen (GET /api/settings/gemini). */
+export interface GeminiSettings {
+  configured: boolean;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -238,6 +255,16 @@ export const api = {
     req<{ state: RoadieState }>(`/api/albums/${id}/prompts/${type}/copied`, {
       method: "POST",
     }),
+  selectPromptVariant: (id: string, type: PromptType, index: number) =>
+    req<{ promptDrafts: AlbumAsset["promptDrafts"] }>(
+      `/api/albums/${id}/prompts/${type}/select`,
+      { method: "POST", body: JSON.stringify({ index }) },
+    ),
+  regeneratePromptAI: (id: string, type: PromptType) =>
+    req<{ promptDrafts: AlbumAsset["promptDrafts"] }>(
+      `/api/albums/${id}/prompts/${type}/regenerate-ai`,
+      { method: "POST" },
+    ),
   uploadVideo: (id: string, form: FormData) => {
     form.set("curatorId", id);
     return req<{ state: RoadieState }>("/api/videos/upload", {
@@ -277,6 +304,12 @@ export const api = {
     req<{ ok: boolean; restartRequired: boolean }>("/api/settings/spotify", {
       method: "PUT",
       body: JSON.stringify({ clientId, clientSecret }),
+    }),
+  geminiSettings: () => req<GeminiSettings>("/api/settings/gemini"),
+  saveGeminiSettings: (apiKey: string) =>
+    req<{ ok: boolean; restartRequired: boolean }>("/api/settings/gemini", {
+      method: "PUT",
+      body: JSON.stringify({ apiKey }),
     }),
 
   searchSpotify: (q: string) =>

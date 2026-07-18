@@ -5,6 +5,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AssetStore } from "../src/store/asset-store.js";
 import { addManualAlbum, ValidationError } from "../src/albums/add-manual.js";
+import { activePromptText } from "../src/roadie/prompts.js";
 import { fakeGenerate, fakePayload, fakeRoadie } from "./helpers.js";
 
 const store = () => new AssetStore(mkdtempSync(join(tmpdir(), "curator-add-")));
@@ -46,7 +47,9 @@ describe("addManualAlbum", () => {
     expect(done.metadata.genres).toEqual(["funk", "rock"]);
     expect(done.palette!.colors[0]!.hex).toBe("#4B0082");
     expect(done.pattern!.type).toBe("crossfade");
-    expect(done.promptDrafts!.video!.text).toContain("Purple Rain");
+    expect(activePromptText(done.promptDrafts!.video!)).toContain(
+      "Purple Rain",
+    );
     expect(done.promptDrafts!.cardArt!.template).toBe("iconic_emblem");
     expect(done.roadie.state).toBe("awaiting_review");
     expect(done.artwork!.resolvedPath).toBe(`media/artwork/${curatorId}.jpg`);

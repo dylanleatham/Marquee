@@ -115,6 +115,36 @@ describe("loadConfig", () => {
     expect(loadConfig().spotify).toBeUndefined();
   });
 
+  it("resolves the Gemini key from config.toml, env, then settings.json (file wins)", () => {
+    // settings.json only
+    const dir = mkdtempSync(join(tmpdir(), "md-"));
+    writeFileSync(
+      join(dir, "settings.json"),
+      JSON.stringify({ gemini: { apiKey: "from-settings" } }),
+    );
+    process.env.MARQUEE_DATA_DIR = dir;
+    delete process.env.GEMINI_API_KEY;
+    noFile();
+    expect(loadConfig().gemini).toEqual({ apiKey: "from-settings" });
+
+    // env beats settings.json
+    process.env.GEMINI_API_KEY = "from-env";
+    expect(loadConfig().gemini).toEqual({ apiKey: "from-env" });
+
+    // config.toml beats env
+    withFile('[gemini]\napi_key = "from-file"\n');
+    process.env.MARQUEE_DATA_DIR = dir;
+    expect(loadConfig().gemini).toEqual({ apiKey: "from-file" });
+  });
+
+  it("leaves gemini undefined when no key is configured anywhere", () => {
+    noFile();
+    delete process.env.GEMINI_API_KEY;
+    const dir = mkdtempSync(join(tmpdir(), "md-"));
+    process.env.MARQUEE_DATA_DIR = dir;
+    expect(loadConfig().gemini).toBeUndefined();
+  });
+
   it("prefers env/config.toml Spotify creds over settings.json (dev unchanged)", () => {
     const dir = mkdtempSync(join(tmpdir(), "md-"));
     writeFileSync(

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   draftPrompts,
+  activePromptText,
   VIDEO_TEMPLATES,
   CARD_ART_TEMPLATES,
 } from "../src/roadie/prompts.js";
@@ -24,27 +25,35 @@ describe("draftPrompts", () => {
   it("drafts a video + card-art prompt with defaults (golden)", () => {
     const { video, cardArt } = draftPrompts(purpleRain, colors, { now: at });
 
+    // The deterministic template path produces a single-variant, template-provenance draft.
     expect(video).toEqual({
+      variants: [
+        {
+          nudge: "abstract_flow",
+          text: [
+            'For the album "Purple Rain" by Prince (1984).',
+            "Genre context: funk, rock, pop.",
+            "Color palette to draw from:",
+            "  - #4B0082 (primary)",
+            "  - #8A2BE2 (secondary)",
+            "  - #FFD700 (accent)",
+            "Abstract flowing shapes with soft edges, drifting slowly through the palette.",
+            "Duration: 3 minutes, seamlessly loopable.",
+            "Aspect ratio: 16:9.",
+          ].join("\n"),
+        },
+      ],
+      selectedIndex: 0,
+      generator: "template",
       template: "abstract_flow",
       generatedAt: "2026-07-11T00:00:00.000Z",
-      text: [
-        'For the album "Purple Rain" by Prince (1984).',
-        "Genre context: funk, rock, pop.",
-        "Color palette to draw from:",
-        "  - #4B0082 (primary)",
-        "  - #8A2BE2 (secondary)",
-        "  - #FFD700 (accent)",
-        "Abstract flowing shapes with soft edges, drifting slowly through the palette.",
-        "Duration: 3 minutes, seamlessly loopable.",
-        "Aspect ratio: 16:9.",
-      ].join("\n"),
     });
 
     expect(cardArt.template).toBe("iconic_emblem");
-    expect(cardArt.text).toContain(
+    expect(activePromptText(cardArt)).toContain(
       'Business-card sized art for the album "Purple Rain" by Prince (1984).',
     );
-    expect(cardArt.text).toContain(
+    expect(activePromptText(cardArt)).toContain(
       "Dimensions: 1050x600 pixels (business-card landscape at 300 DPI).",
     );
   });
@@ -56,9 +65,9 @@ describe("draftPrompts", () => {
       now: at,
     });
     expect(video.template).toBe("psychedelic");
-    expect(video.text).toContain("Kaleidoscopic");
+    expect(activePromptText(video)).toContain("Kaleidoscopic");
     expect(cardArt.template).toBe("typographic");
-    expect(cardArt.text).toContain("Bold typography");
+    expect(activePromptText(cardArt)).toContain("Bold typography");
 
     // Templates named in roadie-spec §7 all exist.
     expect(Object.keys(VIDEO_TEMPLATES)).toEqual([
@@ -93,8 +102,10 @@ describe("draftPrompts", () => {
       source: "manual",
     };
     const { video } = draftPrompts(minimal, colors, { now: at });
-    expect(video.text).toContain('For the album "Untitled" by Nobody.');
-    expect(video.text).toContain("Genre context: unspecified.");
-    expect(video.text).not.toContain("(undefined)");
+    expect(activePromptText(video)).toContain(
+      'For the album "Untitled" by Nobody.',
+    );
+    expect(activePromptText(video)).toContain("Genre context: unspecified.");
+    expect(activePromptText(video)).not.toContain("(undefined)");
   });
 });

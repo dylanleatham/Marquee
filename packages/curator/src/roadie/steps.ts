@@ -15,13 +15,29 @@ import type {
 } from "../albums/asset.js";
 import { parseAlbumId } from "../albums/add-spotify.js";
 import { draftPrompts } from "./prompts.js";
+import { draftPromptsWithGemini } from "../gemini/draft.js";
+import type { GeminiClient } from "../gemini/client.js";
 import { TransientError, PermanentError, ConfigError } from "./errors.js";
+
+/**
+ * Minimal logger the steps use for observability (a fallback isn't a failure, but it's worth a
+ * line). Deliberately a narrow subset of the worker's `RoadieLogger` — not imported from worker.ts
+ * because worker.ts imports the steps, and a step only needs info/warn. `RoadieLogger` satisfies it
+ * structurally, so the worker passes its own logger straight through.
+ */
+export interface StepLogger {
+  info(msg: string): void;
+  warn(msg: string): void;
+}
 
 export interface StepDeps {
   store: AssetStore;
   spotify?: SpotifyClient;
+  /** Gemini client for LLM-authored prompts; absent → the drafter uses the deterministic templates. */
+  gemini?: GeminiClient;
   generate: PaletteGenerator;
   now: () => string;
+  logger?: StepLogger;
 }
 
 /** A step: advance the album one sub-step, mutating it in place; return the next state. */
@@ -145,12 +161,34 @@ const generatePaletteStep: Step = async (asset, deps) => {
   return "drafting_prompts";
 };
 
-/** drafting_prompts → awaiting_review. Pure draft of the video + card-art prompts. */
+/**
+ * drafting_prompts → awaiting_review. Drafts the video + card-art prompts. Prefers grounded,
+ * LLM-authored variant sets (Gemini); falls back to the deterministic templates when no Gemini key
+ * is configured or the LLM call fails. The fallback is why this step still "cannot fail" (roadie-spec
+ * §6): the album always reaches review with prompts, LLM-authored or templated.
+ */
 const draftPromptsStep: Step = async (asset, deps) => {
   const colors = (asset.palette?.colors ?? []).map((c) => ({
     hex: c.hex,
     role: c.role,
   }));
+
+  if (deps.gemini) {
+    try {
+      asset.promptDrafts = await draftPromptsWithGemini(
+        deps.gemini,
+        asset.metadata,
+        colors,
+        { now: deps.now },
+      );
+      return "awaiting_review";
+    } catch (err) {
+      deps.logger?.warn(
+        `Roadie ${asset.curatorId}: Gemini prompt drafting failed, using templates (${(err as Error).message})`,
+      );
+    }
+  }
+
   asset.promptDrafts = draftPrompts(asset.metadata, colors, { now: deps.now });
   return "awaiting_review";
 };
