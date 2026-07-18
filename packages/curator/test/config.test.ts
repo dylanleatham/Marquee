@@ -84,4 +84,38 @@ describe("loadConfig", () => {
       expect(loadConfig().maxUploadBytes).toBe(2048 * 1024 * 1024);
     },
   );
+
+  // The packaged desktop app has no repo .env — it reads Spotify creds from settings.json in the
+  // data dir (written by the in-app Settings screen).
+  it("reads Spotify creds from settings.json in the data dir", () => {
+    noFile();
+    delete process.env.SPOTIFY_CLIENT_ID;
+    delete process.env.SPOTIFY_CLIENT_SECRET;
+    const dir = mkdtempSync(join(tmpdir(), "md-"));
+    writeFileSync(
+      join(dir, "settings.json"),
+      JSON.stringify({ spotify: { clientId: "cid", clientSecret: "csec" } }),
+    );
+    process.env.MARQUEE_DATA_DIR = dir;
+    expect(loadConfig().spotify).toEqual({
+      clientId: "cid",
+      clientSecret: "csec",
+    });
+  });
+
+  it("prefers env/config.toml Spotify creds over settings.json (dev unchanged)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-"));
+    writeFileSync(
+      join(dir, "settings.json"),
+      JSON.stringify({ spotify: { clientId: "file", clientSecret: "file" } }),
+    );
+    process.env.MARQUEE_DATA_DIR = dir;
+    process.env.SPOTIFY_CLIENT_ID = "env";
+    process.env.SPOTIFY_CLIENT_SECRET = "env";
+    noFile();
+    expect(loadConfig().spotify).toEqual({
+      clientId: "env",
+      clientSecret: "env",
+    });
+  });
 });

@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { parse as parseToml } from "smol-toml";
+import { readSettings } from "./settings.js";
 
 // Resolve config.toml next to the package (matches hue-conductor), not the process cwd.
 const pkgDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -48,12 +49,25 @@ export function loadConfig(override: Partial<Config> = {}): Config {
   const spotifyFile = file.spotify ?? {};
   const conductorFile = file.conductor ?? {};
 
+  // Resolve the data dir first: it holds settings.json, the user-writable credential store the
+  // packaged app relies on (it has no repo `.env`). config.toml/env still win, so dev is unchanged.
+  const dataDir = resolve(
+    String(
+      storage.data_dir ??
+        process.env.MARQUEE_DATA_DIR ??
+        join(homedir(), "marquee"),
+    ),
+  );
+  const settings = readSettings(dataDir);
+
   const clientId =
     (spotifyFile.client_id as string | undefined) ??
-    process.env.SPOTIFY_CLIENT_ID;
+    process.env.SPOTIFY_CLIENT_ID ??
+    settings.spotify?.clientId;
   const clientSecret =
     (spotifyFile.client_secret as string | undefined) ??
-    process.env.SPOTIFY_CLIENT_SECRET;
+    process.env.SPOTIFY_CLIENT_SECRET ??
+    settings.spotify?.clientSecret;
 
   // A malformed value (NaN, zero, negative) falls back to the default rather than silently
   // wedging every upload behind a nonsense ceiling.
@@ -72,13 +86,7 @@ export function loadConfig(override: Partial<Config> = {}): Config {
         : DEFAULT_MAX_UPLOAD_MB) *
       1024 *
       1024,
-    dataDir: resolve(
-      String(
-        storage.data_dir ??
-          process.env.MARQUEE_DATA_DIR ??
-          join(homedir(), "marquee"),
-      ),
-    ),
+    dataDir,
     conductor: {
       url: String(
         conductorFile.url ??

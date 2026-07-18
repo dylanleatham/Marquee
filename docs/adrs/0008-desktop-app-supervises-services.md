@@ -55,3 +55,9 @@ runtime-overview §7 changes; this is only a new way to launch the config side.
   album add works without them; **ffmpeg** stays a system dependency; and a **custom app icon**
   replaces the default Electron one.
 - Purely additive: the services' existing run paths, tests, and the Pi deployment are untouched.
+
+> **Update (2026-07-17):** the **Spotify credentials** follow-up is resolved. Curator reads them from
+> `settings.json` in the data dir (`~/marquee`) — layered under `config.toml`/env, so dev is
+> unchanged — and an in-app **Settings** screen (`GET`/`PUT /api/settings/spotify`) writes them.
+> Creds apply on the next launch (the Spotify client + Roadie are built at boot). ffmpeg and the
+> custom icon remain open.

@@ -434,11 +434,13 @@ push_on_save = true
 
 Curator holds application-level settings that affect the runtime services and pushes changes to them.
 
-| Method | Path                            | Purpose                                                                                                                                                                                             |
-| ------ | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/settings`                 | Returns current Curator settings.                                                                                                                                                                   |
-| PUT    | `/api/settings`                 | Updates one or more settings. Any setting change that affects Conductor or Backdrop is automatically pushed to that service (e.g., listening-room changes push to Conductor's `PUT /api/settings`). |
-| GET    | `/api/settings/available-rooms` | Proxies to Conductor's `/api/rooms` and returns the Hue rooms available to choose from as the listening room.                                                                                       |
+| Method | Path                            | Purpose                                                                                                                                                                                                                                           |
+| ------ | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/settings`                 | Returns current Curator settings.                                                                                                                                                                                                                 |
+| PUT    | `/api/settings`                 | Updates one or more settings. Any setting change that affects Conductor or Backdrop is automatically pushed to that service (e.g., listening-room changes push to Conductor's `PUT /api/settings`).                                               |
+| GET    | `/api/settings/available-rooms` | Proxies to Conductor's `/api/rooms` and returns the Hue rooms available to choose from as the listening room.                                                                                                                                     |
+| GET    | `/api/settings/spotify`         | Spotify credential status: `{ configured, clientId }`. The client secret is write-only and never returned.                                                                                                                                        |
+| PUT    | `/api/settings/spotify`         | Body `{ clientId, clientSecret }`. Persists to `settings.json` in the data dir; returns `{ ok, restartRequired: true }` (the Spotify client + Roadie are built at boot). Needed by the packaged desktop app, which has no repo `.env` (ADR 0008). |
 
 Settings that live here:
 

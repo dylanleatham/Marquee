@@ -79,6 +79,15 @@ em {
   font-size: 13px;
   vertical-align: middle;
 }
+.app__nav {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+.app__nav:hover {
+  color: var(--text);
+}
 .app__tagline {
   color: var(--muted);
   font-size: 12px;
@@ -338,6 +347,11 @@ em {
   background: color-mix(in srgb, var(--amber) 12%, transparent);
   border: 1px solid var(--amber-soft);
   color: #ffcf87;
+}
+.banner--ok {
+  background: color-mix(in srgb, var(--sage) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--sage) 40%, transparent);
+  color: #a6e59a;
 }
 .empty {
   padding: 40px;

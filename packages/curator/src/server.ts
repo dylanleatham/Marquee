@@ -25,6 +25,7 @@ import {
 } from "./albums/add-manual.js";
 import { addSpotifyAlbum, DuplicateAlbumError } from "./albums/add-spotify.js";
 import { SpotifyClient, SpotifyError } from "./spotify/client.js";
+import { writeSpotifyCreds } from "./settings.js";
 import { Roadie } from "./roadie/worker.js";
 import { isCuratorId } from "./ids.js";
 import {
@@ -683,6 +684,33 @@ export function buildServer(opts: BuildOptions = {}) {
   app.post("/api/agent/resume", async () => {
     roadie.resume();
     return roadie.status();
+  });
+
+  // --- Settings: Spotify credentials ---
+  // The packaged desktop app has no repo `.env`, so credentials are entered in-app and persisted to
+  // the data dir (settings.json). Curator's UI is unauthenticated on the LAN (like Home Assistant),
+  // same trust model as the rest of these routes. clientId is not a secret (it's a public OAuth id);
+  // the client secret is write-only — never returned.
+  app.get("/api/settings/spotify", async () => ({
+    configured: Boolean(spotify),
+    clientId: config.spotify?.clientId ?? null,
+  }));
+
+  app.put("/api/settings/spotify", async (req, reply) => {
+    const { clientId, clientSecret } = (req.body ?? {}) as {
+      clientId?: string;
+      clientSecret?: string;
+    };
+    if (!clientId?.trim() || !clientSecret?.trim())
+      return reply
+        .code(400)
+        .send({ error: "clientId and clientSecret are required" });
+    writeSpotifyCreds(config.dataDir, {
+      clientId: clientId.trim(),
+      clientSecret: clientSecret.trim(),
+    });
+    // The Spotify client + Roadie are built once at boot, so new creds take effect on restart.
+    return { ok: true, restartRequired: true };
   });
 
   // --- Spotify (read-only preview; add happens through POST /api/albums) ---
