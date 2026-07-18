@@ -26,7 +26,11 @@ import {
 import { draftOnePromptWithGemini } from "../gemini/draft.js";
 import type { GeminiClient } from "../gemini/client.js";
 import { ingestVideo, type VideoProber } from "../media/video.js";
-import { ingestCardArt, ingestCardArtCandidate } from "../media/images.js";
+import {
+  ingestCardArt,
+  ingestCardArtCandidate,
+  ImageError,
+} from "../media/images.js";
 
 export class NotFoundError extends Error {
   constructor(message = "not found") {
@@ -367,12 +371,19 @@ export async function generateCardArtSet(
     r.status === "fulfilled" ? [r.value] : [],
   );
   if (candidates.length === 0) {
-    const firstReject = results.find((r) => r.status === "rejected") as
-      PromiseRejectedResult | undefined;
-    // Rethrow the first failure (upstream Gemini error or ImageError) so the route maps it to 5xx.
-    throw firstReject
-      ? firstReject.reason
-      : new Error("card-art generation produced no images");
+    const reason = (
+      results.find((r) => r.status === "rejected") as
+        PromiseRejectedResult | undefined
+    )?.reason;
+    // A whole-batch generation failure is an upstream fault → 5xx (curator-spec §Card art / ADR
+    // 0010), whichever way the candidates failed. A GeminiError already maps to 500 (it's not in
+    // actionError's known set); but a per-image ImageError would otherwise map to 422 ("your upload
+    // is bad"), which is wrong here — the human didn't upload anything. Wrap that case so it's a 5xx.
+    if (reason instanceof ImageError)
+      throw new Error(
+        `card-art generation returned no usable images: ${reason.message}`,
+      );
+    throw reason ?? new Error("card-art generation produced no images");
   }
 
   asset.cardArtCandidates = candidates;

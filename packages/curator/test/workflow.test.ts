@@ -336,17 +336,20 @@ describe("workflow guards", () => {
 });
 
 describe("card-art generation (routes)", () => {
-  /** A server with a fake Gemini (returns a valid PNG) and an album at review with a 3-variant card prompt. */
-  async function serverWithCardPrompt(withGemini = true) {
+  /** A server + an album at review with a 3-variant card prompt. `gemini`: "ok" (PNGs), "fail" (all 500), or "none". */
+  async function serverWithCardPrompt(gemini: "ok" | "fail" | "none" = "ok") {
     const store = new AssetStore(mkdtempSync(join(tmpdir(), "curator-ca-")));
     const roadie = fakeRoadie(store);
-    const fg = createFakeGemini({ imageBase64: pngBytes().toString("base64") });
+    const fg =
+      gemini === "fail"
+        ? createFakeGemini({ failStatus: 500 })
+        : createFakeGemini({ imageBase64: pngBytes().toString("base64") });
     const { app } = buildServer({
       store,
       roadie,
       prober: fakeProber(),
       generate: fakeGenerate,
-      ...(withGemini
+      ...(gemini !== "none"
         ? { gemini: new GeminiClient({ apiKey: "k", fetch: fg.fetch }) }
         : {}),
     });
@@ -418,8 +421,14 @@ describe("card-art generation (routes)", () => {
   });
 
   it("400s generate when Gemini isn't configured", async () => {
-    const { app, curatorId } = await serverWithCardPrompt(false);
+    const { app, curatorId } = await serverWithCardPrompt("none");
     const res = await post(app, `/api/albums/${curatorId}/card-art/generate`);
     expect(res.statusCode).toBe(400);
+  });
+
+  it("5xxs generate when every image fails (upstream fault, not a 4xx)", async () => {
+    const { app, curatorId } = await serverWithCardPrompt("fail");
+    const res = await post(app, `/api/albums/${curatorId}/card-art/generate`);
+    expect(res.statusCode).toBeGreaterThanOrEqual(500);
   });
 });

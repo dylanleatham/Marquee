@@ -85,6 +85,20 @@ describe("GeminiClient", () => {
     ).rejects.toMatchObject({ name: "GeminiError" });
   });
 
+  it("generateImage throws when the prompt is safety-blocked", async () => {
+    const blocked: FetchLike = async () =>
+      new Response(
+        JSON.stringify({ promptFeedback: { blockReason: "SAFETY" } }),
+        {
+          headers: { "content-type": "application/json" },
+        },
+      );
+    const c = new GeminiClient({ apiKey: "k", fetch: blocked });
+    await expect(c.generateImage("x")).rejects.toMatchObject({
+      name: "GeminiError",
+    });
+  });
+
   it("times out a hung request (504) instead of hanging forever", async () => {
     const hanging: FetchLike = (_input, init) =>
       new Promise((_resolve, reject) => {

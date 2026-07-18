@@ -142,6 +142,19 @@ describe("generateCardArtSet", () => {
     expect(s.read(id)!.cardArtCandidates).toBeUndefined();
   });
 
+  it("when every image is invalid, throws a non-ImageError (maps to 5xx, not 422)", async () => {
+    const s = store();
+    const id = seed(s, "gggg7777", 3);
+    // Every response is a 200 with non-image bytes → all ingests fail with ImageError. The batch
+    // failure must not surface as an ImageError (which the route maps to 422); it's an upstream fault.
+    const fg = createFakeGemini({
+      imageBase64: Buffer.from("NOT-AN-IMAGE").toString("base64"),
+    });
+    await expect(
+      actions.generateCardArtSet(deps(s, geminiWith(fg.fetch)), id),
+    ).rejects.toSatisfy((e: Error) => e.name !== "ImageError");
+  });
+
   it("400s (ValidationError) when Gemini isn't configured", async () => {
     const s = store();
     const id = seed(s);
