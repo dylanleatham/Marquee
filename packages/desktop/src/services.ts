@@ -14,15 +14,36 @@ export interface ServiceSpec {
   env: Record<string, string>;
 }
 
+/** Absolute paths to the ffmpeg/ffprobe binaries Curator shells out to for video ingest. */
+export interface FfmpegPaths {
+  ffmpeg: string;
+  ffprobe: string;
+}
+
 /**
  * The two services, in start order. Ports are the services' own defaults, so Curator's default
  * `conductor.url` (localhost:4737) lines up with no extra config, and Conductor runs auth-disabled
  * (localhost-only, single box — the desktop app never leaves the machine).
+ *
+ * `ffmpeg`, when given, points Curator at bundled ffmpeg/ffprobe binaries (`FFMPEG_PATH`/
+ * `FFPROBE_PATH`) so the packaged app needs no system ffmpeg on PATH; omitted → Curator falls back
+ * to PATH (fine in dev).
  */
-export function serviceSpecs(entries: {
-  curator: string;
-  conductor: string;
-}): ServiceSpec[] {
+export function serviceSpecs(
+  entries: { curator: string; conductor: string },
+  ffmpeg?: FfmpegPaths,
+): ServiceSpec[] {
+  // Pin Curator at the co-located Conductor. The repo `.env` points CONDUCTOR_URL at the Pi
+  // (`conductor.local`) for real deployment; on one box that host doesn't resolve, so the Demo Room
+  // would read "offline". Setting it here wins — Node's loadEnvFile won't override an already-set
+  // var, so the `.env` Spotify creds still load.
+  const curatorEnv: Record<string, string> = {
+    CONDUCTOR_URL: `http://localhost:${CONDUCTOR_PORT}`,
+  };
+  if (ffmpeg) {
+    curatorEnv.FFMPEG_PATH = ffmpeg.ffmpeg;
+    curatorEnv.FFPROBE_PATH = ffmpeg.ffprobe;
+  }
   return [
     {
       name: "hue-conductor",
@@ -34,11 +55,7 @@ export function serviceSpecs(entries: {
       name: "curator",
       entry: entries.curator,
       healthUrl: `http://localhost:${CURATOR_PORT}/healthz`,
-      // Pin Curator at the co-located Conductor. The repo `.env` points CONDUCTOR_URL at the Pi
-      // (`conductor.local`) for real deployment; on one box that host doesn't resolve, so the Demo
-      // Room would read "offline". Setting it here wins — Node's loadEnvFile won't override an
-      // already-set var, so the `.env` Spotify creds still load.
-      env: { CONDUCTOR_URL: `http://localhost:${CONDUCTOR_PORT}` },
+      env: curatorEnv,
     },
   ];
 }

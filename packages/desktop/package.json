@@ -21,6 +21,8 @@
     "electron": "^33.0.0",
     "electron-builder": "^25.1.8",
     "esbuild": "^0.24.0",
+    "ffmpeg-static": "^5.2.0",
+    "ffprobe-static": "^3.1.0",
     "typescript": "^5.6.2",
     "vitest": "^2.1.3"
   }

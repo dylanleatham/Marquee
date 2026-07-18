@@ -74,6 +74,21 @@ describe("serviceSpecs / devEntries", () => {
     expect(curator.env.CONDUCTOR_URL).toBe(
       `http://localhost:${CONDUCTOR_PORT}`,
     );
+    // No ffmpeg paths given → Curator falls back to a system ffmpeg on PATH.
+    expect(curator.env.FFMPEG_PATH).toBeUndefined();
+    expect(curator.env.FFPROBE_PATH).toBeUndefined();
+  });
+
+  it("points Curator at the bundled ffmpeg/ffprobe when given", () => {
+    const specs = serviceSpecs(devEntries("/repo"), {
+      ffmpeg: "/ff/ffmpeg.exe",
+      ffprobe: "/ff/ffprobe.exe",
+    });
+    const curator = specs.find((s) => s.name === "curator")!;
+    expect(curator.env.FFMPEG_PATH).toBe("/ff/ffmpeg.exe");
+    expect(curator.env.FFPROBE_PATH).toBe("/ff/ffprobe.exe");
+    // Conductor doesn't need ffmpeg.
+    expect(specs.find((s) => s.name === "hue-conductor")!.env).toEqual({});
   });
 });
 

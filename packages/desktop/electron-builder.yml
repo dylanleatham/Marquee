@@ -14,6 +14,8 @@ extraResources:
     to: dist-ui
   - from: staged/data
     to: data
+  - from: staged/ffmpeg
+    to: ffmpeg
 win:
   target: nsis
   icon: build/icon.png # electron-builder converts this 512px PNG to the Windows .ico
