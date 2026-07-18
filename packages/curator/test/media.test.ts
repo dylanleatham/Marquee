@@ -15,6 +15,7 @@ import {
   detectImage,
   imageSize,
   ingestCardArt,
+  ingestCardArtCandidate,
   ImageError,
 } from "../src/media/images.js";
 import { fakeProber, pngBytes, jpegBytes } from "./helpers.js";
@@ -109,7 +110,11 @@ describe("ffmpegAvailable", () => {
 
   it("caps the probe with a timeout so a hung ffprobe can't block the event loop", () => {
     let opts: { timeout?: number } | undefined;
-    const capture = ((_bin: string, _args: string[], o: { timeout?: number }) => {
+    const capture = ((
+      _bin: string,
+      _args: string[],
+      o: { timeout?: number },
+    ) => {
       opts = o;
       return { status: 0 };
     }) as unknown as typeof spawnSync;
@@ -176,6 +181,43 @@ describe("ingestCardArt", () => {
           buffer: Buffer.from("nope"),
           fileId: "abcd1234",
           originalFilename: "x.txt",
+        },
+      ),
+    ).toThrow(ImageError);
+  });
+});
+
+describe("ingestCardArtCandidate", () => {
+  it("stores at the indexed key and carries the nudge + size", () => {
+    const p = paths();
+    const cand = ingestCardArtCandidate(
+      { paths: p, now: () => "2026-07-18T00:00:00.000Z" },
+      {
+        buffer: pngBytes(1050, 600),
+        curatorId: "abcd1234",
+        index: 3,
+        nudge: "cover motifs",
+      },
+    );
+    expect(cand).toMatchObject({
+      index: 3,
+      fileId: "abcd1234-c3",
+      ext: "png",
+      resolution: "1050x600",
+      orientation: "landscape",
+      nudge: "cover motifs",
+    });
+    expect(existsSync(p.cardArtFile("abcd1234-c3", "png"))).toBe(true);
+  });
+  it("rejects non-image bytes (the failure mode generateCardArtSet must isolate)", () => {
+    const p = paths();
+    expect(() =>
+      ingestCardArtCandidate(
+        { paths: p },
+        {
+          buffer: Buffer.from("NOT-AN-IMAGE"),
+          curatorId: "abcd1234",
+          index: 0,
         },
       ),
     ).toThrow(ImageError);

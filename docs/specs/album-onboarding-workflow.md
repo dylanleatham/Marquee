@@ -236,13 +236,21 @@ Because it's optional and Curator-only, it doesn't fit into the queue-state mode
 
 **During "Awaiting tag write"**: if a card exists (the card art file is attached), the tag write step covers both the sleeve sticker and the card sticker. Same URI on both.
 
-**Between those**, generating and attaching the card art is asynchronous from everything else:
+**Between those**, generating and attaching the card art is asynchronous from everything else. Two
+ways to get the image:
 
-1. Copy the card art prompt whenever you're ready
-2. Generate the art externally (same tool as videos, or a different one — up to you)
-3. Attach the file in album detail's Card Art section
-4. Print the card at your leisure (Curator has a print-optimized endpoint at `/api/albums/:curatorId/card-art/print`)
-5. Once you have the physical card, write its NFC sticker as part of the tag write step (or later, whenever)
+- **Generate in-app (default, [ADR 0010](../adrs/0010-auto-card-art-generation-candidate-set.md)):**
+  in album detail's Card Art section, hit **"Generate options with AI"**. Curator runs each drafted
+  card-art prompt variant through Gemini (Nano Banana) and shows the results as a click-to-pick
+  thumbnail gallery; click the one you like and it becomes the attached card art. Needs a Gemini key
+  (Settings); without one the button's action just 400s and you use the manual path.
+- **Bring your own:** copy the card art prompt, generate the image in whatever tool you like, and
+  drop the PNG/JPEG on the same Card Art section. This override works with or without a Gemini key.
+
+Then:
+
+1. Print the card at your leisure (Curator has a print-optimized endpoint at `/api/albums/:curatorId/card-art/print`)
+2. Once you have the physical card, write its NFC sticker as part of the tag write step (or later, whenever)
 
 A card can be added long after the album is otherwise `verified`. An album can also be fully verified without a card, forever. The system doesn't care; the card just makes triggering the album more ergonomic.
 

@@ -103,6 +103,35 @@ describe("generateCardArtSet", () => {
     expect(asset.cardArtCandidates!.map((c) => c.index)).toEqual([0, 2, 3]);
   });
 
+  it("keeps the successes when a generation returns non-image bytes (ADR 0010 partial-keep)", async () => {
+    const s = store();
+    const id = seed(s, "bbbb3333", 3);
+    // A 200 whose inlineData is NOT a PNG/JPEG — the image-validation failure mode, distinct from a
+    // network failure. It must be dropped like any other failure, not abort the whole set.
+    const inline = (b64: string) =>
+      new Response(
+        JSON.stringify({
+          candidates: [{ content: { parts: [{ inlineData: { data: b64 } }] } }],
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    let n = 0;
+    const fetch: FetchLike = async () => {
+      n += 1;
+      return inline(
+        n === 2
+          ? Buffer.from("NOT-AN-IMAGE").toString("base64")
+          : pngBytes().toString("base64"),
+      );
+    };
+    const asset = await actions.generateCardArtSet(
+      deps(s, geminiWith(fetch)),
+      id,
+    );
+    expect(asset.cardArtCandidates).toHaveLength(2);
+    expect(asset.cardArtCandidates!.map((c) => c.index)).toEqual([0, 2]);
+  });
+
   it("throws when every generation fails", async () => {
     const s = store();
     const id = seed(s, "cccc3333", 3);

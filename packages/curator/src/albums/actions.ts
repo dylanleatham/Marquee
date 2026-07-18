@@ -345,29 +345,31 @@ export async function generateCardArtSet(
     );
 
   const gemini = deps.gemini;
+  // Generate *and* ingest inside allSettled: a candidate can fail either at the API (network/5xx)
+  // or at ingest (Gemini returned 200 with non-image bytes). Both are per-candidate failures — the
+  // set keeps the successes (ADR 0010). Doing the ingest in a bare forEach would let one malformed
+  // image throw and discard the whole batch.
   const results = await Promise.allSettled(
-    draft.variants.map((v) => gemini.generateImage(v.text)),
+    draft.variants.map(async (v, i) =>
+      ingestCardArtCandidate(
+        { paths: deps.store.paths, now: deps.now },
+        {
+          buffer: await gemini.generateImage(v.text),
+          curatorId,
+          index: i,
+          nudge: v.nudge,
+        },
+      ),
+    ),
   );
 
-  const candidates: CardArtCandidate[] = [];
-  results.forEach((r, i) => {
-    if (r.status === "fulfilled")
-      candidates.push(
-        ingestCardArtCandidate(
-          { paths: deps.store.paths, now: deps.now },
-          {
-            buffer: r.value,
-            curatorId,
-            index: i,
-            nudge: draft.variants[i]?.nudge,
-          },
-        ),
-      );
-  });
+  const candidates: CardArtCandidate[] = results.flatMap((r) =>
+    r.status === "fulfilled" ? [r.value] : [],
+  );
   if (candidates.length === 0) {
     const firstReject = results.find((r) => r.status === "rejected") as
       PromiseRejectedResult | undefined;
-    // Rethrow the upstream Gemini error so the route maps it to a 5xx, not a 400.
+    // Rethrow the first failure (upstream Gemini error or ImageError) so the route maps it to 5xx.
     throw firstReject
       ? firstReject.reason
       : new Error("card-art generation produced no images");
