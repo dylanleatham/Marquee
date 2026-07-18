@@ -112,6 +112,17 @@ export interface CardArt {
   ext: string;
   resolution?: string;
   orientation?: "landscape" | "portrait";
+  attachedAt: string;
+}
+
+export interface CardArtCandidate {
+  index: number;
+  fileId: string;
+  ext: string;
+  resolution?: string;
+  orientation?: "landscape" | "portrait";
+  nudge?: string;
+  generatedAt: string;
 }
 
 export type PromptType = "video" | "cardArt";
@@ -133,6 +144,7 @@ export interface AlbumAsset {
   promptDrafts?: { video?: DraftedPrompt; cardArt?: DraftedPrompt };
   visualizer?: Visualizer;
   cardArt?: CardArt;
+  cardArtCandidates?: CardArtCandidate[];
   verification?: { previewApprovedAt?: string; physicallyVerifiedAt?: string };
   roadie: {
     state: RoadieState;
@@ -284,6 +296,16 @@ export const api = {
       body: form,
     });
   },
+  generateCardArtSet: (id: string) =>
+    req<{ cardArtCandidates: CardArtCandidate[] }>(
+      `/api/albums/${id}/card-art/generate`,
+      { method: "POST" },
+    ),
+  selectCardArt: (id: string, index: number) =>
+    req<{ cardArt: CardArt }>(`/api/albums/${id}/card-art/select`, {
+      method: "POST",
+      body: JSON.stringify({ index }),
+    }),
   detachCardArt: (id: string, del = false) =>
     req<{ detached: string }>(
       `/api/albums/${id}/detach-card-art${del ? "?delete=1" : ""}`,
@@ -335,6 +357,8 @@ export const thumbnailUrl = (id: string) => `/api/albums/${id}/thumbnail`;
 export const cardArtUrl = (id: string) => `/api/albums/${id}/card-art`;
 export const cardArtPrintUrl = (id: string) =>
   `/api/albums/${id}/card-art/print`;
+export const cardArtCandidateUrl = (id: string, index: number) =>
+  `/api/albums/${id}/card-art/candidate/${index}`;
 
 /** Prompt-template options (roadie-spec §7), for the redraft dropdowns. */
 export const VIDEO_TEMPLATES = [

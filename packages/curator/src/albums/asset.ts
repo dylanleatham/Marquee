@@ -91,6 +91,23 @@ export interface CardArtSection {
   notes?: string;
 }
 
+/**
+ * One Gemini-generated card-art candidate (curator-spec §Card art). Roadie/actions generate a set
+ * (one per card-art prompt variant); the human promotes the best one to the attached `cardArt`.
+ * Stored on disk at card-art/{curatorId}-c{index}.{ext}.
+ */
+export interface CardArtCandidate {
+  index: number;
+  /** `${curatorId}-c${index}` — the disk key for this candidate's image. */
+  fileId: string;
+  ext: string;
+  resolution?: string;
+  orientation?: "landscape" | "portrait";
+  /** The prompt variant's nudge label this image was generated from (for the gallery). */
+  nudge?: string;
+  generatedAt: string;
+}
+
 export interface VerificationSection {
   previewApprovedAt?: string;
   physicallyVerifiedAt?: string;
@@ -131,6 +148,8 @@ export interface AlbumAsset {
   visualizer?: VisualizerSection;
   /** Present once card art is attached (step 7). */
   cardArt?: CardArtSection;
+  /** Gemini-generated card-art candidates (curator-spec §Card art); the human picks one to attach. */
+  cardArtCandidates?: CardArtCandidate[];
   /** Preview-approval and physical-verification timestamps (steps 7/11). */
   verification?: VerificationSection;
   roadie: RoadieSection;

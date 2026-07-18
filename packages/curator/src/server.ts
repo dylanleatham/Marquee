@@ -330,6 +330,28 @@ export function buildServer(opts: BuildOptions = {}) {
     );
   });
 
+  // A generated candidate image (before one is promoted to the attached card art).
+  app.get(
+    "/api/albums/:curatorId/card-art/candidate/:index",
+    async (req, reply) => {
+      const { curatorId, index } = req.params as {
+        curatorId: string;
+        index: string;
+      };
+      const asset = store.read(curatorId);
+      const candidate = asset?.cardArtCandidates?.find(
+        (c) => c.index === Number(index),
+      );
+      if (!candidate)
+        return reply.code(404).send({ error: "no such candidate" });
+      return sendFile(
+        reply,
+        store.paths.cardArtFile(candidate.fileId, candidate.ext),
+        candidate.ext === "png" ? "image/png" : "image/jpeg",
+      );
+    },
+  );
+
   // Print version: same image as a download. TODO: embed 300-DPI metadata / resize once we add an
   // image pipeline (curator-spec recommends 1050x600 @ 300 DPI); v1 serves the stored art verbatim.
   app.get("/api/albums/:curatorId/card-art/print", async (req, reply) => {
@@ -551,6 +573,29 @@ export function buildServer(opts: BuildOptions = {}) {
     try {
       actions.detachCardArt(actionDeps, curatorId, del);
       return { detached: curatorId };
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
+  });
+
+  // Generate a set of card-art candidates from the drafted prompt variants (Nano Banana).
+  app.post("/api/albums/:curatorId/card-art/generate", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    try {
+      const asset = await actions.generateCardArtSet(actionDeps, curatorId);
+      return { cardArtCandidates: asset.cardArtCandidates };
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
+  });
+
+  // Promote a generated candidate to the attached card art.
+  app.post("/api/albums/:curatorId/card-art/select", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const { index } = (req.body ?? {}) as { index?: number };
+    try {
+      const asset = actions.selectCardArt(actionDeps, curatorId, Number(index));
+      return { cardArt: asset.cardArt };
     } catch (err) {
       return actionError(err, reply, req);
     }

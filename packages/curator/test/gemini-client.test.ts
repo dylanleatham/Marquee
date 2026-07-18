@@ -69,6 +69,22 @@ describe("GeminiClient", () => {
     expect(await c.generateText({ prompt: "x" })).toBe("ok");
   });
 
+  it("generateImage returns the decoded image bytes from inlineData", async () => {
+    const png = Buffer.from("PNGBYTES").toString("base64");
+    const fg = createFakeGemini({ imageBase64: png });
+    const bytes = await client(fg).generateImage("a purple motorcycle");
+    expect(bytes.toString()).toBe("PNGBYTES");
+    expect(fg.calls()[0]!.model).toBe("gemini-2.5-flash-image");
+  });
+
+  it("generateImage throws when the response carries no image", async () => {
+    // The text model returns text, not inlineData → no image bytes.
+    const fg = createFakeGemini({ text: "no image here" });
+    await expect(
+      client(fg).generateImage("x", "gemini-2.5-flash"),
+    ).rejects.toMatchObject({ name: "GeminiError" });
+  });
+
   it("times out a hung request (504) instead of hanging forever", async () => {
     const hanging: FetchLike = (_input, init) =>
       new Promise((_resolve, reject) => {

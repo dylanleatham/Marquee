@@ -9,6 +9,7 @@ import {
   thumbnailUrl,
   cardArtUrl,
   cardArtPrintUrl,
+  cardArtCandidateUrl,
   VIDEO_TEMPLATES,
   CARD_ART_TEMPLATES,
   type AlbumAsset,
@@ -218,7 +219,11 @@ export function VideoSection({
   );
 }
 
-/** Card art: independent of the state machine — attach any time, even after verified. */
+/**
+ * Card art: independent of the state machine — attach any time, even after verified. When a
+ * card-art prompt is drafted you can generate a set of AI candidates (Nano Banana) and click one to
+ * use it; a manual PNG/JPEG upload remains as the override.
+ */
 export function CardArtSection({
   curatorId,
   asset,
@@ -235,64 +240,109 @@ export function CardArtSection({
     return run(() => api.uploadCardArt(curatorId, form));
   };
 
-  if (asset.cardArt) {
-    return (
-      <div>
-        <img
-          className="media-frame media-frame--art"
-          src={cardArtUrl(curatorId)}
-          alt="card art"
-        />
+  const candidates = asset.cardArtCandidates ?? [];
+  const canGenerate = Boolean(asset.promptDrafts?.cardArt);
+
+  return (
+    <div className="cardart">
+      {canGenerate && (
         <div className="row-actions">
-          <span className="muted">
-            {asset.cardArt.originalFilename}
-            {asset.cardArt.resolution ? ` · ${asset.cardArt.resolution}` : ""}
-          </span>
-          <a className="btn btn--sm" href={cardArtPrintUrl(curatorId)} download>
-            Download print
-          </a>
           <button
             className="btn btn--sm"
-            onClick={() => fileRef.current?.click()}
+            onClick={() => run(() => api.generateCardArtSet(curatorId))}
+            title="Generate a set of card-art options with Gemini, one per prompt variant"
           >
-            Replace
+            {candidates.length
+              ? "Regenerate options with AI"
+              : "Generate options with AI"}
           </button>
-          <button
-            className="btn btn--sm btn--danger"
-            onClick={() => run(() => api.detachCardArt(curatorId, true))}
-          >
-            Detach
-          </button>
+          {candidates.length > 0 && (
+            <span className="muted">
+              Click an option to use it as the card.
+            </span>
+          )}
+        </div>
+      )}
+
+      {candidates.length > 0 && (
+        <div className="cardart__gallery">
+          {candidates.map((c) => (
+            <button
+              key={c.index}
+              className="cardart__candidate"
+              title={c.nudge || `Option ${c.index + 1}`}
+              onClick={() => run(() => api.selectCardArt(curatorId, c.index))}
+            >
+              <img
+                src={cardArtCandidateUrl(curatorId, c.index)}
+                alt={c.nudge || `option ${c.index + 1}`}
+              />
+              <span>{c.nudge || `Option ${c.index + 1}`}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {asset.cardArt ? (
+        <div>
+          <img
+            className="media-frame media-frame--art"
+            src={`${cardArtUrl(curatorId)}?v=${asset.cardArt.attachedAt}`}
+            alt="card art"
+          />
+          <div className="row-actions">
+            <span className="muted">
+              {asset.cardArt.originalFilename}
+              {asset.cardArt.resolution ? ` · ${asset.cardArt.resolution}` : ""}
+            </span>
+            <a
+              className="btn btn--sm"
+              href={cardArtPrintUrl(curatorId)}
+              download
+            >
+              Download print
+            </a>
+            <button
+              className="btn btn--sm"
+              onClick={() => fileRef.current?.click()}
+            >
+              Replace
+            </button>
+            <button
+              className="btn btn--sm btn--danger"
+              onClick={() => run(() => api.detachCardArt(curatorId, true))}
+            >
+              Detach
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/png,image/jpeg"
+              hidden
+              onChange={pickFile(upload)}
+            />
+          </div>
+        </div>
+      ) : (
+        <label
+          className="dropzone"
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            const f = e.dataTransfer.files?.[0];
+            if (f) upload(f);
+          }}
+        >
           <input
-            ref={fileRef}
             type="file"
             accept="image/png,image/jpeg"
             hidden
             onChange={pickFile(upload)}
           />
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <label
-      className="dropzone"
-      onDragOver={(e) => e.preventDefault()}
-      onDrop={(e) => {
-        e.preventDefault();
-        const f = e.dataTransfer.files?.[0];
-        if (f) upload(f);
-      }}
-    >
-      <input
-        type="file"
-        accept="image/png,image/jpeg"
-        hidden
-        onChange={pickFile(upload)}
-      />
-      Drop a PNG/JPEG card image here, or click to choose
-    </label>
+          Drop a PNG/JPEG card image here, or click to choose
+        </label>
+      )}
+    </div>
   );
 }
 

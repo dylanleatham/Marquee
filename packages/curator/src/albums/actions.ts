@@ -15,6 +15,7 @@ import {
   TransitionError,
   type AlbumAsset,
   type RoadieState,
+  type CardArtCandidate,
 } from "./asset.js";
 import { ValidationError } from "./add-manual.js";
 import {
@@ -25,7 +26,7 @@ import {
 import { draftOnePromptWithGemini } from "../gemini/draft.js";
 import type { GeminiClient } from "../gemini/client.js";
 import { ingestVideo, type VideoProber } from "../media/video.js";
-import { ingestCardArt } from "../media/images.js";
+import { ingestCardArt, ingestCardArtCandidate } from "../media/images.js";
 
 export class NotFoundError extends Error {
   constructor(message = "not found") {
@@ -37,7 +38,7 @@ export class NotFoundError extends Error {
 export interface ActionDeps {
   store: AssetStore;
   prober: VideoProber;
-  /** Gemini client for on-demand "Regenerate with AI"; absent → that action 503s. */
+  /** Gemini client for on-demand AI actions (prompt regenerate, card-art generate); absent → 400. */
   gemini?: GeminiClient;
   now?: () => string;
 }
@@ -318,6 +319,89 @@ export function detachCardArt(
       },
     );
   delete asset.cardArt;
+  deps.store.save(asset);
+  return asset;
+}
+
+/**
+ * Generate a set of card-art candidates from the drafted card-art prompt variants (Nano Banana,
+ * one image per variant). Stored as `cardArtCandidates` for the human to pick from; the manual
+ * upload and `selectCardArt` both still set the single attached `cardArt`. Requires a Gemini client.
+ * Images generate in parallel; a partial failure keeps the successes — only an all-fail throws.
+ */
+export async function generateCardArtSet(
+  deps: ActionDeps,
+  curatorId: string,
+): Promise<AlbumAsset> {
+  if (!deps.gemini)
+    throw new ValidationError(
+      "Gemini is not configured — set an API key in Settings",
+    );
+  const asset = load(deps.store, curatorId);
+  const draft = asset.promptDrafts?.cardArt;
+  if (!draft || draft.variants.length === 0)
+    throw new ValidationError(
+      "no card-art prompt drafted yet — nothing to generate from",
+    );
+
+  const gemini = deps.gemini;
+  const results = await Promise.allSettled(
+    draft.variants.map((v) => gemini.generateImage(v.text)),
+  );
+
+  const candidates: CardArtCandidate[] = [];
+  results.forEach((r, i) => {
+    if (r.status === "fulfilled")
+      candidates.push(
+        ingestCardArtCandidate(
+          { paths: deps.store.paths, now: deps.now },
+          {
+            buffer: r.value,
+            curatorId,
+            index: i,
+            nudge: draft.variants[i]?.nudge,
+          },
+        ),
+      );
+  });
+  if (candidates.length === 0) {
+    const firstReject = results.find((r) => r.status === "rejected") as
+      PromiseRejectedResult | undefined;
+    // Rethrow the upstream Gemini error so the route maps it to a 5xx, not a 400.
+    throw firstReject
+      ? firstReject.reason
+      : new Error("card-art generation produced no images");
+  }
+
+  asset.cardArtCandidates = candidates;
+  asset.status = deriveStatus(asset.roadie);
+  deps.store.save(asset);
+  return asset;
+}
+
+/** Promote a generated candidate to the attached card art (reuses the normal ingest/serve path). */
+export function selectCardArt(
+  deps: ActionDeps,
+  curatorId: string,
+  index: number,
+): AlbumAsset {
+  const asset = load(deps.store, curatorId);
+  const candidate = asset.cardArtCandidates?.find((c) => c.index === index);
+  if (!candidate)
+    throw new ValidationError(`no card-art candidate at index ${index}`);
+
+  const buffer = readFileSync(
+    deps.store.paths.cardArtFile(candidate.fileId, candidate.ext),
+  );
+  asset.cardArt = ingestCardArt(
+    { paths: deps.store.paths, now: deps.now },
+    {
+      buffer,
+      fileId: curatorId,
+      originalFilename: `generated-${candidate.nudge ?? candidate.index}.${candidate.ext}`,
+    },
+  );
+  asset.status = deriveStatus(asset.roadie);
   deps.store.save(asset);
   return asset;
 }

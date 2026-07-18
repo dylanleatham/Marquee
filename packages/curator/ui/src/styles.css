@@ -552,6 +552,47 @@ em {
   border-color: color-mix(in srgb, var(--cyan) 50%, transparent);
   background: color-mix(in srgb, var(--cyan) 12%, transparent);
 }
+/* generated card-art candidates: a click-to-pick thumbnail grid */
+.cardart {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cardart__gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+.cardart__candidate {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
+  color: var(--muted);
+  text-align: left;
+}
+.cardart__candidate:hover {
+  border-color: var(--cyan);
+  color: var(--text);
+}
+.cardart__candidate img {
+  width: 100%;
+  aspect-ratio: 7 / 5;
+  object-fit: cover;
+  border-radius: 4px;
+  display: block;
+}
+.cardart__candidate span {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .tag {
   font-size: 11px;
   letter-spacing: 0.06em;
