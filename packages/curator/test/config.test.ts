@@ -103,6 +103,18 @@ describe("loadConfig", () => {
     });
   });
 
+  // The guard in readSettings: a corrupt settings.json must degrade to "no creds", not crash boot.
+  it("ignores a malformed settings.json rather than crashing at boot", () => {
+    noFile();
+    delete process.env.SPOTIFY_CLIENT_ID;
+    delete process.env.SPOTIFY_CLIENT_SECRET;
+    const dir = mkdtempSync(join(tmpdir(), "md-"));
+    writeFileSync(join(dir, "settings.json"), "{ not valid json");
+    process.env.MARQUEE_DATA_DIR = dir;
+    expect(() => loadConfig()).not.toThrow();
+    expect(loadConfig().spotify).toBeUndefined();
+  });
+
   it("prefers env/config.toml Spotify creds over settings.json (dev unchanged)", () => {
     const dir = mkdtempSync(join(tmpdir(), "md-"));
     writeFileSync(
