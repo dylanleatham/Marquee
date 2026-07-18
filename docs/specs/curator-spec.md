@@ -432,7 +432,9 @@ push_on_save = true
 
 ### Application settings
 
-Curator holds application-level settings that affect the runtime services and pushes changes to them.
+Curator holds application-level settings. Some affect the runtime services and are pushed to them on
+change (e.g. the listening room → Conductor); others are Curator-local and never leave the machine
+(e.g. Spotify credentials, which only Curator uses).
 
 | Method | Path                            | Purpose                                                                                                                                                                                                                                           |
 | ------ | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -447,6 +449,9 @@ Settings that live here:
 - `listeningRoomId` — the Hue room Conductor drives when scan events arrive. Pushed to Conductor on change.
 - Conductor URL + shared secret (mirror of what's in the TOML config; exposed for UI editing convenience)
 - Backdrop URL + shared secret (same)
+- Spotify credentials (`clientId` + write-only `clientSecret`) — **Curator-local, not pushed anywhere**.
+  Stored in `settings.json` in the data dir so the packaged desktop app can be configured without a
+  repo `.env` (ADR 0008); applied at boot. Layered under `config.toml`/env, so dev is unchanged.
 - Tag placement guide text — a reminder string like "back cover, upper-right" shown to the user during the tag write flow
 
 ## 9. Video workflow (mostly unchanged from prior spec)

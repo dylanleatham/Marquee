@@ -1,9 +1,10 @@
 // Generate the app icon (build/icon.png) — a lit amber marquee bulb on the UI's warm near-black,
 // matching the brand `●`. Pure Node (no image libs): render at 2× and box-downscale for clean edges,
 // then encode PNG via zlib. electron-builder converts this 512px PNG into the Windows .ico.
+// `renderIconPng()` is exported (and unit-tested); the file writes it only when run directly.
 import zlib from "node:zlib";
 import { writeFileSync, mkdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join, resolve } from "node:path";
 
 const N = 512; // output size
@@ -48,36 +49,6 @@ function shade(x, y) {
   return { rgb, a: 1 };
 }
 
-// Render at S×S, then average SS×SS blocks down to N×N for anti-aliasing.
-const out = Buffer.alloc(N * N * 4);
-for (let oy = 0; oy < N; oy++) {
-  for (let ox = 0; ox < N; ox++) {
-    let r = 0,
-      g = 0,
-      b = 0,
-      a = 0;
-    for (let sy = 0; sy < SS; sy++) {
-      for (let sx = 0; sx < SS; sx++) {
-        const px = (ox * SS + sx + 0.5) / S;
-        const py = (oy * SS + sy + 0.5) / S;
-        const s = shade(px, py);
-        r += s.rgb[0] * s.a;
-        g += s.rgb[1] * s.a;
-        b += s.rgb[2] * s.a;
-        a += s.a;
-      }
-    }
-    const n = SS * SS;
-    const i = (oy * N + ox) * 4;
-    // Un-premultiply so edge pixels keep the right hue against transparency.
-    const av = a / n;
-    out[i] = av > 0 ? Math.round(r / a) : 0;
-    out[i + 1] = av > 0 ? Math.round(g / a) : 0;
-    out[i + 2] = av > 0 ? Math.round(b / a) : 0;
-    out[i + 3] = Math.round(av * 255);
-  }
-}
-
 // --- minimal PNG encode (RGBA, filter 0) ---
 const crcTable = Array.from({ length: 256 }, (_, n) => {
   let c = n;
@@ -97,27 +68,66 @@ const chunk = (type, data) => {
   crc.writeUInt32BE(crc32(Buffer.concat([t, data])), 0);
   return Buffer.concat([len, t, data, crc]);
 };
-const ihdr = Buffer.alloc(13);
-ihdr.writeUInt32BE(N, 0);
-ihdr.writeUInt32BE(N, 4);
-ihdr[8] = 8; // bit depth
-ihdr[9] = 6; // color type RGBA
-const stride = N * 4;
-const raw = Buffer.alloc((stride + 1) * N);
-for (let y = 0; y < N; y++)
-  out.copy(raw, y * (stride + 1) + 1, y * stride, y * stride + stride);
-const png = Buffer.concat([
-  Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
-  chunk("IHDR", ihdr),
-  chunk("IDAT", zlib.deflateSync(raw, { level: 9 })),
-  chunk("IEND", Buffer.alloc(0)),
-]);
 
-const buildDir = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  "..",
-  "build",
-);
-mkdirSync(buildDir, { recursive: true });
-writeFileSync(join(buildDir, "icon.png"), png);
-console.log(`✓ wrote build/icon.png (${N}×${N}, ${png.length} bytes)`);
+/** Render the icon and return it as an encoded PNG buffer (512×512 RGBA). */
+export function renderIconPng() {
+  // Render at S×S, then average SS×SS blocks down to N×N for anti-aliasing.
+  const out = Buffer.alloc(N * N * 4);
+  for (let oy = 0; oy < N; oy++) {
+    for (let ox = 0; ox < N; ox++) {
+      let r = 0,
+        g = 0,
+        b = 0,
+        a = 0;
+      for (let sy = 0; sy < SS; sy++) {
+        for (let sx = 0; sx < SS; sx++) {
+          const s = shade((ox * SS + sx + 0.5) / S, (oy * SS + sy + 0.5) / S);
+          r += s.rgb[0] * s.a;
+          g += s.rgb[1] * s.a;
+          b += s.rgb[2] * s.a;
+          a += s.a;
+        }
+      }
+      const i = (oy * N + ox) * 4;
+      const av = a / (SS * SS);
+      // Un-premultiply so edge pixels keep the right hue against transparency.
+      out[i] = av > 0 ? Math.round(r / a) : 0;
+      out[i + 1] = av > 0 ? Math.round(g / a) : 0;
+      out[i + 2] = av > 0 ? Math.round(b / a) : 0;
+      out[i + 3] = Math.round(av * 255);
+    }
+  }
+
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(N, 0);
+  ihdr.writeUInt32BE(N, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 6; // color type RGBA
+  const stride = N * 4;
+  const raw = Buffer.alloc((stride + 1) * N);
+  for (let y = 0; y < N; y++)
+    out.copy(raw, y * (stride + 1) + 1, y * stride, y * stride + stride);
+
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", zlib.deflateSync(raw, { level: 9 })),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+// Write only when run directly (`node scripts/make-icon.mjs`), not when imported by the test.
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  const png = renderIconPng();
+  const buildDir = resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "build",
+  );
+  mkdirSync(buildDir, { recursive: true });
+  writeFileSync(join(buildDir, "icon.png"), png);
+  console.log(`✓ wrote build/icon.png (${N}×${N}, ${png.length} bytes)`);
+}

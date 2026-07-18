@@ -22,7 +22,11 @@ export function readSettings(dataDir: string): CuratorSettings {
   }
 }
 
-/** Persist Spotify credentials, merged with any existing settings. Creates the data dir if needed. */
+/**
+ * Persist Spotify credentials, merged with any existing settings. Creates the data dir if needed.
+ * Read-modify-write is safe here because the sole writer is the human-driven Settings form (no
+ * concurrent writers); revisit with a lock if a background writer is ever added.
+ */
 export function writeSpotifyCreds(
   dataDir: string,
   creds: { clientId: string; clientSecret: string },
