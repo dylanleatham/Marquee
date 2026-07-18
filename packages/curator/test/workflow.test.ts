@@ -11,7 +11,9 @@ import {
   buildMultipart,
   pngBytes,
 } from "./helpers.js";
-import { activePromptText } from "../src/roadie/prompts.js";
+import { activePromptText, type DraftedPrompt } from "../src/roadie/prompts.js";
+import { GeminiClient } from "../src/gemini/client.js";
+import { createFakeGemini } from "@marquee/fake-gemini";
 
 /** Build a server with fake Roadie + prober, and add one manual album already at awaiting_review. */
 async function serverWithReviewedAlbum(
@@ -330,5 +332,103 @@ describe("workflow guards", () => {
     expect(
       (await post(app, `/api/albums/zzzzzzzz/preview/approve`)).statusCode,
     ).toBe(404);
+  });
+});
+
+describe("card-art generation (routes)", () => {
+  /** A server + an album at review with a 3-variant card prompt. `gemini`: "ok" (PNGs), "fail" (all 500), or "none". */
+  async function serverWithCardPrompt(gemini: "ok" | "fail" | "none" = "ok") {
+    const store = new AssetStore(mkdtempSync(join(tmpdir(), "curator-ca-")));
+    const roadie = fakeRoadie(store);
+    const fg =
+      gemini === "fail"
+        ? createFakeGemini({ failStatus: 500 })
+        : createFakeGemini({ imageBase64: pngBytes().toString("base64") });
+    const { app } = buildServer({
+      store,
+      roadie,
+      prober: fakeProber(),
+      generate: fakeGenerate,
+      ...(gemini !== "none"
+        ? { gemini: new GeminiClient({ apiKey: "k", fetch: fg.fetch }) }
+        : {}),
+    });
+    const mp = buildMultipart(
+      { name: "Purple Rain", artist: "Prince" },
+      {
+        field: "artwork",
+        filename: "a.jpg",
+        contentType: "image/jpeg",
+        data: Buffer.from("IMG"),
+      },
+    );
+    const add = await app.inject({
+      method: "POST",
+      url: "/api/albums",
+      headers: { "content-type": mp.contentType },
+      payload: mp.body,
+    });
+    const { curatorId } = add.json();
+    await roadie.drain();
+    // Give it a 3-variant card-art prompt (the fake Roadie has no Gemini, so it drafted a template).
+    const asset = store.read(curatorId)!;
+    const draft: DraftedPrompt = {
+      variants: [0, 1, 2].map((i) => ({ text: `p${i}`, nudge: `look ${i}` })),
+      selectedIndex: 0,
+      generator: "gemini",
+      generatedAt: "2026-07-18T00:00:00.000Z",
+    };
+    asset.promptDrafts = { ...asset.promptDrafts, cardArt: draft };
+    store.save(asset);
+    return { app, store, curatorId };
+  }
+
+  it("generates candidates, serves them, and promotes the chosen one", async () => {
+    const { app, curatorId } = await serverWithCardPrompt();
+
+    const gen = await post(app, `/api/albums/${curatorId}/card-art/generate`);
+    expect(gen.statusCode).toBe(200);
+    expect(gen.json().cardArtCandidates).toHaveLength(3);
+
+    // Each candidate image serves.
+    const img = await app.inject({
+      method: "GET",
+      url: `/api/albums/${curatorId}/card-art/candidate/1`,
+    });
+    expect(img.statusCode).toBe(200);
+    expect(img.headers["content-type"]).toContain("image/png");
+
+    // Promote candidate 1 → it becomes the attached card art.
+    const sel = await post(app, `/api/albums/${curatorId}/card-art/select`, {
+      index: 1,
+    });
+    expect(sel.statusCode).toBe(200);
+    expect(sel.json().cardArt.originalFilename).toContain("look 1");
+    const card = await app.inject({
+      method: "GET",
+      url: `/api/albums/${curatorId}/card-art`,
+    });
+    expect(card.statusCode).toBe(200);
+  });
+
+  it("404s a candidate that doesn't exist", async () => {
+    const { app, curatorId } = await serverWithCardPrompt();
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/albums/${curatorId}/card-art/candidate/7`,
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("400s generate when Gemini isn't configured", async () => {
+    const { app, curatorId } = await serverWithCardPrompt("none");
+    const res = await post(app, `/api/albums/${curatorId}/card-art/generate`);
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("5xxs generate when every image fails (upstream fault, not a 4xx)", async () => {
+    const { app, curatorId } = await serverWithCardPrompt("fail");
+    const res = await post(app, `/api/albums/${curatorId}/card-art/generate`);
+    expect(res.statusCode).toBeGreaterThanOrEqual(500);
   });
 });

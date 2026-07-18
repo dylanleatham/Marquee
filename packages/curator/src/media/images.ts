@@ -3,7 +3,7 @@
 // Dimensions are advisory — the spec recommends 1050x600 landscape but doesn't reject other sizes.
 import { mkdirSync, writeFileSync } from "node:fs";
 import type { Paths } from "../store/paths.js";
-import type { CardArtSection } from "../albums/asset.js";
+import type { CardArtSection, CardArtCandidate } from "../albums/asset.js";
 
 export class ImageError extends Error {
   constructor(message: string) {
@@ -77,6 +77,40 @@ export function ingestCardArt(
     originalFilename: args.originalFilename,
     ext,
     attachedAt: now,
+    ...(size
+      ? {
+          resolution: `${size.width}x${size.height}`,
+          orientation: size.width >= size.height ? "landscape" : "portrait",
+        }
+      : {}),
+  };
+}
+
+/**
+ * Validate + store one Gemini-generated card-art candidate at card-art/{curatorId}-c{index}.{ext}.
+ * Same sniff/size logic as `ingestCardArt`, but keyed on the candidate index so the whole set can
+ * coexist on disk until the human promotes one.
+ */
+export function ingestCardArtCandidate(
+  deps: { paths: Paths; now?: () => string },
+  args: { buffer: Buffer; curatorId: string; index: number; nudge?: string },
+): CardArtCandidate {
+  const ext = detectImage(args.buffer);
+  if (!ext)
+    throw new ImageError("Generated card art was not a PNG or JPEG image.");
+
+  const fileId = `${args.curatorId}-c${args.index}`;
+  mkdirSync(deps.paths.cardArt, { recursive: true });
+  writeFileSync(deps.paths.cardArtFile(fileId, ext), args.buffer);
+
+  const size = imageSize(args.buffer, ext);
+  const now = (deps.now ?? (() => new Date().toISOString()))();
+  return {
+    index: args.index,
+    fileId,
+    ext,
+    generatedAt: now,
+    ...(args.nudge ? { nudge: args.nudge } : {}),
     ...(size
       ? {
           resolution: `${size.width}x${size.height}`,

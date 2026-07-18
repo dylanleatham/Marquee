@@ -2,7 +2,8 @@
 // Modeled on SpotifyClient (spotify/client.ts): a `fetch`-shaped function is injectable so tests
 // run against @marquee/fake-gemini instead of the network; every request has an AbortController
 // timeout. Auth is the `x-goog-api-key` header (never the URL — secrets don't belong in query
-// strings). P1 uses only `generateText`; `generateImage`/`generateVideo` join in later phases.
+// strings). Text drafting uses `generateText`; card-art generation uses `generateImage`.
+import { Buffer } from "node:buffer";
 
 /** A `fetch`-shaped function — injectable so tests use the fake instead of the network. */
 export type FetchLike = (
@@ -44,6 +45,8 @@ export interface GeminiClientOptions {
   apiBase?: string;
   /** Text/JSON model (default gemini-2.5-flash). */
   textModel?: string;
+  /** Image model (default gemini-2.5-flash-image, aka "Nano Banana"). */
+  imageModel?: string;
   /** Per-request timeout (ms). A hung connection must fail fast, not hang the request. */
   timeoutMs?: number;
 }
@@ -65,12 +68,14 @@ export class GeminiClient {
   private readonly fetch: FetchLike;
   private readonly apiBase: string;
   private readonly textModel: string;
+  private readonly imageModel: string;
   private readonly timeoutMs: number;
 
   constructor(private readonly opts: GeminiClientOptions) {
     this.fetch = opts.fetch ?? (globalThis.fetch as FetchLike);
     this.apiBase = opts.apiBase ?? API_BASE;
     this.textModel = opts.textModel ?? "gemini-2.5-flash";
+    this.imageModel = opts.imageModel ?? "gemini-2.5-flash-image";
     this.timeoutMs = opts.timeoutMs ?? 30_000;
   }
 
@@ -163,5 +168,29 @@ export class GeminiClient {
       .trim();
     if (!text) throw new GeminiError("Gemini returned no text");
     return text;
+  }
+
+  /**
+   * Generate one image from a text prompt (Nano Banana). Returns the raw image bytes from the first
+   * inline-data part. Throws GeminiError if the response was blocked or carried no image — the
+   * caller decides whether one failure among a batch is fatal.
+   */
+  async generateImage(prompt: string, model?: string): Promise<Buffer> {
+    const data = await this.generateContent(model ?? this.imageModel, {
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+    });
+    const blocked =
+      data.promptFeedback?.blockReason ??
+      data.candidates?.[0]?.finishReason === "SAFETY";
+    if (blocked)
+      throw new GeminiError(
+        `Gemini blocked the image request (${data.promptFeedback?.blockReason ?? "safety"})`,
+      );
+
+    const b64 = (data.candidates?.[0]?.content?.parts ?? []).find(
+      (p) => p.inlineData?.data,
+    )?.inlineData?.data;
+    if (!b64) throw new GeminiError("Gemini returned no image data");
+    return Buffer.from(b64, "base64");
   }
 }

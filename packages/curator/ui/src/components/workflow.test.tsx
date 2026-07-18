@@ -6,7 +6,7 @@ import {
   fireEvent,
   waitFor,
 } from "@testing-library/react";
-import { PromptBlock, VideoSection } from "./workflow";
+import { PromptBlock, VideoSection, CardArtSection } from "./workflow";
 import type { AlbumAsset, DraftedPrompt, RoadieState } from "../api";
 
 afterEach(cleanup);
@@ -196,5 +196,65 @@ describe("VideoSection", () => {
       "/api/albums/abcd1234/video",
     );
     expect(screen.getByText("Detach")).toBeTruthy();
+  });
+});
+
+describe("CardArtSection", () => {
+  const withCardPrompt = (extra: Partial<AlbumAsset> = {}) =>
+    albumAt("awaiting_review", {
+      promptDrafts: {
+        cardArt: {
+          variants: [{ text: "card prompt", nudge: "cover" }],
+          selectedIndex: 0,
+          generator: "gemini",
+          generatedAt: "2026-07-18T00:00:00Z",
+        },
+      },
+      ...extra,
+    });
+
+  it("offers Generate options when a card-art prompt exists", () => {
+    const run = vi.fn();
+    render(
+      <CardArtSection
+        curatorId="abcd1234"
+        asset={withCardPrompt()}
+        run={run}
+      />,
+    );
+    fireEvent.click(screen.getByText(/Generate options with AI/));
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders a clickable gallery of candidates and selects one", () => {
+    const run = vi.fn();
+    const asset = withCardPrompt({
+      cardArtCandidates: [
+        {
+          index: 0,
+          fileId: "abcd1234-c0",
+          ext: "png",
+          nudge: "motif",
+          generatedAt: "x",
+        },
+        {
+          index: 1,
+          fileId: "abcd1234-c1",
+          ext: "png",
+          nudge: "shimmer",
+          generatedAt: "x",
+        },
+      ],
+    });
+    render(<CardArtSection curatorId="abcd1234" asset={asset} run={run} />);
+    // A thumbnail per candidate, served from the candidate URL.
+    const imgs = document.querySelectorAll(".cardart__candidate img");
+    expect(imgs).toHaveLength(2);
+    expect(imgs[0]!.getAttribute("src")).toBe(
+      "/api/albums/abcd1234/card-art/candidate/0",
+    );
+    // Clicking a candidate routes the select through run.
+    fireEvent.click(screen.getByText("shimmer"));
+    expect(run).toHaveBeenCalledTimes(1);
   });
 });
