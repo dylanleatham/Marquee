@@ -6,6 +6,7 @@ import { QueueView } from "./pages/QueueView";
 import { AlbumDetail } from "./pages/AlbumDetail";
 import { AddAlbum } from "./pages/AddAlbum";
 import { DemoRoom } from "./pages/DemoRoom";
+import { Settings } from "./pages/Settings";
 import { RoadieStrip } from "./components/RoadieStrip";
 
 /** Keep the browser-tab title showing the "needs you right now" count — answers "sit down now?". */
@@ -26,6 +27,9 @@ export function App() {
           Curator
         </Link>
         <span className="app__tagline">Marquee collection</span>
+        <Link to="/settings" className="app__nav">
+          Settings
+        </Link>
       </header>
       <div className="app__body">
         <Routes>
@@ -33,6 +37,7 @@ export function App() {
           <Route path="/add" element={<AddAlbum />} />
           <Route path="/albums/:curatorId" element={<AlbumDetail />} />
           <Route path="/demo/:curatorId" element={<DemoRoom />} />
+          <Route path="/settings" element={<Settings />} />
           <Route
             path="*"
             element={

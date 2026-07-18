@@ -432,19 +432,26 @@ push_on_save = true
 
 ### Application settings
 
-Curator holds application-level settings that affect the runtime services and pushes changes to them.
+Curator holds application-level settings. Some affect the runtime services and are pushed to them on
+change (e.g. the listening room → Conductor); others are Curator-local and never leave the machine
+(e.g. Spotify credentials, which only Curator uses).
 
-| Method | Path                            | Purpose                                                                                                                                                                                             |
-| ------ | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/settings`                 | Returns current Curator settings.                                                                                                                                                                   |
-| PUT    | `/api/settings`                 | Updates one or more settings. Any setting change that affects Conductor or Backdrop is automatically pushed to that service (e.g., listening-room changes push to Conductor's `PUT /api/settings`). |
-| GET    | `/api/settings/available-rooms` | Proxies to Conductor's `/api/rooms` and returns the Hue rooms available to choose from as the listening room.                                                                                       |
+| Method | Path                            | Purpose                                                                                                                                                                                                                                           |
+| ------ | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/settings`                 | Returns current Curator settings.                                                                                                                                                                                                                 |
+| PUT    | `/api/settings`                 | Updates one or more settings. Any setting change that affects Conductor or Backdrop is automatically pushed to that service (e.g., listening-room changes push to Conductor's `PUT /api/settings`).                                               |
+| GET    | `/api/settings/available-rooms` | Proxies to Conductor's `/api/rooms` and returns the Hue rooms available to choose from as the listening room.                                                                                                                                     |
+| GET    | `/api/settings/spotify`         | Spotify credential status: `{ configured, clientId }`. The client secret is write-only and never returned.                                                                                                                                        |
+| PUT    | `/api/settings/spotify`         | Body `{ clientId, clientSecret }`. Persists to `settings.json` in the data dir; returns `{ ok, restartRequired: true }` (the Spotify client + Roadie are built at boot). Needed by the packaged desktop app, which has no repo `.env` (ADR 0008). |
 
 Settings that live here:
 
 - `listeningRoomId` — the Hue room Conductor drives when scan events arrive. Pushed to Conductor on change.
 - Conductor URL + shared secret (mirror of what's in the TOML config; exposed for UI editing convenience)
 - Backdrop URL + shared secret (same)
+- Spotify credentials (`clientId` + write-only `clientSecret`) — **Curator-local, not pushed anywhere**.
+  Stored in `settings.json` in the data dir so the packaged desktop app can be configured without a
+  repo `.env` (ADR 0008); applied at boot. Layered under `config.toml`/env, so dev is unchanged.
 - Tag placement guide text — a reminder string like "back cover, upper-right" shown to the user during the tag write flow
 
 ## 9. Video workflow (mostly unchanged from prior spec)

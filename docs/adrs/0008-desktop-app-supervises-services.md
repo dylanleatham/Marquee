@@ -55,3 +55,15 @@ runtime-overview §7 changes; this is only a new way to launch the config side.
   album add works without them; **ffmpeg** stays a system dependency; and a **custom app icon**
   replaces the default Electron one.
 - Purely additive: the services' existing run paths, tests, and the Pi deployment are untouched.
+
+> **Update (2026-07-17):** all three follow-ups are resolved.
+>
+> - **Spotify credentials**: Curator reads them from `settings.json` in the data dir (`~/marquee`) —
+>   layered under `config.toml`/env, so dev is unchanged — written by an in-app **Settings** screen
+>   (`GET`/`PUT /api/settings/spotify`). They apply on the next launch (the Spotify client + Roadie
+>   are built at boot).
+> - **App icon**: a generated amber-bulb `build/icon.png` (`scripts/make-icon.mjs`), converted to the
+>   Windows `.ico` by electron-builder.
+> - **ffmpeg**: the app bundles `ffmpeg-static` + `ffprobe-static`; the desktop main points Curator's
+>   `FFMPEG_PATH`/`FFPROBE_PATH` at them (`resources/ffmpeg/*` packaged, the static packages in dev),
+>   so no system ffmpeg is required. It adds ~145 MB to the installer — the cost of self-containment.

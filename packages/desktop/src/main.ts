@@ -13,6 +13,7 @@ import {
   servicesToStart,
   CURATOR_PORT,
   type ServiceSpec,
+  type FfmpegPaths,
 } from "./services";
 
 const children: ChildProcess[] = [];
@@ -32,6 +33,29 @@ function resolveEntries(): { curator: string; conductor: string } {
     };
   }
   return devEntries(repoRoot());
+}
+
+/**
+ * ffmpeg/ffprobe for Curator's video ingest. Packaged: the binaries shipped in resources/ffmpeg.
+ * Dev: the ffmpeg-static / ffprobe-static packages. Either missing → undefined, and Curator falls
+ * back to a system ffmpeg on PATH.
+ */
+function resolveFfmpeg(): FfmpegPaths | undefined {
+  try {
+    const paths: FfmpegPaths = app.isPackaged
+      ? {
+          ffmpeg: join(process.resourcesPath, "ffmpeg", "ffmpeg.exe"),
+          ffprobe: join(process.resourcesPath, "ffmpeg", "ffprobe.exe"),
+        }
+      : {
+          ffmpeg: require("ffmpeg-static") as string,
+          ffprobe: (require("ffprobe-static") as { path: string }).path,
+        };
+    if (existsSync(paths.ffmpeg) && existsSync(paths.ffprobe)) return paths;
+  } catch {
+    // static packages not installed / resources missing — fall back to PATH
+  }
+  return undefined;
 }
 
 function startService(spec: ServiceSpec): void {
@@ -84,7 +108,7 @@ async function boot(): Promise<void> {
     throw new Error(
       "Built servers not found. Run `pnpm --filter @marquee/desktop run build:services` first.",
     );
-  const specs = serviceSpecs(entries);
+  const specs = serviceSpecs(entries, resolveFfmpeg());
   // Adopt an already-running instance (e.g. a Conductor started by hand) rather than forking a
   // duplicate onto a taken port; start only the ones that aren't already answering.
   const health = await Promise.all(specs.map((s) => isHealthy(s.healthUrl)));
@@ -93,12 +117,16 @@ async function boot(): Promise<void> {
 }
 
 function createWindow(): void {
+  // Dev-run taskbar/window icon (packaged builds get the exe icon from electron-builder). The PNG
+  // lives in the build resources, absent from the packaged asar — pass it only when present.
+  const iconPath = join(__dirname, "..", "build", "icon.png");
   mainWindow = new BrowserWindow({
     width: 1360,
     height: 900,
     minWidth: 900,
     minHeight: 600,
     title: "Marquee",
+    ...(existsSync(iconPath) ? { icon: iconPath } : {}),
     backgroundColor: "#14110f", // matches the UI's warm near-black, so no white flash on load
     autoHideMenuBar: true,
     webPreferences: { contextIsolation: true },

@@ -13,6 +13,8 @@ import { build } from "esbuild";
 import { cpSync, rmSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
+import ffmpegPath from "ffmpeg-static";
+import ffprobeStatic from "ffprobe-static";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const desktop = resolve(here, "..");
@@ -64,6 +66,13 @@ cpSync(join(repo, "packages/hue-conductor/data"), join(out, "data"), {
   recursive: true,
 });
 
+// ffmpeg + ffprobe so the packaged app needs no system ffmpeg — the desktop main points Curator's
+// FFMPEG_PATH/FFPROBE_PATH at these (resources/ffmpeg/*.exe). Named without the platform subpath so
+// resolveFfmpeg() can find them by a fixed name.
+mkdirSync(join(out, "ffmpeg"), { recursive: true });
+cpSync(ffmpegPath, join(out, "ffmpeg", "ffmpeg.exe"));
+cpSync(ffprobeStatic.path, join(out, "ffmpeg", "ffprobe.exe"));
+
 console.log(
-  "✓ bundled → staged/servers/{curator,conductor}-server.mjs + dist-ui + data",
+  "✓ bundled → staged/servers/{curator,conductor}-server.mjs + dist-ui + data + ffmpeg",
 );

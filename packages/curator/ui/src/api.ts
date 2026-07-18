@@ -169,6 +169,12 @@ export interface DemoStatus {
   listeningRoomId: string | null;
 }
 
+/** Spotify credential status for the Settings screen (GET /api/settings/spotify). */
+export interface SpotifySettings {
+  configured: boolean;
+  clientId: string | null;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -265,6 +271,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ to }),
     }),
+  // --- Settings: Spotify credentials (packaged app has no repo .env) ---
+  spotifySettings: () => req<SpotifySettings>("/api/settings/spotify"),
+  saveSpotifySettings: (clientId: string, clientSecret: string) =>
+    req<{ ok: boolean; restartRequired: boolean }>("/api/settings/spotify", {
+      method: "PUT",
+      body: JSON.stringify({ clientId, clientSecret }),
+    }),
+
   searchSpotify: (q: string) =>
     req<{ results: SpotifyAlbumMeta[] }>(
       `/api/spotify/search-albums?q=${encodeURIComponent(q)}`,

@@ -8,8 +8,9 @@
     "build:services": "pnpm --filter @marquee/curator build && pnpm --filter @marquee/hue-conductor build",
     "build:main": "tsc -p tsconfig.build.json",
     "build": "pnpm run build:main",
+    "icon": "node scripts/make-icon.mjs",
     "start": "pnpm run build:services && pnpm run build:main && electron dist/main.js",
-    "dist": "pnpm run build:services && node scripts/bundle-servers.mjs && pnpm run build:main && electron-builder",
+    "dist": "pnpm run icon && pnpm run build:services && node scripts/bundle-servers.mjs && pnpm run build:main && electron-builder",
     "type-check": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "test:unit": "vitest run",
@@ -20,6 +21,8 @@
     "electron": "^33.0.0",
     "electron-builder": "^25.1.8",
     "esbuild": "^0.24.0",
+    "ffmpeg-static": "^5.2.0",
+    "ffprobe-static": "^3.1.0",
     "typescript": "^5.6.2",
     "vitest": "^2.1.3"
   }

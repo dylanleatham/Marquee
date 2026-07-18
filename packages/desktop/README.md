@@ -50,8 +50,12 @@ It's **unsigned**, so Windows SmartScreen warns on first run — choose "More in
 
 - **Data** lives in `~/marquee` (album-assets + media), the same as running Curator directly — it is
   outside the app bundle, so reinstalling the app never touches your collection.
-- **ffmpeg** (for video attach) is a system dependency: install it on PATH, or set `FFMPEG_PATH` /
-  `FFPROBE_PATH`. Bundling it is a future nicety.
+- **Spotify** search / add-by-URL: the packaged app has no repo `.env`, so enter your Spotify API
+  credentials once in the app's **Settings** screen. They're saved to `~/marquee/settings.json` and
+  apply on the next launch. (Manual album add works without them.)
+- **ffmpeg** (for video attach) is **bundled** — `ffmpeg-static` + `ffprobe-static` ship in the app
+  (`resources/ffmpeg/*` when packaged; the static packages in dev), and the desktop main points
+  Curator's `FFMPEG_PATH`/`FFPROBE_PATH` at them. No system ffmpeg needed. (~145 MB of the installer.)
 - **Lights**: the Demo Room drives real Hue lights via the local Conductor. The bridge pairing lives
   in `packages/hue-conductor/data/conductor.json`; pick your listening room in the Demo Room's
   first-run picker.
