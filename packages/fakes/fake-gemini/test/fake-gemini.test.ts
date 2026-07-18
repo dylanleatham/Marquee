@@ -92,6 +92,20 @@ describe("fake-gemini", () => {
     ]);
   });
 
+  it("completes the operation with an error when videoOpError is set", async () => {
+    const fg = createFakeGemini({ videoOpError: "content policy" });
+    const base = "https://generativelanguage.googleapis.com/v1beta";
+    const start = await fg.fetch(`${base}/models/veo:predictLongRunning`, {
+      ...withKey,
+      method: "POST",
+      body: "{}",
+    });
+    const { name } = await start.json();
+    const op = await (await fg.fetch(`${base}/${name}`, withKey)).json();
+    expect(op.done).toBe(true);
+    expect(op.error.message).toBe("content policy");
+  });
+
   it("returns not-done for the configured number of polls", async () => {
     const fg = createFakeGemini({ videoPollsUntilDone: 2 });
     const base = "https://generativelanguage.googleapis.com/v1beta";

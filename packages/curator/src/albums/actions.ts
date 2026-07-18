@@ -306,15 +306,23 @@ export async function generateVideoSet(
         `.vidgen-${curatorId}-${i}-${randomUUID()}.mp4`,
       );
       writeFileSync(tmp, bytes);
-      const vis = await ingestVideo(
-        { prober: deps.prober, paths: deps.store.paths, now: deps.now },
-        {
-          srcPath: tmp,
-          fileId: `${curatorId}-v${i}`,
-          originalFilename: `clip-${v.nudge ?? i}.mp4`,
-          removeSrc: true,
-        },
-      );
+      // ingestVideo removes the temp on success (removeSrc), but throws *before* that on a
+      // validation failure — clean it up ourselves so failed clips don't leak files in /incoming/.
+      let vis;
+      try {
+        vis = await ingestVideo(
+          { prober: deps.prober, paths: deps.store.paths, now: deps.now },
+          {
+            srcPath: tmp,
+            fileId: `${curatorId}-v${i}`,
+            originalFilename: `clip-${v.nudge ?? i}.mp4`,
+            removeSrc: true,
+          },
+        );
+      } catch (err) {
+        rmSync(tmp, { force: true });
+        throw err;
+      }
       return {
         index: i,
         fileId: vis.fileId,

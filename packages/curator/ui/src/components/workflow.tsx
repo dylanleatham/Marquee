@@ -183,7 +183,7 @@ export function VideoSection({
       )}
 
       {clips.length > 0 && (
-        <div className="clip-gallery">
+        <div className="video__clips">
           {clips.map((c) => (
             <div key={c.index} className="clip">
               <video

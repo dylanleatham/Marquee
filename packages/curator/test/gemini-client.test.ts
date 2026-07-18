@@ -168,6 +168,50 @@ describe("GeminiClient", () => {
     ).rejects.toMatchObject({ name: "GeminiError", status: 500 });
   });
 
+  it("generateVideo rejects when a poll request fails", async () => {
+    // Start succeeds; the poll GET returns 500.
+    const fetch: FetchLike = async (input) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith(":predictLongRunning"))
+        return new Response(JSON.stringify({ name: "operations/vid-1" }), {
+          headers: { "content-type": "application/json" },
+        });
+      return new Response("err", { status: 500 }); // the poll
+    };
+    const c = new GeminiClient({ apiKey: "k", fetch, sleep: async () => {} });
+    await expect(
+      c.generateVideo("p", Buffer.from("JPG")),
+    ).rejects.toMatchObject({ name: "GeminiError", status: 500 });
+  });
+
+  it("generateVideo rejects when the download fails", async () => {
+    const fetch: FetchLike = async (input) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith(":predictLongRunning"))
+        return new Response(JSON.stringify({ name: "operations/vid-1" }), {
+          headers: { "content-type": "application/json" },
+        });
+      if (path.startsWith("/download/"))
+        return new Response("nope", { status: 404 });
+      // the poll → done with a download uri
+      return new Response(
+        JSON.stringify({
+          done: true,
+          response: {
+            generatedVideos: [
+              { video: { uri: "https://x.test/download/vid-1.mp4" } },
+            ],
+          },
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    };
+    const c = new GeminiClient({ apiKey: "k", fetch, sleep: async () => {} });
+    await expect(
+      c.generateVideo("p", Buffer.from("JPG")),
+    ).rejects.toMatchObject({ name: "GeminiError", status: 404 });
+  });
+
   it("times out a hung request (504) instead of hanging forever", async () => {
     const hanging: FetchLike = (_input, init) =>
       new Promise((_resolve, reject) => {

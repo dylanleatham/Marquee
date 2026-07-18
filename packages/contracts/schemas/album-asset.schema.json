@@ -27,7 +27,9 @@
     "pattern": { "type": "object" },
     "promptDrafts": { "type": "object" },
     "visualizer": { "type": ["object", "null"] },
+    "videoClips": { "type": "array", "items": { "type": "object" } },
     "cardArt": { "type": ["object", "null"] },
+    "cardArtCandidates": { "type": "array", "items": { "type": "object" } },
     "tag": { "type": "object" },
     "verification": { "type": "object" },
     "roadie": {

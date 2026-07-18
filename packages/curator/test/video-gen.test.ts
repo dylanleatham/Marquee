@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  existsSync,
+  mkdirSync,
+  writeFileSync,
+  readdirSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFakeGemini } from "@marquee/fake-gemini";
@@ -103,6 +109,11 @@ describe("generateVideoSet", () => {
     await expect(
       actions.generateVideoSet(deps(s, geminiWith(fg.fetch), throwing), id),
     ).rejects.toSatisfy((e: Error) => e.name !== "VideoError");
+    // A failed ingest must not leak its temp file in /incoming/.
+    const leaked = existsSync(s.paths.incoming)
+      ? readdirSync(s.paths.incoming).filter((f) => f.startsWith(".vidgen-"))
+      : [];
+    expect(leaked).toEqual([]);
   });
 
   it("400s when Gemini isn't configured", async () => {
