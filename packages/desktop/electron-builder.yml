@@ -16,7 +16,7 @@ extraResources:
     to: data
 win:
   target: nsis
-  # icon: build/icon.ico   # TODO: ship a Marquee icon; default Electron icon until then.
+  icon: build/icon.png # electron-builder converts this 512px PNG to the Windows .ico
 nsis:
   oneClick: false
   perMachine: false

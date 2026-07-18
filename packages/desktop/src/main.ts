@@ -93,12 +93,16 @@ async function boot(): Promise<void> {
 }
 
 function createWindow(): void {
+  // Dev-run taskbar/window icon (packaged builds get the exe icon from electron-builder). The PNG
+  // lives in the build resources, absent from the packaged asar — pass it only when present.
+  const iconPath = join(__dirname, "..", "build", "icon.png");
   mainWindow = new BrowserWindow({
     width: 1360,
     height: 900,
     minWidth: 900,
     minHeight: 600,
     title: "Marquee",
+    ...(existsSync(iconPath) ? { icon: iconPath } : {}),
     backgroundColor: "#14110f", // matches the UI's warm near-black, so no white flash on load
     autoHideMenuBar: true,
     webPreferences: { contextIsolation: true },
