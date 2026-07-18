@@ -19,7 +19,12 @@ import { draftPromptsWithGemini } from "../gemini/draft.js";
 import type { GeminiClient } from "../gemini/client.js";
 import { TransientError, PermanentError, ConfigError } from "./errors.js";
 
-/** Minimal logger the steps use for observability (a fallback isn't a failure, but it's worth a line). */
+/**
+ * Minimal logger the steps use for observability (a fallback isn't a failure, but it's worth a
+ * line). Deliberately a narrow subset of the worker's `RoadieLogger` — not imported from worker.ts
+ * because worker.ts imports the steps, and a step only needs info/warn. `RoadieLogger` satisfies it
+ * structurally, so the worker passes its own logger straight through.
+ */
 export interface StepLogger {
   info(msg: string): void;
   warn(msg: string): void;

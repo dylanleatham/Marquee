@@ -26,7 +26,7 @@ const norm = (s: string) =>
     .replace(/\r\n/g, "\n")
     .replace(/ /g, " ") // NBSP → space (docs indentation uses NBSP; content is equivalent)
     .split("\n")
-    .map((l) => l.replace(/\s+$/, ""))
+    .map((l) => l.trim()) // ignore leading indent too (Prettier reindents nested bullets)
     .join("\n")
     .trim();
 const read = (name: string) =>
