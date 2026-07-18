@@ -108,6 +108,23 @@ export interface CardArtCandidate {
   generatedAt: string;
 }
 
+/**
+ * One Gemini-generated visualizer clip (roadie-spec §7 / ADR 0011). Roadie/actions generate a set
+ * (one per video prompt variant), grounded on the album cover; the human downloads them and splices
+ * them into the final looping visualizer externally (in-app splicing is deferred). Stored on disk at
+ * visualizers/{curatorId}-v{index}.mp4 with a thumbnail at thumbnails/{curatorId}-v{index}.jpg.
+ */
+export interface VideoClip {
+  index: number;
+  /** `${curatorId}-v${index}` — the disk key for this clip's mp4 + thumbnail. */
+  fileId: string;
+  durationSec?: number;
+  resolution?: string;
+  /** The prompt variant's nudge label this clip was generated from (for the gallery). */
+  nudge?: string;
+  generatedAt: string;
+}
+
 export interface VerificationSection {
   previewApprovedAt?: string;
   physicallyVerifiedAt?: string;
@@ -146,6 +163,8 @@ export interface AlbumAsset {
   promptDrafts?: PromptDrafts;
   /** Present once a video is attached (step 7). */
   visualizer?: VisualizerSection;
+  /** Gemini-generated visualizer clips (ADR 0011); the human downloads + splices them externally. */
+  videoClips?: VideoClip[];
   /** Present once card art is attached (step 7). */
   cardArt?: CardArtSection;
   /** Gemini-generated card-art candidates (curator-spec §Card art); the human picks one to attach. */

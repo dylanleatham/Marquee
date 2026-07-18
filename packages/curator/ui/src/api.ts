@@ -106,6 +106,15 @@ export interface Visualizer {
   loopStrategy: "loop";
 }
 
+export interface VideoClip {
+  index: number;
+  fileId: string;
+  durationSec?: number;
+  resolution?: string;
+  nudge?: string;
+  generatedAt: string;
+}
+
 export interface CardArt {
   fileId: string;
   originalFilename: string;
@@ -143,6 +152,7 @@ export interface AlbumAsset {
   pattern?: { type: string; params: Record<string, unknown> };
   promptDrafts?: { video?: DraftedPrompt; cardArt?: DraftedPrompt };
   visualizer?: Visualizer;
+  videoClips?: VideoClip[];
   cardArt?: CardArt;
   cardArtCandidates?: CardArtCandidate[];
   verification?: { previewApprovedAt?: string; physicallyVerifiedAt?: string };
@@ -289,6 +299,10 @@ export const api = {
       `/api/albums/${id}/detach-video${del ? "?delete=1" : ""}`,
       { method: "POST" },
     ),
+  generateVideoSet: (id: string) =>
+    req<{ videoClips: VideoClip[] }>(`/api/albums/${id}/video/generate`, {
+      method: "POST",
+    }),
   uploadCardArt: (id: string, form: FormData) => {
     form.set("curatorId", id);
     return req<{ cardArt: CardArt }>("/api/card-art/upload", {
@@ -354,6 +368,12 @@ export const api = {
 export const artworkUrl = (id: string) => `/api/albums/${id}/artwork`;
 export const videoUrl = (id: string) => `/api/albums/${id}/video`;
 export const thumbnailUrl = (id: string) => `/api/albums/${id}/thumbnail`;
+export const videoClipUrl = (id: string, index: number) =>
+  `/api/albums/${id}/video/clip/${index}`;
+export const videoClipThumbnailUrl = (id: string, index: number) =>
+  `/api/albums/${id}/video/clip/${index}/thumbnail`;
+export const videoClipDownloadUrl = (id: string, index: number) =>
+  `/api/albums/${id}/video/clip/${index}?download=1`;
 export const cardArtUrl = (id: string) => `/api/albums/${id}/card-art`;
 export const cardArtPrintUrl = (id: string) =>
   `/api/albums/${id}/card-art/print`;

@@ -99,6 +99,75 @@ describe("GeminiClient", () => {
     });
   });
 
+  it("generateVideo starts, polls to completion, and downloads the bytes", async () => {
+    const fg = createFakeGemini({ videoBytes: "MP4-DATA" });
+    const c = new GeminiClient({
+      apiKey: "k",
+      fetch: fg.fetch,
+      sleep: async () => {},
+    });
+    const bytes = await c.generateVideo(
+      "animate the cover",
+      Buffer.from("JPG"),
+    );
+    expect(bytes.toString()).toBe("MP4-DATA");
+    const phases = fg.calls().map((x) => x.video);
+    expect(phases).toContain("start");
+    expect(phases).toContain("poll");
+    expect(phases).toContain("download");
+    // The reference image was sent on the start call.
+    const start = fg.calls().find((x) => x.video === "start")!;
+    expect(start.body.instances?.[0]?.image?.mimeType).toBe("image/jpeg");
+  });
+
+  it("generateVideo keeps polling until the operation is done", async () => {
+    const fg = createFakeGemini({ videoBytes: "X", videoPollsUntilDone: 2 });
+    const c = new GeminiClient({
+      apiKey: "k",
+      fetch: fg.fetch,
+      sleep: async () => {},
+    });
+    await c.generateVideo("p", Buffer.from("JPG"));
+    expect(fg.calls().filter((x) => x.video === "poll")).toHaveLength(3);
+  });
+
+  it("generateVideo rejects when the operation completes with an error", async () => {
+    const fg = createFakeGemini({ videoOpError: "content policy" });
+    const c = new GeminiClient({
+      apiKey: "k",
+      fetch: fg.fetch,
+      sleep: async () => {},
+    });
+    await expect(
+      c.generateVideo("p", Buffer.from("JPG")),
+    ).rejects.toMatchObject({ name: "GeminiError" });
+  });
+
+  it("generateVideo gives up (504) after videoMaxPolls", async () => {
+    const fg = createFakeGemini({ videoPollsUntilDone: 100 });
+    const c = new GeminiClient({
+      apiKey: "k",
+      fetch: fg.fetch,
+      sleep: async () => {},
+      videoMaxPolls: 3,
+    });
+    await expect(
+      c.generateVideo("p", Buffer.from("JPG")),
+    ).rejects.toMatchObject({ name: "GeminiError", status: 504 });
+  });
+
+  it("generateVideo rejects when the start call fails", async () => {
+    const fg = createFakeGemini({ failStatus: 500 });
+    const c = new GeminiClient({
+      apiKey: "k",
+      fetch: fg.fetch,
+      sleep: async () => {},
+    });
+    await expect(
+      c.generateVideo("p", Buffer.from("JPG")),
+    ).rejects.toMatchObject({ name: "GeminiError", status: 500 });
+  });
+
   it("times out a hung request (504) instead of hanging forever", async () => {
     const hanging: FetchLike = (_input, init) =>
       new Promise((_resolve, reject) => {

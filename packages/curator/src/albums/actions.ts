@@ -7,7 +7,9 @@ import {
   rmSync,
   renameSync,
   readFileSync,
+  writeFileSync,
 } from "node:fs";
+import { randomUUID } from "node:crypto";
 import type { AssetStore } from "../store/asset-store.js";
 import {
   transitionTo,
@@ -16,6 +18,7 @@ import {
   type AlbumAsset,
   type RoadieState,
   type CardArtCandidate,
+  type VideoClip,
 } from "./asset.js";
 import { ValidationError } from "./add-manual.js";
 import {
@@ -25,7 +28,7 @@ import {
 } from "../roadie/prompts.js";
 import { draftOnePromptWithGemini } from "../gemini/draft.js";
 import type { GeminiClient } from "../gemini/client.js";
-import { ingestVideo, type VideoProber } from "../media/video.js";
+import { ingestVideo, VideoError, type VideoProber } from "../media/video.js";
 import {
   ingestCardArt,
   ingestCardArtCandidate,
@@ -259,6 +262,91 @@ export function detachVideo(
   if (asset.roadie.state === "awaiting_preview")
     transitionTo(asset, "awaiting_video", clock(deps));
   else asset.status = deriveStatus(asset.roadie);
+  deps.store.save(asset);
+  return asset;
+}
+
+/**
+ * Generate a set of visualizer clips from the drafted video prompt variants (Veo/"Omni",
+ * image-to-video off the album cover). Stored as `videoClips` for the human to download and splice
+ * externally (ADR 0011 — no in-app splicing yet); the single attached `visualizer` is still set by
+ * the manual upload. Requires a Gemini client and the album's cover art. Clips generate in parallel;
+ * a partial failure keeps the successes — only an all-fail throws (as a 5xx, an upstream fault).
+ */
+export async function generateVideoSet(
+  deps: ActionDeps,
+  curatorId: string,
+): Promise<AlbumAsset> {
+  if (!deps.gemini)
+    throw new ValidationError(
+      "Gemini is not configured — set an API key in Settings",
+    );
+  const asset = load(deps.store, curatorId);
+  const draft = asset.promptDrafts?.video;
+  if (!draft || draft.variants.length === 0)
+    throw new ValidationError(
+      "no video prompt drafted yet — nothing to generate from",
+    );
+  const coverPath = deps.store.paths.artworkFile(curatorId);
+  if (!asset.artwork || !existsSync(coverPath))
+    throw new ValidationError(
+      "album has no cover art to animate — add art first",
+    );
+  const cover = readFileSync(coverPath);
+  const gemini = deps.gemini;
+  const now = clock(deps);
+
+  // Generate + ingest each clip inside allSettled so one failure (generation or validation) is
+  // isolated and the set keeps the rest (mirrors generateCardArtSet).
+  mkdirSync(deps.store.paths.incoming, { recursive: true });
+  const results = await Promise.allSettled(
+    draft.variants.map(async (v, i): Promise<VideoClip> => {
+      const bytes = await gemini.generateVideo(v.text, cover);
+      const tmp = deps.store.paths.incomingFile(
+        `.vidgen-${curatorId}-${i}-${randomUUID()}.mp4`,
+      );
+      writeFileSync(tmp, bytes);
+      const vis = await ingestVideo(
+        { prober: deps.prober, paths: deps.store.paths, now: deps.now },
+        {
+          srcPath: tmp,
+          fileId: `${curatorId}-v${i}`,
+          originalFilename: `clip-${v.nudge ?? i}.mp4`,
+          removeSrc: true,
+        },
+      );
+      return {
+        index: i,
+        fileId: vis.fileId,
+        nudge: v.nudge,
+        generatedAt: now(),
+        ...(vis.durationSec !== undefined
+          ? { durationSec: vis.durationSec }
+          : {}),
+        ...(vis.resolution ? { resolution: vis.resolution } : {}),
+      };
+    }),
+  );
+
+  const clips: VideoClip[] = results.flatMap((r) =>
+    r.status === "fulfilled" ? [r.value] : [],
+  );
+  if (clips.length === 0) {
+    const reason = (
+      results.find((r) => r.status === "rejected") as
+        PromiseRejectedResult | undefined
+    )?.reason;
+    // Whole-batch failure is an upstream fault → 5xx. A per-clip VideoError would otherwise map to
+    // 422 ("your upload is bad"), wrong here — nobody uploaded. Wrap it; GeminiError already → 500.
+    if (reason instanceof VideoError)
+      throw new Error(
+        `video generation returned no usable clips: ${reason.message}`,
+      );
+    throw reason ?? new Error("video generation produced no clips");
+  }
+
+  asset.videoClips = clips;
+  asset.status = deriveStatus(asset.roadie);
   deps.store.save(asset);
   return asset;
 }

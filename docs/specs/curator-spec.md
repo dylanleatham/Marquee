@@ -349,12 +349,22 @@ Runs on `http://localhost:4739` locally.
 
 ### Videos
 
-| Method | Path                                  | Purpose                                                                                                                                                   |
-| ------ | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| POST   | `/api/videos/upload`                  | Multipart upload. Body includes optional `curatorId` to attach immediately. Stores in `/incoming/` if no curatorId. Over the upload ceiling → `413` (§9). |
-| GET    | `/api/incoming`                       | Lists files in `/incoming/` with thumbnails and inferred metadata.                                                                                        |
-| POST   | `/api/albums/:curatorId/attach-video` | Body: `{ fileId }` — either an ID of a file already in `visualizers/`, or the filename of a file in `/incoming/` (moves it).                              |
-| POST   | `/api/albums/:curatorId/detach-video` | Removes the visualizer reference. File stays on disk unless `?delete=1`.                                                                                  |
+> **Amended 2026-07-18 by [ADR 0011](../adrs/0011-auto-generate-visualizer-clips.md):** the
+> visualizer can be **generated** as a set of short clips (one per drafted video prompt variant,
+> image-to-video off the album cover, Veo/"Omni") — see the `video/generate` and `video/clip/:index`
+> rows. Clips are **delivered for download**, not promoted to the single attached `visualizer`: the
+> human splices them into one loop and uploads the result the usual way (in-app splicing deferred).
+> Requires a Gemini key with Veo access.
+
+| Method | Path                                                 | Purpose                                                                                                                                                                                                                                                             |
+| ------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/api/videos/upload`                                 | Multipart upload. Body includes optional `curatorId` to attach immediately. Stores in `/incoming/` if no curatorId. Over the upload ceiling → `413` (§9).                                                                                                           |
+| GET    | `/api/incoming`                                      | Lists files in `/incoming/` with thumbnails and inferred metadata.                                                                                                                                                                                                  |
+| POST   | `/api/albums/:curatorId/attach-video`                | Body: `{ fileId }` — either an ID of a file already in `visualizers/`, or the filename of a file in `/incoming/` (moves it).                                                                                                                                        |
+| POST   | `/api/albums/:curatorId/detach-video`                | Removes the visualizer reference. File stays on disk unless `?delete=1`.                                                                                                                                                                                            |
+| POST   | `/api/albums/:curatorId/video/generate`              | Generate a clip set — one image-to-video clip per drafted video prompt variant, off the cover (Veo/"Omni"). Stores `videoClips`. `400` if no Gemini key / no video prompt / no cover art; upstream failure → `5xx` (partial success kept). Long-running (ADR 0011). |
+| GET    | `/api/albums/:curatorId/video/clip/:index`           | Serves a generated clip (`?download=1` for a named download).                                                                                                                                                                                                       |
+| GET    | `/api/albums/:curatorId/video/clip/:index/thumbnail` | Serves the clip's poster frame.                                                                                                                                                                                                                                     |
 
 ### Card art
 

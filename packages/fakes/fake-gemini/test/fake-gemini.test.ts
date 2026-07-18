@@ -62,4 +62,53 @@ describe("fake-gemini", () => {
     });
     expect(res.status).toBe(429);
   });
+
+  it("runs the video long-running operation: start → poll (done) → download", async () => {
+    const fg = createFakeGemini({ videoBytes: "MP4" });
+    const base = "https://generativelanguage.googleapis.com/v1beta";
+
+    const start = await fg.fetch(
+      `${base}/models/veo-3.0-generate-preview:predictLongRunning`,
+      {
+        ...withKey,
+        method: "POST",
+        body: JSON.stringify({ instances: [{ prompt: "p" }] }),
+      },
+    );
+    const { name } = await start.json();
+    expect(name).toMatch(/^operations\/vid-/);
+
+    const poll = await fg.fetch(`${base}/${name}`, withKey);
+    const op = await poll.json();
+    expect(op.done).toBe(true);
+    const uri = op.response.generatedVideos[0].video.uri;
+
+    const dl = await fg.fetch(uri, withKey);
+    expect(await dl.text()).toBe("MP4");
+    expect(fg.calls().map((c) => c.video)).toEqual([
+      "start",
+      "poll",
+      "download",
+    ]);
+  });
+
+  it("returns not-done for the configured number of polls", async () => {
+    const fg = createFakeGemini({ videoPollsUntilDone: 2 });
+    const base = "https://generativelanguage.googleapis.com/v1beta";
+    const start = await fg.fetch(`${base}/models/veo:predictLongRunning`, {
+      ...withKey,
+      method: "POST",
+      body: "{}",
+    });
+    const { name } = await start.json();
+    expect(
+      (await (await fg.fetch(`${base}/${name}`, withKey)).json()).done,
+    ).toBe(false);
+    expect(
+      (await (await fg.fetch(`${base}/${name}`, withKey)).json()).done,
+    ).toBe(false);
+    expect(
+      (await (await fg.fetch(`${base}/${name}`, withKey)).json()).done,
+    ).toBe(true);
+  });
 });

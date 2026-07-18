@@ -203,6 +203,12 @@ Grounding and structured JSON can't share one Gemini call, hence the two passes.
 
 ### Video prompt structure
 
+The **template fallback** emits this shape (its "3 minutes" line is the template's text, not a
+system guarantee). The **LLM path** (ADR 0009) authors the prompt from the metaprompt + research
+instead. And per [ADR 0011](../adrs/0011-auto-generate-visualizer-clips.md), when the visualizer is
+**generated** it's produced as short (~8–10s) image-to-video clips off the cover that the human
+splices into the loop — so the visualizer is a short spliced loop, not a single 3-minute render.
+
 ```
 [Video style template preamble — user-selectable]
 For the album "{title}" by {artist} ({year}).
