@@ -37,7 +37,11 @@ beforeEach(() => {
     ok: true,
     restartRequired: true,
   });
-  vi.mocked(api.geminiSettings).mockResolvedValue({ configured: false });
+  vi.mocked(api.geminiSettings).mockResolvedValue({
+    configured: false,
+    generateCardArt: false,
+    generateVideo: false,
+  });
   vi.mocked(api.saveGeminiSettings).mockResolvedValue({
     ok: true,
     restartRequired: true,
@@ -89,8 +93,32 @@ describe("Settings", () => {
     fireEvent.click(saves[saves.length - 1]!);
 
     await waitFor(() =>
-      expect(api.saveGeminiSettings).toHaveBeenCalledWith("gkey-123"),
+      expect(api.saveGeminiSettings).toHaveBeenCalledWith({
+        apiKey: "gkey-123",
+      }),
     );
     await screen.findByText(/restart marquee/i);
+  });
+
+  it("toggles a generation flag on (persists without re-entering the key)", async () => {
+    vi.mocked(api.geminiSettings).mockResolvedValue({
+      configured: true,
+      generateCardArt: false,
+      generateVideo: false,
+    });
+    renderSettings();
+    const cardArt = await screen.findByLabelText(/Auto-generate card art/i);
+    fireEvent.click(cardArt);
+    await waitFor(() =>
+      expect(api.saveGeminiSettings).toHaveBeenCalledWith({
+        generateCardArt: true,
+      }),
+    );
+  });
+
+  it("disables the generation toggles until a key is configured", async () => {
+    renderSettings();
+    const video = await screen.findByLabelText(/Auto-generate visualizer/i);
+    expect((video as HTMLInputElement).disabled).toBe(true);
   });
 });

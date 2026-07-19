@@ -48,7 +48,13 @@ const deps = (
   s: AssetStore,
   gemini?: GeminiClient,
   prober: VideoProber = fakeProber(),
-): ActionDeps => ({ store: s, prober, gemini, now });
+): ActionDeps => ({
+  store: s,
+  prober,
+  gemini,
+  generateVideo: true, // generation is opt-in; enable it for these tests
+  now,
+});
 
 describe("generateVideoSet", () => {
   it("generates one clip per video variant, grounded on the cover", async () => {
@@ -121,6 +127,18 @@ describe("generateVideoSet", () => {
     const id = seed(s);
     await expect(
       actions.generateVideoSet(deps(s, undefined), id),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("400s when video generation is toggled off (opt-in)", async () => {
+    const s = store();
+    const id = seed(s);
+    const fg = createFakeGemini({ videoBytes: "MP4" });
+    await expect(
+      actions.generateVideoSet(
+        { store: s, prober: fakeProber(), gemini: geminiWith(fg.fetch), now },
+        id,
+      ),
     ).rejects.toBeInstanceOf(ValidationError);
   });
 

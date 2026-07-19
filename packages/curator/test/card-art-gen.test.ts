@@ -38,6 +38,7 @@ const deps = (s: AssetStore, gemini?: GeminiClient): ActionDeps => ({
   store: s,
   prober: fakeProber(),
   gemini,
+  generateCardArt: true, // generation is opt-in; enable it for these tests
   now,
 });
 
@@ -160,6 +161,18 @@ describe("generateCardArtSet", () => {
     const id = seed(s);
     await expect(
       actions.generateCardArtSet(deps(s, undefined), id),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("400s when card-art generation is toggled off (opt-in)", async () => {
+    const s = store();
+    const id = seed(s);
+    const fg = createFakeGemini({ imageBase64: pngBytes().toString("base64") });
+    await expect(
+      actions.generateCardArtSet(
+        { store: s, prober: fakeProber(), gemini: geminiWith(fg.fetch), now },
+        id,
+      ),
     ).rejects.toBeInstanceOf(ValidationError);
   });
 

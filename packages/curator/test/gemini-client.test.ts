@@ -168,6 +168,45 @@ describe("GeminiClient", () => {
     ).rejects.toMatchObject({ name: "GeminiError", status: 500 });
   });
 
+  it("generateVideo reads the alternate response shape (generateVideoResponse.generatedSamples)", async () => {
+    const fetch: FetchLike = async (input) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith(":predictLongRunning"))
+        return new Response(JSON.stringify({ name: "operations/vid-1" }), {
+          headers: { "content-type": "application/json" },
+        });
+      if (path.startsWith("/dl/")) return new Response("ALT-MP4");
+      return new Response(
+        JSON.stringify({
+          done: true,
+          response: {
+            generateVideoResponse: {
+              generatedSamples: [
+                { video: { uri: "https://x.test/dl/vid-1.mp4" } },
+              ],
+            },
+          },
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    };
+    const c = new GeminiClient({ apiKey: "k", fetch, sleep: async () => {} });
+    expect((await c.generateVideo("p", Buffer.from("JPG"))).toString()).toBe(
+      "ALT-MP4",
+    );
+  });
+
+  it("generateVideo rejects when the start returns no operation name", async () => {
+    const fetch: FetchLike = async () =>
+      new Response(JSON.stringify({}), {
+        headers: { "content-type": "application/json" },
+      });
+    const c = new GeminiClient({ apiKey: "k", fetch, sleep: async () => {} });
+    await expect(
+      c.generateVideo("p", Buffer.from("JPG")),
+    ).rejects.toMatchObject({ name: "GeminiError" });
+  });
+
   it("generateVideo rejects when a poll request fails", async () => {
     // Start succeeds; the poll GET returns 500.
     const fetch: FetchLike = async (input) => {

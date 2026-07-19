@@ -136,10 +136,13 @@ export function VideoSection({
   curatorId,
   asset,
   run,
+  canGenerate: genEnabled = false,
 }: {
   curatorId: string;
   asset: AlbumAsset;
   run: Run;
+  /** API video generation is opt-in (Settings); off → the "Generate clips" button is hidden. */
+  canGenerate?: boolean;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const state = asset.roadie.state;
@@ -156,9 +159,10 @@ export function VideoSection({
   };
 
   const clips = asset.videoClips ?? [];
-  // Clips are generated from the album cover, so both a video prompt and the artwork must exist.
+  // Clips are generated from the album cover, so a video prompt + artwork must exist — and API
+  // generation must be enabled in Settings (genEnabled). Off → no button; you copy the prompt.
   const canGenerate =
-    Boolean(asset.promptDrafts?.video) && Boolean(asset.artwork);
+    genEnabled && Boolean(asset.promptDrafts?.video) && Boolean(asset.artwork);
 
   return (
     <div className="video">
@@ -185,9 +189,9 @@ export function VideoSection({
       {clips.length > 0 && (
         <div className="video__clips">
           {clips.map((c) => (
-            <div key={c.index} className="clip">
+            <div key={c.index} className="video__clip">
               <video
-                className="clip__vid"
+                className="video__clip-vid"
                 src={videoClipUrl(curatorId, c.index)}
                 poster={videoClipThumbnailUrl(curatorId, c.index)}
                 controls
@@ -195,7 +199,7 @@ export function VideoSection({
                 loop
                 preload="metadata"
               />
-              <div className="clip__row">
+              <div className="video__clip-row">
                 <span className="muted">
                   {c.nudge || `Clip ${c.index + 1}`}
                   {c.durationSec ? ` · ${c.durationSec}s` : ""}
@@ -287,10 +291,13 @@ export function CardArtSection({
   curatorId,
   asset,
   run,
+  canGenerate: genEnabled = false,
 }: {
   curatorId: string;
   asset: AlbumAsset;
   run: Run;
+  /** API card-art generation is opt-in (Settings); off → the "Generate options" button is hidden. */
+  canGenerate?: boolean;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const upload = (f: File) => {
@@ -300,7 +307,7 @@ export function CardArtSection({
   };
 
   const candidates = asset.cardArtCandidates ?? [];
-  const canGenerate = Boolean(asset.promptDrafts?.cardArt);
+  const canGenerate = genEnabled && Boolean(asset.promptDrafts?.cardArt);
 
   return (
     <div className="cardart">

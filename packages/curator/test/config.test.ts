@@ -125,16 +125,43 @@ describe("loadConfig", () => {
     process.env.MARQUEE_DATA_DIR = dir;
     delete process.env.GEMINI_API_KEY;
     noFile();
-    expect(loadConfig().gemini).toEqual({ apiKey: "from-settings" });
+    expect(loadConfig().gemini?.apiKey).toBe("from-settings");
 
     // env beats settings.json
     process.env.GEMINI_API_KEY = "from-env";
-    expect(loadConfig().gemini).toEqual({ apiKey: "from-env" });
+    expect(loadConfig().gemini?.apiKey).toBe("from-env");
 
     // config.toml beats env
     withFile('[gemini]\napi_key = "from-file"\n');
     process.env.MARQUEE_DATA_DIR = dir;
-    expect(loadConfig().gemini).toEqual({ apiKey: "from-file" });
+    expect(loadConfig().gemini?.apiKey).toBe("from-file");
+  });
+
+  it("defaults the opt-in generation flags to off, and reads them when set", () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-"));
+    process.env.MARQUEE_DATA_DIR = dir;
+    delete process.env.GEMINI_GENERATE_CARD_ART;
+    delete process.env.GEMINI_GENERATE_VIDEO;
+
+    withFile('[gemini]\napi_key = "k"\n');
+    process.env.MARQUEE_DATA_DIR = dir;
+    expect(loadConfig().gemini).toMatchObject({
+      generateCardArt: false,
+      generateVideo: false,
+    });
+
+    withFile('[gemini]\napi_key = "k"\ngenerate_card_art = true\n');
+    process.env.MARQUEE_DATA_DIR = dir;
+    expect(loadConfig().gemini).toMatchObject({
+      generateCardArt: true,
+      generateVideo: false,
+    });
+
+    // env string "1" counts as true
+    noFile();
+    process.env.GEMINI_API_KEY = "k";
+    process.env.GEMINI_GENERATE_VIDEO = "1";
+    expect(loadConfig().gemini?.generateVideo).toBe(true);
   });
 
   it("leaves gemini undefined when no key is configured anywhere", () => {
