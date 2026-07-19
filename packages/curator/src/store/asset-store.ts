@@ -49,6 +49,25 @@ export class AssetStore {
   }
 
   /**
+   * Apply a change to the album and persist it, re-reading the latest on-disk state first so a
+   * concurrent write isn't clobbered. Read → mutate → save runs synchronously (no await between),
+   * so it's atomic within one event-loop tick: two overlapping async actions each land their delta
+   * on current state instead of overwriting a stale copy loaded before the other's save. Async
+   * actions must therefore do their slow work first, then apply the result here. Returns the saved
+   * asset, or `null` if it was deleted meanwhile.
+   */
+  update(
+    curatorId: string,
+    mutate: (asset: AlbumAsset) => void,
+  ): AlbumAsset | null {
+    const asset = this.read(curatorId);
+    if (!asset) return null;
+    mutate(asset);
+    this.save(asset);
+    return asset;
+  }
+
+  /**
    * All albums, newest first. Skips `.bak` and any unparseable files (logged by the caller).
    * O(n) synchronous read of every file per call — fine at personal-collection scale (hundreds
    * to low thousands, per curator-spec §5). Add a lookup index / cache if it ever grows past that.
