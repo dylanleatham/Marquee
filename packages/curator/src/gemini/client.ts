@@ -3,7 +3,7 @@
 // run against @marquee/fake-gemini instead of the network; every request has an AbortController
 // timeout. Auth is the `x-goog-api-key` header (never the URL — secrets don't belong in query
 // strings). `generateText` drafts prompts, `generateImage` makes card art, `generateVideo` runs the
-// image-to-video long-running operation for the visualizer clips.
+// Gemini Omni Flash image-to-video Interactions call for the visualizer clips.
 import { Buffer } from "node:buffer";
 
 /** A `fetch`-shaped function — injectable so tests use the fake instead of the network. */
