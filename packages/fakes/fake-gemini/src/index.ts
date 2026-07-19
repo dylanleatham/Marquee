@@ -16,14 +16,16 @@ export interface FakeGeminiCall {
   grounded: boolean;
   /** Structured-output requested (responseSchema present). */
   structured: boolean;
-  /** For the video long-running operation: which phase this call was. */
-  video?: "start" | "poll" | "download";
+  /** For Omni video: which phase this call was. */
+  video?: "interaction" | "download";
   body: {
     contents?: Array<{ parts?: Array<{ text?: string }> }>;
     systemInstruction?: { parts?: Array<{ text?: string }> };
     tools?: unknown[];
     generationConfig?: { responseSchema?: unknown; temperature?: number };
-    instances?: Array<{ prompt?: string; image?: { mimeType?: string } }>;
+    /** Omni Interactions request. */
+    model?: string;
+    input?: Array<{ type?: string; text?: string; mime_type?: string }>;
   };
 }
 
@@ -38,12 +40,12 @@ export interface FakeGeminiOptions {
   text?: string;
   /** Force every call to fail with this HTTP status (e.g. 429, 500). */
   failStatus?: number;
-  /** Bytes served for a generated video download (default "MP4"). */
+  /** Bytes served for a generated Omni video (default "MP4"). */
   videoBytes?: string;
-  /** Not-done polls to return before an operation reports done (default 0 → done on first poll). */
-  videoPollsUntilDone?: number;
-  /** If set, the video operation completes with this error message instead of a result. */
-  videoOpError?: string;
+  /** Return the video inline (base64 `data`) instead of a `uri` to download (small-clip path). */
+  videoInline?: boolean;
+  /** If set, the Omni interaction completes with this error message instead of a video. */
+  videoError?: string;
 }
 
 export interface FakeGemini {
@@ -73,8 +75,7 @@ const textResponse = (text: string) =>
 
 export function createFakeGemini(opts: FakeGeminiOptions = {}): FakeGemini {
   const calls: FakeGeminiCall[] = [];
-  let startCount = 0;
-  const pollCounts = new Map<string, number>();
+  let interactionCount = 0;
 
   const fetch: FetchLike = async (input, init) => {
     const url = new URL(typeof input === "string" ? input : input.toString());
@@ -83,55 +84,38 @@ export function createFakeGemini(opts: FakeGeminiOptions = {}): FakeGemini {
     if (!header(init, "x-goog-api-key"))
       return json({ error: { code: 401, message: "missing api key" } }, 401);
 
-    // --- Video long-running operation (Veo/"Omni"): start → poll → download ---
-    const startMatch = path.match(
-      /\/v1beta\/models\/([^:]+):predictLongRunning$/,
-    );
-    if (startMatch) {
+    // --- Gemini Omni Flash video: the Interactions API (POST → steps[] with a video part) ---
+    if (path === "/v1beta/interactions") {
       const body = JSON.parse(String(init?.body ?? "{}"));
       calls.push({
-        model: startMatch[1]!,
+        model: body.model,
         grounded: false,
         structured: false,
-        video: "start",
+        video: "interaction",
         body,
       });
       if (opts.failStatus)
         return json({ error: { code: opts.failStatus } }, opts.failStatus);
-      const name = `operations/vid-${++startCount}`;
-      pollCounts.set(name, 0);
-      return json({ name });
-    }
-
-    const opMatch = path.match(/\/v1beta\/(operations\/[^/]+)$/);
-    if (opMatch) {
-      const name = opMatch[1]!;
-      calls.push({
-        model: "",
-        grounded: false,
-        structured: false,
-        video: "poll",
-        body: {},
-      });
-      const n = (pollCounts.get(name) ?? 0) + 1;
-      pollCounts.set(name, n);
-      if (n <= (opts.videoPollsUntilDone ?? 0))
-        return json({ name, done: false });
-      if (opts.videoOpError)
-        return json({
-          name,
-          done: true,
-          error: { message: opts.videoOpError },
-        });
-      const id = name.split("/")[1];
+      if (opts.videoError)
+        return json({ status: "failed", error: { message: opts.videoError } });
+      const bytes = Buffer.from(opts.videoBytes ?? "MP4");
+      const videoContent = opts.videoInline
+        ? {
+            type: "video",
+            mime_type: "video/mp4",
+            data: bytes.toString("base64"),
+          }
+        : {
+            type: "video",
+            mime_type: "video/mp4",
+            uri: `${url.origin}/download/omni-${++interactionCount}.mp4`,
+          };
       return json({
-        name,
-        done: true,
-        response: {
-          generatedVideos: [
-            { video: { uri: `${url.origin}/download/${id}.mp4` } },
-          ],
-        },
+        status: "completed",
+        steps: [
+          { type: "user_input", content: [] },
+          { type: "model_output", content: [videoContent] },
+        ],
       });
     }
 

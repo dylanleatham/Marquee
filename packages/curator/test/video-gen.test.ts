@@ -74,21 +74,23 @@ describe("generateVideoSet", () => {
     });
     for (const c of asset.videoClips!)
       expect(existsSync(s.paths.visualizerFile(c.fileId))).toBe(true);
-    // The cover image was sent to the video model on every start call.
-    const starts = fg.calls().filter((x) => x.video === "start");
-    expect(starts).toHaveLength(3);
-    expect(starts[0]!.body.instances?.[0]?.image?.mimeType).toBe("image/jpeg");
+    // The cover image was sent to the Omni model on every interaction call.
+    const interactions = fg.calls().filter((x) => x.video === "interaction");
+    expect(interactions).toHaveLength(3);
+    expect(interactions[0]!.body.input?.some((p) => p.type === "image")).toBe(
+      true,
+    );
   });
 
   it("keeps the successes when one clip's generation fails (partial failure)", async () => {
     const s = store();
     const id = seed(s, "bbbb2222", 3);
     const inner = createFakeGemini({ videoBytes: "MP4" });
-    // Fail the 2nd operation's start; the other two clips complete.
-    let starts = 0;
+    // Fail the 2nd clip's interaction; the other two complete.
+    let interactions = 0;
     const fetch: FetchLike = async (input, init) => {
       const path = new URL(String(input)).pathname;
-      if (path.endsWith(":predictLongRunning") && ++starts === 2)
+      if (path === "/v1beta/interactions" && ++interactions === 2)
         return new Response(JSON.stringify({ error: { code: 500 } }), {
           status: 500,
           headers: { "content-type": "application/json" },

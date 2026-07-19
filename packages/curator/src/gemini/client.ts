@@ -3,7 +3,7 @@
 // run against @marquee/fake-gemini instead of the network; every request has an AbortController
 // timeout. Auth is the `x-goog-api-key` header (never the URL — secrets don't belong in query
 // strings). `generateText` drafts prompts, `generateImage` makes card art, `generateVideo` runs the
-// image-to-video long-running operation for the visualizer clips.
+// Gemini Omni Flash image-to-video Interactions call for the visualizer clips.
 import { Buffer } from "node:buffer";
 
 /** A `fetch`-shaped function — injectable so tests use the fake instead of the network. */
@@ -52,17 +52,19 @@ export interface GeminiClientOptions {
   /** Image model ("Nano Banana" family). Override via config — slugs rotate; verify against your key. */
   imageModel?: string;
   /**
-   * Image-to-video model (Veo, the image-referenced "Omni" model the metaprompts target). Override
-   * via config — confirm the exact slug against the live API / your key's available models.
+   * Image-to-video model — Gemini Omni Flash (image-referenced, via the Interactions API), the model
+   * the metaprompts target. Override via config; verify against your key's available models.
    */
   videoModel?: string;
-  /** Per-request timeout (ms). A hung connection must fail fast, not hang the request. */
+  /** Per-request timeout (ms) for the fast calls (text/image). */
   timeoutMs?: number;
-  /** Sleep between long-running-operation polls (injectable so tests run instantly). */
+  /** Timeout (ms) for the video interaction — generation blocks server-side, so it's long (default 5 min). */
+  videoTimeoutMs?: number;
+  /** Sleep between file-download retries (injectable so tests run instantly). */
   sleep?: (ms: number) => Promise<void>;
-  /** Poll interval for video generation (ms, default 10s). */
+  /** Interval between file-download retries when a generated clip isn't finalized yet (ms, default 10s). */
   videoPollIntervalMs?: number;
-  /** Max polls before giving up on a video operation (default 60 → ~10 min at the default interval). */
+  /** Max download retries before giving up on a generated clip (default 60). */
   videoMaxPolls?: number;
 }
 
@@ -81,18 +83,21 @@ const API_BASE = "https://generativelanguage.googleapis.com";
 const realSleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-/** A long-running operation as returned by `:predictLongRunning` and its poll endpoint. */
-interface VideoOperation {
-  name?: string;
-  done?: boolean;
+/** A Gemini Omni Flash Interactions response: an ordered list of steps whose content holds the output. */
+interface InteractionResponse {
+  status?: string;
   error?: { message?: string };
-  response?: {
-    // The API has moved this around across previews; probe a couple of likely shapes.
-    generateVideoResponse?: {
-      generatedSamples?: Array<{ video?: { uri?: string } }>;
-    };
-    generatedVideos?: Array<{ video?: { uri?: string } }>;
-  };
+  steps?: Array<{
+    type?: string;
+    content?: Array<{
+      type?: string;
+      mime_type?: string;
+      /** Inline base64 video (small clips). */
+      data?: string;
+      /** File URI to download (large clips). */
+      uri?: string;
+    }>;
+  }>;
 }
 
 export class GeminiClient {
@@ -102,6 +107,7 @@ export class GeminiClient {
   private readonly imageModel: string;
   private readonly videoModel: string;
   private readonly timeoutMs: number;
+  private readonly videoTimeoutMs: number;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly videoPollIntervalMs: number;
   private readonly videoMaxPolls: number;
@@ -111,8 +117,9 @@ export class GeminiClient {
     this.apiBase = opts.apiBase ?? API_BASE;
     this.textModel = opts.textModel ?? "gemini-flash-latest";
     this.imageModel = opts.imageModel ?? "gemini-3.1-flash-image";
-    this.videoModel = opts.videoModel ?? "veo-3.0-generate-preview";
+    this.videoModel = opts.videoModel ?? "gemini-omni-flash-preview";
     this.timeoutMs = opts.timeoutMs ?? 30_000;
+    this.videoTimeoutMs = opts.videoTimeoutMs ?? 300_000;
     this.sleep = opts.sleep ?? realSleep;
     this.videoPollIntervalMs = opts.videoPollIntervalMs ?? 10_000;
     this.videoMaxPolls = opts.videoMaxPolls ?? 60;
@@ -122,15 +129,16 @@ export class GeminiClient {
   private async fetchT(
     input: string | URL,
     init: RequestInit = {},
+    timeoutMs = this.timeoutMs,
   ): Promise<Response> {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), this.timeoutMs);
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
     try {
       return await this.fetch(input, { ...init, signal: ctrl.signal });
     } catch (err) {
       if ((err as Error)?.name === "AbortError")
         throw new GeminiError(
-          `Gemini request timed out after ${this.timeoutMs}ms`,
+          `Gemini request timed out after ${timeoutMs}ms`,
           504,
         );
       throw err;
@@ -237,73 +245,93 @@ export class GeminiClient {
     return (await res.json()) as T;
   }
 
-  /** Pull the finished video's download URI out of whichever response shape the op used. */
-  private static videoUri(op: VideoOperation): string | undefined {
-    return (
-      op.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri ??
-      op.response?.generatedVideos?.[0]?.video?.uri
-    );
+  /** Find the video part in an Interactions response (scan every step's content for a video item). */
+  private static videoPart(
+    data: InteractionResponse,
+  ): { data?: string; uri?: string } | undefined {
+    for (const step of data.steps ?? [])
+      for (const c of step.content ?? [])
+        if (c.type === "video" || c.mime_type?.startsWith("video/")) return c;
+    return undefined;
+  }
+
+  /** Download a generated file URI, retrying while it's still being finalized (bounded). */
+  private async downloadVideo(uri: string): Promise<Buffer> {
+    const url = uri.startsWith("http") ? uri : `${this.apiBase}/v1beta/${uri}`;
+    for (let attempt = 0; ; attempt++) {
+      const dl = await this.fetchT(
+        url,
+        { headers: { "x-goog-api-key": this.opts.apiKey } },
+        this.videoTimeoutMs,
+      );
+      if (dl.ok) return Buffer.from(await dl.arrayBuffer());
+      // 404/403 can mean the file isn't ACTIVE yet — retry a bounded number of times.
+      if (
+        (dl.status === 404 || dl.status === 403) &&
+        attempt < this.videoMaxPolls
+      ) {
+        await this.sleep(this.videoPollIntervalMs);
+        continue;
+      }
+      throw new GeminiError(`Omni video download ${dl.status}`, dl.status);
+    }
   }
 
   /**
-   * Generate one image-to-video clip (Veo/"Omni"): start the long-running operation with the prompt
-   * + a reference image (the album cover), poll it to completion, then download the MP4 bytes.
-   * Throws GeminiError on start/poll failure, an operation error, or a timeout. The caller decides
-   * whether one failure among a batch is fatal.
+   * Generate one image-to-video clip with Gemini Omni Flash (the Interactions API — a different
+   * endpoint/shape from generateContent). Sends the prompt + a reference image (the album cover);
+   * the model returns a video either inline (base64) or as a file URI to download. Throws GeminiError
+   * on failure. The caller decides whether one failure among a batch is fatal.
    */
   async generateVideo(
     prompt: string,
     imageBytes: Buffer,
     imageMimeType = "image/jpeg",
   ): Promise<Buffer> {
-    // Start.
-    const started = await this.postJson<VideoOperation>(
-      `/v1beta/models/${this.videoModel}:predictLongRunning`,
+    const res = await this.fetchT(
+      `${this.apiBase}/v1beta/interactions`,
       {
-        instances: [
-          {
-            prompt,
-            image: {
-              bytesBase64Encoded: imageBytes.toString("base64"),
-              mimeType: imageMimeType,
+        method: "POST",
+        headers: {
+          "x-goog-api-key": this.opts.apiKey,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: this.videoModel,
+          input: [
+            {
+              type: "image",
+              data: imageBytes.toString("base64"),
+              mime_type: imageMimeType,
             },
+            { type: "text", text: prompt },
+          ],
+          generation_config: { video_config: { task: "image_to_video" } },
+          response_format: {
+            type: "video",
+            aspect_ratio: "16:9",
+            delivery: "uri",
           },
-        ],
+        }),
       },
+      this.videoTimeoutMs, // generation blocks server-side for a while — allow a long timeout
     );
-    if (!started.name)
-      throw new GeminiError("Gemini video: no operation name returned");
-
-    // Poll to completion.
-    let op = started;
-    for (let i = 0; !op.done; i++) {
-      if (i >= this.videoMaxPolls)
-        throw new GeminiError(
-          `Gemini video timed out after ${this.videoMaxPolls} polls`,
-          504,
-        );
-      await this.sleep(this.videoPollIntervalMs);
-      const res = await this.fetchT(`${this.apiBase}/v1beta/${started.name}`, {
-        headers: { "x-goog-api-key": this.opts.apiKey },
-      });
-      if (!res.ok)
-        throw new GeminiError(`Gemini video poll ${res.status}`, res.status);
-      op = (await res.json()) as VideoOperation;
-    }
-    if (op.error)
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
       throw new GeminiError(
-        `Gemini video failed: ${op.error.message ?? "unknown"}`,
+        `Omni video ${res.status}${detail ? `: ${detail.slice(0, 300)}` : ""}`,
+        res.status,
       );
+    }
 
-    // Download.
-    const uri = GeminiClient.videoUri(op);
-    if (!uri) throw new GeminiError("Gemini video: no download URI in result");
-    const dl = await this.fetchT(
-      uri.startsWith("http") ? uri : `${this.apiBase}/v1beta/${uri}`,
-      { headers: { "x-goog-api-key": this.opts.apiKey } },
-    );
-    if (!dl.ok)
-      throw new GeminiError(`Gemini video download ${dl.status}`, dl.status);
-    return Buffer.from(await dl.arrayBuffer());
+    const data = (await res.json()) as InteractionResponse;
+    if (data.error)
+      throw new GeminiError(
+        `Omni video failed: ${data.error.message ?? "unknown"}`,
+      );
+    const video = GeminiClient.videoPart(data);
+    if (video?.data) return Buffer.from(video.data, "base64");
+    if (video?.uri) return this.downloadVideo(video.uri);
+    throw new GeminiError("Omni video: no video in the response");
   }
 }

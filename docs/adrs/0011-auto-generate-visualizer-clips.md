@@ -2,6 +2,12 @@
 
 Status: accepted · Date: 2026-07-18 · Amends: [curator-spec §Video](../specs/curator-spec.md), [roadie-spec §7](../specs/roadie-spec.md), [album-onboarding-workflow §"Awaiting video"](../specs/album-onboarding-workflow.md) · Builds on: [ADR 0009](0009-llm-authored-grounded-prompts-via-gemini.md), [ADR 0010](0010-auto-card-art-generation-candidate-set.md)
 
+> **Superseded in part 2026-07-19 by [ADR 0013](0013-video-uses-gemini-omni-flash-interactions.md):**
+> the "Veo long-running operation (poll then download)" API described below is wrong for the model
+> actually available (`gemini-omni-flash-preview` via the **Interactions API**). The candidate-set /
+> deliver-for-download / opt-in decisions here still stand; only the client's request/response shape
+> and default slug changed. See ADR 0013.
+
 ## Context
 
 ADR 0009 made Roadie draft the video prompt as grounded LLM **variants**; ADR 0010 established the
