@@ -189,9 +189,9 @@ export function VideoSection({
       {clips.length > 0 && (
         <div className="video__clips">
           {clips.map((c) => (
-            <div key={c.index} className="clip">
+            <div key={c.index} className="video__clip">
               <video
-                className="clip__vid"
+                className="video__clip-vid"
                 src={videoClipUrl(curatorId, c.index)}
                 poster={videoClipThumbnailUrl(curatorId, c.index)}
                 controls
@@ -199,7 +199,7 @@ export function VideoSection({
                 loop
                 preload="metadata"
               />
-              <div className="clip__row">
+              <div className="video__clip-row">
                 <span className="muted">
                   {c.nudge || `Clip ${c.index + 1}`}
                   {c.durationSec ? ` · ${c.durationSec}s` : ""}

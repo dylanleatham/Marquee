@@ -604,7 +604,7 @@ em {
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 12px;
 }
-.clip {
+.video__clip {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -613,19 +613,19 @@ em {
   border: 1px solid var(--line);
   border-radius: 8px;
 }
-.clip__vid {
+.video__clip-vid {
   width: 100%;
   aspect-ratio: 16 / 9;
   background: #000;
   border-radius: 4px;
 }
-.clip__row {
+.video__clip-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
 }
-.clip__row span {
+.video__clip-row span {
   font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;

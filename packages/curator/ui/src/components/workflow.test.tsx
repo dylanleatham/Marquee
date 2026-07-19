@@ -260,7 +260,7 @@ describe("VideoSection — clip generation", () => {
       ],
     });
     render(<VideoSection curatorId="abcd1234" asset={asset} run={vi.fn()} />);
-    const vids = document.querySelectorAll(".clip__vid");
+    const vids = document.querySelectorAll(".video__clip-vid");
     expect(vids).toHaveLength(2);
     expect(vids[0]!.getAttribute("src")).toBe(
       "/api/albums/abcd1234/video/clip/0",

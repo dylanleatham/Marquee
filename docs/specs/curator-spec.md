@@ -462,6 +462,8 @@ change (e.g. the listening room → Conductor); others are Curator-local and nev
 | GET    | `/api/settings/available-rooms` | Proxies to Conductor's `/api/rooms` and returns the Hue rooms available to choose from as the listening room.                                                                                                                                     |
 | GET    | `/api/settings/spotify`         | Spotify credential status: `{ configured, clientId }`. The client secret is write-only and never returned.                                                                                                                                        |
 | PUT    | `/api/settings/spotify`         | Body `{ clientId, clientSecret }`. Persists to `settings.json` in the data dir; returns `{ ok, restartRequired: true }` (the Spotify client + Roadie are built at boot). Needed by the packaged desktop app, which has no repo `.env` (ADR 0008). |
+| GET    | `/api/settings/gemini`          | Gemini status + opt-in generation flags: `{ configured, generateCardArt, generateVideo }`. The API key is write-only and never returned ([ADR 0012](../adrs/0012-artifact-generation-is-opt-in.md)).                                              |
+| PUT    | `/api/settings/gemini`          | Body `{ apiKey?, generateCardArt?, generateVideo? }` — any provided field is merged (others preserved), so you can toggle generation without re-entering the key. `400` if empty. Returns `{ ok, restartRequired: true }`.                        |
 
 Settings that live here:
 

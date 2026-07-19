@@ -7,8 +7,8 @@ import {
   rmSync,
   renameSync,
   readFileSync,
-  writeFileSync,
 } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import type { AssetStore } from "../store/asset-store.js";
 import {
@@ -312,7 +312,7 @@ export async function generateVideoSet(
       const tmp = deps.store.paths.incomingFile(
         `.vidgen-${curatorId}-${i}-${randomUUID()}.mp4`,
       );
-      writeFileSync(tmp, bytes);
+      await writeFile(tmp, bytes);
       // ingestVideo removes the temp on success (removeSrc), but throws *before* that on a
       // validation failure — clean it up ourselves so failed clips don't leak files in /incoming/.
       let vis;
