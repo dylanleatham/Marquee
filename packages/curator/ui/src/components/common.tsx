@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { artworkUrl, type RoadieState } from "../api";
 import { STATE_LABEL, isProcessing } from "../format";
 
@@ -10,17 +10,32 @@ const initialsOf = (title: string): string =>
     .map((w) => w[0]?.toUpperCase() ?? "")
     .join("") || "?";
 
+// The artwork endpoint 404s until Roadie downloads the cover, so a freshly-added album renders the
+// initials placeholder. Detail/queue pages poll and re-render, but the <img src> is a static URL and
+// the `failed` latch never resets — so the art never appears until the component remounts (issue #25).
+// A `version` token that changes when the art lands (contentHash on detail, the artwork path on the
+// queue) both cache-busts the URL and clears the latch, letting the cover recover in place.
+const artworkSrc = (curatorId: string, version?: string | null): string =>
+  version
+    ? `${artworkUrl(curatorId)}?v=${encodeURIComponent(version)}`
+    : artworkUrl(curatorId);
+
 /** Cover thumbnail that degrades to the album's initials while art is missing (404) or absent. */
 export function AlbumThumb({
   curatorId,
   title,
+  version,
   size = 48,
 }: {
   curatorId: string;
   title: string;
+  /** Freshness token — changes when the art becomes available, clearing a stale 404 latch. */
+  version?: string | null;
   size?: number;
 }) {
   const [failed, setFailed] = useState(false);
+  // A new version means the art may now exist — retry the request instead of staying latched.
+  useEffect(() => setFailed(false), [version]);
   if (failed) {
     return (
       <div
@@ -36,7 +51,7 @@ export function AlbumThumb({
     <img
       className="thumb"
       style={{ width: size, height: size }}
-      src={artworkUrl(curatorId)}
+      src={artworkSrc(curatorId, version)}
       alt=""
       onError={() => setFailed(true)}
     />
@@ -47,11 +62,16 @@ export function AlbumThumb({
 export function Cover({
   curatorId,
   title,
+  version,
 }: {
   curatorId: string;
   title: string;
+  /** Freshness token — changes when the art becomes available, clearing a stale 404 latch. */
+  version?: string | null;
 }) {
   const [failed, setFailed] = useState(false);
+  // A new version means the art may now exist — retry the request instead of staying latched.
+  useEffect(() => setFailed(false), [version]);
   if (failed) {
     return (
       <div className="detail__art detail__art--placeholder" aria-hidden>
@@ -62,7 +82,7 @@ export function Cover({
   return (
     <img
       className="detail__art"
-      src={artworkUrl(curatorId)}
+      src={artworkSrc(curatorId, version)}
       alt=""
       onError={() => setFailed(true)}
     />

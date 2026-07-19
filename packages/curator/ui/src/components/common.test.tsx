@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
-import { AlbumThumb, StateBadge } from "./common";
+import { AlbumThumb, Cover, StateBadge } from "./common";
 
 afterEach(cleanup);
 
@@ -24,6 +24,50 @@ describe("AlbumThumb", () => {
     fireEvent.error(img(container)!);
     expect(screen.getByText("PR")).toBeTruthy();
     expect(img(container)).toBeNull();
+  });
+
+  // Issue #25: on a polling page, a transient 404 (art not downloaded yet) latched the placeholder
+  // forever. When Roadie later writes the art, the freshness token changes and the cover must
+  // re-request rather than waiting for a remount.
+  it("recovers from a transient 404 when the artwork version changes", () => {
+    const { container, rerender } = render(
+      <AlbumThumb curatorId="abcd1234" title="Purple Rain" version={null} />,
+    );
+    fireEvent.error(img(container)!);
+    expect(img(container)).toBeNull();
+
+    rerender(
+      <AlbumThumb
+        curatorId="abcd1234"
+        title="Purple Rain"
+        version="deadbeef"
+      />,
+    );
+    const el = img(container);
+    expect(el).not.toBeNull();
+    expect(el?.getAttribute("src")).toBe(
+      "/api/albums/abcd1234/artwork?v=deadbeef",
+    );
+  });
+});
+
+describe("Cover", () => {
+  it("recovers from a transient 404 when the artwork version changes", () => {
+    const { container, rerender } = render(
+      <Cover curatorId="abcd1234" title="Purple Rain" version={undefined} />,
+    );
+    fireEvent.error(img(container)!);
+    expect(img(container)).toBeNull();
+    expect(screen.getByText("PR")).toBeTruthy();
+
+    rerender(
+      <Cover curatorId="abcd1234" title="Purple Rain" version="deadbeef" />,
+    );
+    const el = img(container);
+    expect(el).not.toBeNull();
+    expect(el?.getAttribute("src")).toBe(
+      "/api/albums/abcd1234/artwork?v=deadbeef",
+    );
   });
 });
 

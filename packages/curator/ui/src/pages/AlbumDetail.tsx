@@ -129,7 +129,11 @@ export function AlbumDetail() {
         <button className="btn btn--ghost" onClick={() => navigate("/")}>
           ← Queue
         </button>
-        <Cover curatorId={curatorId} title={m.name || curatorId} />
+        <Cover
+          curatorId={curatorId}
+          title={m.name || curatorId}
+          version={asset.artwork?.contentHash}
+        />
         <h1>{m.name || <em>fetching…</em>}</h1>
         <div className="detail__artist">{m.artist}</div>
         <div className="detail__meta">

@@ -14,7 +14,11 @@ import { AlbumThumb, Spinner } from "../components/common";
 function Row({ entry, action }: { entry: QueueEntry; action?: string }) {
   return (
     <Link to={`/albums/${entry.curatorId}`} className="row">
-      <AlbumThumb curatorId={entry.curatorId} title={entry.title || "?"} />
+      <AlbumThumb
+        curatorId={entry.curatorId}
+        title={entry.title || "?"}
+        version={entry.artwork}
+      />
       <div className="row__main">
         <div className="row__title">{entry.title || <em>fetching…</em>}</div>
         <div className="row__sub">{entry.artist}</div>
