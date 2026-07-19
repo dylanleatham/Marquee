@@ -63,66 +63,53 @@ describe("fake-gemini", () => {
     expect(res.status).toBe(429);
   });
 
-  it("runs the video long-running operation: start → poll (done) → download", async () => {
+  it("runs the Omni video interaction: POST → steps[] with a video uri → download", async () => {
     const fg = createFakeGemini({ videoBytes: "MP4" });
     const base = "https://generativelanguage.googleapis.com/v1beta";
 
-    const start = await fg.fetch(
-      `${base}/models/veo-3.0-generate-preview:predictLongRunning`,
-      {
-        ...withKey,
-        method: "POST",
-        body: JSON.stringify({ instances: [{ prompt: "p" }] }),
-      },
+    const res = await fg.fetch(`${base}/interactions`, {
+      ...withKey,
+      method: "POST",
+      body: JSON.stringify({
+        model: "gemini-omni-flash-preview",
+        input: [{ type: "text", text: "p" }],
+      }),
+    });
+    const body = await res.json();
+    expect(body.status).toBe("completed");
+    const out = body.steps.find(
+      (s: { type: string }) => s.type === "model_output",
     );
-    const { name } = await start.json();
-    expect(name).toMatch(/^operations\/vid-/);
-
-    const poll = await fg.fetch(`${base}/${name}`, withKey);
-    const op = await poll.json();
-    expect(op.done).toBe(true);
-    const uri = op.response.generatedVideos[0].video.uri;
+    const uri = out.content[0].uri;
+    expect(uri).toContain("/download/omni-");
 
     const dl = await fg.fetch(uri, withKey);
     expect(await dl.text()).toBe("MP4");
-    expect(fg.calls().map((c) => c.video)).toEqual([
-      "start",
-      "poll",
-      "download",
-    ]);
+    expect(fg.calls().map((c) => c.video)).toEqual(["interaction", "download"]);
   });
 
-  it("completes the operation with an error when videoOpError is set", async () => {
-    const fg = createFakeGemini({ videoOpError: "content policy" });
-    const base = "https://generativelanguage.googleapis.com/v1beta";
-    const start = await fg.fetch(`${base}/models/veo:predictLongRunning`, {
-      ...withKey,
-      method: "POST",
-      body: "{}",
-    });
-    const { name } = await start.json();
-    const op = await (await fg.fetch(`${base}/${name}`, withKey)).json();
-    expect(op.done).toBe(true);
-    expect(op.error.message).toBe("content policy");
+  it("returns the video inline (base64 data) when videoInline is set", async () => {
+    const fg = createFakeGemini({ videoBytes: "INLINE", videoInline: true });
+    const res = await fg.fetch(
+      "https://generativelanguage.googleapis.com/v1beta/interactions",
+      { ...withKey, method: "POST", body: "{}" },
+    );
+    const body = await res.json();
+    const out = body.steps.find(
+      (s: { type: string }) => s.type === "model_output",
+    );
+    expect(Buffer.from(out.content[0].data, "base64").toString()).toBe(
+      "INLINE",
+    );
   });
 
-  it("returns not-done for the configured number of polls", async () => {
-    const fg = createFakeGemini({ videoPollsUntilDone: 2 });
-    const base = "https://generativelanguage.googleapis.com/v1beta";
-    const start = await fg.fetch(`${base}/models/veo:predictLongRunning`, {
-      ...withKey,
-      method: "POST",
-      body: "{}",
-    });
-    const { name } = await start.json();
-    expect(
-      (await (await fg.fetch(`${base}/${name}`, withKey)).json()).done,
-    ).toBe(false);
-    expect(
-      (await (await fg.fetch(`${base}/${name}`, withKey)).json()).done,
-    ).toBe(false);
-    expect(
-      (await (await fg.fetch(`${base}/${name}`, withKey)).json()).done,
-    ).toBe(true);
+  it("completes the interaction with an error when videoError is set", async () => {
+    const fg = createFakeGemini({ videoError: "content policy" });
+    const res = await fg.fetch(
+      "https://generativelanguage.googleapis.com/v1beta/interactions",
+      { ...withKey, method: "POST", body: "{}" },
+    );
+    const body = await res.json();
+    expect(body.error.message).toBe("content policy");
   });
 });
