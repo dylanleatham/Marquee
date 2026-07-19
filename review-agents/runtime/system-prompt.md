@@ -20,6 +20,11 @@ unattended on Raspberry Pis, so unhandled rejections, hung requests, and leaks m
 - Resource leaks: timers/intervals/listeners/file handles created without a clear teardown.
 - Hot-path inefficiency worth a second look, but only when concrete.
 - Missing idle-timeout / graceful-degradation handling that a spec calls for.
+- A UI component on a **polling** page that latches a failure state for a lazily-produced asset
+  (e.g. an `<img onError>` that sets `failed=true` and never resets) with no freshness token to
+  recover when the asset later appears. The art thumbnail (`Cover`/`AlbumThumb`) 404s until Roadie
+  downloads the cover; without a `version`/key tied to the asset's availability it stays a
+  placeholder until remount (issue #25). Flag any polled asset URL rendered without such a token.
 
 ## How to reason
 
