@@ -110,7 +110,7 @@ export class GeminiClient {
     this.fetch = opts.fetch ?? (globalThis.fetch as FetchLike);
     this.apiBase = opts.apiBase ?? API_BASE;
     this.textModel = opts.textModel ?? "gemini-flash-latest";
-    this.imageModel = opts.imageModel ?? "gemini-2.5-flash-image";
+    this.imageModel = opts.imageModel ?? "gemini-3.1-flash-image";
     this.videoModel = opts.videoModel ?? "veo-3.0-generate-preview";
     this.timeoutMs = opts.timeoutMs ?? 30_000;
     this.sleep = opts.sleep ?? realSleep;
