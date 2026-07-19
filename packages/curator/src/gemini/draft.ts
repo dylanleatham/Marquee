@@ -32,14 +32,15 @@ const RESEARCH_SYSTEM =
   "aesthetic of its era: tangible subjects, motifs, textures, colors, and art direction. Be " +
   "concise and factual. Do not write image or video prompts yet — just the visual facts.";
 
-/** Structured-output schema for one drafting pass: an object with an array of {text, nudge}. */
-const variantsSchema = (n: number) => ({
+// Structured-output schema for one drafting pass: an object with an array of {text, nudge}. The
+// count (n) is requested in the user turn and enforced by parseVariants (slice + tolerate fewer),
+// not by minItems/maxItems on the schema — the live responseSchema is picky about those, and a hard
+// bound isn't worth a 400.
+const VARIANTS_SCHEMA = {
   type: "object",
   properties: {
     variants: {
       type: "array",
-      minItems: n,
-      maxItems: n,
       items: {
         type: "object",
         properties: {
@@ -51,7 +52,7 @@ const variantsSchema = (n: number) => ({
     },
   },
   required: ["variants"],
-});
+} as const;
 
 const metapromptFor = (
   type: PromptType,
@@ -129,7 +130,7 @@ async function draftOne(
   const json = await client.generateText({
     system: metapromptFor(type, videoStyle),
     prompt: draftUserPrompt(type, metadata, colors, research, n),
-    responseSchema: variantsSchema(n),
+    responseSchema: VARIANTS_SCHEMA,
     temperature: 1.0, // lean into variance across the set
   });
   return {

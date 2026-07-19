@@ -24,7 +24,15 @@ export interface Config {
    * default Curator only drafts prompts (copy them into your own image/video tool — much cheaper
    * than metered Veo). Turn generation on per-artifact in Settings when you want it.
    */
-  gemini?: { apiKey: string; generateCardArt: boolean; generateVideo: boolean };
+  gemini?: {
+    apiKey: string;
+    generateCardArt: boolean;
+    generateVideo: boolean;
+    /** Model slugs, overridable so a Google model rotation is a config change, not a code change. */
+    textModel?: string;
+    imageModel?: string;
+    videoModel?: string;
+  };
   /**
    * How Curator reaches Hue Conductor for the runtime demo (the Demo Room drives real lights via
    * Conductor). `sharedSecret` is the same `X-Trigger-Secret` the other services use; absent → the
@@ -98,6 +106,32 @@ export function loadConfig(override: Partial<Config> = {}): Config {
       settings.gemini?.generateVideo,
   );
 
+  // Model slugs (optional overrides). Google rotates/retires slugs — an override here beats a code
+  // change when that happens. Undefined → the GeminiClient's own current defaults.
+  const geminiModels = {
+    ...(geminiFile.text_model || process.env.GEMINI_TEXT_MODEL
+      ? {
+          textModel: String(
+            geminiFile.text_model ?? process.env.GEMINI_TEXT_MODEL,
+          ),
+        }
+      : {}),
+    ...(geminiFile.image_model || process.env.GEMINI_IMAGE_MODEL
+      ? {
+          imageModel: String(
+            geminiFile.image_model ?? process.env.GEMINI_IMAGE_MODEL,
+          ),
+        }
+      : {}),
+    ...(geminiFile.video_model || process.env.GEMINI_VIDEO_MODEL
+      ? {
+          videoModel: String(
+            geminiFile.video_model ?? process.env.GEMINI_VIDEO_MODEL,
+          ),
+        }
+      : {}),
+  };
+
   // A malformed value (NaN, zero, negative) falls back to the default rather than silently
   // wedging every upload behind a nonsense ceiling.
   const maxUploadMb = Number(
@@ -134,7 +168,14 @@ export function loadConfig(override: Partial<Config> = {}): Config {
       ? { spotify: { clientId, clientSecret } }
       : {}),
     ...(geminiApiKey
-      ? { gemini: { apiKey: geminiApiKey, generateCardArt, generateVideo } }
+      ? {
+          gemini: {
+            apiKey: geminiApiKey,
+            generateCardArt,
+            generateVideo,
+            ...geminiModels,
+          },
+        }
       : {}),
   };
   return { ...base, ...override };

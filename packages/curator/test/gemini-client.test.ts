@@ -14,7 +14,7 @@ describe("GeminiClient", () => {
     });
     expect(text).toBe("the cover is a purple sky");
     expect(fg.calls()[0]).toMatchObject({
-      model: "gemini-2.5-flash",
+      model: "gemini-flash-latest",
       grounded: true,
       structured: false,
     });
@@ -74,7 +74,7 @@ describe("GeminiClient", () => {
     const fg = createFakeGemini({ imageBase64: png });
     const bytes = await client(fg).generateImage("a purple motorcycle");
     expect(bytes.toString()).toBe("PNGBYTES");
-    expect(fg.calls()[0]!.model).toBe("gemini-2.5-flash-image");
+    expect(fg.calls()[0]!.model).toBe("gemini-3.1-flash-image");
   });
 
   it("generateImage throws when the response carries no image", async () => {
