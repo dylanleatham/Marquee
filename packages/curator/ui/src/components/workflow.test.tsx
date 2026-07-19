@@ -199,6 +199,69 @@ describe("VideoSection", () => {
   });
 });
 
+describe("VideoSection — clip generation", () => {
+  const withVideoPrompt = (extra: Partial<AlbumAsset> = {}) =>
+    albumAt("awaiting_review", {
+      artwork: { resolvedPath: "media/artwork/abcd1234.jpg", contentHash: "x" },
+      promptDrafts: {
+        video: {
+          variants: [{ text: "vp", nudge: "drift" }],
+          selectedIndex: 0,
+          generator: "gemini",
+          generatedAt: "2026-07-18T00:00:00Z",
+        },
+      },
+      ...extra,
+    });
+
+  it("offers Generate clips when a video prompt + cover art exist", () => {
+    const run = vi.fn();
+    render(
+      <VideoSection curatorId="abcd1234" asset={withVideoPrompt()} run={run} />,
+    );
+    fireEvent.click(screen.getByText(/Generate clips with AI/));
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders a clip gallery with per-clip download links", () => {
+    const asset = withVideoPrompt({
+      videoClips: [
+        {
+          index: 0,
+          fileId: "abcd1234-v0",
+          nudge: "drift",
+          durationSec: 8,
+          generatedAt: "x",
+        },
+        {
+          index: 1,
+          fileId: "abcd1234-v1",
+          nudge: "pulse",
+          durationSec: 8,
+          generatedAt: "x",
+        },
+      ],
+    });
+    render(<VideoSection curatorId="abcd1234" asset={asset} run={vi.fn()} />);
+    const vids = document.querySelectorAll(".clip__vid");
+    expect(vids).toHaveLength(2);
+    expect(vids[0]!.getAttribute("src")).toBe(
+      "/api/albums/abcd1234/video/clip/0",
+    );
+    const downloads = screen.getAllByText("Download");
+    expect(downloads).toHaveLength(2);
+    expect(downloads[0]!.getAttribute("href")).toBe(
+      "/api/albums/abcd1234/video/clip/0?download=1",
+    );
+  });
+
+  it("does not offer Generate clips without cover art", () => {
+    const asset = withVideoPrompt({ artwork: undefined });
+    render(<VideoSection curatorId="abcd1234" asset={asset} run={vi.fn()} />);
+    expect(screen.queryByText(/Generate clips with AI/)).toBeNull();
+  });
+});
+
 describe("CardArtSection", () => {
   const withCardPrompt = (extra: Partial<AlbumAsset> = {}) =>
     albumAt("awaiting_review", {

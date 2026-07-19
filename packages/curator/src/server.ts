@@ -318,6 +318,44 @@ export function buildServer(opts: BuildOptions = {}) {
     return sendFile(reply, store.paths.thumbnailFile(curatorId), "image/jpeg");
   });
 
+  // A generated visualizer clip + its poster (fileId = {curatorId}-v{index}).
+  app.get("/api/albums/:curatorId/video/clip/:index", async (req, reply) => {
+    const { curatorId, index } = req.params as {
+      curatorId: string;
+      index: string;
+    };
+    const asset = store.read(curatorId);
+    const clip = asset?.videoClips?.find((c) => c.index === Number(index));
+    if (!clip) return reply.code(404).send({ error: "no such clip" });
+    return sendFile(
+      reply,
+      store.paths.visualizerFile(clip.fileId),
+      "video/mp4",
+      // A download filename so the clip-gallery download links save a sensible name.
+      (req.query as { download?: string }).download
+        ? `${curatorId}-clip-${clip.index}.mp4`
+        : undefined,
+    );
+  });
+
+  app.get(
+    "/api/albums/:curatorId/video/clip/:index/thumbnail",
+    async (req, reply) => {
+      const { curatorId, index } = req.params as {
+        curatorId: string;
+        index: string;
+      };
+      const asset = store.read(curatorId);
+      const clip = asset?.videoClips?.find((c) => c.index === Number(index));
+      if (!clip) return reply.code(404).send({ error: "no such clip" });
+      return sendFile(
+        reply,
+        store.paths.thumbnailFile(clip.fileId),
+        "image/jpeg",
+      );
+    },
+  );
+
   app.get("/api/albums/:curatorId/card-art", async (req, reply) => {
     const { curatorId } = req.params as { curatorId: string };
     const asset = store.read(curatorId);
@@ -516,6 +554,18 @@ export function buildServer(opts: BuildOptions = {}) {
     try {
       const asset = actions.detachVideo(actionDeps, curatorId, del);
       return { state: asset.roadie.state };
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
+  });
+
+  // Generate a set of visualizer clips from the drafted video prompts (Veo/"Omni"). Long-running:
+  // holds the request while the clips generate (acceptable for a single-user LAN app, ADR 0011).
+  app.post("/api/albums/:curatorId/video/generate", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    try {
+      const asset = await actions.generateVideoSet(actionDeps, curatorId);
+      return { videoClips: asset.videoClips };
     } catch (err) {
       return actionError(err, reply, req);
     }

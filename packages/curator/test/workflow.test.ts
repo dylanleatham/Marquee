@@ -432,3 +432,106 @@ describe("card-art generation (routes)", () => {
     expect(res.statusCode).toBeGreaterThanOrEqual(500);
   });
 });
+
+describe("video generation (routes)", () => {
+  /** A server with a video-capable fake Gemini (instant polling) + an album at review with a 3-variant video prompt. */
+  async function serverWithVideoPrompt(gemini: "ok" | "fail" | "none" = "ok") {
+    const store = new AssetStore(mkdtempSync(join(tmpdir(), "curator-vg-")));
+    const roadie = fakeRoadie(store);
+    const fg =
+      gemini === "fail"
+        ? createFakeGemini({ failStatus: 500 })
+        : createFakeGemini({ videoBytes: "MP4" });
+    const { app } = buildServer({
+      store,
+      roadie,
+      prober: fakeProber(),
+      generate: fakeGenerate,
+      ...(gemini !== "none"
+        ? {
+            gemini: new GeminiClient({
+              apiKey: "k",
+              fetch: fg.fetch,
+              sleep: async () => {},
+            }),
+          }
+        : {}),
+    });
+    const mp = buildMultipart(
+      { name: "Purple Rain", artist: "Prince" },
+      {
+        field: "artwork",
+        filename: "a.jpg",
+        contentType: "image/jpeg",
+        data: Buffer.from("IMG"),
+      },
+    );
+    const add = await app.inject({
+      method: "POST",
+      url: "/api/albums",
+      headers: { "content-type": mp.contentType },
+      payload: mp.body,
+    });
+    const { curatorId } = add.json();
+    await roadie.drain();
+    const asset = store.read(curatorId)!;
+    const draft: DraftedPrompt = {
+      variants: [0, 1, 2].map((i) => ({ text: `p${i}`, nudge: `motion ${i}` })),
+      selectedIndex: 0,
+      generator: "gemini",
+      generatedAt: "2026-07-18T00:00:00.000Z",
+    };
+    asset.promptDrafts = { ...asset.promptDrafts, video: draft };
+    store.save(asset);
+    return { app, store, curatorId };
+  }
+
+  it("generates clips and serves each clip + its thumbnail", async () => {
+    const { app, curatorId } = await serverWithVideoPrompt();
+
+    const gen = await post(app, `/api/albums/${curatorId}/video/generate`);
+    expect(gen.statusCode).toBe(200);
+    expect(gen.json().videoClips).toHaveLength(3);
+
+    const clip = await app.inject({
+      method: "GET",
+      url: `/api/albums/${curatorId}/video/clip/1`,
+    });
+    expect(clip.statusCode).toBe(200);
+    expect(clip.headers["content-type"]).toContain("video/mp4");
+
+    const thumb = await app.inject({
+      method: "GET",
+      url: `/api/albums/${curatorId}/video/clip/1/thumbnail`,
+    });
+    expect(thumb.statusCode).toBe(200);
+
+    // The download variant sets a filename.
+    const dl = await app.inject({
+      method: "GET",
+      url: `/api/albums/${curatorId}/video/clip/1?download=1`,
+    });
+    expect(dl.headers["content-disposition"]).toContain("clip-1.mp4");
+  });
+
+  it("404s a clip that doesn't exist", async () => {
+    const { app, curatorId } = await serverWithVideoPrompt();
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/albums/${curatorId}/video/clip/9`,
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("400s generate when Gemini isn't configured", async () => {
+    const { app, curatorId } = await serverWithVideoPrompt("none");
+    const res = await post(app, `/api/albums/${curatorId}/video/generate`);
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("5xxs generate when every clip fails (upstream fault)", async () => {
+    const { app, curatorId } = await serverWithVideoPrompt("fail");
+    const res = await post(app, `/api/albums/${curatorId}/video/generate`);
+    expect(res.statusCode).toBeGreaterThanOrEqual(500);
+  });
+});

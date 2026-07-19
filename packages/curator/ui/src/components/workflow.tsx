@@ -7,6 +7,9 @@ import {
   activePromptText,
   videoUrl,
   thumbnailUrl,
+  videoClipUrl,
+  videoClipThumbnailUrl,
+  videoClipDownloadUrl,
   cardArtUrl,
   cardArtPrintUrl,
   cardArtCandidateUrl,
@@ -152,70 +155,126 @@ export function VideoSection({
     return run(() => api.uploadVideo(curatorId, form));
   };
 
-  if (asset.visualizer) {
-    return (
-      <div>
-        <video
-          className="media-frame"
-          src={videoUrl(curatorId)}
-          poster={thumbnailUrl(curatorId)}
-          controls
-          loop
-          muted
-        />
+  const clips = asset.videoClips ?? [];
+  // Clips are generated from the album cover, so both a video prompt and the artwork must exist.
+  const canGenerate =
+    Boolean(asset.promptDrafts?.video) && Boolean(asset.artwork);
+
+  return (
+    <div className="video">
+      {canGenerate && (
         <div className="row-actions">
-          <span className="muted">
-            {asset.visualizer.originalFilename}
-            {asset.visualizer.resolution
-              ? ` · ${asset.visualizer.resolution}`
-              : ""}
-          </span>
           <button
             className="btn btn--sm"
-            onClick={() => fileRef.current?.click()}
+            onClick={() => run(() => api.generateVideoSet(curatorId))}
+            title="Generate short clips from the album cover with Gemini, one per prompt variant"
           >
-            Replace
+            {clips.length
+              ? "Regenerate clips with AI"
+              : "Generate clips with AI"}
           </button>
-          <button
-            className="btn btn--sm btn--danger"
-            onClick={() => run(() => api.detachVideo(curatorId, true))}
-          >
-            Detach
-          </button>
+          {clips.length > 0 && (
+            <span className="muted">
+              Download the clips and splice them into one loop, then upload the
+              result below.
+            </span>
+          )}
+        </div>
+      )}
+
+      {clips.length > 0 && (
+        <div className="video__clips">
+          {clips.map((c) => (
+            <div key={c.index} className="clip">
+              <video
+                className="clip__vid"
+                src={videoClipUrl(curatorId, c.index)}
+                poster={videoClipThumbnailUrl(curatorId, c.index)}
+                controls
+                muted
+                loop
+                preload="metadata"
+              />
+              <div className="clip__row">
+                <span className="muted">
+                  {c.nudge || `Clip ${c.index + 1}`}
+                  {c.durationSec ? ` · ${c.durationSec}s` : ""}
+                </span>
+                <a
+                  className="btn btn--sm"
+                  href={videoClipDownloadUrl(curatorId, c.index)}
+                  download
+                >
+                  Download
+                </a>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {asset.visualizer ? (
+        <div>
+          <video
+            className="media-frame"
+            src={videoUrl(curatorId)}
+            poster={thumbnailUrl(curatorId)}
+            controls
+            loop
+            muted
+          />
+          <div className="row-actions">
+            <span className="muted">
+              {asset.visualizer.originalFilename}
+              {asset.visualizer.resolution
+                ? ` · ${asset.visualizer.resolution}`
+                : ""}
+            </span>
+            <button
+              className="btn btn--sm"
+              onClick={() => fileRef.current?.click()}
+            >
+              Replace
+            </button>
+            <button
+              className="btn btn--sm btn--danger"
+              onClick={() => run(() => api.detachVideo(curatorId, true))}
+            >
+              Detach
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="video/mp4"
+              hidden
+              onChange={pickFile(upload)}
+            />
+          </div>
+        </div>
+      ) : (
+        <label
+          className={`dropzone ${canUpload ? "" : "dropzone--disabled"}`}
+          onDragOver={(e) => canUpload && e.preventDefault()}
+          onDrop={(e) => {
+            if (!canUpload) return;
+            e.preventDefault();
+            const f = e.dataTransfer.files?.[0];
+            if (f) upload(f);
+          }}
+        >
           <input
-            ref={fileRef}
             type="file"
             accept="video/mp4"
             hidden
+            disabled={!canUpload}
             onChange={pickFile(upload)}
           />
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <label
-      className={`dropzone ${canUpload ? "" : "dropzone--disabled"}`}
-      onDragOver={(e) => canUpload && e.preventDefault()}
-      onDrop={(e) => {
-        if (!canUpload) return;
-        e.preventDefault();
-        const f = e.dataTransfer.files?.[0];
-        if (f) upload(f);
-      }}
-    >
-      <input
-        type="file"
-        accept="video/mp4"
-        hidden
-        disabled={!canUpload}
-        onChange={pickFile(upload)}
-      />
-      {canUpload
-        ? "Drop an H.264 MP4 here, or click to choose"
-        : "Available once Roadie has the album ready for review"}
-    </label>
+          {canUpload
+            ? "Drop an H.264 MP4 here, or click to choose"
+            : "Available once Roadie has the album ready for review"}
+        </label>
+      )}
+    </div>
   );
 }
 

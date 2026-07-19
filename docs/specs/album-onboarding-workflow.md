@@ -161,11 +161,19 @@ I'm waiting on it." It's not a mandatory checkpoint: an album whose video you al
 this state entirely and lands in Awaiting Preview ([ADR 0005](../adrs/0005-video-attach-does-not-require-copying-the-prompt.md)).
 The state exists for the parallel flow below — it's how you see what you're waiting on.
 
-**What you do**:
+**What you do** — two ways to get the video:
 
-1. Land on album detail
-2. If your video tool has generated something for this album, drag it onto the drop zone. Or if you've configured `/incoming/` as your video tool's output folder, the file's already there and Curator shows it as a candidate.
-3. Curator validates format (H.264 MP4 required), generates a thumbnail, previews inline. Confirm.
+- **Generate clips in-app ([ADR 0011](../adrs/0011-auto-generate-visualizer-clips.md)):** hit
+  **"Generate clips with AI"** in the Video section. Curator runs each drafted video prompt variant
+  through Gemini (Veo/"Omni") image-to-video off the album cover and shows the results as a gallery
+  of short (~8–10s) clips with per-clip download. Collect the clips, splice them into one seamless
+  loop in your own editor, then upload the result on the same drop zone. Needs a Gemini key with Veo
+  access; in-app splicing is a deferred enhancement.
+- **Bring your own:** if your video tool has already generated something for this album, drag it onto
+  the drop zone (or drop it in `/incoming/` and Curator shows it as a candidate).
+
+Either way, Curator validates format (H.264 MP4 required), generates a thumbnail, previews inline —
+confirm to advance to Awaiting Preview.
 
 **Multi-item flow**: this is where the "productive hour" shape lives. If you have 5 albums awaiting video, you're probably driving 2–3 in parallel through your video tool. Curator's awaiting-video section should show all of them so you can quickly click into whichever finishes first.
 

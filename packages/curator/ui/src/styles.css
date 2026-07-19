@@ -593,6 +593,44 @@ em {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* generated visualizer clips: a grid of downloadable previews */
+.video {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.video__clips {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+.clip {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.clip__vid {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 4px;
+}
+.clip__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.clip__row span {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .tag {
   font-size: 11px;
   letter-spacing: 0.06em;
