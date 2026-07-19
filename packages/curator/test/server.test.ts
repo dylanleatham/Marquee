@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,20 +8,8 @@ import { SpotifyClient } from "../src/spotify/client.js";
 import { buildServer } from "../src/server.js";
 import { fakeGenerate, fakeRoadie, buildMultipart } from "./helpers.js";
 
-// Isolate credential resolution: buildServer → loadConfig reads config.toml/env/settings.json, and
-// the packaged app writes real creds to ~/marquee/settings.json. Point the data dir at an empty temp
-// dir and clear the credential env so the "unconfigured" assertions here don't pick up a developer's
-// actual Spotify/Gemini setup (mirrors test/settings.test.ts).
-const savedEnv = { ...process.env };
-beforeEach(() => {
-  process.env.MARQUEE_DATA_DIR = mkdtempSync(join(tmpdir(), "curator-env-"));
-  delete process.env.SPOTIFY_CLIENT_ID;
-  delete process.env.SPOTIFY_CLIENT_SECRET;
-  delete process.env.GEMINI_API_KEY;
-});
-afterEach(() => {
-  process.env = { ...savedEnv };
-});
+// Credential resolution is isolated globally in test/setup-env.ts (issue #32), so the "unconfigured"
+// assertions below never pick up a developer's real ~/marquee/settings.json or credential env vars.
 
 const spotifyAlbum: FakeAlbum = {
   id: "abc12345",

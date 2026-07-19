@@ -21,6 +21,12 @@ adds the code but no test file is added or modified to cover it, that's your sig
   whenever the code doesn't throw (an anti-pattern named in the testing strategy).
 - A test that mocks the very thing under test (e.g. mocking `fs` in a component whose job is
   filesystem manipulation).
+- A test whose outcome depends on ambient developer-machine state — reading real credentials or
+  config from `~/marquee/settings.json`, `SPOTIFY_*` / `GEMINI_API_KEY` env vars, or `config.toml`
+  — instead of pinning them. Such a test is green on a clean CI box but red on a configured machine
+  (issue #32). Curator tests get isolation for free via `test/setup-env.ts`; flag any new test that
+  builds a server expecting the _unconfigured_ path yet relies on the environment rather than that
+  isolation (or an explicit injected client).
 
 ## How to reason
 
