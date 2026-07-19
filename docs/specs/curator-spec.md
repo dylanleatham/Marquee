@@ -21,6 +21,7 @@ The queue-first workflow — Roadie does everything it can, humans work through 
 - Album inventory management: add via Spotify search, paste URI, paste batch, or fully manual entry
 - Roadie: background agent processing newly-added albums through pre-video work (specified in its own doc)
 - Palette generation via Palette Press library; hand-editing per album; batch regeneration
+- Grounded, LLM-authored prompts (Gemini) with template fallback; **opt-in** artifact generation — card art (Nano Banana) + visualizer clips (Veo), off by default (ADRs 0009–0012)
 - Video upload and attachment (drag-and-drop, `/incoming/` watch)
 - Video thumbnail generation and format validation
 - Album-assets store on disk (JSON, human-readable, git-friendly)
@@ -40,7 +41,7 @@ The queue-first workflow — Roadie does everything it can, humans work through 
 - NFC reader integration (phone handles tag writing)
 - Runtime playback (Conductor and Backdrop own that)
 - Video transcoding (validate-and-move only; reject bad formats with a clear error)
-- Auto-generation of videos (external service, no API)
+- In-app splicing of generated clips into one loop (deferred — [#29](https://github.com/dylanleatham/Marquee/issues/29); clips are delivered for download)
 - Multi-user or cloud sync
 - Audio-feature-driven pattern selection (Spotify Audio Features deprecated; static defaults fine)
 - Track-level or per-side asset variation
