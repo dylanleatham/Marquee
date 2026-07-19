@@ -822,6 +822,25 @@ em {
 .form input {
   color: var(--text);
 }
+.settings-subhead {
+  font-size: 14px;
+  margin: 20px 0 4px;
+}
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+  margin: 6px 0;
+  cursor: pointer;
+}
+.toggle input {
+  width: auto;
+}
+.toggle input:disabled {
+  cursor: not-allowed;
+}
 
 /* --- Roadie strip --- */
 .roadie-strip {

@@ -49,7 +49,7 @@ export function Settings() {
     setGeminiError(null);
     setGeminiSaved(false);
     try {
-      await api.saveGeminiSettings(apiKey.trim());
+      await api.saveGeminiSettings({ apiKey: apiKey.trim() });
       setGeminiSaved(true);
       setApiKey(""); // don't keep the key in the field after saving
       await refreshGemini();
@@ -57,6 +57,22 @@ export function Settings() {
       setGeminiError(err instanceof ApiError ? err.message : String(err));
     } finally {
       setGeminiBusy(false);
+    }
+  };
+
+  // Toggling a generation flag persists immediately (no key re-entry needed).
+  const toggleGeneration = async (patch: {
+    generateCardArt?: boolean;
+    generateVideo?: boolean;
+  }) => {
+    setGeminiError(null);
+    setGeminiSaved(false);
+    try {
+      await api.saveGeminiSettings(patch);
+      setGeminiSaved(true);
+      await refreshGemini();
+    } catch (err) {
+      setGeminiError(err instanceof ApiError ? err.message : String(err));
     }
   };
 
@@ -182,12 +198,43 @@ export function Settings() {
           </button>
         </form>
 
+        <h3 className="settings-subhead">Artifact generation</h3>
+        <p className="muted">
+          Off by default: Curator just drafts the prompts for you to copy into
+          your own tools. Turn these on to generate the artifacts through the
+          API instead. <b>Card art</b> is cheap (~5 images per click);{" "}
+          <b>video</b> uses metered Veo credits and can be expensive — leave it
+          off and copy the prompt into Google Flow if you'd rather.
+        </p>
+        <label className="toggle">
+          <input
+            type="checkbox"
+            checked={gemini?.generateCardArt ?? false}
+            disabled={!gemini?.configured}
+            onChange={(e) =>
+              toggleGeneration({ generateCardArt: e.target.checked })
+            }
+          />
+          Auto-generate card art (Nano Banana)
+        </label>
+        <label className="toggle">
+          <input
+            type="checkbox"
+            checked={gemini?.generateVideo ?? false}
+            disabled={!gemini?.configured}
+            onChange={(e) =>
+              toggleGeneration({ generateVideo: e.target.checked })
+            }
+          />
+          Auto-generate visualizer clips (Veo — metered, can be pricey)
+        </label>
+
         {geminiError && (
           <div className="banner banner--error">{geminiError}</div>
         )}
         {geminiSaved && (
           <div className="banner banner--warn">
-            Saved. <b>Restart Marquee</b> to enable Gemini.
+            Saved. <b>Restart Marquee</b> to apply.
           </div>
         )}
       </section>

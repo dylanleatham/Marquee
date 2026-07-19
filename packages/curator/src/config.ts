@@ -18,10 +18,13 @@ export interface Config {
   /** Spotify client-credentials, if configured. Absent → the Spotify add/search routes 503. */
   spotify?: { clientId: string; clientSecret: string };
   /**
-   * Gemini API key, if configured. Powers LLM prompt drafting + artifact generation. Absent →
-   * Roadie falls back to the deterministic prompt templates and the generate routes 503.
+   * Gemini config, if a key is set. Powers LLM prompt drafting (always on when keyed) plus the
+   * *optional* artifact generation. Absent → Roadie falls back to the deterministic prompt templates
+   * and the generate routes 400. `generateCardArt`/`generateVideo` are **opt-in, default off**: by
+   * default Curator only drafts prompts (copy them into your own image/video tool — much cheaper
+   * than metered Veo). Turn generation on per-artifact in Settings when you want it.
    */
-  gemini?: { apiKey: string };
+  gemini?: { apiKey: string; generateCardArt: boolean; generateVideo: boolean };
   /**
    * How Curator reaches Hue Conductor for the runtime demo (the Demo Room drives real lights via
    * Conductor). `sharedSecret` is the same `X-Trigger-Secret` the other services use; absent → the
@@ -80,6 +83,21 @@ export function loadConfig(override: Partial<Config> = {}): Config {
     process.env.GEMINI_API_KEY ??
     settings.gemini?.apiKey;
 
+  // Opt-in generation flags (default off). A boolean anywhere in the chain wins; strings "true"/"1"
+  // from env/toml count as true.
+  const asBool = (v: unknown): boolean =>
+    v === true || v === "true" || v === "1";
+  const generateCardArt = asBool(
+    geminiFile.generate_card_art ??
+      process.env.GEMINI_GENERATE_CARD_ART ??
+      settings.gemini?.generateCardArt,
+  );
+  const generateVideo = asBool(
+    geminiFile.generate_video ??
+      process.env.GEMINI_GENERATE_VIDEO ??
+      settings.gemini?.generateVideo,
+  );
+
   // A malformed value (NaN, zero, negative) falls back to the default rather than silently
   // wedging every upload behind a nonsense ceiling.
   const maxUploadMb = Number(
@@ -115,7 +133,9 @@ export function loadConfig(override: Partial<Config> = {}): Config {
     ...(clientId && clientSecret
       ? { spotify: { clientId, clientSecret } }
       : {}),
-    ...(geminiApiKey ? { gemini: { apiKey: geminiApiKey } } : {}),
+    ...(geminiApiKey
+      ? { gemini: { apiKey: geminiApiKey, generateCardArt, generateVideo } }
+      : {}),
   };
   return { ...base, ...override };
 }

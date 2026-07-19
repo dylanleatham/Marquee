@@ -26,7 +26,7 @@ import {
 import { addSpotifyAlbum, DuplicateAlbumError } from "./albums/add-spotify.js";
 import { SpotifyClient, SpotifyError } from "./spotify/client.js";
 import { GeminiClient } from "./gemini/client.js";
-import { writeSpotifyCreds, writeGeminiCreds } from "./settings.js";
+import { writeSpotifyCreds, updateGeminiSettings } from "./settings.js";
 import { Roadie } from "./roadie/worker.js";
 import { isCuratorId } from "./ids.js";
 import {
@@ -55,6 +55,9 @@ export interface BuildOptions {
   spotify?: SpotifyClient;
   /** Injected Gemini client (tests pass one backed by fake-gemini); prod builds from config. */
   gemini?: GeminiClient;
+  /** Override the opt-in generation flags (tests); prod reads them from config.gemini. */
+  generateCardArt?: boolean;
+  generateVideo?: boolean;
   /** Injected Roadie (tests pass one with fake time); prod builds one from store/spotify/generate. */
   roadie?: Roadie;
   /** Injected video prober (tests pass a fake); prod uses ffprobe/ffmpeg. */
@@ -243,7 +246,17 @@ export function buildServer(opts: BuildOptions = {}) {
       },
     });
   const prober = opts.prober ?? ffmpegProber;
-  const actionDeps: ActionDeps = { store, prober, gemini };
+  // Opt-in generation flags (default off). Prod reads config.gemini; tests may override.
+  const genCardArt =
+    opts.generateCardArt ?? config.gemini?.generateCardArt ?? false;
+  const genVideo = opts.generateVideo ?? config.gemini?.generateVideo ?? false;
+  const actionDeps: ActionDeps = {
+    store,
+    prober,
+    gemini,
+    generateCardArt: genCardArt,
+    generateVideo: genVideo,
+  };
   // Upload ceiling comes from config (default 2 GB) — visualizer videos are the large uploads;
   // cover/card art are tiny. Over-ceiling uploads surface as a 413 via actionError (issue #12).
   app.register(multipart, { limits: { fileSize: config.maxUploadBytes } });
@@ -843,18 +856,41 @@ export function buildServer(opts: BuildOptions = {}) {
     clientId: config.spotify?.clientId ?? null,
   }));
 
-  // Gemini API key: same trust model + settings.json store as Spotify. configured is the only
-  // read-back — the key itself is write-only and never returned.
+  // Gemini settings: same trust model + settings.json store as Spotify. The key is write-only (never
+  // returned); `configured` + the opt-in generation flags are the read-back so the UI can reflect them.
   app.get("/api/settings/gemini", async () => ({
     configured: Boolean(gemini),
+    generateCardArt: genCardArt,
+    generateVideo: genVideo,
   }));
 
+  // Update the key and/or the generation toggles. Any provided field is applied (the others are
+  // preserved), so you can toggle generation without re-entering the key. Everything is built once
+  // at boot, so changes take effect on restart.
   app.put("/api/settings/gemini", async (req, reply) => {
-    const { apiKey } = (req.body ?? {}) as { apiKey?: string };
-    if (!apiKey || !apiKey.trim())
-      return reply.code(400).send({ error: "apiKey is required" });
-    writeGeminiCreds(config.dataDir, { apiKey: apiKey.trim() });
-    // The Gemini client + Roadie are built once at boot, so a new key takes effect on restart.
+    const { apiKey, generateCardArt, generateVideo } = (req.body ?? {}) as {
+      apiKey?: string;
+      generateCardArt?: boolean;
+      generateVideo?: boolean;
+    };
+    const patch: {
+      apiKey?: string;
+      generateCardArt?: boolean;
+      generateVideo?: boolean;
+    } = {};
+    if (apiKey !== undefined) {
+      if (!apiKey.trim())
+        return reply.code(400).send({ error: "apiKey cannot be blank" });
+      patch.apiKey = apiKey.trim();
+    }
+    if (typeof generateCardArt === "boolean")
+      patch.generateCardArt = generateCardArt;
+    if (typeof generateVideo === "boolean") patch.generateVideo = generateVideo;
+    if (Object.keys(patch).length === 0)
+      return reply
+        .code(400)
+        .send({ error: "provide apiKey and/or generateCardArt/generateVideo" });
+    updateGeminiSettings(config.dataDir, patch);
     return { ok: true, restartRequired: true };
   });
 

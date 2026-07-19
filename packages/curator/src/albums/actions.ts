@@ -45,8 +45,11 @@ export class NotFoundError extends Error {
 export interface ActionDeps {
   store: AssetStore;
   prober: VideoProber;
-  /** Gemini client for on-demand AI actions (prompt regenerate, card-art generate); absent → 400. */
+  /** Gemini client for on-demand AI actions (prompt regenerate, card-art/video generate); absent → 400. */
   gemini?: GeminiClient;
+  /** Opt-in artifact generation (default off). Prompt drafting/regeneration is never gated by these. */
+  generateCardArt?: boolean;
+  generateVideo?: boolean;
   now?: () => string;
 }
 
@@ -281,6 +284,10 @@ export async function generateVideoSet(
     throw new ValidationError(
       "Gemini is not configured — set an API key in Settings",
     );
+  if (!deps.generateVideo)
+    throw new ValidationError(
+      "Video generation is off — enable it in Settings, or copy the prompt into your own tool (e.g. Google Flow)",
+    );
   const asset = load(deps.store, curatorId);
   const draft = asset.promptDrafts?.video;
   if (!draft || draft.variants.length === 0)
@@ -436,6 +443,10 @@ export async function generateCardArtSet(
   if (!deps.gemini)
     throw new ValidationError(
       "Gemini is not configured — set an API key in Settings",
+    );
+  if (!deps.generateCardArt)
+    throw new ValidationError(
+      "Card-art generation is off — enable it in Settings, or copy the prompt into your own tool",
     );
   const asset = load(deps.store, curatorId);
   const draft = asset.promptDrafts?.cardArt;

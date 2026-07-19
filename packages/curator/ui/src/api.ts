@@ -209,9 +209,17 @@ export interface SpotifySettings {
   clientId: string | null;
 }
 
-/** Gemini credential status for the Settings screen (GET /api/settings/gemini). */
+/** Gemini status + opt-in generation flags for the Settings screen (GET /api/settings/gemini). */
 export interface GeminiSettings {
   configured: boolean;
+  generateCardArt: boolean;
+  generateVideo: boolean;
+}
+
+export interface GeminiSettingsPatch {
+  apiKey?: string;
+  generateCardArt?: boolean;
+  generateVideo?: boolean;
 }
 
 export class ApiError extends Error {
@@ -342,10 +350,10 @@ export const api = {
       body: JSON.stringify({ clientId, clientSecret }),
     }),
   geminiSettings: () => req<GeminiSettings>("/api/settings/gemini"),
-  saveGeminiSettings: (apiKey: string) =>
+  saveGeminiSettings: (patch: GeminiSettingsPatch) =>
     req<{ ok: boolean; restartRequired: boolean }>("/api/settings/gemini", {
       method: "PUT",
-      body: JSON.stringify({ apiKey }),
+      body: JSON.stringify(patch),
     }),
 
   searchSpotify: (q: string) =>

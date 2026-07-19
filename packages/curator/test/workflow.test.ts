@@ -336,8 +336,10 @@ describe("workflow guards", () => {
 });
 
 describe("card-art generation (routes)", () => {
-  /** A server + an album at review with a 3-variant card prompt. `gemini`: "ok" (PNGs), "fail" (all 500), or "none". */
-  async function serverWithCardPrompt(gemini: "ok" | "fail" | "none" = "ok") {
+  /** A server + album at review w/ a 3-variant card prompt. `gemini`: "ok"/"fail" enabled, "disabled" keyed-but-off, "none" no key. */
+  async function serverWithCardPrompt(
+    gemini: "ok" | "fail" | "disabled" | "none" = "ok",
+  ) {
     const store = new AssetStore(mkdtempSync(join(tmpdir(), "curator-ca-")));
     const roadie = fakeRoadie(store);
     const fg =
@@ -349,6 +351,7 @@ describe("card-art generation (routes)", () => {
       roadie,
       prober: fakeProber(),
       generate: fakeGenerate,
+      generateCardArt: gemini !== "disabled", // opt-in; "disabled" leaves it off
       ...(gemini !== "none"
         ? { gemini: new GeminiClient({ apiKey: "k", fetch: fg.fetch }) }
         : {}),
@@ -426,6 +429,12 @@ describe("card-art generation (routes)", () => {
     expect(res.statusCode).toBe(400);
   });
 
+  it("400s generate when generation is toggled off (opt-in)", async () => {
+    const { app, curatorId } = await serverWithCardPrompt("disabled");
+    const res = await post(app, `/api/albums/${curatorId}/card-art/generate`);
+    expect(res.statusCode).toBe(400);
+  });
+
   it("5xxs generate when every image fails (upstream fault, not a 4xx)", async () => {
     const { app, curatorId } = await serverWithCardPrompt("fail");
     const res = await post(app, `/api/albums/${curatorId}/card-art/generate`);
@@ -434,8 +443,10 @@ describe("card-art generation (routes)", () => {
 });
 
 describe("video generation (routes)", () => {
-  /** A server with a video-capable fake Gemini (instant polling) + an album at review with a 3-variant video prompt. */
-  async function serverWithVideoPrompt(gemini: "ok" | "fail" | "none" = "ok") {
+  /** A server + album at review w/ a 3-variant video prompt. `gemini`: "ok"/"fail" enabled, "disabled" keyed-but-off, "none" no key. */
+  async function serverWithVideoPrompt(
+    gemini: "ok" | "fail" | "disabled" | "none" = "ok",
+  ) {
     const store = new AssetStore(mkdtempSync(join(tmpdir(), "curator-vg-")));
     const roadie = fakeRoadie(store);
     const fg =
@@ -447,6 +458,7 @@ describe("video generation (routes)", () => {
       roadie,
       prober: fakeProber(),
       generate: fakeGenerate,
+      generateVideo: gemini !== "disabled", // opt-in; "disabled" leaves it off
       ...(gemini !== "none"
         ? {
             gemini: new GeminiClient({
@@ -525,6 +537,12 @@ describe("video generation (routes)", () => {
 
   it("400s generate when Gemini isn't configured", async () => {
     const { app, curatorId } = await serverWithVideoPrompt("none");
+    const res = await post(app, `/api/albums/${curatorId}/video/generate`);
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("400s generate when generation is toggled off (opt-in)", async () => {
+    const { app, curatorId } = await serverWithVideoPrompt("disabled");
     const res = await post(app, `/api/albums/${curatorId}/video/generate`);
     expect(res.statusCode).toBe(400);
   });

@@ -90,9 +90,7 @@ describe("Gemini settings", () => {
 
     const app1 = serverAt(dir);
     expect((await app1.inject({ url: "/api/settings/gemini" })).json()).toEqual(
-      {
-        configured: false,
-      },
+      { configured: false, generateCardArt: false, generateVideo: false },
     );
 
     const put = await app1.inject({
@@ -111,9 +109,37 @@ describe("Gemini settings", () => {
     // The Gemini client is built at boot, so a new server (same data dir) is the "restart".
     const app2 = serverAt(dir);
     const status = (await app2.inject({ url: "/api/settings/gemini" })).json();
-    expect(status).toEqual({ configured: true });
+    expect(status).toEqual({
+      configured: true,
+      generateCardArt: false,
+      generateVideo: false,
+    });
     // The key is write-only — the GET must not leak it.
     expect(JSON.stringify(status)).not.toContain("key-123");
+  });
+
+  it("toggles a generation flag without wiping the key (opt-in, merge)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "curator-gem-"));
+    const app = serverAt(dir);
+    await app.inject({
+      method: "PUT",
+      url: "/api/settings/gemini",
+      payload: { apiKey: "key-123" },
+    });
+    const put = await app.inject({
+      method: "PUT",
+      url: "/api/settings/gemini",
+      payload: { generateCardArt: true },
+    });
+    expect(put.statusCode).toBe(200);
+    const written = JSON.parse(
+      readFileSync(join(dir, "settings.json"), "utf8"),
+    );
+    // Key preserved, flag set.
+    expect(written.gemini).toEqual({
+      apiKey: "key-123",
+      generateCardArt: true,
+    });
   });
 
   it("keeps Spotify creds intact when saving a Gemini key (merge, not overwrite)", async () => {

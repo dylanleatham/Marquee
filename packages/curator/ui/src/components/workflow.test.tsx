@@ -214,13 +214,30 @@ describe("VideoSection — clip generation", () => {
       ...extra,
     });
 
-  it("offers Generate clips when a video prompt + cover art exist", () => {
+  it("offers Generate clips when enabled and a video prompt + cover art exist", () => {
     const run = vi.fn();
     render(
-      <VideoSection curatorId="abcd1234" asset={withVideoPrompt()} run={run} />,
+      <VideoSection
+        curatorId="abcd1234"
+        asset={withVideoPrompt()}
+        run={run}
+        canGenerate
+      />,
     );
     fireEvent.click(screen.getByText(/Generate clips with AI/));
     expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides Generate clips when generation is off (the opt-in default)", () => {
+    render(
+      <VideoSection
+        curatorId="abcd1234"
+        asset={withVideoPrompt()}
+        run={vi.fn()}
+        canGenerate={false}
+      />,
+    );
+    expect(screen.queryByText(/Generate clips with AI/)).toBeNull();
   });
 
   it("renders a clip gallery with per-clip download links", () => {
@@ -255,9 +272,16 @@ describe("VideoSection — clip generation", () => {
     );
   });
 
-  it("does not offer Generate clips without cover art", () => {
+  it("does not offer Generate clips without cover art (even when enabled)", () => {
     const asset = withVideoPrompt({ artwork: undefined });
-    render(<VideoSection curatorId="abcd1234" asset={asset} run={vi.fn()} />);
+    render(
+      <VideoSection
+        curatorId="abcd1234"
+        asset={asset}
+        run={vi.fn()}
+        canGenerate
+      />,
+    );
     expect(screen.queryByText(/Generate clips with AI/)).toBeNull();
   });
 });
@@ -276,13 +300,14 @@ describe("CardArtSection", () => {
       ...extra,
     });
 
-  it("offers Generate options when a card-art prompt exists", () => {
+  it("offers Generate options when enabled and a card-art prompt exists", () => {
     const run = vi.fn();
     render(
       <CardArtSection
         curatorId="abcd1234"
         asset={withCardPrompt()}
         run={run}
+        canGenerate
       />,
     );
     fireEvent.click(screen.getByText(/Generate options with AI/));

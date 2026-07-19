@@ -66,6 +66,8 @@ export function AlbumDetail() {
     error,
     refresh,
   } = usePoll<AlbumAsset>(() => api.album(curatorId), 3000);
+  // Whether API artifact generation is enabled (opt-in; default off — see Settings). Polled slowly.
+  const { data: gemini } = usePoll(api.geminiSettings, 30000);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -225,7 +227,12 @@ export function AlbumDetail() {
 
         {inWorkflow && (
           <Section title="Video">
-            <VideoSection curatorId={curatorId} asset={asset} run={run} />
+            <VideoSection
+              curatorId={curatorId}
+              asset={asset}
+              run={run}
+              canGenerate={gemini?.generateVideo ?? false}
+            />
           </Section>
         )}
 
@@ -242,7 +249,12 @@ export function AlbumDetail() {
 
         {inWorkflow && (
           <Section title="Card art">
-            <CardArtSection curatorId={curatorId} asset={asset} run={run} />
+            <CardArtSection
+              curatorId={curatorId}
+              asset={asset}
+              run={run}
+              canGenerate={gemini?.generateCardArt ?? false}
+            />
           </Section>
         )}
 
