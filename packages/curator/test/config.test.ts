@@ -164,6 +164,30 @@ describe("loadConfig", () => {
     expect(loadConfig().gemini?.generateVideo).toBe(true);
   });
 
+  it("reads model-slug overrides from config.toml/env (default: undefined → client picks)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-"));
+    process.env.MARQUEE_DATA_DIR = dir;
+    delete process.env.GEMINI_TEXT_MODEL;
+    delete process.env.GEMINI_IMAGE_MODEL;
+    delete process.env.GEMINI_VIDEO_MODEL;
+
+    // No override → the slug fields are absent (GeminiClient falls back to its own defaults).
+    withFile('[gemini]\napi_key = "k"\n');
+    process.env.MARQUEE_DATA_DIR = dir;
+    expect(loadConfig().gemini?.textModel).toBeUndefined();
+
+    // config.toml override
+    withFile('[gemini]\napi_key = "k"\ntext_model = "gemini-flash-latest"\n');
+    process.env.MARQUEE_DATA_DIR = dir;
+    expect(loadConfig().gemini?.textModel).toBe("gemini-flash-latest");
+
+    // env override
+    noFile();
+    process.env.GEMINI_API_KEY = "k";
+    process.env.GEMINI_VIDEO_MODEL = "veo-3.1-fast";
+    expect(loadConfig().gemini?.videoModel).toBe("veo-3.1-fast");
+  });
+
   it("leaves gemini undefined when no key is configured anywhere", () => {
     noFile();
     delete process.env.GEMINI_API_KEY;

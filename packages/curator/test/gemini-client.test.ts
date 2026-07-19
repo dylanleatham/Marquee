@@ -14,7 +14,7 @@ describe("GeminiClient", () => {
     });
     expect(text).toBe("the cover is a purple sky");
     expect(fg.calls()[0]).toMatchObject({
-      model: "gemini-2.5-flash",
+      model: "gemini-flash-latest",
       grounded: true,
       structured: false,
     });

@@ -44,13 +44,16 @@ export interface GeminiClientOptions {
   apiKey: string;
   fetch?: FetchLike;
   apiBase?: string;
-  /** Text/JSON model (default gemini-2.5-flash). */
+  /**
+   * Text/JSON model. Default `gemini-flash-latest` — an alias that tracks the current GA flash model
+   * (so a pinned version being retired doesn't 404). Override via config if you want a pinned slug.
+   */
   textModel?: string;
-  /** Image model (default gemini-2.5-flash-image, aka "Nano Banana"). */
+  /** Image model ("Nano Banana" family). Override via config — slugs rotate; verify against your key. */
   imageModel?: string;
   /**
-   * Image-to-video model (default veo-3.0-generate-preview — the image-referenced "Omni" model the
-   * metaprompts target). Confirm the exact slug against the live API when a Veo-enabled key lands.
+   * Image-to-video model (Veo, the image-referenced "Omni" model the metaprompts target). Override
+   * via config — confirm the exact slug against the live API / your key's available models.
    */
   videoModel?: string;
   /** Per-request timeout (ms). A hung connection must fail fast, not hang the request. */
@@ -106,7 +109,7 @@ export class GeminiClient {
   constructor(private readonly opts: GeminiClientOptions) {
     this.fetch = opts.fetch ?? (globalThis.fetch as FetchLike);
     this.apiBase = opts.apiBase ?? API_BASE;
-    this.textModel = opts.textModel ?? "gemini-2.5-flash";
+    this.textModel = opts.textModel ?? "gemini-flash-latest";
     this.imageModel = opts.imageModel ?? "gemini-2.5-flash-image";
     this.videoModel = opts.videoModel ?? "veo-3.0-generate-preview";
     this.timeoutMs = opts.timeoutMs ?? 30_000;
