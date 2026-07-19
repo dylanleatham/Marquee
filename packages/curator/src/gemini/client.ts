@@ -136,29 +136,14 @@ export class GeminiClient {
     }
   }
 
-  private async generateContent(
+  private generateContent(
     model: string,
     body: unknown,
   ): Promise<GenerateContentResponse> {
-    const res = await this.fetchT(
-      `${this.apiBase}/v1beta/models/${model}:generateContent`,
-      {
-        method: "POST",
-        headers: {
-          "x-goog-api-key": this.opts.apiKey,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify(body),
-      },
+    return this.postJson<GenerateContentResponse>(
+      `/v1beta/models/${model}:generateContent`,
+      body,
     );
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      throw new GeminiError(
-        `Gemini ${model} ${res.status}${detail ? `: ${detail.slice(0, 300)}` : ""}`,
-        res.status,
-      );
-    }
-    return (await res.json()) as GenerateContentResponse;
   }
 
   /**
