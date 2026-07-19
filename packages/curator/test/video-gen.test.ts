@@ -15,6 +15,7 @@ import { VideoError, type VideoProber } from "../src/media/video.js";
 import * as actions from "../src/albums/actions.js";
 import { type ActionDeps } from "../src/albums/actions.js";
 import { ValidationError } from "../src/albums/add-manual.js";
+import { TransitionError } from "../src/albums/asset.js";
 import type { DraftedPrompt } from "../src/roadie/prompts.js";
 import { makeAsset, fakeProber, jpegBytes } from "./helpers.js";
 
@@ -104,6 +105,27 @@ describe("generateVideoSet", () => {
     expect(asset.videoClips).toHaveLength(2);
   });
 
+  it("does not clobber a concurrent write during generation (#38)", async () => {
+    const s = store();
+    const id = seed(s, "hhhh8888", 3); // makeAsset names it "Purple Rain"
+    const inner = createFakeGemini({ videoBytes: "MP4" });
+    let concurrentDone = false;
+    const fetch: FetchLike = async (input, init) => {
+      if (!concurrentDone) {
+        concurrentDone = true;
+        const other = s.read(id)!;
+        other.metadata.name = "CHANGED BY CONCURRENT ACTION";
+        s.save(other);
+      }
+      return inner.fetch(input, init);
+    };
+    await actions.generateVideoSet(deps(s, geminiWith(fetch)), id);
+
+    const final = s.read(id)!;
+    expect(final.videoClips).toHaveLength(3);
+    expect(final.metadata.name).toBe("CHANGED BY CONCURRENT ACTION");
+  });
+
   it("when every clip fails validation, throws a non-VideoError (maps to 5xx, not 422)", async () => {
     const s = store();
     const id = seed(s, "cccc3333", 2);
@@ -165,5 +187,38 @@ describe("generateVideoSet", () => {
     await expect(
       actions.generateVideoSet(deps(s, geminiWith(fg.fetch)), "eeee5555"),
     ).rejects.toBeInstanceOf(ValidationError);
+  });
+});
+
+describe("attachVideoUpload — concurrency (#38)", () => {
+  it("re-validates state on the fresh copy; doesn't clobber a concurrent transition", async () => {
+    const s = store();
+    const id = "iiii9999";
+    s.save(makeAsset(id)); // awaiting_review — attachable
+    mkdirSync(s.paths.incoming, { recursive: true });
+    const src = join(s.paths.incoming, "src.mp4");
+    writeFileSync(src, Buffer.from("VIDEOBYTES"));
+    // A prober whose probe() concurrently moves the album to a non-attachable state (verified),
+    // simulating another action landing during the (async) ingest.
+    const prober: VideoProber = {
+      probe: async () => {
+        const other = s.read(id)!;
+        other.roadie.state = "verified";
+        s.save(other);
+        return {
+          durationSec: 8,
+          width: 1920,
+          height: 1080,
+          codec: "h264",
+          container: "mov,mp4,m4a",
+        };
+      },
+      thumbnail: async () => {},
+    };
+    await expect(
+      actions.attachVideoUpload({ store: s, prober, now }, id, src, "src.mp4"),
+    ).rejects.toBeInstanceOf(TransitionError);
+    // The concurrent "verified" survived — attach re-read and didn't clobber it to awaiting_preview.
+    expect(s.read(id)!.roadie.state).toBe("verified");
   });
 });

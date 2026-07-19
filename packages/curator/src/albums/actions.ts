@@ -149,9 +149,13 @@ export async function regeneratePromptWithAI(
     colors,
     { now: clock(deps) },
   );
-  asset.promptDrafts = { ...asset.promptDrafts, [type]: drafted };
-  deps.store.save(asset);
-  return asset;
+  // Re-read + save synchronously so the slow LLM draft can't clobber a concurrent write (#38).
+  const saved = deps.store.update(curatorId, (a) => {
+    a.promptDrafts = { ...a.promptDrafts, [type]: drafted };
+  });
+  if (!saved)
+    throw new NotFoundError(`album ${curatorId} was deleted mid-draft`);
+  return saved;
 }
 
 /**
@@ -187,17 +191,27 @@ const VIDEO_ATTACHABLE: RoadieState[] = [
   "awaiting_preview",
 ];
 
-/** Set/replace the visualizer and advance to awaiting_preview (replacing at preview keeps state). */
+/**
+ * Set/replace the visualizer and advance to awaiting_preview (replacing at preview keeps state).
+ * Re-reads + saves synchronously (#38) so the slow `ingestVideo` above can't clobber a concurrent
+ * write; re-validates the transition on the fresh copy since state may have changed meanwhile.
+ */
 function finishVideoAttach(
   deps: ActionDeps,
-  asset: AlbumAsset,
+  curatorId: string,
   vis: AlbumAsset["visualizer"],
-): void {
-  asset.visualizer = vis;
-  if (asset.roadie.state !== "awaiting_preview")
-    transitionTo(asset, "awaiting_preview", clock(deps));
-  else asset.status = deriveStatus(asset.roadie);
-  deps.store.save(asset);
+): AlbumAsset {
+  const saved = deps.store.update(curatorId, (a) => {
+    if (!VIDEO_ATTACHABLE.includes(a.roadie.state))
+      throw new TransitionError(a.roadie.state, "awaiting_preview");
+    a.visualizer = vis;
+    if (a.roadie.state !== "awaiting_preview")
+      transitionTo(a, "awaiting_preview", clock(deps));
+    else a.status = deriveStatus(a.roadie);
+  });
+  if (!saved)
+    throw new NotFoundError(`album ${curatorId} was deleted mid-attach`);
+  return saved;
 }
 
 /**
@@ -219,8 +233,7 @@ export async function attachVideoUpload(
     { prober: deps.prober, paths: deps.store.paths, now: deps.now },
     { srcPath, fileId: curatorId, originalFilename },
   );
-  finishVideoAttach(deps, asset, vis);
-  return asset;
+  return finishVideoAttach(deps, curatorId, vis);
 }
 
 /** Claim a file already sitting in /incoming/ and attach it (curator-spec §9 bulk-drop flow). */
@@ -245,8 +258,7 @@ export async function attachVideoIncoming(
       removeSrc: true,
     },
   );
-  finishVideoAttach(deps, asset, vis);
-  return asset;
+  return finishVideoAttach(deps, curatorId, vis);
 }
 
 /** Remove the visualizer reference (and, with `deleteFile`, the file). Steps back to awaiting_video. */
@@ -360,10 +372,14 @@ export async function generateVideoSet(
     throw reason ?? new Error("video generation produced no clips");
   }
 
-  asset.videoClips = clips;
-  asset.status = deriveStatus(asset.roadie);
-  deps.store.save(asset);
-  return asset;
+  // Re-read + save synchronously so the slow generation above can't clobber a concurrent write (#38).
+  const saved = deps.store.update(curatorId, (a) => {
+    a.videoClips = clips;
+    a.status = deriveStatus(a.roadie);
+  });
+  if (!saved)
+    throw new NotFoundError(`album ${curatorId} was deleted mid-generation`);
+  return saved;
 }
 
 // --- card art ----------------------------------------------------------------------------------
@@ -493,10 +509,16 @@ export async function generateCardArtSet(
     throw reason ?? new Error("card-art generation produced no images");
   }
 
-  asset.cardArtCandidates = candidates;
-  asset.status = deriveStatus(asset.roadie);
-  deps.store.save(asset);
-  return asset;
+  // Re-read + save synchronously so the slow generation above can't clobber a concurrent write
+  // (issue #38). The candidate files are keyed on curatorId, so they attach to whatever the album's
+  // current state is.
+  const saved = deps.store.update(curatorId, (a) => {
+    a.cardArtCandidates = candidates;
+    a.status = deriveStatus(a.roadie);
+  });
+  if (!saved)
+    throw new NotFoundError(`album ${curatorId} was deleted mid-generation`);
+  return saved;
 }
 
 /** Promote a generated candidate to the attached card art (reuses the normal ingest/serve path). */

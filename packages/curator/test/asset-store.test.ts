@@ -46,6 +46,34 @@ describe("AssetStore", () => {
     expect(s.list().map((a) => a.curatorId)).toEqual(["bbbb2222"]);
   });
 
+  it("update() applies to the latest on-disk state, not a stale copy (#38)", () => {
+    const s = store();
+    s.save(makeAsset("aaaa1111", "Original"));
+    // Simulate a stale holder: something read the album earlier and still has that object.
+    const stale = s.read("aaaa1111")!;
+    // Meanwhile another writer changes the album on disk.
+    s.save({
+      ...s.read("aaaa1111")!,
+      metadata: { ...stale.metadata, name: "Changed" },
+    });
+    // update() re-reads current state before applying its delta — the "Changed" name survives.
+    const saved = s.update("aaaa1111", (a) => {
+      a.cardArtCandidates = [
+        { index: 0, fileId: "aaaa1111-c0", ext: "png", generatedAt: "x" },
+      ];
+    });
+    expect(saved?.metadata.name).toBe("Changed");
+    expect(s.read("aaaa1111")).toMatchObject({
+      metadata: { name: "Changed" },
+      cardArtCandidates: [{ index: 0 }],
+    });
+  });
+
+  it("update() returns null if the album was deleted", () => {
+    const s = store();
+    expect(s.update("aaaa1111", () => {})).toBeNull();
+  });
+
   it("refuses to save an invalid curatorId", () => {
     const s = store();
     const bad = makeAsset("aaaa1111");

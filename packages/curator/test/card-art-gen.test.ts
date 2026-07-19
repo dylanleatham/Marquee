@@ -164,6 +164,35 @@ describe("generateCardArtSet", () => {
     ).rejects.toBeInstanceOf(ValidationError);
   });
 
+  it("does not clobber a concurrent write during generation (#38 — re-reads before save)", async () => {
+    const s = store();
+    const id = seed(s, "hhhh8888", 5); // makeAsset names it "Purple Rain"
+    const png = pngBytes().toString("base64");
+    // Simulate a second action landing a write while the (slow) image generation is in flight:
+    // on the first image call, change a field and save it independently.
+    let concurrentDone = false;
+    const fetch: FetchLike = async () => {
+      if (!concurrentDone) {
+        concurrentDone = true;
+        const other = s.read(id)!;
+        other.metadata.name = "CHANGED BY CONCURRENT ACTION";
+        s.save(other);
+      }
+      return new Response(
+        JSON.stringify({
+          candidates: [{ content: { parts: [{ inlineData: { data: png } }] } }],
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    };
+    await actions.generateCardArtSet(deps(s, geminiWith(fetch)), id);
+
+    const final = s.read(id)!;
+    expect(final.cardArtCandidates).toHaveLength(5); // our candidates persisted
+    // ...and the concurrent write survived (before the fix, generate saved a stale copy → reverted).
+    expect(final.metadata.name).toBe("CHANGED BY CONCURRENT ACTION");
+  });
+
   it("400s when card-art generation is toggled off (opt-in)", async () => {
     const s = store();
     const id = seed(s);
