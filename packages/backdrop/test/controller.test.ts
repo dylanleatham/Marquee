@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import type { LibraryEntry } from "@marquee/contracts";
 import { PlaybackController, type LibraryLookup } from "../src/controller.js";
 import { FakeTimers, RecordingHub, tempMedia } from "./fakes.js";
@@ -118,6 +118,23 @@ describe("PlaybackController", () => {
       type: "show-message",
       text: "video file missing",
     });
+  });
+
+  it("logs a server-side warning when a scan can't be played (spec §8/§9)", () => {
+    const { dir } = tempMedia([]);
+    const hub = new RecordingHub();
+    const warn = vi.fn();
+    const controller = new PlaybackController(lookup({}), hub, {
+      timers: new FakeTimers(),
+      idleTimeoutMs: IDLE_MS,
+      mediaDir: dir,
+      logger: { warn },
+    });
+    controller.play("curator:album:missing");
+    expect(warn).toHaveBeenCalledWith(
+      { uri: "curator:album:missing" },
+      expect.stringContaining("not in the library"),
+    );
   });
 
   it("handleScan routes start/stop to play/stop", () => {

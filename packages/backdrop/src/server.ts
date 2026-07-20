@@ -59,16 +59,16 @@ export function buildServer(opts: BuildOptions = {}) {
     // Browser events are observability only; log and move on (spec §10).
     app.log.info({ browserEvent: ev }, "backdrop browser event");
   });
+  const app = Fastify({
+    logger: { level: process.env.NODE_ENV === "test" ? "silent" : "info" },
+  });
   const controller = new PlaybackController(library, hub, {
     timers: opts.timers,
     idleTimeoutMs: config.idleTimeoutMinutes * 60_000,
     mediaDir: config.mediaDir,
+    logger: app.log, // unresolvable / missing-file scans get a server-side warn (spec §8/§9)
   });
   const startedAt = Date.now();
-
-  const app = Fastify({
-    logger: { level: process.env.NODE_ENV === "test" ? "silent" : "info" },
-  });
 
   // X-Trigger-Secret auth on the runtime/control API only. The kiosk SPA (static assets + the /ws
   // socket) and /healthz stay open — a browser can't set custom headers on a WebSocket, and the
@@ -123,12 +123,10 @@ export function buildServer(opts: BuildOptions = {}) {
   app.post("/api/scan", async (req, reply) => {
     const scan = parseScan(req.body);
     if (!scan) {
-      return reply
-        .code(400)
-        .send({
-          error:
-            "expected a scan event: start needs { uri, tagUid, at }, stop needs { at }",
-        });
+      return reply.code(400).send({
+        error:
+          "expected a scan event: start needs { uri, tagUid, at }, stop needs { at }",
+      });
     }
     controller.handleScan(scan);
     return reply.code(202).send({ accepted: true });
@@ -202,12 +200,10 @@ export function buildServer(opts: BuildOptions = {}) {
   app.post("/api/admin/simulate-scan", async (req, reply) => {
     const scan = parseScan(req.body);
     if (!scan) {
-      return reply
-        .code(400)
-        .send({
-          error:
-            "expected a scan event: start needs { uri, tagUid, at }, stop needs { at }",
-        });
+      return reply.code(400).send({
+        error:
+          "expected a scan event: start needs { uri, tagUid, at }, stop needs { at }",
+      });
     }
     controller.handleScan(scan);
     return reply.code(202).send({ accepted: true });

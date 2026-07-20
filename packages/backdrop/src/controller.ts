@@ -19,12 +19,21 @@ export const realTimers: Timers = {
   clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 };
 
+/** Minimal structured-logger port (pino/Fastify shape). Defaults to a no-op under test. */
+export interface Logger {
+  warn(payload: Record<string, unknown>, msg: string): void;
+}
+
+const noopLogger: Logger = { warn: () => {} };
+
 export interface ControllerOptions {
   timers?: Timers;
   /** Auto-fade to idle after this long in PLAYING with no new scan (default 90 min). */
   idleTimeoutMs?: number;
   /** Root the resolved video file must sit under (defense-in-depth against a poisoned library). */
   mediaDir: string;
+  /** Where unresolvable/missing-file scans get logged server-side (backdrop-spec §8/§9). */
+  logger?: Logger;
   now?: () => number;
 }
 
@@ -52,6 +61,7 @@ export class PlaybackController {
   private readonly timers: Timers;
   private readonly idleTimeoutMs: number;
   private readonly mediaDir: string;
+  private readonly log: Logger;
   private readonly now: () => number;
 
   constructor(
@@ -62,6 +72,7 @@ export class PlaybackController {
     this.timers = opts.timers ?? realTimers;
     this.idleTimeoutMs = opts.idleTimeoutMs ?? DEFAULT_IDLE_MS;
     this.mediaDir = opts.mediaDir;
+    this.log = opts.logger ?? noopLogger;
     this.now = opts.now ?? Date.now;
     this.since = this.now();
   }
@@ -92,6 +103,10 @@ export class PlaybackController {
   play(uri: string): void {
     const entry = this.library.resolve(uri);
     if (!entry) {
+      this.log.warn(
+        { uri },
+        "scan for an album not in the library — staying put",
+      );
       this.hub.broadcast({
         type: "show-message",
         text: "video not in library",
@@ -100,6 +115,10 @@ export class PlaybackController {
       return;
     }
     if (!this.fileIsPlayable(entry.filePath)) {
+      this.log.warn(
+        { uri, filePath: entry.filePath },
+        "video file missing or outside media dir — staying put",
+      );
       this.hub.broadcast({
         type: "show-message",
         text: "video file missing",

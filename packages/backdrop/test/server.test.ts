@@ -162,6 +162,26 @@ describe("backdrop HTTP API", () => {
     expect(res.json()).toEqual({ updated: "curator:album:new" });
   });
 
+  it("POST /api/library/update merges into an existing entry, preserving omitted fields", async () => {
+    const { app } = build(); // seed: URI → { filePath, durationSec: 187 }
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/library/update",
+      headers: AUTH,
+      payload: { uri: URI, contentHash: "sha256:new" }, // no filePath/durationSec
+    });
+    expect(res.json()).toEqual({ updated: URI });
+    const get = await app.inject({
+      method: "GET",
+      url: "/api/library",
+      headers: AUTH,
+    });
+    const entry = get.json().entries[URI];
+    expect(entry.durationSec).toBe(187); // preserved from the seed
+    expect(entry.contentHash).toBe("sha256:new"); // applied
+    expect(typeof entry.filePath).toBe("string"); // preserved
+  });
+
   it("DELETE /api/library/:uri removes an entry", async () => {
     const { app } = build();
     const res = await app.inject({
