@@ -54,5 +54,45 @@ export interface PalettePayload {
   };
 }
 
-// TODO(build order step 0): also export ScanEvent, LibraryEntry, AlbumAsset (hand-written or
-// generated) as those boundaries get built out.
+// --- Runtime scan events (Stylus → Conductor + Backdrop) ---------------------------------------
+// The fan-out signal: Stylus reads a tagged sleeve and POSTs one of these to each runtime service
+// (integration-contract §scan, stylus-spec §"Outbound events"). `stop` deliberately carries no
+// `uri` — downstream treats it as "return to idle" regardless of what was playing.
+
+/** A sleeve was placed on the stand. */
+export interface ScanStartEvent {
+  event: "start";
+  /** Curator album URI, `curator:album:<curatorId>`. */
+  uri: string;
+  /** Raw NFC tag UID, e.g. "04:A1:B2:C3:D4:E5:F6". Informational. */
+  tagUid?: string;
+  /** Which physical stand fired this; defaults to "primary". Downstream may ignore it. */
+  readerId?: string;
+  /** ISO-8601 timestamp the event was produced. */
+  at: string;
+}
+
+/** The sleeve was removed. No `uri`: return to idle whatever was playing. */
+export interface ScanStopEvent {
+  event: "stop";
+  readerId?: string;
+  at: string;
+}
+
+export type ScanEvent = ScanStartEvent | ScanStopEvent;
+
+// --- Backdrop library entries (Curator → Backdrop) ---------------------------------------------
+// One row of Backdrop's URI → video-file map (backdrop-spec §9). Curator pushes these; the video
+// files themselves are synced out-of-band (rsync). Keyed by album URI in the library map.
+
+export interface LibraryEntry {
+  /** Absolute path to the visualizer file on the Backdrop Pi. */
+  filePath: string;
+  /** Video duration in seconds. Informational today. */
+  durationSec?: number;
+  /** Content hash so Curator's sync knows when a video changed and needs re-pushing. */
+  contentHash?: string;
+}
+
+// TODO(build order): also export AlbumAsset (hand-written or generated) once that boundary is
+// promoted out of curator/src/albums/asset.ts.

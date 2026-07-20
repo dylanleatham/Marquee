@@ -4,19 +4,27 @@
   "private": true,
   "type": "module",
   "description": "Plays looping visualizer videos on the display in response to scan events.",
-  "main": "./dist/index.js",
+  "main": "./dist/server.js",
   "scripts": {
-    "dev": "echo \"(dev server not implemented yet — see README)\"",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
     "build": "tsc -b",
     "type-check": "tsc --noEmit",
-    "test": "node --test",
-    "test:unit": "node --test",
+    "test": "vitest run",
+    "test:unit": "vitest run",
     "lint": "echo \"(no linter configured yet)\""
   },
   "dependencies": {
-    "@marquee/contracts": "workspace:*"
+    "@fastify/static": "^8",
+    "@fastify/websocket": "^11.0.1",
+    "@marquee/contracts": "workspace:*",
+    "fastify": "^5.1.0",
+    "smol-toml": "^1.3.1"
   },
   "devDependencies": {
-    "typescript": "^5.6.2"
+    "@types/node": "^22.7.5",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2",
+    "vitest": "^2.1.3"
   }
 }

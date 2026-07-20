@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>Marquee — Backdrop</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <!-- Two video layers so a swap crossfades instead of cutting (spec §10). -->
+    <video
+      id="video-a"
+      class="layer video"
+      muted
+      loop
+      playsinline
+      preload="auto"
+    ></video>
+    <video
+      id="video-b"
+      class="layer video"
+      muted
+      loop
+      playsinline
+      preload="auto"
+    ></video>
+
+    <!-- Idle overlay: near-black slowly shifting gradient, non-distracting (spec §11). -->
+    <div id="idle" class="layer idle is-visible"></div>
+
+    <!-- Corner indicators, shown only with ?debug=1 (spec §10). -->
+    <div id="indicators" class="indicators" hidden>
+      <div id="conn" class="conn" title="WebSocket connection">●</div>
+      <div id="uri" class="uri"></div>
+      <div id="toast" class="toast" hidden></div>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
