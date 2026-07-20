@@ -83,6 +83,10 @@ export class SpotifyAuth {
   >();
   // Cached short-lived access token; refreshed before expiry, parallel to SpotifyClient's app token.
   private access?: { value: string; expiresAt: number };
+  // A single in-flight refresh, shared by concurrent callers. Without this, two parallel refreshes
+  // of the same token could race — and if Spotify rotated the token between them, the loser would
+  // 400 and trigger a false `disconnect()`. Deduping to one exchange removes that hazard.
+  private refreshing?: Promise<string>;
   // The persisted session, lazily loaded from disk (so a session survives a restart).
   private tokens?: SpotifyTokens;
   private tokensLoaded = false;
@@ -214,7 +218,15 @@ export class SpotifyAuth {
     if (!tokens) return undefined;
     if (this.access && this.access.expiresAt > this.now())
       return this.access.value;
+    // Dedup concurrent refreshes onto one exchange (see `refreshing` above), clearing the guard once
+    // it settles so the next expiry refreshes again.
+    this.refreshing ??= this.refreshAccessToken(tokens).finally(() => {
+      this.refreshing = undefined;
+    });
+    return this.refreshing;
+  }
 
+  private async refreshAccessToken(tokens: SpotifyTokens): Promise<string> {
     const res = await this.fetchT(
       `${this.accountsBase}/api/token`,
       this.form({

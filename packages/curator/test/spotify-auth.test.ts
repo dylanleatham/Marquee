@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFakeSpotify } from "@marquee/fake-spotify";
 import { SpotifyAuth, DEFAULT_SCOPES } from "../src/spotify/auth.js";
-import { writeSpotifyTokens } from "../src/spotify/token-store.js";
+import type { FetchLike } from "../src/spotify/client.js";
+import {
+  writeSpotifyTokens,
+  readSpotifyTokens,
+} from "../src/spotify/token-store.js";
 
 const REDIRECT = "http://127.0.0.1:4739/api/spotify/auth/callback";
 const dir = () => mkdtempSync(join(tmpdir(), "curator-auth-"));
@@ -102,6 +106,54 @@ describe("SpotifyAuth (Authorization Code + PKCE)", () => {
     expect(fs.refreshRequests()).toBe(1);
     await auth.userAccessToken(); // fresh again — cached
     expect(fs.refreshRequests()).toBe(1);
+  });
+
+  it("dedups concurrent refreshes onto a single exchange", async () => {
+    let clock = 0;
+    const { auth, fs } = build({ now: () => clock });
+    await connect(auth, fs);
+    clock = 3_600_000; // expire the cached token
+    // Two callers hit an expired token at once — they must share one refresh, not race two (a race
+    // could 400 the loser and falsely disconnect if Spotify rotated the token between them).
+    const [a, b] = await Promise.all([
+      auth.userAccessToken(),
+      auth.userAccessToken(),
+    ]);
+    expect(a).toBe(b);
+    expect(fs.refreshRequests()).toBe(1);
+  });
+
+  it("persists a rotated refresh token from the refresh response", async () => {
+    const dataDir = dir();
+    writeSpotifyTokens(dataDir, {
+      refreshToken: "old",
+      scope: "streaming",
+      obtainedAt: new Date(0).toISOString(),
+    });
+    // A stub that rotates the refresh token, as Spotify sometimes does — the new one must be stored.
+    const fetchStub: FetchLike = async (_input, init) => {
+      const body = new URLSearchParams(String(init?.body));
+      expect(body.get("grant_type")).toBe("refresh_token");
+      expect(body.get("refresh_token")).toBe("old");
+      return new Response(
+        JSON.stringify({
+          access_token: "at",
+          token_type: "Bearer",
+          expires_in: 3600,
+          refresh_token: "rotated",
+          scope: "streaming",
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    };
+    const auth = new SpotifyAuth({
+      clientId: "cid",
+      redirectUri: REDIRECT,
+      dataDir,
+      fetch: fetchStub,
+    });
+    expect(await auth.userAccessToken()).toBe("at");
+    expect(readSpotifyTokens(dataDir)?.refreshToken).toBe("rotated");
   });
 
   it("disconnect forgets the session", async () => {

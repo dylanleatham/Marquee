@@ -318,8 +318,9 @@ Runs on `http://localhost:4739` locally.
 > port; the desktop shell opens the authorize URL in the system browser. Client-credentials stays the
 > **fallback** for catalog reads when no user is connected — so search/add work with no login. The
 > refresh token is persisted (plaintext) in `spotify-tokens.json` in the data dir (**not**
-> `settings.json`); Connect/Disconnect take effect immediately (no restart). All routes **503** when
-> Spotify isn't configured.
+> `settings.json`); Connect/Disconnect take effect immediately (no restart). `login` / `callback` /
+> `disconnect` **503** when Spotify isn't configured; `status` returns `{ connected: false }` (200)
+> so the UI can poll it unconditionally.
 
 | Method | Path                           | Purpose                                                                                                                                                        |
 | ------ | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |

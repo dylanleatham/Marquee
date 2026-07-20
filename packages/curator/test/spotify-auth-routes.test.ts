@@ -142,4 +142,15 @@ describe("Spotify user-auth routes", () => {
     expect(res.statusCode).toBe(400);
     expect(res.body).toContain("Login failed");
   });
+
+  it("escapes the attacker-influenceable error param in the callback page", async () => {
+    const { app } = serverAt();
+    // Spotify puts the `error` value straight into the redirect; it lands in the HTML, so it must be
+    // escaped, not reflected raw (no stored/reflected XSS on the loopback callback page).
+    const res = await app.inject({
+      url: "/api/spotify/auth/callback?error=%3Cscript%3Ealert(1)%3C%2Fscript%3E",
+    });
+    expect(res.body).not.toContain("<script>alert(1)");
+    expect(res.body).toContain("&lt;script&gt;");
+  });
 });
