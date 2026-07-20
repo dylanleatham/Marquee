@@ -1,0 +1,19 @@
+# Copy to config.toml (same folder) on the Pi. config.toml is gitignored.
+# On the dev workstation you can skip this entirely — env vars + defaults are enough.
+
+[server]
+port = 4740
+host = "0.0.0.0"
+
+[auth]
+# Required on every /api/* call via the X-Trigger-Secret header. Same value as Stylus + the other
+# services. Falls back to $TRIGGER_SHARED_SECRET if omitted here. The kiosk SPA and the /ws socket
+# stay open — a browser can't set custom headers on a WebSocket.
+shared_secret = "change-me-lan-only-secret"
+
+[storage]
+data_dir = "data"                       # holds library.json (the URI → video-file map)
+media_dir = "data/media/visualizers"    # where synced visualizer .mp4 files land; scan filePaths must sit under this
+
+[runtime]
+idle_timeout_minutes = 90               # auto-fade to idle after this long with no scan (lost-stop safety net)

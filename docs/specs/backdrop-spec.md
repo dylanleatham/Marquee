@@ -2,6 +2,22 @@
 
 _The visual companion to the record spinning — it's the backdrop, not the show._
 
+> **Implementation status (2026-07-20).** The workstation-testable core is built in
+> `packages/backdrop` (milestones 2–9): config, `library.json` store, the IDLE⇄PLAYING controller
+> with the idle-timeout safety net, the WebSocket hub, the full §8 HTTP API, and the vanilla kiosk
+> SPA. 39 tests; verified live in a browser (WS connect, `/healthz` gating, scan→play→idle, the
+> `show-message` path). Milestones 1/10/11 (kiosk launcher, systemd, real NFC) are hardware and are
+> documented in the package README, not yet automated.
+>
+> **One correction to this spec:** §6 says launch the kiosk with `--app=http://localhost:4740`. A
+> page served over `http://` **cannot** load the local `file://` video clips (Chromium blocks
+> cross-scheme), so the launcher must instead point Chromium at the SPA as a **`file://` origin**
+> (or keep `http://localhost` and add `--allow-file-access-from-files`). The WebSocket connects back
+> to `ws://localhost:4740/ws` regardless. See the README "Deploy on the Pi" section. Also added
+> beyond the spec: resolved `filePath`s must sit under `media_dir` (defense-in-depth against a
+> poisoned library) — an unknown URI, a missing file, or an out-of-tree path all degrade to the
+> §9/§10 "stay put + quiet corner hint" behavior rather than playing.
+
 ## 1. Purpose
 
 A Pi attached to a display (TV or monitor near the listening area) that plays looping visualizer videos in response to NFC scan events. When a tagged sleeve is placed on the stand, Backdrop starts the corresponding album's visualizer; when removed, it fades back to an idle state.
