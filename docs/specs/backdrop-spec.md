@@ -5,7 +5,7 @@ _The visual companion to the record spinning — it's the backdrop, not the show
 > **Implementation status (2026-07-20).** The workstation-testable core is built in
 > `packages/backdrop` (milestones 2–9): config, `library.json` store, the IDLE⇄PLAYING controller
 > with the idle-timeout safety net, the WebSocket hub, the full §8 HTTP API, and the vanilla kiosk
-> SPA. 28 tests; verified live in a browser (WS connect, `/healthz` gating, scan→play→idle, the
+> SPA. 39 tests; verified live in a browser (WS connect, `/healthz` gating, scan→play→idle, the
 > `show-message` path). Milestones 1/10/11 (kiosk launcher, systemd, real NFC) are hardware and are
 > documented in the package README, not yet automated.
 >

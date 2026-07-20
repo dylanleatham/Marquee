@@ -47,7 +47,9 @@ export class Library {
     }
   }
 
-  /** Write via temp-file + rename so a crash mid-write never leaves a truncated library.json. */
+  // Write via temp-file + rename so a crash mid-write never leaves a truncated library.json. This is
+  // deliberately stronger than the plain writeFileSync used by the conductor/curator JSON stores:
+  // Backdrop runs unattended on the Pi and a power-cut during a sync must not brick the whole map.
   private persist(): void {
     this.data.updatedAt = new Date().toISOString();
     const tmp = `${this.path}.tmp`;

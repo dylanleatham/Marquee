@@ -27,7 +27,7 @@ Cross-service shapes (`ScanEvent`, `LibraryEntry`) live in `@marquee/contracts`.
 
 ```bash
 pnpm --filter @marquee/backdrop dev        # tsx watch on :4740 (auth disabled, warns at boot)
-pnpm --filter @marquee/backdrop test       # vitest — 28 tests
+pnpm --filter @marquee/backdrop test       # vitest — 39 tests
 pnpm --filter @marquee/backdrop type-check
 ```
 

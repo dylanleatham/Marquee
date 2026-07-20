@@ -198,6 +198,16 @@ describe("backdrop HTTP API", () => {
     expect(get.json().entries[URI]).toBeUndefined();
   });
 
+  it("DELETE /api/library/:uri reports removed:false for an unknown entry", async () => {
+    const { app } = build();
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/library/${encodeURIComponent("curator:album:nope")}`,
+      headers: AUTH,
+    });
+    expect(res.json()).toEqual({ removed: false });
+  });
+
   it("admin play / stop / simulate-scan drive the controller", async () => {
     const { app, controller } = build();
 
