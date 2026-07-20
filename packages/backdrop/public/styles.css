@@ -35,6 +35,10 @@ body {
 .video.is-visible {
   opacity: 1;
 }
+/* PLAYING → IDLE fades the video out slower than a swap (spec §7: 600ms vs 400ms). */
+.video.is-leaving {
+  transition-duration: 600ms;
+}
 
 /* Idle overlay sits above the videos when visible. Two near-black shades drifting slowly — just
    enough to prove the panel is alive without any burn-in risk on OLED. */

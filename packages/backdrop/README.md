@@ -37,7 +37,7 @@ Open `http://localhost:4740/?debug=1` to see the SPA. Drive it without hardware:
 curl -XPOST localhost:4740/api/library/update -H content-type:application/json \
   -d '{"uri":"curator:album:demo","filePath":"C:/abs/path/under/media_dir/demo.mp4"}'
 curl -XPOST localhost:4740/api/scan -H content-type:application/json \
-  -d '{"event":"start","uri":"curator:album:demo","at":"now"}'   # → video plays
+  -d '{"event":"start","uri":"curator:album:demo","tagUid":"04:A1","at":"now"}'  # → video plays
 curl -XPOST localhost:4740/api/scan -H content-type:application/json \
   -d '{"event":"stop","at":"now"}'                                # → fades to idle
 ```

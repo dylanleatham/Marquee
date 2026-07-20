@@ -32,11 +32,19 @@ function parseScan(body: unknown): ScanEvent | null {
       at: String(b.at ?? ""),
     };
   }
-  if (b.event === "start" && typeof b.uri === "string" && b.uri.length > 0) {
+  if (
+    b.event === "start" &&
+    typeof b.uri === "string" &&
+    b.uri.length > 0 &&
+    typeof b.tagUid === "string" &&
+    b.tagUid.length > 0
+  ) {
+    // A real start always carries the tag UID (scan-event.schema.json requires it); enforce it at
+    // the boundary rather than fabricating a value to satisfy the contract type.
     return {
       event: "start",
       uri: b.uri,
-      tagUid: b.tagUid as string | undefined,
+      tagUid: b.tagUid,
       readerId: b.readerId as string | undefined,
       at: String(b.at ?? ""),
     };
@@ -117,7 +125,10 @@ export function buildServer(opts: BuildOptions = {}) {
     if (!scan) {
       return reply
         .code(400)
-        .send({ error: "expected { event: 'start'|'stop', uri?, at }" });
+        .send({
+          error:
+            "expected a scan event: start needs { uri, tagUid, at }, stop needs { at }",
+        });
     }
     controller.handleScan(scan);
     return reply.code(202).send({ accepted: true });
@@ -193,7 +204,10 @@ export function buildServer(opts: BuildOptions = {}) {
     if (!scan) {
       return reply
         .code(400)
-        .send({ error: "expected { event: 'start'|'stop', uri?, at }" });
+        .send({
+          error:
+            "expected a scan event: start needs { uri, tagUid, at }, stop needs { at }",
+        });
     }
     controller.handleScan(scan);
     return reply.code(202).send({ accepted: true });

@@ -82,11 +82,16 @@
   }
 
   function stop() {
-    active.classList.remove("is-visible");
+    const leaving = active;
+    leaving.classList.add("is-leaving"); // 600ms fade-out on PLAYING → IDLE (spec §7)
+    leaving.classList.remove("is-visible");
     idle.classList.add("is-visible");
     currentPath = null;
     if (DEBUG) uriLabel.textContent = "";
-    setTimeout(() => active.pause(), 650);
+    setTimeout(() => {
+      leaving.pause();
+      leaving.classList.remove("is-leaving");
+    }, 650);
   }
 
   function handle(cmd) {

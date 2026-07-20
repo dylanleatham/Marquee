@@ -64,8 +64,11 @@ export interface ScanStartEvent {
   event: "start";
   /** Curator album URI, `curator:album:<curatorId>`. */
   uri: string;
-  /** Raw NFC tag UID, e.g. "04:A1:B2:C3:D4:E5:F6". Informational. */
-  tagUid?: string;
+  /**
+   * Raw NFC tag UID, e.g. "04:A1:B2:C3:D4:E5:F6". Informational downstream, but a real `start`
+   * always carries one — required here to match scan-event.schema.json's `then.required`.
+   */
+  tagUid: string;
   /** Which physical stand fired this; defaults to "primary". Downstream may ignore it. */
   readerId?: string;
   /** ISO-8601 timestamp the event was produced. */
@@ -82,8 +85,10 @@ export interface ScanStopEvent {
 export type ScanEvent = ScanStartEvent | ScanStopEvent;
 
 // --- Backdrop library entries (Curator → Backdrop) ---------------------------------------------
-// One row of Backdrop's URI → video-file map (backdrop-spec §9). Curator pushes these; the video
-// files themselves are synced out-of-band (rsync). Keyed by album URI in the library map.
+// The map *value* in Backdrop's URI → video-file map (backdrop-spec §9): the `uri` is the map key,
+// so it is not repeated in the value here. On the wire (POST /api/library/sync) each element carries
+// its own `uri` — that's the shape library-entry.schema.json describes (`{ uri } & LibraryEntry`).
+// Curator pushes these; the video files themselves are synced out-of-band (rsync).
 
 export interface LibraryEntry {
   /** Absolute path to the visualizer file on the Backdrop Pi. */

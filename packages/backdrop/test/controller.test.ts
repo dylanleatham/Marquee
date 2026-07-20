@@ -126,7 +126,12 @@ describe("PlaybackController", () => {
       { "curator:album:x": { filePath: paths["x.mp4"]! } },
       dir,
     );
-    controller.handleScan({ event: "start", uri: "curator:album:x", at: "t" });
+    controller.handleScan({
+      event: "start",
+      uri: "curator:album:x",
+      tagUid: "04:A1",
+      at: "t",
+    });
     expect(controller.status().state).toBe("playing");
     controller.handleScan({ event: "stop", at: "t" });
     expect(controller.status().state).toBe("idle");

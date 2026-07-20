@@ -57,7 +57,7 @@ describe("backdrop HTTP API", () => {
       method: "POST",
       url: "/api/scan",
       headers: AUTH,
-      payload: { event: "start", uri: URI, at: "t" },
+      payload: { event: "start", uri: URI, tagUid: "04:A1", at: "t" },
     });
     const res = await app.inject({
       method: "POST",
@@ -80,13 +80,29 @@ describe("backdrop HTTP API", () => {
     expect(res.statusCode).toBe(400);
   });
 
+  it("POST /api/scan 400s on a start missing tagUid (contract requires it)", async () => {
+    const { app } = build();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/scan",
+      headers: AUTH,
+      payload: { event: "start", uri: URI, at: "t" }, // no tagUid
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
   it("a scan for an unknown album is accepted but stays idle (no blackscreen)", async () => {
     const { app, controller } = build();
     const res = await app.inject({
       method: "POST",
       url: "/api/scan",
       headers: AUTH,
-      payload: { event: "start", uri: "curator:album:unknown", at: "t" },
+      payload: {
+        event: "start",
+        uri: "curator:album:unknown",
+        tagUid: "04:A1",
+        at: "t",
+      },
     });
     expect(res.statusCode).toBe(202); // accepted…
     expect(controller.status().state).toBe("idle"); // …but nothing played
@@ -186,7 +202,7 @@ describe("backdrop HTTP API", () => {
       method: "POST",
       url: "/api/admin/simulate-scan",
       headers: AUTH,
-      payload: { event: "start", uri: URI, at: "t" },
+      payload: { event: "start", uri: URI, tagUid: "04:A1", at: "t" },
     });
     expect(res.statusCode).toBe(202);
     expect(controller.status().state).toBe("playing");
