@@ -17,6 +17,43 @@ export function Settings() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
+  // Spotify user login (Authorization Code + PKCE). Separate from the credential form above: creds
+  // enable the app-token catalog reads; logging in adds a user session (personalized search now,
+  // Connect playback later). Poll so the connected state updates after the browser handshake returns.
+  const { data: auth, refresh: refreshAuth } = usePoll(
+    api.spotifyAuthStatus,
+    5000,
+  );
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  const connectSpotify = async () => {
+    setAuthBusy(true);
+    setAuthError(null);
+    try {
+      const { authorizeUrl } = await api.spotifyLogin();
+      // Opens the system browser in the desktop shell (setWindowOpenHandler), a new tab in dev.
+      window.open(authorizeUrl, "_blank", "noopener");
+    } catch (err) {
+      setAuthError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const disconnectSpotify = async () => {
+    setAuthBusy(true);
+    setAuthError(null);
+    try {
+      await api.spotifyDisconnect();
+      await refreshAuth();
+    } catch (err) {
+      setAuthError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
   const { data: gemini, refresh: refreshGemini } = usePoll(
     api.geminiSettings,
     15000,
@@ -150,6 +187,41 @@ export function Settings() {
             Saved. <b>Restart Marquee</b> to connect Spotify.
           </div>
         )}
+
+        <h3 className="settings-subhead">Log in as a user</h3>
+        <p className="muted">
+          Optional: log in with your Spotify account to run search through your
+          own session and unlock playback control (playing an album through your
+          speakers, coming later). Without it, Curator uses app-only catalog
+          access, which is enough for search and adding albums.
+        </p>
+
+        {auth?.connected ? (
+          <div className="banner banner--ok">
+            Logged in to Spotify.{" "}
+            <button
+              className="btn btn--ghost"
+              onClick={disconnectSpotify}
+              disabled={authBusy}
+            >
+              {authBusy ? "…" : "Disconnect"}
+            </button>
+          </div>
+        ) : (
+          <button
+            className="btn btn--primary"
+            onClick={connectSpotify}
+            disabled={authBusy || !status?.configured}
+            title={
+              status?.configured
+                ? undefined
+                : "Add your Client ID and Secret first"
+            }
+          >
+            {authBusy ? "Opening Spotify…" : "Connect Spotify"}
+          </button>
+        )}
+        {authError && <div className="banner banner--error">{authError}</div>}
       </section>
 
       <section className="detail-section">

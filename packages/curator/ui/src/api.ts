@@ -209,6 +209,12 @@ export interface SpotifySettings {
   clientId: string | null;
 }
 
+/** Spotify user-login status for the Settings screen (GET /api/spotify/auth/status). */
+export interface SpotifyAuthStatus {
+  connected: boolean;
+  scope?: string;
+}
+
 /** Gemini status + opt-in generation flags for the Settings screen (GET /api/settings/gemini). */
 export interface GeminiSettings {
   configured: boolean;
@@ -349,6 +355,12 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ clientId, clientSecret }),
     }),
+  // --- Spotify user login (Authorization Code + PKCE) ---
+  spotifyAuthStatus: () => req<SpotifyAuthStatus>("/api/spotify/auth/status"),
+  spotifyLogin: () => req<{ authorizeUrl: string }>("/api/spotify/auth/login"),
+  spotifyDisconnect: () =>
+    req<{ ok: boolean }>("/api/spotify/auth/disconnect", { method: "POST" }),
+
   geminiSettings: () => req<GeminiSettings>("/api/settings/gemini"),
   saveGeminiSettings: (patch: GeminiSettingsPatch) =>
     req<{ ok: boolean; restartRequired: boolean }>("/api/settings/gemini", {

@@ -25,6 +25,7 @@ import {
 } from "./albums/add-manual.js";
 import { addSpotifyAlbum, DuplicateAlbumError } from "./albums/add-spotify.js";
 import { SpotifyClient, SpotifyError } from "./spotify/client.js";
+import { SpotifyAuth, SpotifyAuthError } from "./spotify/auth.js";
 import { GeminiClient } from "./gemini/client.js";
 import { writeSpotifyCreds, updateGeminiSettings } from "./settings.js";
 import { Roadie } from "./roadie/worker.js";
@@ -53,6 +54,8 @@ export interface BuildOptions {
   generate?: PaletteGenerator;
   /** Injected Spotify client (tests pass one backed by fake-spotify); prod builds from config. */
   spotify?: SpotifyClient;
+  /** Injected Spotify user-auth (tests pass one backed by fake-spotify); prod builds from config. */
+  spotifyAuth?: SpotifyAuth;
   /** Injected Gemini client (tests pass one backed by fake-gemini); prod builds from config. */
   gemini?: GeminiClient;
   /** Override the opt-in generation flags (tests); prod reads them from config.gemini. */
@@ -96,6 +99,24 @@ const spotifyErr = (err: unknown, reply: FastifyReply) => {
     return reply.code(spotifyStatus(err)).send({ error: err.message });
   throw err;
 };
+
+// The tiny page the OAuth redirect lands on. Self-contained (the callback is hit in the system
+// browser, outside the SPA), and it escapes the message since it can carry a provider error string.
+const escapeHtml = (s: string): string =>
+  s.replace(
+    /[&<>"']/g,
+    (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
+        c
+      ]!,
+  );
+
+const callbackHtml = (message: string, ok = false): string =>
+  `<!doctype html><html><head><meta charset="utf-8"><title>Marquee — Spotify</title>` +
+  `<style>body{font-family:system-ui,sans-serif;background:#14110f;color:#f4efe9;` +
+  `display:grid;place-items:center;height:100vh;margin:0}main{max-width:28rem;text-align:center;` +
+  `padding:2rem}h1{font-size:1.25rem}p{color:#b8afaf}</style></head><body><main>` +
+  `<h1>${ok ? "✓ Connected" : "Spotify"}</h1><p>${escapeHtml(message)}</p></main></body></html>`;
 
 // Map an onboarding-action error to a status: not found → 404, bad input → 400, illegal state
 // transition → 409, rejected media → 422, over the upload ceiling → 413; anything else is an
@@ -223,15 +244,42 @@ function queueCounts(store: AssetStore) {
 export function buildServer(opts: BuildOptions = {}) {
   const config = loadConfig(opts.config);
   const store = opts.store ?? new AssetStore(config.dataDir);
-  const spotify =
-    opts.spotify ??
-    (config.spotify ? new SpotifyClient(config.spotify) : undefined);
   const gemini =
     opts.gemini ??
     (config.gemini ? new GeminiClient(config.gemini) : undefined);
   const app = Fastify({
     logger: { level: process.env.NODE_ENV === "test" ? "silent" : "info" },
   });
+
+  // Spotify user login (issue #23): the auth manager owns the PKCE handshake + refresh token; the
+  // client prefers a connected user's token and falls back to the app (client-credentials) token.
+  const spotifyAuth =
+    opts.spotifyAuth ??
+    (config.spotify
+      ? new SpotifyAuth({
+          clientId: config.spotify.clientId,
+          redirectUri: config.spotify.redirectUri,
+          dataDir: config.dataDir,
+        })
+      : undefined);
+  // A connected user's token, or undefined to fall back to app-token catalog reads. A broken/expired
+  // session degrades to the fallback (logged) rather than hard-failing an otherwise-public read.
+  const userTokenOrNull = async (): Promise<string | undefined> => {
+    if (!spotifyAuth) return undefined;
+    try {
+      return await spotifyAuth.userAccessToken();
+    } catch (err) {
+      app.log.warn(
+        `Spotify user token unavailable, falling back to app token: ${(err as Error).message}`,
+      );
+      return undefined;
+    }
+  };
+  const spotify =
+    opts.spotify ??
+    (config.spotify
+      ? new SpotifyClient({ ...config.spotify, getUserToken: userTokenOrNull })
+      : undefined);
   const roadie =
     opts.roadie ??
     new Roadie({
@@ -936,6 +984,68 @@ export function buildServer(opts: BuildOptions = {}) {
     }
   });
 
+  // --- Spotify user login (Authorization Code + PKCE, issue #23 / ADR 0014) ---
+  // Log in as a real Spotify user so calls run through the user session (personalized search now,
+  // Spotify Connect playback later). The desktop app opens `authorizeUrl` in the system browser;
+  // Spotify redirects back to the loopback callback below, which completes the token exchange.
+  // Login only needs the (public) clientId, but we gate on `spotifyAuth` — built whenever creds are
+  // configured — to keep one "Spotify configured?" story.
+
+  // Start a login: hand the SPA the authorize URL to open. (State + PKCE are held server-side.)
+  app.get("/api/spotify/auth/login", async (_req, reply) => {
+    if (!spotifyAuth)
+      return reply.code(503).send({ error: "Spotify not configured" });
+    return { authorizeUrl: spotifyAuth.buildAuthorizeUrl() };
+  });
+
+  // The redirect target. Hit directly in the browser (not via the SPA), so it answers with HTML.
+  app.get("/api/spotify/auth/callback", async (req, reply) => {
+    const { code, state, error } = req.query as {
+      code?: string;
+      state?: string;
+      error?: string;
+    };
+    reply.type("text/html");
+    if (!spotifyAuth)
+      return reply.code(503).send(callbackHtml("Spotify is not configured."));
+    // Spotify sends `error=access_denied` when the user declines consent.
+    if (error)
+      return reply.send(
+        callbackHtml(`Spotify login was cancelled (${error}).`),
+      );
+    if (!code || !state)
+      return reply
+        .code(400)
+        .send(callbackHtml("Missing authorization code or state."));
+    try {
+      await spotifyAuth.handleCallback(code, state);
+      return reply.send(
+        callbackHtml(
+          "Spotify connected. You can close this tab and return to Marquee.",
+          true,
+        ),
+      );
+    } catch (err) {
+      const msg =
+        err instanceof SpotifyAuthError ? err.message : "unexpected error";
+      return reply.code(400).send(callbackHtml(`Login failed: ${msg}.`));
+    }
+  });
+
+  // Whether a user is connected + the granted scopes (backs the Settings connect/disconnect UI).
+  app.get(
+    "/api/spotify/auth/status",
+    async () => spotifyAuth?.status() ?? { connected: false },
+  );
+
+  // Disconnect: forget the refresh token. Takes effect immediately (no restart).
+  app.post("/api/spotify/auth/disconnect", async (_req, reply) => {
+    if (!spotifyAuth)
+      return reply.code(503).send({ error: "Spotify not configured" });
+    spotifyAuth.disconnect();
+    return { ok: true };
+  });
+
   // --- Add an album. Multipart → manual entry (with cover upload); JSON → Spotify. ---
   app.post("/api/albums", async (req, reply) => {
     if (req.isMultipart()) {
@@ -1022,7 +1132,7 @@ export function buildServer(opts: BuildOptions = {}) {
   // Resume any album left mid-processing by a previous run (roadie-spec §5 crash resilience).
   roadie.recover();
 
-  return { app, config, store, spotify, roadie };
+  return { app, config, store, spotify, spotifyAuth, roadie };
 }
 
 /**
