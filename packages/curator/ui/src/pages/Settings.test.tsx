@@ -12,6 +12,9 @@ vi.mock("../api", () => ({
   api: {
     spotifySettings: vi.fn(),
     saveSpotifySettings: vi.fn(),
+    spotifyAuthStatus: vi.fn(),
+    spotifyLogin: vi.fn(),
+    spotifyDisconnect: vi.fn(),
     geminiSettings: vi.fn(),
     saveGeminiSettings: vi.fn(),
   },
@@ -37,6 +40,11 @@ beforeEach(() => {
     ok: true,
     restartRequired: true,
   });
+  vi.mocked(api.spotifyAuthStatus).mockResolvedValue({ connected: false });
+  vi.mocked(api.spotifyLogin).mockResolvedValue({
+    authorizeUrl: "https://accounts.spotify.com/authorize?x=1",
+  });
+  vi.mocked(api.spotifyDisconnect).mockResolvedValue({ ok: true });
   vi.mocked(api.geminiSettings).mockResolvedValue({
     configured: false,
     generateCardArt: false,
@@ -120,5 +128,45 @@ describe("Settings", () => {
     renderSettings();
     const video = await screen.findByLabelText(/Auto-generate visualizer/i);
     expect((video as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it("Connect Spotify is disabled until creds are configured", async () => {
+    renderSettings();
+    const connect = await screen.findByRole("button", {
+      name: /connect spotify/i,
+    });
+    expect((connect as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("opens the authorize URL when Connect Spotify is clicked", async () => {
+    vi.mocked(api.spotifySettings).mockResolvedValue({
+      configured: true,
+      clientId: "cid12345",
+    });
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    renderSettings();
+    const connect = await screen.findByRole("button", {
+      name: /connect spotify/i,
+    });
+    fireEvent.click(connect);
+    await waitFor(() => expect(api.spotifyLogin).toHaveBeenCalled());
+    expect(open).toHaveBeenCalledWith(
+      "https://accounts.spotify.com/authorize?x=1",
+      "_blank",
+      "noopener",
+    );
+    open.mockRestore();
+  });
+
+  it("shows Disconnect when a user is logged in", async () => {
+    vi.mocked(api.spotifyAuthStatus).mockResolvedValue({
+      connected: true,
+      scope: "streaming",
+    });
+    renderSettings();
+    await screen.findByText(/logged in to spotify/i);
+    const disconnect = screen.getByRole("button", { name: /disconnect/i });
+    fireEvent.click(disconnect);
+    await waitFor(() => expect(api.spotifyDisconnect).toHaveBeenCalled());
   });
 });

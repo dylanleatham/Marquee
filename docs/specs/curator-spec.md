@@ -310,6 +310,24 @@ Runs on `http://localhost:4739` locally.
 | GET    | `/api/spotify/search-albums?q=` | Autocomplete album search. Returns candidates with cover art thumbnails. |
 | GET    | `/api/spotify/album/:spotifyId` | Preview one album's Spotify metadata before adding.                      |
 
+### Spotify user login (Authorization Code + PKCE)
+
+> **2026-07-19 ([ADR 0014](../adrs/0014-spotify-user-oauth-pkce.md), issue #23):** logging in as a
+> real Spotify user routes calls through the user session (personalized search now; the foundation
+> for **Spotify Connect playback** later). Curator serves the loopback OAuth callback on its own
+> port; the desktop shell opens the authorize URL in the system browser. Client-credentials stays the
+> **fallback** for catalog reads when no user is connected — so search/add work with no login. The
+> refresh token is persisted (plaintext) in `spotify-tokens.json` in the data dir (**not**
+> `settings.json`); Connect/Disconnect take effect immediately (no restart). All routes **503** when
+> Spotify isn't configured.
+
+| Method | Path                           | Purpose                                                                                                                                                        |
+| ------ | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/spotify/auth/login`      | Start a login. Returns `{ authorizeUrl }` for the UI to open (state + PKCE held server-side).                                                                  |
+| GET    | `/api/spotify/auth/callback`   | The registered loopback redirect target. Validates `state`, exchanges the code (PKCE) for tokens, persists the refresh token. Responds with a small HTML page. |
+| GET    | `/api/spotify/auth/status`     | `{ connected, scope? }` — whether a user session exists and the scopes granted.                                                                                |
+| POST   | `/api/spotify/auth/disconnect` | Forget the user session (clears the refresh token). Returns `{ ok }`.                                                                                          |
+
 ### Queue (primary UI backing)
 
 > **2026-07-13 ([ADR 0004](../adrs/0004-curator-agent-endpoint-namespace.md)):** the queue endpoints
@@ -474,6 +492,12 @@ Settings that live here:
 - Spotify credentials (`clientId` + write-only `clientSecret`) — **Curator-local, not pushed anywhere**.
   Stored in `settings.json` in the data dir so the packaged desktop app can be configured without a
   repo `.env` (ADR 0008); applied at boot. Layered under `config.toml`/env, so dev is unchanged.
+- Spotify **user session** (issue #23 / [ADR 0014](../adrs/0014-spotify-user-oauth-pkce.md)) — the
+  OAuth refresh token from a "Connect Spotify" login, persisted in its **own** `spotify-tokens.json`
+  in the data dir (not `settings.json`, to keep that file's single-writer invariant). Also
+  Curator-local, never pushed. Connect/Disconnect via the `/api/spotify/auth/*` routes take effect
+  immediately (no restart). The `spotify.redirect_uri` (loopback callback) defaults to Curator's
+  host+port and is overridable via `config.toml`/env.
 - Tag placement guide text — a reminder string like "back cover, upper-right" shown to the user during the tag write flow
 
 ## 9. Video workflow (mostly unchanged from prior spec)
@@ -619,6 +643,8 @@ Simple form-based screen accessible from a header link or a corner menu. Section
 - **Listening room** — dropdown of Hue rooms (fetched from `/api/settings/available-rooms`, which proxies to Conductor). Changing the selection pushes to Conductor via `PUT /api/settings`. Shows current selection prominently — this is the setting most likely to change.
 - **Service URLs** — Conductor URL, Backdrop URL, plus their shared secrets. Editable; changes update the TOML config on disk. Test-connection buttons for each service that fire a lightweight probe (`GET /api/bridge/status` on Conductor, `/healthz` on Backdrop) and report success/failure.
 - **Tag placement guide** — a text field for the placement reminder shown during tag write ("back cover, upper-right corner, 25mm round"). Just a string; whatever helps you stay consistent.
+- **Spotify** — Client ID + write-only Client Secret (needed for search/add), plus a **"Connect Spotify" / "Disconnect"** control (issue #23 / [ADR 0014](../adrs/0014-spotify-user-oauth-pkce.md)). Connect opens the Spotify authorize page in the system browser (Authorization Code + PKCE); once the loopback callback returns, the screen reflects the logged-in state. Login is optional — it routes calls through the user session (personalized search now, Connect playback later); without it Curator uses app-only catalog access. The connect button is disabled until credentials are saved.
+- **Gemini** — write-only API key + the opt-in artifact-generation toggles ([ADR 0012](../adrs/0012-artifact-generation-is-opt-in.md)).
 
 Save happens on edit (debounced). Listening room push to Conductor happens synchronously — if the push fails, the setting change is rolled back and the user sees a clear error.
 

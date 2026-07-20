@@ -25,6 +25,12 @@ export interface SpotifyClientOptions {
   now?: () => number;
   /** Per-request timeout (ms). A hung Spotify connection must fail fast, not hang the request. */
   timeoutMs?: number;
+  /**
+   * Supplies a logged-in user's access token when one is connected (issue #23). When it resolves to
+   * a token, requests use the user session; when it resolves to `undefined`, they fall back to the
+   * app-only client-credentials token — so catalog reads keep working with no user logged in.
+   */
+  getUserToken?: () => Promise<string | undefined>;
 }
 
 export class SpotifyError extends Error {
@@ -117,8 +123,14 @@ export class SpotifyClient {
     return this.token.value;
   }
 
+  /** The bearer for a request: a connected user's token if there is one, else the app token. */
+  private async requestToken(): Promise<string> {
+    const userToken = await this.opts.getUserToken?.();
+    return userToken ?? this.accessToken();
+  }
+
   private async api<T>(path: string): Promise<T> {
-    const token = await this.accessToken();
+    const token = await this.requestToken();
     const res = await this.fetchT(`${this.apiBase}${path}`, {
       headers: { Authorization: `Bearer ${token}` },
     });

@@ -97,7 +97,7 @@ describe("loadConfig", () => {
       JSON.stringify({ spotify: { clientId: "cid", clientSecret: "csec" } }),
     );
     process.env.MARQUEE_DATA_DIR = dir;
-    expect(loadConfig().spotify).toEqual({
+    expect(loadConfig().spotify).toMatchObject({
       clientId: "cid",
       clientSecret: "csec",
     });
@@ -206,9 +206,22 @@ describe("loadConfig", () => {
     process.env.SPOTIFY_CLIENT_ID = "env";
     process.env.SPOTIFY_CLIENT_SECRET = "env";
     noFile();
-    expect(loadConfig().spotify).toEqual({
+    expect(loadConfig().spotify).toMatchObject({
       clientId: "env",
       clientSecret: "env",
     });
+  });
+
+  it("derives the Spotify OAuth redirect URI from host + port by default", () => {
+    noFile();
+    process.env.SPOTIFY_CLIENT_ID = "id";
+    process.env.SPOTIFY_CLIENT_SECRET = "secret";
+    delete process.env.SPOTIFY_REDIRECT_URI;
+    expect(loadConfig().spotify?.redirectUri).toBe(
+      "http://127.0.0.1:4739/api/spotify/auth/callback",
+    );
+    // Overridable for a non-default host/port or a specific registered URI.
+    process.env.SPOTIFY_REDIRECT_URI = "http://127.0.0.1:9999/cb";
+    expect(loadConfig().spotify?.redirectUri).toBe("http://127.0.0.1:9999/cb");
   });
 });

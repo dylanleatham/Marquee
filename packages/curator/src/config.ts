@@ -15,8 +15,12 @@ export interface Config {
   dataDir: string;
   /** Ceiling for a single multipart upload. Visualizer videos are the only large uploads. */
   maxUploadBytes: number;
-  /** Spotify client-credentials, if configured. Absent → the Spotify add/search routes 503. */
-  spotify?: { clientId: string; clientSecret: string };
+  /**
+   * Spotify credentials, if configured. Absent → the Spotify add/search routes 503. `clientId` +
+   * `clientSecret` drive the app-only client-credentials flow; `redirectUri` is the loopback
+   * callback for the user OAuth (Authorization Code + PKCE) flow (issue #23 / ADR 0014).
+   */
+  spotify?: { clientId: string; clientSecret: string; redirectUri: string };
   /**
    * Gemini config, if a key is set. Powers LLM prompt drafting (always on when keyed) plus the
    * *optional* artifact generation. Absent → Roadie falls back to the deterministic prompt templates
@@ -140,9 +144,21 @@ export function loadConfig(override: Partial<Config> = {}): Config {
       DEFAULT_MAX_UPLOAD_MB,
   );
 
+  const port = Number(server.port ?? process.env.CURATOR_PORT ?? 4739);
+  const host = String(server.host ?? "127.0.0.1");
+
+  // The OAuth callback the Spotify authorize redirect lands on. Defaults to the loopback address +
+  // Curator's port (Spotify allows a 127.0.0.1 loopback with an explicit port); overridable so a
+  // non-default host/port or a registered URI can be pinned. Must be registered on the Spotify app.
+  const redirectUri = String(
+    (spotifyFile.redirect_uri as string | undefined) ??
+      process.env.SPOTIFY_REDIRECT_URI ??
+      `http://${host}:${port}/api/spotify/auth/callback`,
+  );
+
   const base: Config = {
-    port: Number(server.port ?? process.env.CURATOR_PORT ?? 4739),
-    host: String(server.host ?? "127.0.0.1"),
+    port,
+    host,
     maxUploadBytes:
       (Number.isFinite(maxUploadMb) && maxUploadMb > 0
         ? maxUploadMb
@@ -165,7 +181,7 @@ export function loadConfig(override: Partial<Config> = {}): Config {
         : {}),
     },
     ...(clientId && clientSecret
-      ? { spotify: { clientId, clientSecret } }
+      ? { spotify: { clientId, clientSecret, redirectUri } }
       : {}),
     ...(geminiApiKey
       ? {

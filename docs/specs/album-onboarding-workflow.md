@@ -275,6 +275,14 @@ Not really a session shape, but worth naming. Three modes on the Add screen:
 
 Once added, Roadie takes over. You can walk away.
 
+> **Spotify account login (issue #23 / [ADR 0014](../adrs/0014-spotify-user-oauth-pkce.md)):** the
+> Spotify search/paste modes work with app-only catalog access and need no login. Optionally
+> connecting a real Spotify account (Settings → "Connect Spotify", Authorization Code + PKCE) routes
+> those lookups through the user's session and — the motivating case — **unblocks playing a record's
+> album straight through the user's speakers via Spotify Connect** when the sleeve is placed on the
+> stand, as an alternative to the physical vinyl. That playback flow is a follow-on; this onboarding
+> workflow is unchanged by it.
+
 ## 10. Interruption and edge cases
 
 Real workflows have interruptions. Some to design for:
