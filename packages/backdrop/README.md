@@ -44,26 +44,14 @@ curl -XPOST localhost:4740/api/scan -H content-type:application/json \
 
 `filePath`s must sit under `mediaDir` (defense-in-depth against a poisoned library).
 
-## Deploy on the Pi (spec milestones 1, 10, 11 — hardware, not yet automated)
+## Deploy on the Pi
 
-These need the actual Pi 5 + display and are documented here rather than built:
-
-1. **Kiosk launcher.** Launch Chromium against the SPA as a **`file://` origin** so the `<video>`
-   can load the local `file://` clips (a page served over `http://localhost` can't load `file://`
-   resources — Chromium blocks cross-scheme). Bake in the autoplay flag now for a future un-mute:
-   ```
-   chromium-browser --kiosk --start-fullscreen --window-position=0,0 \
-     --autoplay-policy=no-user-gesture-required \
-     --app=file:///home/pi/backdrop/packages/backdrop/public/index.html?debug=0
-   ```
-   (Alternatively serve over `http://localhost:4740` **and** add `--allow-file-access-from-files`.)
-   The SPA connects the WebSocket back to `ws://localhost:4740/ws` automatically.
-2. **Disable screen blanking** so the panel doesn't go black and look crashed: `xset s off -dpms`
-   in the session (spec §13).
-3. **systemd units** — one for `node dist/server.js`, one for the Chromium launcher
-   (`After=graphical.target`). Pull-the-plug → boots ready (spec milestone 10).
-4. **NFC integration** — with Stylus running, a real tagged sleeve plays its visualizer; removing it
-   fades to idle (spec milestone 11). This is the moment the runtime loop closes end-to-end.
+**[DEPLOY.md](DEPLOY.md) is a full step-by-step guide** for a first-time Pi user — from flashing the
+SD card to a Pi that boots straight into Backdrop (spec milestones 1, 10, 11). In short it covers:
+flash Raspberry Pi OS → install Node 22 + Chromium → clone & build → `config.toml` → a systemd unit
+for the backend → an X11 auto-login kiosk that launches Chromium at the SPA as a **`file://` origin**
+(required so the `<video>` can load the local `file://` clips — Chromium blocks `file://` from an
+`http://` page) → pull-the-plug boot test → wiring Stylus + Curator to it.
 
 Video **decode + crossfade quality** (seamless loop, no black flash at the seam) can only be judged
 on the Pi with real H.264 clips; the SPA structure (two-element crossfade) is in place for it.
