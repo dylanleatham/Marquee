@@ -263,6 +263,70 @@ export async function attachVideoIncoming(
   return finishVideoAttach(deps, curatorId, vis);
 }
 
+/**
+ * Splice the generated clips into one looping MP4 and attach it as the visualizer (issue #29 / ADR
+ * 0011), keeping the whole flow in Curator instead of an external editor. `order` is the ordered list
+ * of clip indices to join — defaults to all clips in index order; pass a subset/reordering to
+ * deselect or resequence. Concatenates to a temp file (re-encoded H.264), then runs it through the
+ * same `ingestVideo` path as a manual upload, so validation/thumbnail/state-transition are identical.
+ * The manual single-video upload remains the override.
+ */
+export async function spliceVisualizer(
+  deps: ActionDeps,
+  curatorId: string,
+  order?: number[],
+): Promise<AlbumAsset> {
+  const asset = load(deps.store, curatorId);
+  if (!VIDEO_ATTACHABLE.includes(asset.roadie.state))
+    throw new TransitionError(asset.roadie.state, "awaiting_preview");
+
+  const clips = asset.videoClips ?? [];
+  if (clips.length === 0)
+    throw new ValidationError(
+      "no generated clips to splice — generate clips first",
+    );
+
+  // Resolve the ordered selection → on-disk clip files. Default: every clip in index order.
+  const byIndex = new Map(clips.map((c) => [c.index, c]));
+  const chosen = order && order.length ? order : clips.map((c) => c.index);
+  const seen = new Set<number>();
+  const files: string[] = [];
+  for (const i of chosen) {
+    const clip = byIndex.get(i);
+    if (!clip) throw new ValidationError(`clip ${i} does not exist`);
+    if (seen.has(i)) throw new ValidationError(`clip ${i} listed twice`);
+    seen.add(i);
+    const path = deps.store.paths.visualizerFile(clip.fileId);
+    if (!existsSync(path))
+      throw new ValidationError(`clip ${i} is missing on disk`);
+    files.push(path);
+  }
+
+  // Concat → temp, then ingest as the single visualizer. Clean up the temp on any failure so a bad
+  // splice never leaks files in /incoming/ (ingestVideo removes it on success via removeSrc).
+  mkdirSync(deps.store.paths.incoming, { recursive: true });
+  const tmp = deps.store.paths.incomingFile(
+    `.splice-${curatorId}-${randomUUID()}.mp4`,
+  );
+  let vis;
+  try {
+    await deps.prober.concat(files, tmp);
+    vis = await ingestVideo(
+      { prober: deps.prober, paths: deps.store.paths, now: deps.now },
+      {
+        srcPath: tmp,
+        fileId: curatorId,
+        originalFilename: "spliced-loop.mp4",
+        removeSrc: true,
+      },
+    );
+  } catch (err) {
+    rmSync(tmp, { force: true });
+    throw err;
+  }
+  return finishVideoAttach(deps, curatorId, vis);
+}
+
 /** Remove the visualizer reference (and, with `deleteFile`, the file). Steps back to awaiting_video. */
 export function detachVideo(
   deps: ActionDeps,

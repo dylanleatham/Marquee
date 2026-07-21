@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AssetStore } from "../src/store/asset-store.js";
@@ -599,5 +599,50 @@ describe("video generation (routes)", () => {
     const job = await pollJob(app, gen.json().id);
     expect(job.status).toBe("failed");
     expect(job.error).toBeTruthy();
+  });
+});
+
+describe("video splice (routes) — issue #29", () => {
+  /** A reviewed album seeded with `n` generated clips + their files on disk. */
+  async function serverWithClips(n = 3) {
+    const { app, store, curatorId } = await serverWithReviewedAlbum();
+    const asset = store.read(curatorId)!;
+    asset.videoClips = Array.from({ length: n }, (_, i) => ({
+      index: i,
+      fileId: `${curatorId}-v${i}`,
+      nudge: `motion ${i}`,
+      generatedAt: "2026-07-21T00:00:00.000Z",
+    }));
+    store.save(asset);
+    mkdirSync(store.paths.visualizers, { recursive: true });
+    for (const c of asset.videoClips)
+      writeFileSync(store.paths.visualizerFile(c.fileId), Buffer.from(c.fileId));
+    return { app, store, curatorId };
+  }
+
+  it("splices all clips into one loop and attaches it, advancing to preview", async () => {
+    const { app, store, curatorId } = await serverWithClips(3);
+    const res = await post(app, `/api/albums/${curatorId}/video/splice`);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().state).toBe("awaiting_preview");
+    expect(res.json().visualizer.fileId).toBe(curatorId);
+    expect(store.read(curatorId)!.visualizer?.originalFilename).toBe(
+      "spliced-loop.mp4",
+    );
+  });
+
+  it("accepts a reordered/deselected subset in the body", async () => {
+    const { app, store, curatorId } = await serverWithClips(3);
+    const res = await post(app, `/api/albums/${curatorId}/video/splice`, {
+      order: [2, 0],
+    });
+    expect(res.statusCode).toBe(200);
+    expect(store.read(curatorId)!.visualizer?.fileId).toBe(curatorId);
+  });
+
+  it("400s a splice with no generated clips", async () => {
+    const { app, curatorId } = await serverWithReviewedAlbum();
+    const res = await post(app, `/api/albums/${curatorId}/video/splice`);
+    expect(res.statusCode).toBe(400);
   });
 });

@@ -18,6 +18,7 @@ import {
   type AlbumAsset,
   type DraftedPrompt,
   type PromptType,
+  type VideoClip,
 } from "../api";
 import { useGenerationJob, type GenerationJobHook } from "../hooks";
 
@@ -146,6 +147,103 @@ export function PromptBlock({
   );
 }
 
+/**
+ * Splice the generated clips into one loop in-app (issue #29): reorder (↑/↓), deselect (✕, re-add
+ * from "Excluded"), then "Splice … into loop" concatenates the chosen clips and attaches the result
+ * as the visualizer. Downloading a clip to edit externally + manual upload remain available.
+ */
+function SpliceControls({
+  curatorId,
+  clips,
+  run,
+}: {
+  curatorId: string;
+  clips: VideoClip[];
+  run: Run;
+}) {
+  const allIndices = clips.map((c) => c.index);
+  const [order, setOrder] = useState<number[]>(allIndices);
+  // Reset the selection when the clip set changes (e.g. clips regenerated).
+  const clipKey = allIndices.join(",");
+  useEffect(() => {
+    setOrder(clipKey === "" ? [] : clipKey.split(",").map(Number));
+  }, [clipKey]);
+
+  const label = new Map(
+    clips.map((c) => [c.index, c.nudge || `Clip ${c.index + 1}`]),
+  );
+  const move = (pos: number, delta: number) =>
+    setOrder((cur) => {
+      const j = pos + delta;
+      if (j < 0 || j >= cur.length) return cur;
+      const next = [...cur];
+      [next[pos], next[j]] = [next[j]!, next[pos]!];
+      return next;
+    });
+  const remove = (idx: number) =>
+    setOrder((cur) => cur.filter((x) => x !== idx));
+  const add = (idx: number) => setOrder((cur) => [...cur, idx]);
+  const excluded = allIndices.filter((i) => !order.includes(i));
+
+  return (
+    <div className="splice">
+      <div className="splice__list">
+        {order.map((idx, pos) => (
+          <div key={idx} className="splice__item">
+            <span className="splice__pos">{pos + 1}</span>
+            <span className="splice__label">{label.get(idx)}</span>
+            <button
+              className="btn btn--sm"
+              disabled={pos === 0}
+              onClick={() => move(pos, -1)}
+              aria-label={`Move ${label.get(idx)} earlier`}
+            >
+              ↑
+            </button>
+            <button
+              className="btn btn--sm"
+              disabled={pos === order.length - 1}
+              onClick={() => move(pos, 1)}
+              aria-label={`Move ${label.get(idx)} later`}
+            >
+              ↓
+            </button>
+            <button
+              className="btn btn--sm"
+              onClick={() => remove(idx)}
+              aria-label={`Remove ${label.get(idx)}`}
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+      </div>
+      {excluded.length > 0 && (
+        <div className="splice__excluded">
+          <span className="muted">Excluded:</span>
+          {excluded.map((idx) => (
+            <button
+              key={idx}
+              className="btn btn--sm"
+              onClick={() => add(idx)}
+            >
+              + {label.get(idx)}
+            </button>
+          ))}
+        </div>
+      )}
+      <button
+        className="btn btn--primary btn--sm"
+        disabled={order.length === 0}
+        onClick={() => run(() => api.spliceVisualizer(curatorId, order))}
+        title="Concatenate the selected clips (in this order) into one looping MP4 and attach it"
+      >
+        Splice {order.length} clip{order.length === 1 ? "" : "s"} into loop
+      </button>
+    </div>
+  );
+}
+
 /** Video: a drop zone until attached (open from review onward), then an inline player + replace/detach. */
 export function VideoSection({
   curatorId,
@@ -210,8 +308,8 @@ export function VideoSection({
           </button>
           {clips.length > 0 && !generating && (
             <span className="muted">
-              Download the clips and splice them into one loop, then upload the
-              result below.
+              Splice them into one loop below, or download a clip to edit
+              externally.
             </span>
           )}
         </div>
@@ -247,6 +345,10 @@ export function VideoSection({
             </div>
           ))}
         </div>
+      )}
+
+      {clips.length > 0 && (
+        <SpliceControls curatorId={curatorId} clips={clips} run={run} />
       )}
 
       {asset.visualizer ? (

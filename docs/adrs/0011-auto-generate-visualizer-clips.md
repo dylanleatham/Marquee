@@ -23,6 +23,8 @@ Two forces shape the decision differently from card art:
   returns an operation to poll, then a file to download.
 - **The maintainer splices the clips themselves** (for now). The output of this step is _a set of
   clips to download_, not a single artifact to attach — the opposite of card art's "pick one."
+  > **Superseded 2026-07-21 (issue #29) — see the "In-app splicing" addendum at the end of this ADR:**
+  > in-app splicing landed, so the clips no longer have to leave Curator.
 
 ## Decision
 
@@ -65,5 +67,26 @@ that stays set by the manual upload of the spliced result.**
   now just the _template_ fallback's text, not a system guarantee.
 - **In-app splicing is explicitly deferred** (an ffmpeg `concat` — ffmpeg is already bundled). Filed
   as a future enhancement; the clips are delivered for the maintainer's own editor meanwhile.
+  > **Done 2026-07-21 (issue #29) — see the addendum below.**
 - Cost enters on demand (N video generations per click), bounded by the human pressing the button,
   and metered/gated by Veo access on the key.
+
+## Addendum 2026-07-21 — in-app splicing (issue #29)
+
+The deferred in-app splice landed, so the generated clips no longer have to leave Curator:
+
+- **`concat(files, out)`** on the ffmpeg wrapper (`media/video.ts`) — an ffmpeg `concat`-filter call
+  (via the existing argv-only `run`, never a shell) that **re-encodes to H.264/MP4** so the output
+  always passes `validateVideo`, regardless of the inputs' encodings. Video-only (`a=0`) — the
+  runtime visualizer plays muted. The argv builder is exported (`buildConcatArgs`) and unit-tested.
+- **`spliceVisualizer(curatorId, order?)`** — joins the selected clips (default: all, in index
+  order; `order` reorders/deselects) into a temp MP4, then runs it through the **same `ingestVideo`
+  path** as a manual upload, so validation, thumbnail, the `awaiting_preview` transition, and the
+  Backdrop sync are identical. `POST /api/albums/:curatorId/video/splice`, body `{ order?: number[] }`.
+- **UI**: the clip gallery gains a reorder/deselect list + a "Splice … into loop" button. The manual
+  single-video upload remains the override; downloading a clip to edit externally still works.
+
+Decision 3 above ("the human still uploads the final spliced loop") and the "In-app splicing is
+explicitly deferred" consequence are **superseded** by this: splicing is now a one-click in-app
+action. Seamless-loop polish (crossfade at the seam) and normalizing mismatched clip dimensions
+remain follow-ups — a plain concat of same-sized clips is the MVP.

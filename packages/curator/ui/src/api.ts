@@ -361,6 +361,13 @@ export const api = {
   // Generation is a background job (issue #30): POST returns the job (202); poll job() until done.
   generateVideoSet: (id: string) =>
     req<GenerationJob>(`/api/albums/${id}/video/generate`, { method: "POST" }),
+  // Splice the generated clips into one loop and attach it (issue #29). `order` = clip indices to
+  // join, in order (default: all).
+  spliceVisualizer: (id: string, order?: number[]) =>
+    req<{ state: RoadieState; visualizer: Visualizer }>(
+      `/api/albums/${id}/video/splice`,
+      { method: "POST", body: JSON.stringify(order ? { order } : {}) },
+    ),
   uploadCardArt: (id: string, form: FormData) => {
     form.set("curatorId", id);
     return req<{ cardArt: CardArt }>("/api/card-art/upload", {
