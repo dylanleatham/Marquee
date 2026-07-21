@@ -99,6 +99,12 @@ PN532 has better NTAG213 support out of the box, has larger read range (4cm vs 2
 
 ## 6. Software stack
 
+> **Implementation note (2026-07-21, build step 10, [ADR 0016](../adrs/0016-stylus-stdlib-core-and-hardware-seams.md)):**
+> the shipped core is **stdlib-only** — HTTP over `urllib` (not `httpx`; injectable transport) and a
+> tiny hand-rolled NDEF URI parser (not `ndeflib`) — so it runs and tests off-hardware with no
+> third-party deps. `adafruit-circuitpython-pn532` and the GPIO driver stay behind injectable seams
+> (`SimulatedReader` vs the Pi reader; logging LED vs GPIO), imported lazily only on the Pi.
+
 - **Language**: Python 3.11+.
 - **NFC library**: `adafruit-circuitpython-pn532`. Best-maintained NTAG213 support in the Python ecosystem.
 - **NDEF parsing**: `ndeflib` — small pure-Python NDEF message parser.
@@ -170,8 +176,8 @@ To Conductor (`http://conductor.local:4737/api/scan`):
 }
 ```
 
-To Player (`http://player.local:4740/api/scan`):
-Same payload shape. Player and Conductor both get identical events; they're not synchronized, just fan-out.
+To Backdrop (`http://backdrop.local:4740/api/scan`):
+Same payload shape. Backdrop and Conductor both get identical events; they're not synchronized, just fan-out. (Renamed from "Player" — Backdrop is the committed name, runtime-overview §12. The config key `[downstream.player]` is still accepted as a legacy alias; [ADR 0016](../adrs/0016-stylus-stdlib-core-and-hardware-seams.md).)
 
 Also fires:
 
@@ -219,8 +225,8 @@ url = "http://conductor.local:4737/api/scan"
 timeout_ms = 1000
 shared_secret = "..."
 
-[downstream.player]
-url = "http://player.local:4740/api/scan"
+[downstream.backdrop]                # "player" is still accepted as a legacy alias (ADR 0016)
+url = "http://backdrop.local:4740/api/scan"
 timeout_ms = 1000
 shared_secret = "..."
 
@@ -247,6 +253,13 @@ Not a stand design, but the constraints your stand design needs to accommodate:
 If you find range is insufficient with a chosen stand geometry, PN532 modules with external antennas exist and can be repositioned inside the stand independently of the Pi. Adafruit sells one specifically for embedded projects.
 
 ## 11. Development milestones
+
+> **Status (2026-07-21, build step 10):** the **bench** milestones are done — #3 (state machine),
+> #4 (HTTP publisher against a stub), and #8 (LED + status/`simulate` endpoints) — all with unit +
+> property tests and a live `--simulate` end-to-end run. #1/#2 (real PN532 read + NDEF off a real
+> tag), #6 (mount), #7 (systemd) are **deferred to step 11** (hardware), behind injectable seams.
+> #5/#9 (real Conductor/Backdrop): Backdrop's `/api/scan` works today; Conductor's scan handler is a
+> filed follow-up (it currently only takes a pre-built palette on `/api/playback`, ADR 0007).
 
 1. **Basic PN532 read.** Wire it up, get the CircuitPython example to print tag UIDs when you tap a random NTAG. Success: any tag prints its UID.
 2. **NDEF read.** Write a Spotify URI to a test NTAG using your phone. Success: your script reads the URI back out.

@@ -11,7 +11,7 @@ url = "http://conductor.local:4737/api/scan"
 timeout_ms = 1000
 shared_secret = "change-me-lan-only-secret"
 
-[downstream.player]
+[downstream.backdrop]
 url = "http://backdrop.local:4740/api/scan"
 timeout_ms = 1000
 shared_secret = "change-me-lan-only-secret"
