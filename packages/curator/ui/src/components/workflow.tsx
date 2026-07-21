@@ -19,6 +19,21 @@ import {
   type DraftedPrompt,
   type PromptType,
 } from "../api";
+import { useGenerationJob, type GenerationJobHook } from "../hooks";
+
+/** The generate button's label reflects live job progress ("Generating 3/5…"). */
+function generateLabel(
+  gen: GenerationJobHook,
+  idle: string,
+  regen: string,
+  hasSet: boolean,
+): string {
+  if (gen.status === "running")
+    return gen.progress && gen.progress.total
+      ? `Generating ${gen.progress.done}/${gen.progress.total}…`
+      : "Generating…";
+  return hasSet ? regen : idle;
+}
 
 /** Wrap an action with the page's error handling + refresh. Returns while the action runs. */
 export type Run = (fn: () => Promise<unknown>) => Promise<void>;
@@ -136,11 +151,14 @@ export function VideoSection({
   curatorId,
   asset,
   run,
+  refresh = () => {},
   canGenerate: genEnabled = false,
 }: {
   curatorId: string;
   asset: AlbumAsset;
   run: Run;
+  /** Pull fresh album data (used the moment a generation job finishes). Defaults to a no-op. */
+  refresh?: () => void;
   /** API video generation is opt-in (Settings); off → the "Generate clips" button is hidden. */
   canGenerate?: boolean;
 }) {
@@ -163,6 +181,15 @@ export function VideoSection({
   // generation must be enabled in Settings (genEnabled). Off → no button; you copy the prompt.
   const canGenerate =
     genEnabled && Boolean(asset.promptDrafts?.video) && Boolean(asset.artwork);
+  // Generation runs as a background job (issue #30); the hook polls it and refreshes on completion.
+  const gen = useGenerationJob(
+    curatorId,
+    "video",
+    () => api.generateVideoSet(curatorId),
+    refresh,
+    canGenerate,
+  );
+  const generating = gen.status === "running";
 
   return (
     <div className="video">
@@ -170,14 +197,18 @@ export function VideoSection({
         <div className="row-actions">
           <button
             className="btn btn--sm"
-            onClick={() => run(() => api.generateVideoSet(curatorId))}
+            onClick={gen.start}
+            disabled={generating}
             title="Generate short clips from the album cover with Gemini, one per prompt variant"
           >
-            {clips.length
-              ? "Regenerate clips with AI"
-              : "Generate clips with AI"}
+            {generateLabel(
+              gen,
+              "Generate clips with AI",
+              "Regenerate clips with AI",
+              clips.length > 0,
+            )}
           </button>
-          {clips.length > 0 && (
+          {clips.length > 0 && !generating && (
             <span className="muted">
               Download the clips and splice them into one loop, then upload the
               result below.
@@ -185,6 +216,7 @@ export function VideoSection({
           )}
         </div>
       )}
+      {gen.error && <div className="banner banner--error">{gen.error}</div>}
 
       {clips.length > 0 && (
         <div className="video__clips">
@@ -291,11 +323,14 @@ export function CardArtSection({
   curatorId,
   asset,
   run,
+  refresh = () => {},
   canGenerate: genEnabled = false,
 }: {
   curatorId: string;
   asset: AlbumAsset;
   run: Run;
+  /** Pull fresh album data (used the moment a generation job finishes). Defaults to a no-op. */
+  refresh?: () => void;
   /** API card-art generation is opt-in (Settings); off → the "Generate options" button is hidden. */
   canGenerate?: boolean;
 }) {
@@ -308,6 +343,15 @@ export function CardArtSection({
 
   const candidates = asset.cardArtCandidates ?? [];
   const canGenerate = genEnabled && Boolean(asset.promptDrafts?.cardArt);
+  // Generation runs as a background job (issue #30); the hook polls it and refreshes on completion.
+  const gen = useGenerationJob(
+    curatorId,
+    "cardArt",
+    () => api.generateCardArtSet(curatorId),
+    refresh,
+    canGenerate,
+  );
+  const generating = gen.status === "running";
 
   return (
     <div className="cardart">
@@ -315,20 +359,25 @@ export function CardArtSection({
         <div className="row-actions">
           <button
             className="btn btn--sm"
-            onClick={() => run(() => api.generateCardArtSet(curatorId))}
+            onClick={gen.start}
+            disabled={generating}
             title="Generate a set of card-art options with Gemini, one per prompt variant"
           >
-            {candidates.length
-              ? "Regenerate options with AI"
-              : "Generate options with AI"}
+            {generateLabel(
+              gen,
+              "Generate options with AI",
+              "Regenerate options with AI",
+              candidates.length > 0,
+            )}
           </button>
-          {candidates.length > 0 && (
+          {candidates.length > 0 && !generating && (
             <span className="muted">
               Click an option to use it as the card.
             </span>
           )}
         </div>
       )}
+      {gen.error && <div className="banner banner--error">{gen.error}</div>}
 
       {candidates.length > 0 && (
         <div className="cardart__gallery">

@@ -52,6 +52,20 @@ const post = (
   body?: unknown,
 ) => app.inject({ method: "POST", url, ...(body ? { payload: body } : {}) });
 
+/**
+ * Generation runs as a background job (issue #30 / ADR 0018): the generate routes return 202
+ * `{ jobId }`. Poll `GET /api/jobs/:id` until the job leaves `running`, then return its final shape.
+ */
+async function pollJob(app: any, jobId: string, tries = 50): Promise<any> {
+  for (let i = 0; i < tries; i++) {
+    const res = await app.inject({ method: "GET", url: `/api/jobs/${jobId}` });
+    const job = res.json();
+    if (job.status !== "running") return job;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  throw new Error(`job ${jobId} still running after ${tries} polls`);
+}
+
 const uploadVideo = (
   app: any,
   curatorId: string,
@@ -390,8 +404,11 @@ describe("card-art generation (routes)", () => {
     const { app, curatorId } = await serverWithCardPrompt();
 
     const gen = await post(app, `/api/albums/${curatorId}/card-art/generate`);
-    expect(gen.statusCode).toBe(200);
-    expect(gen.json().cardArtCandidates).toHaveLength(3);
+    expect(gen.statusCode).toBe(202);
+    const job = await pollJob(app, gen.json().id);
+    expect(job.status).toBe("done");
+    expect(job.result.cardArtCandidates).toHaveLength(3);
+    expect(job.progress).toEqual({ done: 3, total: 3 });
 
     // Each candidate image serves.
     const img = await app.inject({
@@ -435,10 +452,15 @@ describe("card-art generation (routes)", () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it("5xxs generate when every image fails (upstream fault, not a 4xx)", async () => {
+  it("fails the job when every image fails (upstream fault, not a 4xx)", async () => {
+    // The precheck passes (Gemini keyed + enabled + prompt drafted), so the route still 202s; the
+    // whole-batch upstream failure surfaces as a failed job, not a 4xx (issue #30 / ADR 0018).
     const { app, curatorId } = await serverWithCardPrompt("fail");
-    const res = await post(app, `/api/albums/${curatorId}/card-art/generate`);
-    expect(res.statusCode).toBeGreaterThanOrEqual(500);
+    const gen = await post(app, `/api/albums/${curatorId}/card-art/generate`);
+    expect(gen.statusCode).toBe(202);
+    const job = await pollJob(app, gen.json().id);
+    expect(job.status).toBe("failed");
+    expect(job.error).toBeTruthy();
   });
 });
 
@@ -502,8 +524,11 @@ describe("video generation (routes)", () => {
     const { app, curatorId } = await serverWithVideoPrompt();
 
     const gen = await post(app, `/api/albums/${curatorId}/video/generate`);
-    expect(gen.statusCode).toBe(200);
-    expect(gen.json().videoClips).toHaveLength(3);
+    expect(gen.statusCode).toBe(202);
+    const job = await pollJob(app, gen.json().id);
+    expect(job.status).toBe("done");
+    expect(job.result.videoClips).toHaveLength(3);
+    expect(job.progress).toEqual({ done: 3, total: 3 });
 
     const clip = await app.inject({
       method: "GET",
@@ -535,6 +560,25 @@ describe("video generation (routes)", () => {
     expect(res.statusCode).toBe(404);
   });
 
+  it("lists an album's jobs so the UI can re-attach after a reload (issue #30)", async () => {
+    const { app, curatorId } = await serverWithVideoPrompt();
+    const gen = await post(app, `/api/albums/${curatorId}/video/generate`);
+    const { id } = gen.json();
+    const list = await app.inject({
+      method: "GET",
+      url: `/api/albums/${curatorId}/jobs?kind=video`,
+    });
+    expect(list.statusCode).toBe(200);
+    expect(list.json().jobs.map((j: { id: string }) => j.id)).toContain(id);
+    await pollJob(app, id); // let it finish so no timer leaks past the test
+  });
+
+  it("404s an unknown job id", async () => {
+    const { app } = await serverWithVideoPrompt();
+    const res = await app.inject({ method: "GET", url: `/api/jobs/nope` });
+    expect(res.statusCode).toBe(404);
+  });
+
   it("400s generate when Gemini isn't configured", async () => {
     const { app, curatorId } = await serverWithVideoPrompt("none");
     const res = await post(app, `/api/albums/${curatorId}/video/generate`);
@@ -547,9 +591,13 @@ describe("video generation (routes)", () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it("5xxs generate when every clip fails (upstream fault)", async () => {
+  it("fails the job when every clip fails (upstream fault)", async () => {
+    // Precheck passes → 202; the whole-batch failure lands on the job, not the HTTP status (#30).
     const { app, curatorId } = await serverWithVideoPrompt("fail");
-    const res = await post(app, `/api/albums/${curatorId}/video/generate`);
-    expect(res.statusCode).toBeGreaterThanOrEqual(500);
+    const gen = await post(app, `/api/albums/${curatorId}/video/generate`);
+    expect(gen.statusCode).toBe(202);
+    const job = await pollJob(app, gen.json().id);
+    expect(job.status).toBe("failed");
+    expect(job.error).toBeTruthy();
   });
 });

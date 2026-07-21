@@ -136,6 +136,22 @@ export interface CardArtCandidate {
 
 export type PromptType = "video" | "cardArt";
 
+export type JobKind = "video" | "cardArt";
+export type JobStatus = "running" | "done" | "failed";
+
+/** A background generation job (issue #30 / ADR 0018). Mirrors GenerationJob on the server. */
+export interface GenerationJob {
+  id: string;
+  kind: JobKind;
+  curatorId: string;
+  status: JobStatus;
+  progress: { done: number; total: number };
+  createdAt: string;
+  updatedAt: string;
+  error?: string;
+  result?: { videoClips?: VideoClip[]; cardArtCandidates?: CardArtCandidate[] };
+}
+
 export interface AlbumAsset {
   curatorId: string;
   createdAt: string;
@@ -342,10 +358,9 @@ export const api = {
       `/api/albums/${id}/detach-video${del ? "?delete=1" : ""}`,
       { method: "POST" },
     ),
+  // Generation is a background job (issue #30): POST returns the job (202); poll job() until done.
   generateVideoSet: (id: string) =>
-    req<{ videoClips: VideoClip[] }>(`/api/albums/${id}/video/generate`, {
-      method: "POST",
-    }),
+    req<GenerationJob>(`/api/albums/${id}/video/generate`, { method: "POST" }),
   uploadCardArt: (id: string, form: FormData) => {
     form.set("curatorId", id);
     return req<{ cardArt: CardArt }>("/api/card-art/upload", {
@@ -354,9 +369,13 @@ export const api = {
     });
   },
   generateCardArtSet: (id: string) =>
-    req<{ cardArtCandidates: CardArtCandidate[] }>(
-      `/api/albums/${id}/card-art/generate`,
-      { method: "POST" },
+    req<GenerationJob>(`/api/albums/${id}/card-art/generate`, {
+      method: "POST",
+    }),
+  job: (jobId: string) => req<GenerationJob>(`/api/jobs/${jobId}`),
+  albumJobs: (id: string, kind?: JobKind) =>
+    req<{ jobs: GenerationJob[] }>(
+      `/api/albums/${id}/jobs${kind ? `?kind=${kind}` : ""}`,
     ),
   selectCardArt: (id: string, index: number) =>
     req<{ cardArt: CardArt }>(`/api/albums/${id}/card-art/select`, {

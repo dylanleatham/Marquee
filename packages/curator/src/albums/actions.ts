@@ -25,6 +25,7 @@ import {
   draftPrompts,
   type PromptType,
   type DraftOptions,
+  type DraftedPrompt,
 } from "../roadie/prompts.js";
 import { draftOnePromptWithGemini } from "../gemini/draft.js";
 import type { GeminiClient } from "../gemini/client.js";
@@ -34,6 +35,7 @@ import {
   ingestCardArtCandidate,
   ImageError,
 } from "../media/images.js";
+import type { JobKind } from "../jobs/manager.js";
 
 export class NotFoundError extends Error {
   constructor(message = "not found") {
@@ -281,17 +283,56 @@ export function detachVideo(
   return asset;
 }
 
+/** Optional per-set generation options — a progress callback the background job model hooks into. */
+export interface GenerateOptions {
+  /** Called as each variant settles (fulfilled or rejected): `(done, total)`. */
+  onProgress?: (done: number, total: number) => void;
+}
+
 /**
- * Generate a set of visualizer clips from the drafted video prompt variants (Veo/"Omni",
- * image-to-video off the album cover). Stored as `videoClips` for the human to download and splice
- * externally (ADR 0011 — no in-app splicing yet); the single attached `visualizer` is still set by
- * the manual upload. Requires a Gemini client and the album's cover art. Clips generate in parallel;
- * a partial failure keeps the successes — only an all-fail throws (as a 5xx, an upstream fault).
+ * Run per-variant work with progress reporting. `onProgress(0, total)` fires up front (so the UI
+ * shows "0/N" immediately), then once per settled item — regardless of success or failure, since a
+ * failed clip is still "one down." Returns settled results so callers keep the partial-success
+ * semantics (ADR 0010/0011).
  */
-export async function generateVideoSet(
+async function settleWithProgress<T>(
+  promises: Promise<T>[],
+  onProgress?: (done: number, total: number) => void,
+): Promise<PromiseSettledResult<T>[]> {
+  const total = promises.length;
+  let done = 0;
+  onProgress?.(0, total);
+  return Promise.allSettled(
+    promises.map((p) =>
+      p.finally(() => {
+        done += 1;
+        onProgress?.(done, total);
+      }),
+    ),
+  );
+}
+
+/**
+ * The cheap, synchronous preconditions for generating a set — Gemini configured, generation enabled,
+ * the album + its drafted prompt (and, for video, cover art) present. Throws the same typed errors
+ * the generate functions do. Exported so a route can reject a misconfigured request with an immediate
+ * 4xx *before* enqueuing a background job, instead of letting it surface as a job failure (issue #30).
+ * The generate functions call it too, so they stay safe as standalone entry points.
+ */
+export function assertGenerable(
   deps: ActionDeps,
   curatorId: string,
-): Promise<AlbumAsset> {
+  kind: JobKind,
+): void {
+  if (kind === "video") ensureVideoGenerable(deps, curatorId);
+  else ensureCardArtGenerable(deps, curatorId);
+}
+
+/** Video preconditions → the loaded draft + cover path (shared by the route precheck + the action). */
+function ensureVideoGenerable(
+  deps: ActionDeps,
+  curatorId: string,
+): { draft: DraftedPrompt; coverPath: string } {
   if (!deps.gemini)
     throw new ValidationError(
       "Gemini is not configured — set an API key in Settings",
@@ -311,14 +352,31 @@ export async function generateVideoSet(
     throw new ValidationError(
       "album has no cover art to animate — add art first",
     );
+  return { draft, coverPath };
+}
+
+/**
+ * Generate a set of visualizer clips from the drafted video prompt variants (Veo/"Omni",
+ * image-to-video off the album cover). Stored as `videoClips` for the human to download and splice
+ * externally (ADR 0011 — no in-app splicing yet); the single attached `visualizer` is still set by
+ * the manual upload. Requires a Gemini client and the album's cover art. Clips generate in parallel;
+ * a partial failure keeps the successes — only an all-fail throws (as a 5xx, an upstream fault).
+ * Long-running — the server runs it as a background job (issue #30 / ADR 0018), passing `onProgress`.
+ */
+export async function generateVideoSet(
+  deps: ActionDeps,
+  curatorId: string,
+  opts: GenerateOptions = {},
+): Promise<AlbumAsset> {
+  const { draft, coverPath } = ensureVideoGenerable(deps, curatorId);
   const cover = readFileSync(coverPath);
-  const gemini = deps.gemini;
+  const gemini = deps.gemini!;
   const now = clock(deps);
 
   // Generate + ingest each clip inside allSettled so one failure (generation or validation) is
   // isolated and the set keeps the rest (mirrors generateCardArtSet).
   mkdirSync(deps.store.paths.incoming, { recursive: true });
-  const results = await Promise.allSettled(
+  const results = await settleWithProgress(
     draft.variants.map(async (v, i): Promise<VideoClip> => {
       const bytes = await gemini.generateVideo(v.text, cover);
       const tmp = deps.store.paths.incomingFile(
@@ -353,6 +411,7 @@ export async function generateVideoSet(
         ...(vis.resolution ? { resolution: vis.resolution } : {}),
       };
     }),
+    opts.onProgress,
   );
 
   const clips: VideoClip[] = results.flatMap((r) =>
@@ -446,16 +505,11 @@ export function detachCardArt(
   return asset;
 }
 
-/**
- * Generate a set of card-art candidates from the drafted card-art prompt variants (Nano Banana,
- * one image per variant). Stored as `cardArtCandidates` for the human to pick from; the manual
- * upload and `selectCardArt` both still set the single attached `cardArt`. Requires a Gemini client.
- * Images generate in parallel; a partial failure keeps the successes — only an all-fail throws.
- */
-export async function generateCardArtSet(
+/** Card-art preconditions → the loaded draft (shared by the route precheck + the action). */
+function ensureCardArtGenerable(
   deps: ActionDeps,
   curatorId: string,
-): Promise<AlbumAsset> {
+): { draft: DraftedPrompt } {
   if (!deps.gemini)
     throw new ValidationError(
       "Gemini is not configured — set an API key in Settings",
@@ -470,13 +524,28 @@ export async function generateCardArtSet(
     throw new ValidationError(
       "no card-art prompt drafted yet — nothing to generate from",
     );
+  return { draft };
+}
 
-  const gemini = deps.gemini;
+/**
+ * Generate a set of card-art candidates from the drafted card-art prompt variants (Nano Banana,
+ * one image per variant). Stored as `cardArtCandidates` for the human to pick from; the manual
+ * upload and `selectCardArt` both still set the single attached `cardArt`. Requires a Gemini client.
+ * Images generate in parallel; a partial failure keeps the successes — only an all-fail throws.
+ * Run as a background job by the server (issue #30 / ADR 0018), which passes `onProgress`.
+ */
+export async function generateCardArtSet(
+  deps: ActionDeps,
+  curatorId: string,
+  opts: GenerateOptions = {},
+): Promise<AlbumAsset> {
+  const { draft } = ensureCardArtGenerable(deps, curatorId);
+  const gemini = deps.gemini!;
   // Generate *and* ingest inside allSettled: a candidate can fail either at the API (network/5xx)
   // or at ingest (Gemini returned 200 with non-image bytes). Both are per-candidate failures — the
   // set keeps the successes (ADR 0010). Doing the ingest in a bare forEach would let one malformed
   // image throw and discard the whole batch.
-  const results = await Promise.allSettled(
+  const results = await settleWithProgress(
     draft.variants.map(async (v, i) =>
       ingestCardArtCandidate(
         { paths: deps.store.paths, now: deps.now },
@@ -488,6 +557,7 @@ export async function generateCardArtSet(
         },
       ),
     ),
+    opts.onProgress,
   );
 
   const candidates: CardArtCandidate[] = results.flatMap((r) =>
