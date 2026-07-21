@@ -212,6 +212,39 @@ describe("loadConfig", () => {
     });
   });
 
+  it("leaves backdrop sync undefined until a Backdrop URL is configured", () => {
+    noFile();
+    delete process.env.BACKDROP_URL;
+    expect(loadConfig().backdrop).toBeUndefined();
+  });
+
+  it("configures backdrop sync from env, defaulting mediaDir under the data dir", () => {
+    noFile();
+    const dir = mkdtempSync(join(tmpdir(), "md-"));
+    process.env.MARQUEE_DATA_DIR = dir;
+    process.env.BACKDROP_URL = "http://backdrop-pi:4740";
+    process.env.TRIGGER_SHARED_SECRET = "shh";
+    delete process.env.BACKDROP_MEDIA_DIR;
+    delete process.env.BACKDROP_SYNC_MEDIA_LOCALLY;
+    expect(loadConfig().backdrop).toEqual({
+      url: "http://backdrop-pi:4740",
+      sharedSecret: "shh",
+      mediaDir: resolve(join(dir, "media", "visualizers")),
+      syncMediaLocally: false,
+    });
+  });
+
+  it("reads the Backdrop media dir and local-sync flag from config.toml", () => {
+    withFile(
+      '[backdrop]\nurl = "http://pi:4740"\nmedia_dir = "/srv/vis"\nsync_media_locally = true\n',
+    );
+    expect(loadConfig().backdrop).toMatchObject({
+      url: "http://pi:4740",
+      mediaDir: resolve("/srv/vis"),
+      syncMediaLocally: true,
+    });
+  });
+
   it("derives the Spotify OAuth redirect URI from host + port by default", () => {
     noFile();
     process.env.SPOTIFY_CLIENT_ID = "id";

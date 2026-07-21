@@ -46,6 +46,13 @@ import {
 import { ImageError } from "./media/images.js";
 import { buildPalettePayload, DemoNotReadyError } from "./demo/payload.js";
 import type { PromptType } from "./roadie/prompts.js";
+import { BackdropClient } from "./backdrop/client.js";
+import {
+  BackdropSync,
+  disabledBackdropSync,
+  localCopyTransfer,
+  type BackdropSyncLike,
+} from "./backdrop/sync.js";
 
 export interface BuildOptions {
   config?: Partial<Config>;
@@ -65,6 +72,8 @@ export interface BuildOptions {
   roadie?: Roadie;
   /** Injected video prober (tests pass a fake); prod uses ffprobe/ffmpeg. */
   prober?: VideoProber;
+  /** Injected Backdrop sync (tests point it at a stub Backdrop); prod builds one from config.backdrop. */
+  backdrop?: BackdropSyncLike;
 }
 
 const summary = (a: AlbumAsset) => ({
@@ -305,6 +314,29 @@ export function buildServer(opts: BuildOptions = {}) {
     generateCardArt: genCardArt,
     generateVideo: genVideo,
   };
+  // Backdrop sync (step 9). Off unless a Backdrop URL is configured — then video attach/detach and
+  // the manual resync/verify routes push Curator's library projection to Backdrop (roadie-spec §6).
+  const backdrop: BackdropSyncLike =
+    opts.backdrop ??
+    (config.backdrop
+      ? new BackdropSync({
+          store,
+          client: new BackdropClient({
+            url: config.backdrop.url,
+            ...(config.backdrop.sharedSecret
+              ? { sharedSecret: config.backdrop.sharedSecret }
+              : {}),
+          }),
+          backdropMediaDir: config.backdrop.mediaDir,
+          ...(config.backdrop.syncMediaLocally
+            ? { mediaTransfer: localCopyTransfer(config.backdrop.mediaDir) }
+            : {}),
+          logger: {
+            info: (m) => app.log.info(m),
+            warn: (m) => app.log.warn(m),
+          },
+        })
+      : disabledBackdropSync);
   // Upload ceiling comes from config (default 2 GB) — visualizer videos are the large uploads;
   // cover/card art are tiny. Over-ceiling uploads surface as a 413 via actionError (issue #12).
   app.register(multipart, { limits: { fileSize: config.maxUploadBytes } });
@@ -327,9 +359,11 @@ export function buildServer(opts: BuildOptions = {}) {
 
   app.delete("/api/albums/:curatorId", async (req, reply) => {
     const { curatorId } = req.params as { curatorId: string };
-    return store.delete(curatorId)
-      ? { deleted: curatorId }
-      : reply.code(404).send({ error: "not found" });
+    if (!store.delete(curatorId))
+      return reply.code(404).send({ error: "not found" });
+    // Drop it from Backdrop too so a stale scan doesn't resolve to a now-deleted album (best-effort).
+    await backdrop.removeAlbum(curatorId);
+    return { deleted: curatorId };
   });
 
   // Serve an album's cover art (the UI shows a thumbnail per row, polled every 2s). Validate the
@@ -565,6 +599,8 @@ export function buildServer(opts: BuildOptions = {}) {
             file.path,
             file.filename,
           );
+          // ★sync (roadie-spec §6): a playable video just landed — push it to Backdrop (best-effort).
+          await backdrop.syncAlbum(asset);
           return reply
             .code(201)
             .send({ curatorId: fields.curatorId, state: asset.roadie.state });
@@ -603,6 +639,9 @@ export function buildServer(opts: BuildOptions = {}) {
         curatorId,
         fileId,
       );
+      // ★sync (roadie-spec §6): the album now has a playable video — push it to Backdrop. Best-effort;
+      // a sync failure is recorded on the album, not raised, so the attach still succeeds.
+      await backdrop.syncAlbum(asset);
       return { state: asset.roadie.state, visualizer: asset.visualizer };
     } catch (err) {
       return actionError(err, reply, req);
@@ -614,6 +653,8 @@ export function buildServer(opts: BuildOptions = {}) {
     const del = (req.query as { delete?: string }).delete === "1";
     try {
       const asset = actions.detachVideo(actionDeps, curatorId, del);
+      // No visualizer left → drop the album from Backdrop's library so a scan degrades to "not synced".
+      await backdrop.syncAlbum(asset);
       return { state: asset.roadie.state };
     } catch (err) {
       return actionError(err, reply, req);
@@ -863,6 +904,33 @@ export function buildServer(opts: BuildOptions = {}) {
       };
     } catch {
       return { reachable: false, paired: false, listeningRoomId: null };
+    }
+  });
+
+  // --- Backdrop sync (step 9, roadie-spec §6) — push Curator's library projection to Backdrop ---
+  // Video attach/detach already sync automatically; these are the manual full-reconcile + verify
+  // controls (curator-spec §9 "run sync from Curator" recovery, and the ★verify check).
+  app.get("/api/backdrop/status", async () => ({ enabled: backdrop.enabled }));
+
+  // Full library reconcile (curator-spec §8 "run sync from Curator" recovery). Push every videoed
+  // album as the complete library, transferring each file first.
+  app.post("/api/backdrop/sync", async (_req, reply) => {
+    if (!backdrop.enabled)
+      return reply.code(409).send({ error: "no Backdrop is configured" });
+    return backdrop.resyncAll(store.list());
+  });
+
+  // Compare Curator's expected projection against Backdrop's live library; return the diff (roadie-spec
+  // §6 verify). Read-only, but POST to match the spec's committed name.
+  app.post("/api/backdrop/verify-sync", async (_req, reply) => {
+    if (!backdrop.enabled)
+      return reply.code(409).send({ error: "no Backdrop is configured" });
+    try {
+      return await backdrop.verify(store.list());
+    } catch (err) {
+      return reply.code(502).send({
+        error: `Backdrop not reachable: ${(err as Error).message}`,
+      });
     }
   });
 
