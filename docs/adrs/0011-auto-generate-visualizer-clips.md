@@ -51,9 +51,10 @@ that stays set by the manual upload of the spliced result.**
    Acceptable for a single-user LAN app at this throughput; a background-job model (poll a job id)
    is the obvious future improvement if it becomes painful.
    > **Superseded 2026-07-21 by [ADR 0018](0018-generation-runs-as-background-jobs.md) (issue #30):**
-   > the future improvement was taken. `video/generate` now returns `202 { jobId }` and the clips
-   > generate in a background job the UI polls (`GET /api/jobs/:id`); the synchronous held request is
-   > gone. The generation logic + partial-success semantics here are otherwise unchanged.
+   > the future improvement was taken. `video/generate` now returns `202` with the job object
+   > (`{ id, status, progress, … }`) and the clips generate in a background job the UI polls (`GET
+   > /api/jobs/:id`, using that `id`); the synchronous held request is gone. The generation logic +
+   > partial-success semantics here are otherwise unchanged.
 
 ## Consequences
 

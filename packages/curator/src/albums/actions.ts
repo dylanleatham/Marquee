@@ -328,11 +328,15 @@ export function assertGenerable(
   else ensureCardArtGenerable(deps, curatorId);
 }
 
-/** Video preconditions → the loaded draft + cover path (shared by the route precheck + the action). */
+/**
+ * Video preconditions → the (narrowed) Gemini client, loaded draft, and cover path. Shared by the
+ * route precheck and the action; returning the narrowed `gemini` lets the action skip a redundant
+ * non-null assertion.
+ */
 function ensureVideoGenerable(
   deps: ActionDeps,
   curatorId: string,
-): { draft: DraftedPrompt; coverPath: string } {
+): { gemini: GeminiClient; draft: DraftedPrompt; coverPath: string } {
   if (!deps.gemini)
     throw new ValidationError(
       "Gemini is not configured — set an API key in Settings",
@@ -352,7 +356,7 @@ function ensureVideoGenerable(
     throw new ValidationError(
       "album has no cover art to animate — add art first",
     );
-  return { draft, coverPath };
+  return { gemini: deps.gemini, draft, coverPath };
 }
 
 /**
@@ -368,9 +372,8 @@ export async function generateVideoSet(
   curatorId: string,
   opts: GenerateOptions = {},
 ): Promise<AlbumAsset> {
-  const { draft, coverPath } = ensureVideoGenerable(deps, curatorId);
+  const { gemini, draft, coverPath } = ensureVideoGenerable(deps, curatorId);
   const cover = readFileSync(coverPath);
-  const gemini = deps.gemini!;
   const now = clock(deps);
 
   // Generate + ingest each clip inside allSettled so one failure (generation or validation) is
@@ -505,11 +508,11 @@ export function detachCardArt(
   return asset;
 }
 
-/** Card-art preconditions → the loaded draft (shared by the route precheck + the action). */
+/** Card-art preconditions → the (narrowed) Gemini client + loaded draft (route precheck + action). */
 function ensureCardArtGenerable(
   deps: ActionDeps,
   curatorId: string,
-): { draft: DraftedPrompt } {
+): { gemini: GeminiClient; draft: DraftedPrompt } {
   if (!deps.gemini)
     throw new ValidationError(
       "Gemini is not configured — set an API key in Settings",
@@ -524,7 +527,7 @@ function ensureCardArtGenerable(
     throw new ValidationError(
       "no card-art prompt drafted yet — nothing to generate from",
     );
-  return { draft };
+  return { gemini: deps.gemini, draft };
 }
 
 /**
@@ -539,8 +542,7 @@ export async function generateCardArtSet(
   curatorId: string,
   opts: GenerateOptions = {},
 ): Promise<AlbumAsset> {
-  const { draft } = ensureCardArtGenerable(deps, curatorId);
-  const gemini = deps.gemini!;
+  const { gemini, draft } = ensureCardArtGenerable(deps, curatorId);
   // Generate *and* ingest inside allSettled: a candidate can fail either at the API (network/5xx)
   // or at ingest (Gemini returned 200 with non-image bytes). Both are per-candidate failures — the
   // set keeps the successes (ADR 0010). Doing the ingest in a bare forEach would let one malformed
