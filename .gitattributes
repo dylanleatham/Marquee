@@ -1,0 +1,23 @@
+# Normalize line endings. Text files are stored as LF in the repo and checked
+# out as LF on every OS, matching Prettier's default (endOfLine: "lf").
+#
+# Without this, a Windows checkout with core.autocrlf=true produces CRLF working
+# files, and `prettier --write` (or `pnpm run format`) rewrites every file back
+# to LF — a spurious repo-wide diff that never shows up on the Linux CI box.
+# Pinning eol=lf here makes formatting a no-op on a clean checkout everywhere.
+* text=auto eol=lf
+
+# Binary assets: never normalize or diff as text.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.webp binary
+*.mp4  binary
+*.mov  binary
+*.woff  binary
+*.woff2 binary
+*.ttf  binary
+*.otf  binary
+*.pdf  binary
