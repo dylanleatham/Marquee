@@ -43,6 +43,19 @@ export interface Config {
    * demo calls Conductor unauthenticated (fine only when Conductor also runs with auth disabled).
    */
   conductor: { url: string; sharedSecret?: string };
+  /**
+   * How Curator reaches Backdrop to sync its library (build step 9, roadie-spec §6). Absent → sync is
+   * disabled (the common case with no runtime Pi running). `mediaDir` is where Backdrop reads videos
+   * *on its host* — it roots the projection's filePath, so it must match Backdrop's own media dir.
+   * `syncMediaLocally` copies the mp4 into that dir in-process for a single-workstation setup; leave
+   * it off on the Pi, where an out-of-band rsync moves the file (runtime-overview §8).
+   */
+  backdrop?: {
+    url: string;
+    sharedSecret?: string;
+    mediaDir: string;
+    syncMediaLocally: boolean;
+  };
 }
 
 // Upload ceiling. A compiled-in 500 MB cap rejected real 1 GB visualizer videos (issue #12), so
@@ -69,6 +82,7 @@ export function loadConfig(override: Partial<Config> = {}): Config {
   const spotifyFile = file.spotify ?? {};
   const geminiFile = file.gemini ?? {};
   const conductorFile = file.conductor ?? {};
+  const backdropFile = file.backdrop ?? {};
 
   // Resolve the data dir first: it holds settings.json, the user-writable credential store the
   // packaged app relies on (it has no repo `.env`). config.toml/env still win, so dev is unchanged.
@@ -147,6 +161,25 @@ export function loadConfig(override: Partial<Config> = {}): Config {
   const port = Number(server.port ?? process.env.CURATOR_PORT ?? 4739);
   const host = String(server.host ?? "127.0.0.1");
 
+  // Backdrop sync (step 9). Configured only when a URL is present; absent → sync disabled. mediaDir
+  // defaults to Curator's own visualizers dir — correct for a shared-root single-machine setup, and
+  // meant to be overridden with Backdrop's real media path on a split (Pi) deployment.
+  const backdropUrl =
+    (backdropFile.url as string | undefined) ?? process.env.BACKDROP_URL;
+  const backdropMediaDir = resolve(
+    String(
+      backdropFile.media_dir ??
+        process.env.BACKDROP_MEDIA_DIR ??
+        join(dataDir, "media", "visualizers"),
+    ),
+  );
+  const backdropSecret =
+    (backdropFile.shared_secret as string | undefined) ??
+    process.env.TRIGGER_SHARED_SECRET;
+  const backdropSyncLocal = asBool(
+    backdropFile.sync_media_locally ?? process.env.BACKDROP_SYNC_MEDIA_LOCALLY,
+  );
+
   // The OAuth callback the Spotify authorize redirect lands on. Defaults to the loopback address +
   // Curator's port (Spotify allows a 127.0.0.1 loopback with an explicit port); overridable so a
   // non-default host/port or a registered URI can be pinned. Must be registered on the Spotify app.
@@ -180,6 +213,16 @@ export function loadConfig(override: Partial<Config> = {}): Config {
           }
         : {}),
     },
+    ...(backdropUrl
+      ? {
+          backdrop: {
+            url: backdropUrl,
+            mediaDir: backdropMediaDir,
+            syncMediaLocally: backdropSyncLocal,
+            ...(backdropSecret ? { sharedSecret: backdropSecret } : {}),
+          },
+        }
+      : {}),
     ...(clientId && clientSecret
       ? { spotify: { clientId, clientSecret, redirectUri } }
       : {}),

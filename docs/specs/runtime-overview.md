@@ -205,7 +205,7 @@ Both Conductor and Backdrop implement an idle timeout: if no scan event has arri
 
 ### Sync strategies
 
-- **Curator → Backdrop metadata**: HTTP push after each save (`POST /api/library/update`). Small, atomic, fast.
+- **Curator → Backdrop metadata**: HTTP push after each save **that changes what Backdrop plays** — a video attach (upsert), detach, or album delete (remove) — via `POST /api/library/update` / `DELETE /api/library/:uri`, plus a full-reconcile `POST /api/library/sync`. Small, atomic, fast. (Not a literal every-save hook: an album still in Roadie's pipeline has no video to project — [ADR 0015](../adrs/0015-backdrop-sync-triggered-at-projection-changes.md), build step 9.)
 - **Curator → Backdrop videos**: `rsync` or `syncthing`, triggered by Curator after upload or run on a schedule. Big files, tolerant of long-running transfer.
 - **Curator → Conductor asset store**: `rsync` push from workstation to runtime Pi. Curator handles this as an automatic post-save action so it feels the same as the Backdrop HTTP push.
 - **Spotify Web API → Curator**: called by Roadie during the album-onboarding pipeline (metadata + art). Read-only. Uses existing OAuth credentials (reuse from your Conflicted Lineup app if convenient).

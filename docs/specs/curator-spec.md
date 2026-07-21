@@ -453,12 +453,21 @@ live in Curator's config (`[conductor] url`, `shared_secret`, or env `CONDUCTOR_
 
 ### Backdrop sync
 
-| Method | Path                                  | Purpose                                                    |
-| ------ | ------------------------------------- | ---------------------------------------------------------- |
-| POST   | `/api/backdrop/sync`                  | Full library push.                                         |
-| POST   | `/api/backdrop/push-album/:curatorId` | Single-album upsert. Auto-called on save.                  |
-| POST   | `/api/backdrop/verify-sync`           | Compare Curator's library against Backdrop's; return diff. |
-| POST   | `/api/backdrop/sync-media`            | Trigger rsync of video files.                              |
+> **Implemented in build step 9 ([ADR 0015](../adrs/0015-backdrop-sync-triggered-at-projection-changes.md)).**
+> Single-album pushes are **automatic**, fired at the action/route layer when an album's projection
+> changes — a video attach (`/api/videos/upload`, `/api/albums/:id/attach-video`) upserts the entry,
+> a detach (`/api/albums/:id/detach-video`) or album delete removes it. There is no separate
+> `push-album` route (the earlier speculative name); the routes below are the _manual_ controls.
+> Configured only when a Backdrop URL is set (`[backdrop] url` / env `BACKDROP_URL`); `mediaDir`
+> roots the projection's `filePath` and `sync_media_locally` opts into an in-process file copy for a
+> single-workstation setup (the Pi uses out-of-band rsync). Sync is best-effort — failures record on
+> the album as `roadie.syncIssues`, never a state change.
+
+| Method | Path                        | Purpose                                                                                                |
+| ------ | --------------------------- | ------------------------------------------------------------------------------------------------------ |
+| GET    | `/api/backdrop/status`      | `{ enabled }` — whether a Backdrop is configured.                                                      |
+| POST   | `/api/backdrop/sync`        | Full library reconcile: push every videoed album (transferring files first). `409` if not configured.  |
+| POST   | `/api/backdrop/verify-sync` | Compare Curator's expected projection against Backdrop's live library; return `{ ok, discrepancies }`. |
 
 Backdrop URL and shared secret live in Curator's config:
 

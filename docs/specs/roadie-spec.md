@@ -162,13 +162,19 @@ Two important properties:
 
 ### Backdrop sync triggers
 
-> **Implementation note (2026-07-13, build step 5):** the sync triggers below (★ in §5) are
-> **not yet implemented.** Step 5 built Roadie's forward pipeline (`fresh` → … → `awaiting_review` /
-> `needs_manual` / `errored`), retry/backoff, failure classification, prompt drafting, and the
-> `/api/agent/*` endpoints. The ★sync/★verify hooks are deferred until Backdrop exists (step 8):
-> there is no downstream to sync to, and the human-driven transitions they observe
-> (`awaiting_video` → `awaiting_preview`, any → `verified`) have no endpoints to fire them yet. The
-> `roadie.syncIssues` field is present in the asset shape so no migration is needed when they land.
+> **Implementation note (2026-07-13, build step 5):** the sync triggers below (★ in §5) were
+> deferred until Backdrop existed (step 8): there was no downstream to sync to. Superseded — see the
+> update below.
+>
+> **Update (2026-07-20, build step 9, [ADR 0015](../adrs/0015-backdrop-sync-triggered-at-projection-changes.md)):**
+> **★sync is implemented.** Curator now pushes its URI → filePath projection to Backdrop's
+> `/api/library/*` API at the points the projection changes — video attach (upsert), video detach /
+> album delete (remove) — plus a manual full-reconcile (`POST /api/backdrop/resync`) and drift check
+> (`GET /api/backdrop/verify`). Per ADR 0015 the trigger lives at Curator's action/route layer, not a
+> literal every-save hook (an album with no video has nothing to project). Sync failures record on the
+> album as `roadie.syncIssues` and never move it backward. **★verify-on-`verified` is still pending**
+> the `verified` transition endpoint (that arrives with the tag-write/verify flow, step 11); the
+> verify _capability_ already ships as the manual route above.
 
 In addition to the sub-states above, Roadie observes two transitions in the human-driven part of the lifecycle and triggers Backdrop synchronization:
 
