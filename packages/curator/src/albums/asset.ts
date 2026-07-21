@@ -43,9 +43,13 @@ export interface AlbumMetadata {
   artist: string;
   year?: number;
   genres?: string[];
-  source: "manual" | "spotify";
+  source: "manual" | "spotify" | "discogs";
   spotifyUri?: string;
   spotifyArtUrl?: string;
+  /** Stable Discogs release id + `discogs:release:<id>` URI (dedupe key, parallel to spotifyUri). */
+  discogsReleaseId?: number;
+  discogsUri?: string;
+  discogsArtUrl?: string;
 }
 
 export interface PaletteSection {
@@ -282,9 +286,9 @@ function freshRoadie(state: RoadieState, at: string): RoadieSection {
 }
 
 /**
- * Build a newly-added album ready for Roadie to process. Spotify albums start at `fetching_metadata`
- * (name/artist arrive with the fetch); manual albums already carry metadata + art, so they start at
- * `generating_palette`. Enqueue the returned asset's curatorId with Roadie after saving.
+ * Build a newly-added album ready for Roadie to process. Spotify/Discogs albums start at
+ * `fetching_metadata` (name/artist arrive with the fetch); manual albums already carry metadata +
+ * art, so they start at `generating_palette`. Enqueue the returned asset's curatorId after saving.
  */
 export function buildFreshAsset(args: {
   curatorId: string;
@@ -294,10 +298,12 @@ export function buildFreshAsset(args: {
   now?: () => string;
 }): AlbumAsset {
   const at = (args.now ?? (() => new Date().toISOString()))();
+  // Manual albums arrive with metadata + art already saved, so they jump straight to palette
+  // generation. Spotify and Discogs both fetch metadata + art off the request path first.
   const startState: RoadieState =
-    args.metadata.source === "spotify"
-      ? "fetching_metadata"
-      : "generating_palette";
+    args.metadata.source === "manual"
+      ? "generating_palette"
+      : "fetching_metadata";
   const roadie = freshRoadie(startState, at);
   return {
     version: 1,

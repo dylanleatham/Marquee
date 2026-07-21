@@ -7,6 +7,8 @@ import { generatePalette } from "@marquee/palette-press";
 import type { AssetStore } from "../store/asset-store.js";
 import type { SpotifyClient } from "../spotify/client.js";
 import { SpotifyError } from "../spotify/client.js";
+import type { DiscogsClient } from "../discogs/client.js";
+import { DiscogsError } from "../discogs/client.js";
 import type { PaletteGenerator } from "../albums/add-manual.js";
 import type {
   AlbumAsset,
@@ -33,6 +35,7 @@ export interface StepLogger {
 export interface StepDeps {
   store: AssetStore;
   spotify?: SpotifyClient;
+  discogs?: DiscogsClient;
   /** Gemini client for LLM-authored prompts; absent → the drafter uses the deterministic templates. */
   gemini?: GeminiClient;
   generate: PaletteGenerator;
@@ -52,8 +55,17 @@ function classifySpotify(err: SpotifyError, notFoundReason: string): never {
   throw new TransientError(err.message, err);
 }
 
-/** fetching_metadata → downloading_art. Fills name/artist/year/genres/art URL from Spotify. */
-const fetchMetadata: Step = async (asset, deps) => {
+/** Translate a Discogs HTTP error into a Roadie failure class (parallel to `classifySpotify`). */
+function classifyDiscogs(err: DiscogsError, notFoundReason: string): never {
+  if (err.status === 404) throw new PermanentError(err.message, notFoundReason);
+  if (err.status === 401 || err.status === 403)
+    throw new ConfigError(`Discogs auth problem: ${err.message}`, err);
+  // 429 rate limit, 5xx, 504 timeout, or unknown → retry.
+  throw new TransientError(err.message, err);
+}
+
+/** Spotify metadata fetch: fills name/artist/year/genres/art URL from the album + artist endpoints. */
+const fetchSpotifyMetadata: Step = async (asset, deps) => {
   if (!deps.spotify)
     throw new ConfigError(
       "Spotify not configured but album needs a metadata fetch",
@@ -87,8 +99,65 @@ const fetchMetadata: Step = async (asset, deps) => {
   return "downloading_art";
 };
 
-/** downloading_art → generating_palette. Spotify-only; manual albums arrive with art already saved. */
-const downloadArt: Step = async (asset, deps) => {
+/** Discogs metadata fetch: refreshes name/artist/year/genres + the primary cover-image URL. */
+const fetchDiscogsMetadata: Step = async (asset, deps) => {
+  if (!deps.discogs)
+    throw new ConfigError(
+      "Discogs not configured but album needs a metadata fetch",
+    );
+  const releaseId = asset.metadata.discogsReleaseId;
+  if (!releaseId)
+    throw new PermanentError(
+      `Album has no Discogs release id (${asset.metadata.discogsUri})`,
+      "invalid_discogs_release",
+    );
+
+  let meta;
+  try {
+    meta = await deps.discogs.getRelease(releaseId);
+  } catch (err) {
+    if (err instanceof DiscogsError)
+      classifyDiscogs(err, "release_not_on_discogs");
+    throw err;
+  }
+
+  const next: AlbumMetadata = {
+    name: meta.title,
+    artist: meta.artist,
+    source: "discogs",
+    discogsReleaseId: meta.releaseId,
+    discogsUri: meta.discogsUri,
+    ...(meta.artUrl ? { discogsArtUrl: meta.artUrl } : {}),
+    ...(meta.year !== undefined ? { year: meta.year } : {}),
+    ...(meta.genres.length ? { genres: meta.genres } : {}),
+  };
+  asset.metadata = next;
+  return "downloading_art";
+};
+
+/**
+ * fetching_metadata → downloading_art. Dispatches on the source: Spotify albums fetch from the
+ * Spotify Web API, Discogs albums from the Discogs API. (Manual albums never enter this step.)
+ */
+const fetchMetadata: Step = async (asset, deps) =>
+  asset.metadata.source === "discogs"
+    ? fetchDiscogsMetadata(asset, deps)
+    : fetchSpotifyMetadata(asset, deps);
+
+/** Persist downloaded cover art to disk + stamp the artwork section. Shared by both art paths. */
+function saveArt(asset: AlbumAsset, deps: StepDeps, art: Buffer): void {
+  const abs = deps.store.paths.artworkFile(asset.curatorId);
+  mkdirSync(deps.store.paths.artwork, { recursive: true });
+  writeFileSync(abs, art);
+  asset.artwork = {
+    resolvedPath: deps.store.paths.relPosix(abs),
+    overrideActive: false,
+    contentHash: "sha256:" + createHash("sha256").update(art).digest("hex"),
+  };
+}
+
+/** Spotify art download. */
+const downloadSpotifyArt: Step = async (asset, deps) => {
   if (!deps.spotify)
     throw new ConfigError("Spotify not configured but album needs its art");
   const url = asset.metadata.spotifyArtUrl;
@@ -105,17 +174,40 @@ const downloadArt: Step = async (asset, deps) => {
     if (err instanceof SpotifyError) classifySpotify(err, "art_unavailable");
     throw err;
   }
-
-  const abs = deps.store.paths.artworkFile(asset.curatorId);
-  mkdirSync(deps.store.paths.artwork, { recursive: true });
-  writeFileSync(abs, art);
-  asset.artwork = {
-    resolvedPath: deps.store.paths.relPosix(abs),
-    overrideActive: false,
-    contentHash: "sha256:" + createHash("sha256").update(art).digest("hex"),
-  };
+  saveArt(asset, deps, art);
   return "generating_palette";
 };
+
+/** Discogs art download (ADR 0016 — the release's own image, no Spotify resolution). */
+const downloadDiscogsArt: Step = async (asset, deps) => {
+  if (!deps.discogs)
+    throw new ConfigError("Discogs not configured but album needs its art");
+  const url = asset.metadata.discogsArtUrl;
+  if (!url)
+    throw new PermanentError(
+      "Discogs release has no cover image — provide art manually",
+      "art_unavailable",
+    );
+
+  let art: Buffer;
+  try {
+    art = await deps.discogs.downloadArt(url);
+  } catch (err) {
+    if (err instanceof DiscogsError) classifyDiscogs(err, "art_unavailable");
+    throw err;
+  }
+  saveArt(asset, deps, art);
+  return "generating_palette";
+};
+
+/**
+ * downloading_art → generating_palette. Dispatches on source; manual albums arrive with art already
+ * saved and never enter this step.
+ */
+const downloadArt: Step = async (asset, deps) =>
+  asset.metadata.source === "discogs"
+    ? downloadDiscogsArt(asset, deps)
+    : downloadSpotifyArt(asset, deps);
 
 /**
  * generating_palette → drafting_prompts (or awaiting_review if the art is monochrome). Reads the
@@ -196,9 +288,9 @@ const draftPromptsStep: Step = async (asset, deps) => {
 /** The step for each Roadie-driven state. `fresh` routes to the source's first real step. */
 export const STEPS: Record<string, Step> = {
   fresh: async (asset) =>
-    asset.metadata.source === "spotify"
-      ? "fetching_metadata"
-      : "generating_palette",
+    asset.metadata.source === "manual"
+      ? "generating_palette"
+      : "fetching_metadata",
   fetching_metadata: fetchMetadata,
   downloading_art: downloadArt,
   generating_palette: generatePaletteStep,

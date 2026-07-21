@@ -22,6 +22,12 @@ export interface Config {
    */
   spotify?: { clientId: string; clientSecret: string; redirectUri: string };
   /**
+   * Discogs config, if a personal access token is set (ADR 0016). Absent → the Discogs collection/
+   * add routes 503. `username` is optional — when omitted, the client resolves it from the token's
+   * identity. This is a separate auth mechanism from Spotify (a personal token, not OAuth).
+   */
+  discogs?: { token: string; username?: string };
+  /**
    * Gemini config, if a key is set. Powers LLM prompt drafting (always on when keyed) plus the
    * *optional* artifact generation. Absent → Roadie falls back to the deterministic prompt templates
    * and the generate routes 400. `generateCardArt`/`generateVideo` are **opt-in, default off**: by
@@ -80,6 +86,7 @@ export function loadConfig(override: Partial<Config> = {}): Config {
   const server = file.server ?? {};
   const storage = file.storage ?? {};
   const spotifyFile = file.spotify ?? {};
+  const discogsFile = file.discogs ?? {};
   const geminiFile = file.gemini ?? {};
   const conductorFile = file.conductor ?? {};
   const backdropFile = file.backdrop ?? {};
@@ -103,6 +110,15 @@ export function loadConfig(override: Partial<Config> = {}): Config {
     (spotifyFile.client_secret as string | undefined) ??
     process.env.SPOTIFY_CLIENT_SECRET ??
     settings.spotify?.clientSecret;
+
+  const discogsToken =
+    (discogsFile.token as string | undefined) ??
+    process.env.DISCOGS_TOKEN ??
+    settings.discogs?.token;
+  const discogsUsername =
+    (discogsFile.username as string | undefined) ??
+    process.env.DISCOGS_USERNAME ??
+    settings.discogs?.username;
 
   const geminiApiKey =
     (geminiFile.api_key as string | undefined) ??
@@ -225,6 +241,14 @@ export function loadConfig(override: Partial<Config> = {}): Config {
       : {}),
     ...(clientId && clientSecret
       ? { spotify: { clientId, clientSecret, redirectUri } }
+      : {}),
+    ...(discogsToken
+      ? {
+          discogs: {
+            token: discogsToken,
+            ...(discogsUsername ? { username: discogsUsername } : {}),
+          },
+        }
       : {}),
     ...(geminiApiKey
       ? {

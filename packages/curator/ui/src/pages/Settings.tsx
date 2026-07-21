@@ -54,6 +54,37 @@ export function Settings() {
     }
   };
 
+  // Discogs personal access token (ADR 0016). Same store + restart-to-apply story as Spotify.
+  const { data: discogs, refresh: refreshDiscogs } = usePoll(
+    api.discogsSettings,
+    15000,
+  );
+  const [discogsToken, setDiscogsToken] = useState("");
+  const [discogsUsername, setDiscogsUsername] = useState("");
+  const [discogsBusy, setDiscogsBusy] = useState(false);
+  const [discogsError, setDiscogsError] = useState<string | null>(null);
+  const [discogsSaved, setDiscogsSaved] = useState(false);
+
+  const saveDiscogs = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setDiscogsBusy(true);
+    setDiscogsError(null);
+    setDiscogsSaved(false);
+    try {
+      await api.saveDiscogsSettings(
+        discogsToken.trim(),
+        discogsUsername.trim() || undefined,
+      );
+      setDiscogsSaved(true);
+      setDiscogsToken(""); // don't keep the token in the field after saving
+      await refreshDiscogs();
+    } catch (err) {
+      setDiscogsError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setDiscogsBusy(false);
+    }
+  };
+
   const { data: gemini, refresh: refreshGemini } = usePoll(
     api.geminiSettings,
     15000,
@@ -222,6 +253,73 @@ export function Settings() {
           </button>
         )}
         {authError && <div className="banner banner--error">{authError}</div>}
+      </section>
+
+      <section className="detail-section">
+        <h2>Discogs</h2>
+        <p className="muted">
+          Browse your Discogs collection and send albums to Roadie. Create a
+          personal access token in your{" "}
+          <a
+            href="https://www.discogs.com/settings/developers"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Discogs developer settings
+          </a>{" "}
+          and paste it below. It's stored in your local data folder and never
+          leaves this machine. The username is optional — it's read from your
+          token when left blank.
+        </p>
+
+        {discogs &&
+          (discogs.configured ? (
+            <div className="banner banner--ok">
+              Connected
+              {discogs.username ? ` — ${discogs.username}` : ""}.
+            </div>
+          ) : (
+            <div className="banner banner--warn">
+              Not configured — Discogs collection browsing is disabled.
+            </div>
+          ))}
+
+        <form className="form" onSubmit={saveDiscogs}>
+          <label>
+            Personal access token
+            <input
+              type="password"
+              value={discogsToken}
+              onChange={(e) => setDiscogsToken(e.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </label>
+          <label>
+            Username (optional)
+            <input
+              value={discogsUsername}
+              onChange={(e) => setDiscogsUsername(e.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </label>
+          <button
+            className="btn btn--primary"
+            disabled={discogsBusy || !discogsToken.trim()}
+          >
+            {discogsBusy ? "Saving…" : "Save"}
+          </button>
+        </form>
+
+        {discogsError && (
+          <div className="banner banner--error">{discogsError}</div>
+        )}
+        {discogsSaved && (
+          <div className="banner banner--warn">
+            Saved. <b>Restart Marquee</b> to connect Discogs.
+          </div>
+        )}
       </section>
 
       <section className="detail-section">

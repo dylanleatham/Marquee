@@ -14,6 +14,13 @@ data_dir = "~/marquee"
 # client_id = "..."
 # client_secret = "..."
 
+# Optional — enables /api/discogs/* (browse your collection + add). A personal access token from
+# https://www.discogs.com/settings/developers (ADR 0016 — not OAuth). Or use env vars
+# DISCOGS_TOKEN / DISCOGS_USERNAME. `username` is optional (resolved from the token when omitted).
+# [discogs]
+# token = "..."
+# username = "..."
+
 # How the Demo Room reaches Hue Conductor to drive the real lights (ADR 0007). Defaults shown; or use
 # env vars CONDUCTOR_URL / TRIGGER_SHARED_SECRET. The shared secret must match Conductor's [auth].
 # [conductor]

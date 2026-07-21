@@ -1,9 +1,14 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, type SpotifyAlbumMeta } from "../api";
+import {
+  api,
+  ApiError,
+  type DiscogsCollectionItem,
+  type SpotifyAlbumMeta,
+} from "../api";
 import { Spinner } from "../components/common";
 
-type Mode = "search" | "uri" | "manual";
+type Mode = "search" | "uri" | "discogs" | "manual";
 
 /** Debounced Spotify autocomplete → click a result to add it (curator-spec §10). */
 function SpotifySearch({ onAdded }: { onAdded: (id: string) => void }) {
@@ -128,6 +133,128 @@ function PasteUri({ onAdded }: { onAdded: (ids: string[]) => void }) {
   );
 }
 
+/**
+ * Browse your Discogs collection and send albums to Roadie (issue #24 / ADR 0016). Paginated: "Load
+ * more" fetches the next page. Each row's "Send to Roadie" adds it (source = "discogs"); Roadie
+ * fetches the release detail + cover art off the request path. Rows already added are marked.
+ */
+function DiscogsCollection({ onAdded }: { onAdded: (id: string) => void }) {
+  const [items, setItems] = useState<DiscogsCollectionItem[]>([]);
+  const [page, setPage] = useState(0); // 0 = nothing loaded yet
+  const [pages, setPages] = useState(1);
+  const [state, setState] = useState<
+    "idle" | "loading" | "error" | "unconfigured"
+  >("idle");
+  const [msg, setMsg] = useState("");
+  const [added, setAdded] = useState<Record<number, string>>({});
+  const [busyId, setBusyId] = useState<number | null>(null);
+
+  const loadPage = async (next: number) => {
+    setState("loading");
+    setMsg("");
+    try {
+      const res = await api.discogsCollection(next);
+      setItems((prev) => (next === 1 ? res.items : [...prev, ...res.items]));
+      setPage(res.page);
+      setPages(res.pages);
+      setState("idle");
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 503) {
+        setState("unconfigured");
+        return;
+      }
+      setState("error");
+      setMsg(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  // Load the first page on mount.
+  useEffect(() => {
+    void loadPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const add = async (item: DiscogsCollectionItem) => {
+    setBusyId(item.releaseId);
+    try {
+      const { curatorId } = await api.addDiscogs(item);
+      setAdded((prev) => ({ ...prev, [item.releaseId]: curatorId }));
+      onAdded(curatorId);
+    } catch (err) {
+      // A duplicate (409) still "resolves" to the existing album — surface it, don't error the page.
+      if (err instanceof ApiError && err.status === 409) {
+        setMsg(err.message);
+      } else {
+        setState("error");
+        setMsg(err instanceof Error ? err.message : String(err));
+      }
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  if (state === "unconfigured")
+    return (
+      <div className="banner banner--warn">
+        Discogs isn't configured. Add a personal access token in{" "}
+        <a href="/settings">Settings</a> to browse your collection.
+      </div>
+    );
+
+  return (
+    <div>
+      {state === "error" && <div className="banner banner--error">{msg}</div>}
+      {state !== "error" && msg && (
+        <div className="banner banner--warn">{msg}</div>
+      )}
+      {page === 0 && state === "loading" && (
+        <p className="muted">
+          <Spinner /> Loading your collection…
+        </p>
+      )}
+      <div className="results">
+        {items.map((a) => {
+          const done = added[a.releaseId];
+          return (
+            <div key={a.releaseId} className="result">
+              {(a.thumb || a.coverImage) && (
+                <img src={a.thumb || a.coverImage} alt="" />
+              )}
+              <div>
+                <div className="result__title">{a.title}</div>
+                <div className="result__sub">
+                  {a.artist}
+                  {a.year ? ` · ${a.year}` : ""}
+                </div>
+              </div>
+              {done ? (
+                <span className="badge badge--done result__action">Added</span>
+              ) : (
+                <button
+                  className="btn btn--primary result__action"
+                  onClick={() => add(a)}
+                  disabled={busyId === a.releaseId}
+                >
+                  {busyId === a.releaseId ? "Sending…" : "Send to Roadie"}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {page > 0 && page < pages && (
+        <button
+          className="btn"
+          onClick={() => loadPage(page + 1)}
+          disabled={state === "loading"}
+        >
+          {state === "loading" ? "Loading…" : `Load more (page ${page + 1} of ${pages})`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 /** Manual entry — title/artist/year/genres + a required cover upload. Source = "manual". */
 function ManualEntry({ onAdded }: { onAdded: (id: string) => void }) {
   const [busy, setBusy] = useState(false);
@@ -197,7 +324,7 @@ export function AddAlbum() {
       </div>
 
       <div className="tabs">
-        {(["search", "uri", "manual"] as Mode[]).map((mo) => (
+        {(["search", "uri", "discogs", "manual"] as Mode[]).map((mo) => (
           <button
             key={mo}
             className={`tab ${mode === mo ? "tab--active" : ""}`}
@@ -207,7 +334,9 @@ export function AddAlbum() {
               ? "Spotify search"
               : mo === "uri"
                 ? "Paste URI"
-                : "Manual entry"}
+                : mo === "discogs"
+                  ? "Discogs collection"
+                  : "Manual entry"}
           </button>
         ))}
       </div>
@@ -215,6 +344,7 @@ export function AddAlbum() {
       <div className="tab-body">
         {mode === "search" && <SpotifySearch onAdded={goToAlbum} />}
         {mode === "uri" && <PasteUri onAdded={goToQueue} />}
+        {mode === "discogs" && <DiscogsCollection onAdded={goToQueue} />}
         {mode === "manual" && <ManualEntry onAdded={goToAlbum} />}
       </div>
     </div>

@@ -98,6 +98,11 @@ export class AssetStore {
     return this.list().find((a) => a.metadata.spotifyUri === uri) ?? null;
   }
 
+  /** Find an album by its Discogs URI (dedup on add). */
+  findByDiscogsUri(uri: string): AlbumAsset | null {
+    return this.list().find((a) => a.metadata.discogsUri === uri) ?? null;
+  }
+
   /** Remove an album's asset file (and its `.bak`). Media removal is the caller's concern. */
   delete(curatorId: string): boolean {
     // Guard against path traversal — never rmSync a path built from an unvalidated id.
