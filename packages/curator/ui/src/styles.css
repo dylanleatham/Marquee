@@ -631,6 +631,45 @@ em {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* In-app clip splicing (issue #29): reorderable/deselectable list + the splice button. */
+.splice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.splice__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.splice__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.splice__pos {
+  min-width: 1.4em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.splice__label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.splice__excluded {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
 .tag {
   font-size: 11px;
   letter-spacing: 0.06em;

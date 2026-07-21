@@ -703,6 +703,21 @@ export function buildServer(opts: BuildOptions = {}) {
     }
   });
 
+  // Splice the generated clips into one loop and attach it as the visualizer (issue #29). Body:
+  // { order?: number[] } — the ordered clip indices to join (default: all, in index order).
+  app.post("/api/albums/:curatorId/video/splice", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const { order } = (req.body ?? {}) as { order?: number[] };
+    try {
+      const asset = await actions.spliceVisualizer(actionDeps, curatorId, order);
+      // ★sync (roadie-spec §6): the album now has a playable video — push it to Backdrop.
+      await backdrop.syncAlbum(asset);
+      return { state: asset.roadie.state, visualizer: asset.visualizer };
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
+  });
+
   // Generate a set of visualizer clips from the drafted video prompts (Veo/"Omni"). Long-running, so
   // it runs as a background job (issue #30 / ADR 0018): precheck synchronously (misconfig → 4xx now),
   // then enqueue and return 202 { jobId }. The UI polls GET /api/jobs/:id.

@@ -18,6 +18,10 @@ export const fakeProber = (info?: Partial<VideoInfo>): VideoProber => ({
   thumbnail: async (_file, outPath) => {
     writeFileSync(outPath, Buffer.from("JPGTHUMB"));
   },
+  // Records which clips were joined (in order) so splice tests can assert the selection/ordering.
+  concat: async (files, outPath) => {
+    writeFileSync(outPath, Buffer.from(`SPLICED:${files.join(",")}`));
+  },
 });
 
 /** A minimal but structurally-valid PNG buffer of the given dimensions (header only). */

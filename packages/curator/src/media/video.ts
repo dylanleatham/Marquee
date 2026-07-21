@@ -23,6 +23,12 @@ export interface VideoProber {
     atSec: number,
     width: number,
   ): Promise<void>;
+  /**
+   * Concatenate `files` (in order) into one H.264/MP4 at `outPath`, re-encoding for a uniform loop
+   * (issue #29). Video-only — the runtime visualizer plays muted — so audio-stream mismatches can't
+   * fail the join.
+   */
+  concat(files: string[], outPath: string): Promise<void>;
 }
 
 /** A rejected upload — bad container/codec or an unreadable file. Surfaced to the UI as 422. */
@@ -152,6 +158,34 @@ export function ffmpegAvailable(spawn: typeof spawnSync = spawnSync): boolean {
   }
 }
 
+/**
+ * Build the ffmpeg argv for concatenating `files` into one H.264/MP4 loop at `outPath`. Uses the
+ * `concat` filter (not `-c copy`) so the output is always re-encoded to a uniform H.264 stream that
+ * passes `validateVideo`, regardless of the inputs' individual encodings. Video-only (`a=0`).
+ * Exported so tests assert the exact command without shelling out (mirrors `ffmpegAvailable`'s seam).
+ * Inputs are assumed same-dimension (clips off one album cover); mismatched sizes are a follow-up.
+ */
+export function buildConcatArgs(files: string[], outPath: string): string[] {
+  const inputs = files.flatMap((f) => ["-i", f]);
+  const labels = files.map((_, i) => `[${i}:v]`).join("");
+  const filter = `${labels}concat=n=${files.length}:v=1:a=0[out]`;
+  return [
+    "-y",
+    ...inputs,
+    "-filter_complex",
+    filter,
+    "-map",
+    "[out]",
+    "-c:v",
+    "libx264",
+    "-pix_fmt",
+    "yuv420p",
+    "-movflags",
+    "+faststart",
+    outPath,
+  ];
+}
+
 export const ffmpegProber: VideoProber = {
   async probe(file) {
     const json = await run(FFPROBE, [
@@ -203,5 +237,11 @@ export const ffmpegProber: VideoProber = {
       `scale=${width}:-1`,
       outPath,
     ]);
+  },
+
+  async concat(files, outPath) {
+    if (files.length === 0)
+      throw new VideoError("no clips to splice into a loop");
+    await run(FFMPEG, buildConcatArgs(files, outPath));
   },
 };
