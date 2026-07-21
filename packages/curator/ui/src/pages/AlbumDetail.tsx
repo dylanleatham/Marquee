@@ -235,6 +235,7 @@ export function AlbumDetail() {
               curatorId={curatorId}
               asset={asset}
               run={run}
+              refresh={refresh}
               canGenerate={gemini?.generateVideo ?? false}
             />
           </Section>
@@ -257,6 +258,7 @@ export function AlbumDetail() {
               curatorId={curatorId}
               asset={asset}
               run={run}
+              refresh={refresh}
               canGenerate={gemini?.generateCardArt ?? false}
             />
           </Section>

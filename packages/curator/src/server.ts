@@ -43,6 +43,7 @@ import {
 } from "./albums/asset.js";
 import * as actions from "./albums/actions.js";
 import { NotFoundError, type ActionDeps } from "./albums/actions.js";
+import { GenerationJobs } from "./jobs/manager.js";
 import {
   ffmpegProber,
   ffmpegAvailable,
@@ -82,6 +83,8 @@ export interface BuildOptions {
   prober?: VideoProber;
   /** Injected Backdrop sync (tests point it at a stub Backdrop); prod builds one from config.backdrop. */
   backdrop?: BackdropSyncLike;
+  /** Injected generation-job manager (tests may pass one with a fake clock); prod builds its own. */
+  jobs?: GenerationJobs;
 }
 
 const summary = (a: AlbumAsset) => ({
@@ -349,6 +352,9 @@ export function buildServer(opts: BuildOptions = {}) {
     generateCardArt: genCardArt,
     generateVideo: genVideo,
   };
+  // Background jobs for the long-running AI generation actions (issue #30 / ADR 0018): the generate
+  // routes enqueue here and return a jobId instead of holding the request open for minutes.
+  const jobs = opts.jobs ?? new GenerationJobs();
   // Backdrop sync (step 9). Off unless a Backdrop URL is configured — then video attach/detach and
   // the manual resync/verify routes push Curator's library projection to Backdrop (roadie-spec §6).
   const backdrop: BackdropSyncLike =
@@ -697,16 +703,23 @@ export function buildServer(opts: BuildOptions = {}) {
     }
   });
 
-  // Generate a set of visualizer clips from the drafted video prompts (Veo/"Omni"). Long-running:
-  // holds the request while the clips generate (acceptable for a single-user LAN app, ADR 0011).
+  // Generate a set of visualizer clips from the drafted video prompts (Veo/"Omni"). Long-running, so
+  // it runs as a background job (issue #30 / ADR 0018): precheck synchronously (misconfig → 4xx now),
+  // then enqueue and return 202 { jobId }. The UI polls GET /api/jobs/:id.
   app.post("/api/albums/:curatorId/video/generate", async (req, reply) => {
     const { curatorId } = req.params as { curatorId: string };
     try {
-      const asset = await actions.generateVideoSet(actionDeps, curatorId);
-      return { videoClips: asset.videoClips };
+      actions.assertGenerable(actionDeps, curatorId, "video");
     } catch (err) {
       return actionError(err, reply, req);
     }
+    const job = jobs.start("video", curatorId, async ({ onProgress }) => {
+      const asset = await actions.generateVideoSet(actionDeps, curatorId, {
+        onProgress,
+      });
+      return { videoClips: asset.videoClips };
+    });
+    return reply.code(202).send(job);
   });
 
   // --- Card art: upload / attach / detach ---
@@ -766,15 +779,39 @@ export function buildServer(opts: BuildOptions = {}) {
     }
   });
 
-  // Generate a set of card-art candidates from the drafted prompt variants (Nano Banana).
+  // Generate a set of card-art candidates from the drafted prompt variants (Nano Banana). Background
+  // job like video generation (issue #30 / ADR 0018): precheck → 4xx now, else enqueue → 202 { jobId }.
   app.post("/api/albums/:curatorId/card-art/generate", async (req, reply) => {
     const { curatorId } = req.params as { curatorId: string };
     try {
-      const asset = await actions.generateCardArtSet(actionDeps, curatorId);
-      return { cardArtCandidates: asset.cardArtCandidates };
+      actions.assertGenerable(actionDeps, curatorId, "cardArt");
     } catch (err) {
       return actionError(err, reply, req);
     }
+    const job = jobs.start("cardArt", curatorId, async ({ onProgress }) => {
+      const asset = await actions.generateCardArtSet(actionDeps, curatorId, {
+        onProgress,
+      });
+      return { cardArtCandidates: asset.cardArtCandidates };
+    });
+    return reply.code(202).send(job);
+  });
+
+  // Poll a generation job's status/progress/result (issue #30). 404 once unknown/expired.
+  app.get("/api/jobs/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const job = jobs.get(id);
+    return job ?? reply.code(404).send({ error: "job not found" });
+  });
+
+  // Active + recent generation jobs for an album — lets the detail page re-attach to a running job
+  // after a reload (the original "a reload loses the result" failure mode, issue #30). Optional
+  // ?kind=video|cardArt filter.
+  app.get("/api/albums/:curatorId/jobs", async (req) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const kind = (req.query as { kind?: string }).kind;
+    const filter = kind === "video" || kind === "cardArt" ? kind : undefined;
+    return { jobs: jobs.forAlbum(curatorId, filter) };
   });
 
   // Promote a generated candidate to the attached card art.
@@ -1319,7 +1356,7 @@ export function buildServer(opts: BuildOptions = {}) {
   // Resume any album left mid-processing by a previous run (roadie-spec §5 crash resilience).
   roadie.recover();
 
-  return { app, config, store, spotify, spotifyAuth, discogs, roadie };
+  return { app, config, store, spotify, spotifyAuth, discogs, roadie, jobs };
 }
 
 /**

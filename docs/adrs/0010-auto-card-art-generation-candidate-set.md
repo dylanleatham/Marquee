@@ -27,7 +27,11 @@ art.** Manual upload stays as the override.
 
 2. **Partial failure is not total failure.** Generation uses `Promise.allSettled`; the successful
    images are kept and the failed ones are simply absent (indices preserved). Only an **all-fail**
-   throws, surfacing the upstream Gemini error as a 5xx. One flaky image never discards the set.
+   throws. One flaky image never discards the set.
+   > **Updated 2026-07-21 by [ADR 0018](0018-generation-runs-as-background-jobs.md) (issue #30):**
+   > generation now runs as a background job, so the all-fail case ends the **job** as `failed`
+   > (polled via `GET /api/jobs/:id`) rather than surfacing as a synchronous 5xx. The partial-success
+   > semantics are unchanged.
 
 3. **Promotion reuses the normal path.** `POST /api/albums/:id/card-art/select { index }` copies the
    chosen candidate through the existing `ingestCardArt` (fileId = curatorId), so it lands at the

@@ -7,13 +7,36 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { PromptBlock, VideoSection, CardArtSection } from "./workflow";
-import type { AlbumAsset, DraftedPrompt, RoadieState } from "../api";
+import {
+  api,
+  type AlbumAsset,
+  type DraftedPrompt,
+  type GenerationJob,
+  type JobKind,
+  type RoadieState,
+} from "../api";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
-const writeText = vi.fn().mockResolvedValue(undefined);
+/** A terminal (done) job — lets a generate-click assert the POST without the hook then polling. */
+const doneJob = (kind: JobKind): GenerationJob => ({
+  id: "job-1",
+  kind,
+  curatorId: "abcd1234",
+  status: "done",
+  progress: { done: 1, total: 1 },
+  createdAt: "2026-07-21T00:00:00Z",
+  updatedAt: "2026-07-21T00:00:00Z",
+});
+
+const writeText = vi.fn();
 beforeEach(() => {
-  writeText.mockClear();
+  // Re-apply the resolved value each test: afterEach's restoreAllMocks (for the api spies) also
+  // resets this fn's implementation.
+  writeText.mockReset().mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", {
     value: { writeText },
     configurable: true,
@@ -214,18 +237,23 @@ describe("VideoSection — clip generation", () => {
       ...extra,
     });
 
-  it("offers Generate clips when enabled and a video prompt + cover art exist", () => {
-    const run = vi.fn();
+  it("offers Generate clips when enabled and a video prompt + cover art exist", async () => {
+    // Generation is a background job (issue #30): the button POSTs and the hook polls — assert the
+    // POST fires. albumJobs is stubbed so the mount re-attach finds nothing running.
+    const gen = vi
+      .spyOn(api, "generateVideoSet")
+      .mockResolvedValue(doneJob("video"));
+    vi.spyOn(api, "albumJobs").mockResolvedValue({ jobs: [] });
     render(
       <VideoSection
         curatorId="abcd1234"
         asset={withVideoPrompt()}
-        run={run}
+        run={vi.fn()}
         canGenerate
       />,
     );
     fireEvent.click(screen.getByText(/Generate clips with AI/));
-    expect(run).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(gen).toHaveBeenCalledTimes(1));
   });
 
   it("hides Generate clips when generation is off (the opt-in default)", () => {
@@ -300,18 +328,21 @@ describe("CardArtSection", () => {
       ...extra,
     });
 
-  it("offers Generate options when enabled and a card-art prompt exists", () => {
-    const run = vi.fn();
+  it("offers Generate options when enabled and a card-art prompt exists", async () => {
+    const gen = vi
+      .spyOn(api, "generateCardArtSet")
+      .mockResolvedValue(doneJob("cardArt"));
+    vi.spyOn(api, "albumJobs").mockResolvedValue({ jobs: [] });
     render(
       <CardArtSection
         curatorId="abcd1234"
         asset={withCardPrompt()}
-        run={run}
+        run={vi.fn()}
         canGenerate
       />,
     );
     fireEvent.click(screen.getByText(/Generate options with AI/));
-    expect(run).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(gen).toHaveBeenCalledTimes(1));
   });
 
   it("renders a clickable gallery of candidates and selects one", () => {

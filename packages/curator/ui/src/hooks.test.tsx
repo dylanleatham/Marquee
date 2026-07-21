@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { renderHook, act } from "@testing-library/react";
-import { usePoll } from "./hooks";
+import { renderHook, act, waitFor } from "@testing-library/react";
+import { usePoll, useGenerationJob } from "./hooks";
+import { api, type GenerationJob, type JobKind } from "./api";
 
 // Flush the microtasks an async fetcher resolves on (fake timers don't fake promises).
 const flush = () =>
@@ -86,5 +87,90 @@ describe("usePoll", () => {
     await flush();
     expect(result.current.error).toBe("boom");
     expect(result.current.data).toBeNull();
+  });
+});
+
+describe("useGenerationJob", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const job = (
+    over: Partial<GenerationJob> = {},
+    kind: JobKind = "video",
+  ): GenerationJob => ({
+    id: "job-1",
+    kind,
+    curatorId: "abcd1234",
+    status: "running",
+    progress: { done: 0, total: 3 },
+    createdAt: "2026-07-21T00:00:00Z",
+    updatedAt: "2026-07-21T00:00:00Z",
+    ...over,
+  });
+
+  it("starts a job, polls to done, and calls onDone", async () => {
+    vi.spyOn(api, "albumJobs").mockResolvedValue({ jobs: [] });
+    vi.spyOn(api, "job").mockResolvedValue(job({ status: "done" }));
+    const starter = vi.fn().mockResolvedValue(job({ status: "running" }));
+    const onDone = vi.fn();
+
+    const { result } = renderHook(() =>
+      useGenerationJob("abcd1234", "video", starter, onDone),
+    );
+    await act(async () => result.current.start());
+    await waitFor(() => expect(result.current.status).toBe("done"));
+    expect(starter).toHaveBeenCalledTimes(1);
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces a failed job's error", async () => {
+    vi.spyOn(api, "albumJobs").mockResolvedValue({ jobs: [] });
+    vi.spyOn(api, "job").mockResolvedValue(
+      job({ status: "failed", error: "upstream boom" }),
+    );
+    const starter = vi.fn().mockResolvedValue(job({ status: "running" }));
+
+    const { result } = renderHook(() =>
+      useGenerationJob("abcd1234", "video", starter, vi.fn()),
+    );
+    await act(async () => result.current.start());
+    await waitFor(() => expect(result.current.status).toBe("failed"));
+    expect(result.current.error).toBe("upstream boom");
+  });
+
+  it("surfaces a failure when the start request itself rejects", async () => {
+    vi.spyOn(api, "albumJobs").mockResolvedValue({ jobs: [] });
+    const starter = vi.fn().mockRejectedValue(new Error("503 not configured"));
+
+    const { result } = renderHook(() =>
+      useGenerationJob("abcd1234", "video", starter, vi.fn()),
+    );
+    await act(async () => result.current.start());
+    await waitFor(() => expect(result.current.status).toBe("failed"));
+    expect(result.current.error).toBe("503 not configured");
+  });
+
+  it("re-attaches to a running job on mount (survives a reload)", async () => {
+    vi.spyOn(api, "albumJobs").mockResolvedValue({
+      jobs: [job({ status: "running" })],
+    });
+    vi.spyOn(api, "job").mockResolvedValue(job({ status: "done" }));
+    const onDone = vi.fn();
+
+    renderHook(() =>
+      useGenerationJob("abcd1234", "video", vi.fn(), onDone),
+    );
+    // No start() call — the mount re-attach adopts the running job and polls it to completion.
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+  });
+
+  it("makes no requests when disabled (generation off)", async () => {
+    const albumJobs = vi
+      .spyOn(api, "albumJobs")
+      .mockResolvedValue({ jobs: [] });
+    renderHook(() =>
+      useGenerationJob("abcd1234", "video", vi.fn(), vi.fn(), false),
+    );
+    await flush();
+    expect(albumJobs).not.toHaveBeenCalled();
   });
 });
