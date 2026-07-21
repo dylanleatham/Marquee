@@ -242,6 +242,40 @@ describe("server routes trigger Backdrop sync", () => {
     expect(existsSync(join(mediaDir, "route123.mp4"))).toBe(true);
   });
 
+  it("claiming an /incoming/ video via attach-video pushes it to Backdrop", async () => {
+    const a = makeAsset("claim001");
+    a.roadie.state = "awaiting_review";
+    a.roadie.history = [{ state: "awaiting_review", at: a.createdAt }];
+    store.save(a);
+    const app = server();
+
+    // Stash a file in /incoming/ (upload with no curatorId), then claim it by fileId.
+    const mp = buildMultipart(
+      {},
+      {
+        field: "file",
+        filename: "loop.mp4",
+        contentType: "video/mp4",
+        data: Buffer.from("VIDEOBYTES"),
+      },
+    );
+    const stash = await app.inject({
+      method: "POST",
+      url: "/api/videos/upload",
+      headers: { "content-type": mp.contentType },
+      payload: mp.body,
+    });
+    const name = stash.json().incoming;
+    const attach = await app.inject({
+      method: "POST",
+      url: "/api/albums/claim001/attach-video",
+      payload: { fileId: name },
+    });
+    expect(attach.statusCode).toBe(200);
+    expect(backdrop.entries["curator:album:claim001"]).toBeTruthy();
+    expect(existsSync(join(mediaDir, "claim001.mp4"))).toBe(true);
+  });
+
   it("detaching the video removes it from Backdrop", async () => {
     const a = withVideo("detach01");
     a.roadie.state = "awaiting_preview";
@@ -268,7 +302,7 @@ describe("server routes trigger Backdrop sync", () => {
     expect(backdrop.entries["curator:album:del00001"]).toBeUndefined();
   });
 
-  it("POST /api/backdrop/resync reconciles the whole library", async () => {
+  it("POST /api/backdrop/sync reconciles the whole library", async () => {
     store.save(withVideo("resy0001"));
     // syncMediaLocally is on, so the mp4 must exist on disk for the transfer to succeed.
     const { mkdirSync, writeFileSync } = await import("node:fs");
