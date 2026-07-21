@@ -166,10 +166,11 @@ The state exists for the parallel flow below — it's how you see what you're wa
 - **Generate clips in-app ([ADR 0011](../adrs/0011-auto-generate-visualizer-clips.md)):** hit
   **"Generate clips with AI"** in the Video section. Curator runs each drafted video prompt variant
   through Gemini Omni Flash image-to-video off the album cover and shows the results as a gallery
-  of short (~8–10s) clips with per-clip download. Collect the clips, splice them into one seamless
-  loop in your own editor, then upload the result on the same drop zone. Needs a Gemini key (Omni
-  Flash, [ADR 0013](../adrs/0013-video-uses-gemini-omni-flash-interactions.md)); in-app splicing is a
-  deferred enhancement.
+  of short (~8–10s) clips with per-clip download. Then **"Splice … into loop"** (issue #29): reorder
+  or deselect the clips and Curator concatenates them into one looping MP4 and attaches it as the
+  visualizer — no external editor needed. Downloading a clip to splice in your own editor and
+  uploading the result on the drop zone stays available as the override. Needs a Gemini key (Omni
+  Flash, [ADR 0013](../adrs/0013-video-uses-gemini-omni-flash-interactions.md)).
 - **Bring your own:** if your video tool has already generated something for this album, drag it onto
   the drop zone (or drop it in `/incoming/` and Curator shows it as a candidate).
 

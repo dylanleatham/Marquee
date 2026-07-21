@@ -112,30 +112,53 @@ const resolveBin = (bin: string): string =>
     ? `${bin}.exe`
     : bin;
 
+// Default wall-clock cap for an ffmpeg/ffprobe invocation. Probe + thumbnail are quick; the splice
+// concat re-encodes several clips and gets a larger budget (CONCAT_TIMEOUT_MS). Curator is an
+// always-on service — a hung or pathologically-slow binary (corrupt input, mismatched clips) must
+// not tie up the request/event loop forever, so every run is killed past its budget (runtime review).
+const RUN_TIMEOUT_MS = 60_000;
+const CONCAT_TIMEOUT_MS = 300_000;
+
 /**
  * Run a binary with argv passed directly — **never through a shell** — so a filename can't inject
  * commands (security review, step 7). Args are handed to CreateProcess/execvp verbatim; spaces and
- * shell metacharacters in paths are inert.
+ * shell metacharacters in paths are inert. The process is killed if it exceeds `timeoutMs`, so a
+ * stuck encode surfaces as a `VideoError` instead of blocking the caller indefinitely.
  */
-function run(bin: string, args: string[]): Promise<string> {
+function run(
+  bin: string,
+  args: string[],
+  timeoutMs: number = RUN_TIMEOUT_MS,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(resolveBin(bin), args, { windowsHide: true });
     let out = "";
     let err = "";
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, timeoutMs);
     child.stdout.on("data", (d) => (out += d));
     child.stderr.on("data", (d) => (err += d));
-    child.on("error", (e) =>
+    child.on("error", (e) => {
+      clearTimeout(timer);
       reject(
         new VideoError(
           `Could not run ${bin} (${(e as Error).message}). Is ffmpeg installed and on PATH?`,
         ),
-      ),
-    );
-    child.on("close", (code) =>
+      );
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (timedOut)
+        return reject(
+          new VideoError(`${bin} timed out after ${timeoutMs}ms and was killed`),
+        );
       code === 0
         ? resolve(out)
-        : reject(new VideoError(`${bin} exited ${code}: ${err.slice(0, 300)}`)),
-    );
+        : reject(new VideoError(`${bin} exited ${code}: ${err.slice(0, 300)}`));
+    });
   });
 }
 
@@ -242,6 +265,6 @@ export const ffmpegProber: VideoProber = {
   async concat(files, outPath) {
     if (files.length === 0)
       throw new VideoError("no clips to splice into a loop");
-    await run(FFMPEG, buildConcatArgs(files, outPath));
+    await run(FFMPEG, buildConcatArgs(files, outPath), CONCAT_TIMEOUT_MS);
   },
 };

@@ -314,6 +314,62 @@ describe("VideoSection — clip generation", () => {
   });
 });
 
+describe("VideoSection — splice (issue #29)", () => {
+  const withClips = (n: number) =>
+    albumAt("awaiting_review", {
+      videoClips: Array.from({ length: n }, (_, i) => ({
+        index: i,
+        fileId: `abcd1234-v${i}`,
+        nudge: `motion ${i}`,
+        generatedAt: "x",
+      })),
+    });
+  // A `run` that actually invokes the action so the api spy records the call.
+  const run = ((fn: () => Promise<unknown>) => {
+    void fn();
+    return Promise.resolve();
+  }) as unknown as Parameters<typeof VideoSection>[0]["run"];
+
+  it("splices all clips in index order by default", async () => {
+    const splice = vi
+      .spyOn(api, "spliceVisualizer")
+      .mockResolvedValue({ state: "awaiting_preview", visualizer: {} as never });
+    render(
+      <VideoSection curatorId="abcd1234" asset={withClips(3)} run={run} />,
+    );
+    fireEvent.click(screen.getByText(/Splice 3 clips into loop/));
+    await waitFor(() =>
+      expect(splice).toHaveBeenCalledWith("abcd1234", [0, 1, 2]),
+    );
+  });
+
+  it("reorders and deselects before splicing", async () => {
+    const splice = vi
+      .spyOn(api, "spliceVisualizer")
+      .mockResolvedValue({ state: "awaiting_preview", visualizer: {} as never });
+    render(
+      <VideoSection curatorId="abcd1234" asset={withClips(3)} run={run} />,
+    );
+    // Deselect motion 1 → order [0, 2]; then move motion 2 earlier → [2, 0].
+    fireEvent.click(screen.getByLabelText("Remove motion 1"));
+    fireEvent.click(screen.getByLabelText("Move motion 2 earlier"));
+    fireEvent.click(screen.getByText(/Splice 2 clips into loop/));
+    await waitFor(() =>
+      expect(splice).toHaveBeenCalledWith("abcd1234", [2, 0]),
+    );
+  });
+
+  it("re-includes an excluded clip", async () => {
+    render(
+      <VideoSection curatorId="abcd1234" asset={withClips(2)} run={run} />,
+    );
+    fireEvent.click(screen.getByLabelText("Remove motion 0"));
+    expect(screen.getByText(/Splice 1 clip into loop/)).toBeTruthy();
+    fireEvent.click(screen.getByText("+ motion 0")); // from the Excluded row
+    expect(screen.getByText(/Splice 2 clips into loop/)).toBeTruthy();
+  });
+});
+
 describe("CardArtSection", () => {
   const withCardPrompt = (extra: Partial<AlbumAsset> = {}) =>
     albumAt("awaiting_review", {
