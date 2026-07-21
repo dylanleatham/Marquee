@@ -28,6 +28,10 @@ line-length = 100
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Put the package dir on sys.path so `import stylus` works under a bare `pytest` run (CI), without
+# an editable install — `pip install -e .` would drag in the Pi-only hardware deps, which don't
+# install off-hardware. (`python -m pytest` adds CWD implicitly; plain `pytest` does not.)
+pythonpath = ["."]
 
 [build-system]
 requires = ["setuptools>=68"]
