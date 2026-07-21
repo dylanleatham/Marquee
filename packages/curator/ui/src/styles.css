@@ -799,6 +799,11 @@ em {
   color: var(--muted);
   font-size: 13px;
 }
+/* Push a row's trailing action (e.g. Discogs "Send to Roadie") to the right edge. */
+.result__action {
+  margin-left: auto;
+  flex-shrink: 0;
+}
 .textarea {
   width: 100%;
   resize: vertical;

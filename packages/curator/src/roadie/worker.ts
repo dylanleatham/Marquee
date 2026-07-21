@@ -5,6 +5,7 @@
 // the only one Roadie touches.
 import type { AssetStore } from "../store/asset-store.js";
 import type { SpotifyClient } from "../spotify/client.js";
+import type { DiscogsClient } from "../discogs/client.js";
 import type { PaletteGenerator } from "../albums/add-manual.js";
 import {
   type AlbumAsset,
@@ -29,6 +30,7 @@ const noopLogger: RoadieLogger = { info() {}, warn() {}, error() {} };
 export interface RoadieOptions {
   store: AssetStore;
   spotify?: SpotifyClient;
+  discogs?: DiscogsClient;
   /** Gemini client for LLM-authored prompts; absent → the drafter uses the deterministic templates. */
   gemini?: GeminiClient;
   /** Palette generator; defaults to real Palette Press. Tests inject a fake. */
@@ -73,6 +75,7 @@ export class Roadie {
     this.deps = {
       store: opts.store,
       spotify: opts.spotify,
+      discogs: opts.discogs,
       gemini: opts.gemini,
       generate: opts.generate ?? defaultGenerate,
       now: this.now,
@@ -129,9 +132,9 @@ export class Roadie {
       asset.roadie.subState &&
       isProcessingState(asset.roadie.subState as RoadieState)
         ? (asset.roadie.subState as RoadieState)
-        : asset.metadata.source === "spotify"
-          ? "fetching_metadata"
-          : "generating_palette";
+        : asset.metadata.source === "manual"
+          ? "generating_palette"
+          : "fetching_metadata";
 
     asset.roadie.state = resumeFrom;
     asset.roadie.subState = resumeFrom;

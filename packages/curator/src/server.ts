@@ -24,10 +24,16 @@ import {
   type PaletteGenerator,
 } from "./albums/add-manual.js";
 import { addSpotifyAlbum, DuplicateAlbumError } from "./albums/add-spotify.js";
+import { addDiscogsAlbum } from "./albums/add-discogs.js";
 import { SpotifyClient, SpotifyError } from "./spotify/client.js";
 import { SpotifyAuth, SpotifyAuthError } from "./spotify/auth.js";
+import { DiscogsClient, DiscogsError } from "./discogs/client.js";
 import { GeminiClient } from "./gemini/client.js";
-import { writeSpotifyCreds, updateGeminiSettings } from "./settings.js";
+import {
+  writeSpotifyCreds,
+  writeDiscogsSettings,
+  updateGeminiSettings,
+} from "./settings.js";
 import { Roadie } from "./roadie/worker.js";
 import { isCuratorId } from "./ids.js";
 import {
@@ -63,6 +69,8 @@ export interface BuildOptions {
   spotify?: SpotifyClient;
   /** Injected Spotify user-auth (tests pass one backed by fake-spotify); prod builds from config. */
   spotifyAuth?: SpotifyAuth;
+  /** Injected Discogs client (tests pass one backed by fake-discogs); prod builds from config. */
+  discogs?: DiscogsClient;
   /** Injected Gemini client (tests pass one backed by fake-gemini); prod builds from config. */
   gemini?: GeminiClient;
   /** Override the opt-in generation flags (tests); prod reads them from config.gemini. */
@@ -101,6 +109,17 @@ const created = (reply: FastifyReply, curatorId: string, asset: AlbumAsset) =>
 // Map a SpotifyError to an HTTP status: pass through 404/504, everything else is a bad gateway.
 const spotifyStatus = (err: SpotifyError): number =>
   err.status === 404 ? 404 : err.status === 504 ? 504 : 502;
+
+// Map a DiscogsError to an HTTP status (same policy as Spotify): pass through 404/504, else 502.
+const discogsStatus = (err: DiscogsError): number =>
+  err.status === 404 ? 404 : err.status === 504 ? 504 : 502;
+
+// For the read-only GET routes: send DiscogsErrors, rethrow anything else.
+const discogsErr = (err: unknown, reply: FastifyReply) => {
+  if (err instanceof DiscogsError)
+    return reply.code(discogsStatus(err)).send({ error: err.message });
+  throw err;
+};
 
 // For the read-only GET routes: send SpotifyErrors, rethrow anything else.
 const spotifyErr = (err: unknown, reply: FastifyReply) => {
@@ -289,11 +308,27 @@ export function buildServer(opts: BuildOptions = {}) {
     (config.spotify
       ? new SpotifyClient({ ...config.spotify, getUserToken: userTokenOrNull })
       : undefined);
+  // Discogs (ADR 0016): a personal-access-token client. Absent → the collection/add routes 503.
+  const discogs =
+    opts.discogs ??
+    (config.discogs
+      ? new DiscogsClient({ token: config.discogs.token })
+      : undefined);
+  // Resolve the collection username once: the configured value wins; otherwise ask the token's
+  // identity and cache it (a token maps to exactly one user, so this never changes at runtime).
+  let discogsUsername: string | undefined = config.discogs?.username;
+  const resolveDiscogsUsername = async (): Promise<string> => {
+    if (discogsUsername) return discogsUsername;
+    if (!discogs) throw new DiscogsError("Discogs not configured", 503);
+    discogsUsername = (await discogs.getIdentity()).username;
+    return discogsUsername;
+  };
   const roadie =
     opts.roadie ??
     new Roadie({
       store,
       spotify,
+      discogs,
       gemini,
       generate: opts.generate,
       logger: {
@@ -345,6 +380,7 @@ export function buildServer(opts: BuildOptions = {}) {
     ok: true,
     albums: store.list().length,
     spotify: Boolean(spotify),
+    discogs: Boolean(discogs),
     gemini: Boolean(gemini),
     roadie: roadie.status(),
   }));
@@ -1027,6 +1063,48 @@ export function buildServer(opts: BuildOptions = {}) {
     return { ok: true, restartRequired: true };
   });
 
+  // --- Settings: Discogs personal access token (ADR 0016) ---
+  // Same trust model + settings.json store as Spotify. The token is write-only (never returned);
+  // `configured` + the (optional) username are the read-back so the UI can reflect them.
+  app.get("/api/settings/discogs", async () => ({
+    configured: Boolean(discogs),
+    username: config.discogs?.username ?? null,
+  }));
+
+  app.put("/api/settings/discogs", async (req, reply) => {
+    const { token, username } = (req.body ?? {}) as {
+      token?: string;
+      username?: string;
+    };
+    if (!token?.trim())
+      return reply.code(400).send({ error: "token is required" });
+    writeDiscogsSettings(config.dataDir, {
+      token: token.trim(),
+      ...(username?.trim() ? { username: username.trim() } : {}),
+    });
+    // The Discogs client + Roadie are built once at boot, so the new token takes effect on restart.
+    return { ok: true, restartRequired: true };
+  });
+
+  // --- Discogs collection (read-only browse; add happens through POST /api/albums) ---
+  // Paginated: the UI reads `page`/`pages` to fetch the rest. The username is resolved once (from
+  // config or the token's identity) and cached.
+  app.get("/api/discogs/collection", async (req, reply) => {
+    if (!discogs)
+      return reply.code(503).send({ error: "Discogs not configured" });
+    const q = req.query as { page?: string; perPage?: string };
+    const page = q.page ? Number(q.page) : 1;
+    const perPage = q.perPage ? Number(q.perPage) : 50;
+    if (!Number.isFinite(page) || page < 1)
+      return reply.code(400).send({ error: "page must be a positive integer" });
+    try {
+      const username = await resolveDiscogsUsername();
+      return await discogs.getCollection(username, { page, perPage });
+    } catch (err) {
+      return discogsErr(err, reply);
+    }
+  });
+
   // --- Spotify (read-only preview; add happens through POST /api/albums) ---
   app.get("/api/spotify/search-albums", async (req, reply) => {
     if (!spotify)
@@ -1150,16 +1228,57 @@ export function buildServer(opts: BuildOptions = {}) {
       }
     }
 
-    // JSON body → Spotify add.
+    // JSON body → Spotify or Discogs add, dispatched on the payload shape.
+    const body = (req.body ?? {}) as {
+      spotifyUri?: string;
+      spotifyId?: string;
+      releaseId?: number;
+      discogsReleaseId?: number;
+      title?: string;
+      artist?: string;
+      year?: number;
+      genres?: string[];
+      coverImage?: string;
+    };
+
+    // Discogs add: a release id (from the collection browser).
+    const releaseId = body.releaseId ?? body.discogsReleaseId;
+    if (releaseId !== undefined) {
+      if (!discogs)
+        return reply.code(503).send({ error: "Discogs not configured" });
+      try {
+        const { curatorId, asset } = await addDiscogsAlbum(
+          { store, roadie },
+          {
+            releaseId,
+            ...(body.title !== undefined ? { title: body.title } : {}),
+            ...(body.artist !== undefined ? { artist: body.artist } : {}),
+            ...(body.year !== undefined ? { year: body.year } : {}),
+            ...(body.genres !== undefined ? { genres: body.genres } : {}),
+            ...(body.coverImage !== undefined
+              ? { coverImage: body.coverImage }
+              : {}),
+          },
+        );
+        return created(reply, curatorId, asset);
+      } catch (err) {
+        if (err instanceof DuplicateAlbumError)
+          return reply
+            .code(409)
+            .send({ error: err.message, curatorId: err.curatorId });
+        if (err instanceof ValidationError)
+          return reply.code(400).send({ error: err.message });
+        req.log.error(err);
+        return reply.code(500).send({ error: (err as Error).message });
+      }
+    }
+
+    // Otherwise → Spotify add.
     if (!spotify) {
       return reply.code(503).send({
         error: "Spotify not configured (set SPOTIFY_CLIENT_ID/SECRET)",
       });
     }
-    const body = (req.body ?? {}) as {
-      spotifyUri?: string;
-      spotifyId?: string;
-    };
     try {
       const { curatorId, asset } = await addSpotifyAlbum(
         { store, roadie },
@@ -1200,7 +1319,7 @@ export function buildServer(opts: BuildOptions = {}) {
   // Resume any album left mid-processing by a previous run (roadie-spec §5 crash resilience).
   roadie.recover();
 
-  return { app, config, store, spotify, spotifyAuth, roadie };
+  return { app, config, store, spotify, spotifyAuth, discogs, roadie };
 }
 
 /**

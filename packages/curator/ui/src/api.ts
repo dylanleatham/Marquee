@@ -144,8 +144,10 @@ export interface AlbumAsset {
     artist: string;
     year?: number;
     genres?: string[];
-    source: "manual" | "spotify";
+    source: "manual" | "spotify" | "discogs";
     spotifyUri?: string;
+    discogsUri?: string;
+    discogsReleaseId?: number;
   };
   artwork?: { resolvedPath: string; contentHash: string };
   palette?: { colors: PaletteColor[]; insufficient?: boolean; reason?: string };
@@ -174,6 +176,33 @@ export interface SpotifyAlbumMeta {
   artist: string;
   year?: number;
   artUrl?: string;
+}
+
+/** One album in the user's Discogs collection (GET /api/discogs/collection). */
+export interface DiscogsCollectionItem {
+  releaseId: number;
+  discogsUri: string;
+  title: string;
+  artist: string;
+  year?: number;
+  genres: string[];
+  coverImage?: string;
+  thumb?: string;
+}
+
+/** A page of the Discogs collection, with pagination info to fetch the rest. */
+export interface DiscogsCollectionPage {
+  items: DiscogsCollectionItem[];
+  page: number;
+  pages: number;
+  perPage: number;
+  total: number;
+}
+
+/** Discogs token status for the Settings screen (GET /api/settings/discogs). */
+export interface DiscogsSettings {
+  configured: boolean;
+  username: string | null;
 }
 
 /** A row from GET /api/albums — the Demo Room uses `hasVideo` to build its swap list. */
@@ -381,6 +410,30 @@ export const api = {
     req<{ curatorId: string; state: RoadieState }>("/api/albums", {
       method: "POST",
       body: form,
+    }),
+
+  // --- Discogs: browse your collection + add ---
+  discogsSettings: () => req<DiscogsSettings>("/api/settings/discogs"),
+  saveDiscogsSettings: (token: string, username?: string) =>
+    req<{ ok: boolean; restartRequired: boolean }>("/api/settings/discogs", {
+      method: "PUT",
+      body: JSON.stringify({ token, username }),
+    }),
+  discogsCollection: (page = 1, perPage = 50) =>
+    req<DiscogsCollectionPage>(
+      `/api/discogs/collection?page=${page}&perPage=${perPage}`,
+    ),
+  addDiscogs: (item: DiscogsCollectionItem) =>
+    req<{ curatorId: string; state: RoadieState }>("/api/albums", {
+      method: "POST",
+      body: JSON.stringify({
+        releaseId: item.releaseId,
+        title: item.title,
+        artist: item.artist,
+        year: item.year,
+        genres: item.genres,
+        coverImage: item.coverImage,
+      }),
     }),
 };
 

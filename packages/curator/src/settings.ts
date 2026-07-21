@@ -6,6 +6,8 @@ import { join } from "node:path";
 
 export interface CuratorSettings {
   spotify?: { clientId: string; clientSecret: string };
+  /** Discogs personal access token + optional collection username (ADR 0016). */
+  discogs?: { token: string; username?: string };
   gemini?: {
     apiKey?: string;
     /** Opt-in artifact generation (default off — prompts only). */
@@ -38,6 +40,24 @@ export function writeSpotifyCreds(
   creds: { clientId: string; clientSecret: string },
 ): void {
   const next: CuratorSettings = { ...readSettings(dataDir), spotify: creds };
+  mkdirSync(dataDir, { recursive: true });
+  writeFileSync(settingsFile(dataDir), JSON.stringify(next, null, 2));
+}
+
+/**
+ * Persist the Discogs personal access token (+ optional username), merged with existing settings.
+ * A blank username is dropped so the client falls back to resolving it from the token's identity.
+ * Same read-modify-write story as `writeSpotifyCreds` (the sole writer is the Settings form).
+ */
+export function writeDiscogsSettings(
+  dataDir: string,
+  creds: { token: string; username?: string },
+): void {
+  const discogs: NonNullable<CuratorSettings["discogs"]> = {
+    token: creds.token,
+    ...(creds.username?.trim() ? { username: creds.username.trim() } : {}),
+  };
+  const next: CuratorSettings = { ...readSettings(dataDir), discogs };
   mkdirSync(dataDir, { recursive: true });
   writeFileSync(settingsFile(dataDir), JSON.stringify(next, null, 2));
 }

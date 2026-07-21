@@ -1,0 +1,23 @@
+{
+  "name": "@marquee/fake-discogs",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Fake Discogs API for Curator/Roadie tests (a fetch-compatible fake).",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "//": "No build: this is a test fake consumed as TS source by vitest/tsx (main -> src).",
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "lint": "echo \"(no linter configured yet)\""
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "typescript": "^5.6.2",
+    "vitest": "^2.1.3"
+  }
+}

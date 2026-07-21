@@ -129,20 +129,28 @@ Two important properties:
 
 ## 6. What Roadie does at each Roadie-driven state
 
+> **Source routing (issue #24 / [ADR 0017](../adrs/0017-discogs-personal-token-and-direct-images.md)):**
+> `fresh` routes on `metadata.source` — **`manual` → `generating_palette`** (metadata + art already
+> on disk), everything else (`spotify`, `discogs`) → **`fetching_metadata`**. The `fetching_metadata`
+> and `downloading_art` steps below dispatch on the source: Spotify albums hit the Spotify Web API,
+> Discogs albums hit the Discogs API. Both end at `generating_palette`, so everything downstream is
+> source-agnostic.
+
 ### fetching_metadata
 
-- Input: album's Spotify URI (from the Add screen)
-- Action: call Spotify `/albums/{id}` for title, artist, year, art URL, genres (via artist), track list
+- Input: album's Spotify URI **or** Discogs release id (from the Add screen)
+- Action (spotify): call Spotify `/albums/{id}` for title, artist, year, art URL, genres (via artist), track list
+- Action (discogs): call Discogs `/releases/{id}` for title, artist, year, genres (merged genres + styles), and the primary cover-image URL
 - Success: store metadata in asset file, transition to `downloading_art`
 - Failure modes:
-  - 404: Album genuinely doesn't exist on Spotify → transition to `needs_manual` with reason `album_not_on_spotify`
+  - 404: Album genuinely doesn't exist at the source → transition to `needs_manual` with reason `album_not_on_spotify` (spotify) / `release_not_on_discogs` (discogs)
   - 429 rate limit: retry with backoff
   - Auth error: transition to `errored` (config problem, needs admin attention)
 
 ### downloading_art
 
-- Input: art URL from previous step (or manually provided art via `override_art_url` in asset file)
-- Action: fetch art bytes, hash for cache invalidation, save to `media/artwork/{curatorId}.jpg`
+- Input: art URL from previous step (Spotify art URL, or the Discogs release's primary image URL; or manually provided art via `override_art_url` in asset file)
+- Action: fetch art bytes, hash for cache invalidation, save to `media/artwork/{curatorId}.jpg`. Discogs image hosts require the same token + `User-Agent` as the API (ADR 0017 — the release's own image, no Spotify resolution).
 - Success: transition to `generating_palette`
 - Failure: retry with backoff; after 3 fails, `errored` with reason
 

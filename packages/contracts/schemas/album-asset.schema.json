@@ -17,9 +17,12 @@
         "artist": { "type": "string" },
         "year": { "type": "integer" },
         "genres": { "type": "array", "items": { "type": "string" } },
-        "source": { "enum": ["spotify", "manual"] },
+        "source": { "enum": ["spotify", "manual", "discogs"] },
         "spotifyUri": { "type": "string" },
-        "spotifyArtUrl": { "type": "string" }
+        "spotifyArtUrl": { "type": "string" },
+        "discogsReleaseId": { "type": "integer" },
+        "discogsUri": { "type": "string" },
+        "discogsArtUrl": { "type": "string" }
       }
     },
     "artwork": { "type": "object" },

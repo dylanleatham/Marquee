@@ -158,6 +158,11 @@ One JSON file per album. Human-readable, git-friendly, hand-editable.
     "spotifyUri": "spotify:album:1C2h7mLntPSeVYciMRTF4a",
     "spotifyArtUrl": "https://i.scdn.co/image/..."
   },
+  // Discogs-sourced albums (issue #24 / ADR 0017) carry instead:
+  //   "source": "discogs",
+  //   "discogsReleaseId": 249504,
+  //   "discogsUri": "discogs:release:249504",
+  //   "discogsArtUrl": "https://i.discogs.com/..."
 
   "artwork": {
     "resolvedPath": "media/artwork/2k7bxq9m.jpg",
@@ -263,7 +268,7 @@ One JSON file per album. Human-readable, git-friendly, hand-editable.
 
 Notes on the shape:
 
-- `metadata.source` distinguishes `"spotify"` from `"manual"` — manual albums lack `spotifyUri` and `spotifyArtUrl`, and have artwork sitting only in `media/artwork-overrides/`.
+- `metadata.source` distinguishes `"spotify"`, `"discogs"`, and `"manual"` — manual albums lack the provider URIs and have artwork sitting only in `media/artwork-overrides/`; Discogs albums (issue #24 / [ADR 0017](../adrs/0017-discogs-personal-token-and-direct-images.md)) carry `discogsReleaseId` / `discogsUri` / `discogsArtUrl` in place of the `spotify*` fields.
 - `artwork.resolvedPath` points to whichever art is currently active (override takes precedence). Palette regenerates when this changes.
 - `promptDrafts` holds all generated prompts, one per output type. Currently `video` and `cardArt`; the shape generalizes to any future output type without schema changes.
 - `visualizer` is the runtime-facing video referenced by Backdrop.
@@ -294,6 +299,14 @@ Runs on `http://localhost:4739` locally.
 > `source` field (`"manual" | "spotify"`). `GET /api/spotify/search-albums?q=` and
 > `GET /api/spotify/album/:spotifyId` back the search/preview UI. All Spotify routes **503** when
 > no credentials are configured.
+>
+> **Discogs add (issue #24 / [ADR 0017](../adrs/0017-discogs-personal-token-and-direct-images.md)):**
+> a JSON body `{ releaseId, title?, artist?, year?, genres?, coverImage? }` (the release id from the
+> collection browser) writes a `fresh` `source: "discogs"` asset, dedupes on the Discogs release id
+> (**409**), and hands off to Roadie (which fetches the authoritative release detail + cover image).
+> `GET /api/discogs/collection?page=&perPage=` backs the browser (paginated), and
+> `GET`/`PUT /api/settings/discogs` store the personal access token. All Discogs routes **503** when
+> no token is configured. Auth is a personal access token, not OAuth (unlike Spotify's user login).
 
 | Method | Path                     | Purpose                                                                                                                                                             |
 | ------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
