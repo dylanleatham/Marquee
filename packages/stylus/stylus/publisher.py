@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Sequence
@@ -51,8 +52,6 @@ class Publisher:
         sleep: Sleep | None = None,
         retry_delays: Sequence[float] = DEFAULT_RETRY_DELAYS,
     ) -> None:
-        import time
-
         self._downstreams = tuple(downstreams)
         self._transport = transport
         self._sleep: Sleep = sleep or time.sleep

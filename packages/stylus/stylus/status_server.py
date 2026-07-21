@@ -52,6 +52,10 @@ class StatusService:
 
 def _make_handler(service: StatusService):
     class Handler(BaseHTTPRequestHandler):
+        # Bound the per-request socket so a client that opens a connection and then stalls mid-body
+        # can't tie up a server thread forever (ThreadingHTTPServer spawns one thread per request).
+        timeout = 10
+
         def _dispatch(self, method: str) -> None:
             length = int(self.headers.get("content-length", 0) or 0)
             body = self.rfile.read(length) if length else b""

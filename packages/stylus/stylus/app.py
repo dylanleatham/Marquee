@@ -57,15 +57,23 @@ class StylusApp:
     def _handle(self, action) -> None:
         if isinstance(action, Start):
             self._publish(start_event(action.uri, action.uid, self._reader_id, at=self._now()))
+            self._ack_start()
         elif isinstance(action, Swap):
             # §7 SWAP: stop the old album, then start the new one. No IDLE in between.
             self._publish(stop_event(self._reader_id, at=self._now()))
             self._publish(start_event(action.uri, action.uid, self._reader_id, at=self._now()))
+            self._ack_start()
         elif isinstance(action, Stop):
             self._publish(stop_event(self._reader_id, at=self._now()))
         elif isinstance(action, BadTag):
             log.warning("tag %s carried no valid curator:album URI — ignoring", action.uid)
             self._led.set(Pattern.ERROR)
+
+    def _ack_start(self) -> None:
+        # §7 "two short blinks: I heard you" — only when the start actually reached a downstream.
+        # _apply_steady_led then settles to PLAYING (or ERROR) at the end of the tick.
+        if not self._last_publish_failed():
+            self._led.set(Pattern.START_ACK)
 
     def _publish(self, event: dict[str, Any]) -> None:
         self._last_event = event
