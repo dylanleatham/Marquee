@@ -32,13 +32,43 @@ GitHub issue, branch `fix/<issue#>-<slug>`, then red → green → widen to the 
 and close the blind spot (test, contract, property, or reviewer rule). Full workflow:
 [docs/specs/bug-fix-workflow.md](docs/specs/bug-fix-workflow.md).
 
+## Definition of done — close the loop before review, not after
+
+The review agents (`pnpm run review`) encode a checklist the repo already expects. Run them **in the
+inner loop** — before the first commit, iterating to green — so they act as a linter you answer in
+the same session, not a gate that bounces the PR. Only genuinely-debatable calls should reach human
+review. The bar is **no blocking findings and no *repeat* class**, not zero findings (chasing zero is
+gold-plating).
+
+Three checks close most of what otherwise slips through — each is the durable fix for a finding that
+has recurred:
+
+- **New surface ⇒ test in the same change.** Every new exported function, React component, hook,
+  route, or state transition ships with a test. Grep your own diff for new
+  `export` / `use…` / `…Section` / route registrations and cross-check the test files. (test-auditor
+  flags this — don't make it do so.)
+- **New `spawn` / `fetch` / unbounded loop ⇒ bound it.** Anything that drives a subprocess, the
+  network, or loops on external state gets a timeout or cap — Curator is an always-on service and a
+  hung call must not wedge the event loop. Prefer bounding the shared helper so every caller inherits
+  it. (runtime flags this.)
+- **Changed a documented fact ⇒ reconcile every copy of it.** A fact usually lives in more than one
+  place — a table, prose, an out-of-scope list, an ADR, an onboarding walkthrough. After editing any
+  `docs/**`, grep for the feature's keywords **and** status words (`deferred`, `out of scope`,
+  `TODO`, the old field/route name) and fix every hit. A spec that lies is worse than no spec (see
+  "Specs are the source of truth").
+
+This is the "close the blind spot" rule from the bug-fix workflow applied to review: a finding that
+shows up twice is a blind spot — close it with a durable gate (a test, a bounded helper, a
+doc-reconcile pass), don't just fix the instance.
+
 ## Conventions
 
 - **Monorepo**: pnpm + turbo, Node 22. `pnpm test` / `pnpm --filter <pkg> test`, `pnpm run type`.
 - **Branches**: `feat/*`, `fix/*`, `chore/*` off `main`; Conventional Commits (commitlint-enforced).
   `main` isn't hard-protected (free plan) — the git hooks are the gate; don't commit product code
   straight to `main`.
-- **Review agents** run on demand: `pnpm run review` before opening a PR (not in pre-push). See
+- **Review agents** run on demand: `pnpm run review` — run it early and iteratively, not just before
+  the PR (see "Definition of done" above); not in pre-push. See
   [review-agents/README.md](review-agents/README.md) and `review-agents/KNOWN-ISSUES.md`.
 - **Bugs** are tracked as GitHub issues; the fixing PR `Closes #<n>`. See the bug-fix workflow above.
 - `gh` CLI is installed at `C:\Program Files\GitHub CLI\gh.exe` (authed as `dylanleatham`), but not
