@@ -137,6 +137,18 @@ describe("useGenerationJob", () => {
     expect(result.current.error).toBe("upstream boom");
   });
 
+  it("surfaces a failure when the start request itself rejects", async () => {
+    vi.spyOn(api, "albumJobs").mockResolvedValue({ jobs: [] });
+    const starter = vi.fn().mockRejectedValue(new Error("503 not configured"));
+
+    const { result } = renderHook(() =>
+      useGenerationJob("abcd1234", "video", starter, vi.fn()),
+    );
+    await act(async () => result.current.start());
+    await waitFor(() => expect(result.current.status).toBe("failed"));
+    expect(result.current.error).toBe("503 not configured");
+  });
+
   it("re-attaches to a running job on mount (survives a reload)", async () => {
     vi.spyOn(api, "albumJobs").mockResolvedValue({
       jobs: [job({ status: "running" })],
