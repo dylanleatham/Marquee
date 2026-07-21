@@ -123,15 +123,17 @@ const CONCAT_TIMEOUT_MS = 300_000;
  * Run a binary with argv passed directly — **never through a shell** — so a filename can't inject
  * commands (security review, step 7). Args are handed to CreateProcess/execvp verbatim; spaces and
  * shell metacharacters in paths are inert. The process is killed if it exceeds `timeoutMs`, so a
- * stuck encode surfaces as a `VideoError` instead of blocking the caller indefinitely.
+ * stuck encode surfaces as a `VideoError` instead of blocking the caller indefinitely. `spawnFn` is
+ * injectable (mirroring `ffmpegAvailable`) so the timeout path is testable without shelling out.
  */
-function run(
+export function run(
   bin: string,
   args: string[],
   timeoutMs: number = RUN_TIMEOUT_MS,
+  spawnFn: typeof spawn = spawn,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(resolveBin(bin), args, { windowsHide: true });
+    const child = spawnFn(resolveBin(bin), args, { windowsHide: true });
     let out = "";
     let err = "";
     let timedOut = false;

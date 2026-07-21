@@ -1,13 +1,15 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { mkdtempSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { EventEmitter } from "node:events";
 import { Paths } from "../src/store/paths.js";
-import type { spawnSync } from "node:child_process";
+import type { spawn, spawnSync } from "node:child_process";
 import {
   validateVideo,
   ingestVideo,
   ffmpegAvailable,
+  run,
   VideoError,
   type VideoInfo,
 } from "../src/media/video.js";
@@ -120,6 +122,44 @@ describe("ffmpegAvailable", () => {
     }) as unknown as typeof spawnSync;
     ffmpegAvailable(capture);
     expect(opts?.timeout).toBeGreaterThan(0);
+  });
+});
+
+describe("run (ffmpeg wrapper) — timeout", () => {
+  // A fake child process (EventEmitter) so the timeout path runs without shelling out.
+  const fakeChild = () => {
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: EventEmitter;
+      stderr: EventEmitter;
+      kill: (sig: string) => void;
+    };
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    // SIGKILL → the OS would fire "close"; model that so run()'s handler resolves the promise.
+    child.kill = vi.fn((_sig: string) => child.emit("close", null));
+    return child;
+  };
+  const spawnReturning = (child: EventEmitter) =>
+    (() => child) as unknown as typeof spawn;
+
+  it("kills a stuck process past its budget and rejects with a timeout error", async () => {
+    vi.useFakeTimers();
+    const child = fakeChild();
+    const p = run("ffmpeg", ["-x"], 1000, spawnReturning(child));
+    const assertion = expect(p).rejects.toThrow(/timed out after 1000ms/);
+    await vi.advanceTimersByTimeAsync(1000);
+    await assertion;
+    expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+    vi.useRealTimers();
+  });
+
+  it("resolves stdout on a clean exit (timer cleared, no kill)", async () => {
+    const child = fakeChild();
+    const p = run("ffprobe", ["-x"], 1000, spawnReturning(child));
+    child.stdout.emit("data", "OUT");
+    child.emit("close", 0);
+    expect(await p).toBe("OUT");
+    expect(child.kill).not.toHaveBeenCalled();
   });
 });
 
