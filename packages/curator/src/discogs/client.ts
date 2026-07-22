@@ -43,8 +43,13 @@ export interface DiscogsReleaseMeta {
 }
 
 export interface DiscogsClientOptions {
-  /** Personal access token (ADR 0016) — sent as `Authorization: Discogs token=<token>`. */
-  token: string;
+  /** Personal access token (ADR 0016) — sent as `Authorization: Discogs token=<token>`. Provide this
+   * OR `authHeader` (OAuth 1.0a, issue #59); `authHeader` wins when both are present. */
+  token?: string;
+  /** Supplies the full `Authorization` header value per request — used for the OAuth 1.0a session
+   * (issue #59), which signs each request with a fresh nonce/timestamp. Returning `undefined` falls
+   * back to the personal token. */
+  authHeader?: () => string | undefined;
   fetch?: FetchLike;
   apiBase?: string;
   /**
@@ -149,6 +154,17 @@ export class DiscogsClient {
     this.apiBase = opts.apiBase ?? "https://api.discogs.com";
     this.userAgent = opts.userAgent ?? "Marquee/1.0 +https://github.com/marquee";
     this.timeoutMs = opts.timeoutMs ?? 10_000;
+    if (!opts.token && !opts.authHeader)
+      throw new Error("DiscogsClient needs a token or an authHeader provider");
+  }
+
+  /** The Authorization header for a request: an OAuth 1.0a session when connected, else the personal
+   * token (issue #59). */
+  private authorization(): string {
+    const oauth = this.opts.authHeader?.();
+    if (oauth) return oauth;
+    if (this.opts.token) return `Discogs token=${this.opts.token}`;
+    throw new DiscogsError("Discogs is not authenticated", 401);
   }
 
   /** fetch with an AbortController timeout + the headers Discogs requires on every request. */
@@ -164,7 +180,7 @@ export class DiscogsClient {
         signal: ctrl.signal,
         headers: {
           "User-Agent": this.userAgent,
-          Authorization: `Discogs token=${this.opts.token}`,
+          Authorization: this.authorization(),
           ...(init.headers ?? {}),
         },
       });

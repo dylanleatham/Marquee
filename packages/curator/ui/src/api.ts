@@ -137,7 +137,7 @@ export interface CardArtCandidate {
 export type PromptType = "video" | "cardArt";
 
 export type JobKind = "video" | "cardArt";
-export type JobStatus = "running" | "done" | "failed";
+export type JobStatus = "running" | "done" | "failed" | "cancelled";
 
 /** A background generation job (issue #30 / ADR 0018). Mirrors GenerationJob on the server. */
 export interface GenerationJob {
@@ -165,7 +165,11 @@ export interface AlbumAsset {
     discogsUri?: string;
     discogsReleaseId?: number;
   };
-  artwork?: { resolvedPath: string; contentHash: string };
+  artwork?: {
+    resolvedPath: string;
+    contentHash: string;
+    source?: "spotify" | "discogs";
+  };
   palette?: { colors: PaletteColor[]; insufficient?: boolean; reason?: string };
   pattern?: { type: string; params: Record<string, unknown> };
   promptDrafts?: { video?: DraftedPrompt; cardArt?: DraftedPrompt };
@@ -173,6 +177,11 @@ export interface AlbumAsset {
   videoClips?: VideoClip[];
   cardArt?: CardArt;
   cardArtCandidates?: CardArtCandidate[];
+  tag?: {
+    payload: string;
+    sleeve?: { written: boolean; writtenAt?: string; tagUid?: string };
+    card?: { written: boolean; writtenAt?: string; tagUid?: string };
+  };
   verification?: { previewApprovedAt?: string; physicallyVerifiedAt?: string };
   roadie: {
     state: RoadieState;
@@ -215,10 +224,18 @@ export interface DiscogsCollectionPage {
   total: number;
 }
 
-/** Discogs token status for the Settings screen (GET /api/settings/discogs). */
+/** Discogs settings status for the Settings screen (GET /api/settings/discogs). */
 export interface DiscogsSettings {
   configured: boolean;
+  /** Whether OAuth consumer creds are set, so "log in with Discogs" is available (issue #59). */
+  oauthConfigured: boolean;
   username: string | null;
+}
+
+/** Discogs OAuth login status (GET /api/discogs/auth/status). */
+export interface DiscogsAuthStatus {
+  connected: boolean;
+  username?: string;
 }
 
 /** A row from GET /api/albums — the Demo Room uses `hasVideo` to build its swap list. */
@@ -363,10 +380,16 @@ export const api = {
     req<GenerationJob>(`/api/albums/${id}/video/generate`, { method: "POST" }),
   // Splice the generated clips into one loop and attach it (issue #29). `order` = clip indices to
   // join, in order (default: all).
-  spliceVisualizer: (id: string, order?: number[]) =>
+  spliceVisualizer: (id: string, order?: number[], crossfadeSec?: number) =>
     req<{ state: RoadieState; visualizer: Visualizer }>(
       `/api/albums/${id}/video/splice`,
-      { method: "POST", body: JSON.stringify(order ? { order } : {}) },
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...(order ? { order } : {}),
+          ...(crossfadeSec ? { crossfadeSec } : {}),
+        }),
+      },
     ),
   uploadCardArt: (id: string, form: FormData) => {
     form.set("curatorId", id);
@@ -380,6 +403,9 @@ export const api = {
       method: "POST",
     }),
   job: (jobId: string) => req<GenerationJob>(`/api/jobs/${jobId}`),
+  // Cancel an in-flight generation job (issue #57).
+  cancelJob: (jobId: string) =>
+    req<GenerationJob>(`/api/jobs/${jobId}/cancel`, { method: "POST" }),
   albumJobs: (id: string, kind?: JobKind) =>
     req<{ jobs: GenerationJob[] }>(
       `/api/albums/${id}/jobs${kind ? `?kind=${kind}` : ""}`,
@@ -403,6 +429,17 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ to }),
     }),
+  // --- Tag write / verify (step 11) ---
+  markTagWritten: (id: string, object: "sleeve" | "card") =>
+    req<{ state: RoadieState }>(`/api/albums/${id}/tag-written`, {
+      method: "POST",
+      body: JSON.stringify({ object }),
+    }),
+  verifyAlbum: (id: string) =>
+    req<{
+      state: RoadieState;
+      verify: { ok: boolean; discrepancies: string[] };
+    }>(`/api/albums/${id}/verify-physical`, { method: "POST" }),
   // --- Settings: Spotify credentials (packaged app has no repo .env) ---
   spotifySettings: () => req<SpotifySettings>("/api/settings/spotify"),
   saveSpotifySettings: (clientId: string, clientSecret: string) =>
@@ -440,11 +477,21 @@ export const api = {
 
   // --- Discogs: browse your collection + add ---
   discogsSettings: () => req<DiscogsSettings>("/api/settings/discogs"),
-  saveDiscogsSettings: (token: string, username?: string) =>
+  saveDiscogsSettings: (patch: {
+    token?: string;
+    username?: string;
+    consumerKey?: string;
+    consumerSecret?: string;
+  }) =>
     req<{ ok: boolean; restartRequired: boolean }>("/api/settings/discogs", {
       method: "PUT",
-      body: JSON.stringify({ token, username }),
+      body: JSON.stringify(patch),
     }),
+  // Discogs OAuth "log in with Discogs" (issue #59) — mirrors the Spotify auth methods.
+  discogsAuthStatus: () => req<DiscogsAuthStatus>("/api/discogs/auth/status"),
+  discogsLogin: () => req<{ authorizeUrl: string }>("/api/discogs/auth/login"),
+  discogsDisconnect: () =>
+    req<{ ok: boolean }>("/api/discogs/auth/disconnect", { method: "POST" }),
   discogsCollection: (page = 1, perPage = 50) =>
     req<DiscogsCollectionPage>(
       `/api/discogs/collection?page=${page}&perPage=${perPage}`,

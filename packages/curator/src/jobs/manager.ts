@@ -3,14 +3,23 @@
 // is fragile (proxy/browser timeouts, no progress, a reload loses the result). Instead the route
 // starts a job and returns a `jobId` immediately; the UI polls `GET /api/jobs/:id`.
 //
-// In-memory is deliberate (issue #30: "in-memory is fine to start"): generation is a human-triggered
-// convenience, not durable pipeline state — a lost job on restart just means clicking generate again.
+// Cancel + persistence (issue #57): each running job carries an AbortController; `cancel(id)` aborts
+// its runner (which threads the signal into the Gemini fetch) and marks it `cancelled`. An optional
+// on-disk JobStore survives a Curator restart so the UI can still see recent jobs — a job that was
+// mid-flight when the process died can't be resumed (its runner is gone), so it's restored as failed.
 // Roadie's queue is untouched (roadie-spec §15: generation lives outside the queue).
 import { randomUUID } from "node:crypto";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname } from "node:path";
 import type { VideoClip, CardArtCandidate } from "../albums/asset.js";
 
 export type JobKind = "video" | "cardArt";
-export type JobStatus = "running" | "done" | "failed";
+export type JobStatus = "running" | "done" | "failed" | "cancelled";
 
 /** What a finished job produced — the same payloads the synchronous routes used to return. */
 export interface JobResult {
@@ -27,21 +36,48 @@ export interface GenerationJob {
   progress: { done: number; total: number };
   createdAt: string;
   updatedAt: string;
-  /** Set when `status === "failed"`. */
+  /** Set when `status === "failed"` (or a restart-interrupted job). */
   error?: string;
   /** Set when `status === "done"`. */
   result?: JobResult;
 }
 
-/** The work a job performs. Reports progress as items finish; resolves with the result payload. */
+/**
+ * The work a job performs. Reports progress as items finish; resolves with the result payload. The
+ * `signal` aborts when the job is cancelled — runners thread it into their cancellable calls (the
+ * Gemini client's fetch) so an in-flight generation stops rather than running to completion.
+ */
 export type JobRunner = (ctx: {
   onProgress: (done: number, total: number) => void;
+  signal: AbortSignal;
 }) => Promise<JobResult>;
+
+/** Persistence seam: load/save the serializable job list. Injected so it's unit-testable without fs. */
+export interface JobStore {
+  load(): GenerationJob[];
+  save(jobs: GenerationJob[]): void;
+}
+
+/** A file-backed JobStore (a single JSON array). Best-effort: a corrupt/missing file loads as empty. */
+export class FileJobStore implements JobStore {
+  constructor(private readonly file: string) {}
+  load(): GenerationJob[] {
+    if (!existsSync(this.file)) return [];
+    const parsed = JSON.parse(readFileSync(this.file, "utf8")) as unknown;
+    return Array.isArray(parsed) ? (parsed as GenerationJob[]) : [];
+  }
+  save(jobs: GenerationJob[]): void {
+    mkdirSync(dirname(this.file), { recursive: true });
+    writeFileSync(this.file, JSON.stringify(jobs, null, 2) + "\n");
+  }
+}
 
 export interface JobManagerOptions {
   now?: () => string;
-  /** How long a terminal (done/failed) job is retained before GC. Default 30 min. */
+  /** How long a terminal (done/failed/cancelled) job is retained before GC. Default 30 min. */
   ttlMs?: number;
+  /** Optional on-disk persistence so jobs survive a restart (issue #57). */
+  store?: JobStore;
 }
 
 /** Public view of a job (the map value is mutated in place; callers get a snapshot copy). */
@@ -53,12 +89,53 @@ const snapshot = (j: GenerationJob): GenerationJob => ({
 
 export class GenerationJobs {
   private readonly jobs = new Map<string, GenerationJob>();
+  /** Per-running-job abort handles — not part of the serializable job, kept alongside it. */
+  private readonly controllers = new Map<string, AbortController>();
   private readonly now: () => string;
   private readonly ttlMs: number;
+  private readonly store?: JobStore;
 
   constructor(opts: JobManagerOptions = {}) {
     this.now = opts.now ?? (() => new Date().toISOString());
     this.ttlMs = opts.ttlMs ?? 30 * 60 * 1000;
+    this.store = opts.store;
+    this.restore();
+  }
+
+  /** Load persisted jobs on boot. A job left `running` can't be resumed (its runner died with the
+   * process), so it's restored as a failed "interrupted" job rather than a zombie that never ends. */
+  private restore(): void {
+    if (!this.store) return;
+    let saved: GenerationJob[];
+    try {
+      saved = this.store.load();
+    } catch {
+      return; // unreadable/corrupt log — start clean rather than crash
+    }
+    let normalized = false;
+    for (const j of saved) {
+      if (j.status === "running") {
+        this.jobs.set(j.id, {
+          ...j,
+          status: "failed",
+          error: "interrupted by a Curator restart",
+          updatedAt: this.now(),
+        });
+        normalized = true;
+      } else {
+        this.jobs.set(j.id, j);
+      }
+    }
+    if (normalized) this.persist();
+  }
+
+  private persist(): void {
+    if (!this.store) return;
+    try {
+      this.store.save([...this.jobs.values()].map(snapshot));
+    } catch {
+      // best-effort: a failed persist must not break generation (in-memory state is authoritative)
+    }
   }
 
   /** A job by id, or undefined if unknown/expired. */
@@ -105,34 +182,75 @@ export class GenerationJobs {
       createdAt: at,
       updatedAt: at,
     };
+    const controller = new AbortController();
     this.jobs.set(job.id, job);
-    void this.drive(job, run);
+    this.controllers.set(job.id, controller);
+    this.persist();
+    void this.drive(job, run, controller);
     return snapshot(job);
   }
 
-  private async drive(job: GenerationJob, run: JobRunner): Promise<void> {
+  /**
+   * Cancel a running job: abort its runner (stopping the in-flight Gemini fetch) and mark it
+   * `cancelled`. Idempotent — cancelling an unknown, done, failed, or already-cancelled job is a
+   * no-op that returns the current snapshot (or undefined if unknown).
+   */
+  cancel(id: string): GenerationJob | undefined {
+    this.gc();
+    const job = this.jobs.get(id);
+    if (!job) return undefined;
+    if (job.status !== "running") return snapshot(job);
+    this.controllers.get(id)?.abort();
+    job.status = "cancelled";
+    job.updatedAt = this.now();
+    this.persist();
+    return snapshot(job);
+  }
+
+  private async drive(
+    job: GenerationJob,
+    run: JobRunner,
+    controller: AbortController,
+  ): Promise<void> {
     try {
       const result = await run({
         onProgress: (done, total) => {
+          // Ignore late progress from an already-cancelled runner winding down.
+          if (job.status !== "running") return;
           job.progress = { done, total };
           job.updatedAt = this.now();
         },
+        signal: controller.signal,
       });
+      // Cancelled mid-flight (the abort raced the resolve) — keep it cancelled, drop the result.
+      if (job.status === "cancelled") return;
       job.status = "done";
       job.result = result;
     } catch (err) {
-      job.status = "failed";
-      job.error = err instanceof Error ? err.message : String(err);
+      if (job.status === "cancelled" || controller.signal.aborted) {
+        job.status = "cancelled"; // an abort-induced rejection, not a real failure
+      } else {
+        job.status = "failed";
+        job.error = err instanceof Error ? err.message : String(err);
+      }
     }
     job.updatedAt = this.now();
+    this.controllers.delete(job.id);
+    this.persist();
   }
 
   /** Drop terminal jobs past their TTL so the map doesn't grow unbounded over a long-lived process. */
   private gc(): void {
     const cutoff = Date.now() - this.ttlMs;
+    let dropped = false;
     for (const [id, j] of this.jobs) {
       if (j.status === "running") continue;
-      if (Date.parse(j.updatedAt) < cutoff) this.jobs.delete(id);
+      if (Date.parse(j.updatedAt) < cutoff) {
+        this.jobs.delete(id);
+        this.controllers.delete(id);
+        dropped = true;
+      }
     }
+    if (dropped) this.persist();
   }
 }

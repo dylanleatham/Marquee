@@ -674,6 +674,41 @@ em {
   align-items: center;
   gap: 6px;
 }
+.splice__opt {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+/* --- tag write / verify (step 11) --- */
+.tagwrite {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.tagwrite__payload {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px;
+}
+.tagwrite__payload code {
+  color: var(--amber);
+  word-break: break-all;
+}
+.tagwrite__objects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.tagwrite__done {
+  color: var(--sage);
+  font-weight: 600;
+  font-size: 14px;
+}
 .tag {
   font-size: 11px;
   letter-spacing: 0.06em;
@@ -909,6 +944,40 @@ em {
 }
 .roadie-strip code {
   color: var(--text);
+}
+
+/* --- error boundary fallback (issue #63) --- */
+.error-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  text-align: center;
+  padding: 48px 24px;
+}
+.error-fallback--app {
+  min-height: 100vh;
+}
+.error-fallback--route {
+  min-height: 50vh;
+}
+.error-fallback__title {
+  font-size: 22px;
+  margin: 0;
+  color: var(--alert);
+}
+.error-fallback__msg {
+  max-width: 560px;
+  margin: 0;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 13px;
+  word-break: break-word;
+}
+.error-fallback__actions {
+  display: flex;
+  gap: 10px;
 }
 
 .spinner {

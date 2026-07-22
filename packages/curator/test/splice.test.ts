@@ -15,7 +15,10 @@ import { ValidationError } from "../src/albums/add-manual.js";
 import { TransitionError, type VideoClip } from "../src/albums/asset.js";
 import {
   buildConcatArgs,
+  resolveConcatBuild,
   type VideoProber,
+  type VideoInfo,
+  type ConcatOptions,
 } from "../src/media/video.js";
 import { makeAsset, fakeProber } from "./helpers.js";
 
@@ -39,16 +42,22 @@ function seedClips(s: AssetStore, id = "aaaa1111", n = 3): string {
   return id;
 }
 
-/** A prober that records the files it was asked to concat (for asserting order/selection). */
-function recordingProber(): VideoProber & { joined: string[][] } {
+/** A prober that records the files + options it was asked to concat (order/selection/crossfade). */
+function recordingProber(): VideoProber & {
+  joined: string[][];
+  opts: (ConcatOptions | undefined)[];
+} {
   const base = fakeProber();
   const joined: string[][] = [];
+  const opts: (ConcatOptions | undefined)[] = [];
   return {
     ...base,
     joined,
-    concat: async (files, outPath) => {
+    opts,
+    concat: async (files, outPath, o) => {
       joined.push([...files]);
-      return base.concat(files, outPath);
+      opts.push(o);
+      return base.concat(files, outPath, o);
     },
   };
 }
@@ -67,6 +76,67 @@ describe("buildConcatArgs", () => {
     expect(args).toContain("libx264");
     expect(args).toContain("[0:v][1:v]concat=n=2:v=1:a=0[out]");
     expect(args[args.length - 1]).toBe("/out.mp4");
+  });
+
+  // Issue #56: mismatched clip dimensions are scaled-to-fit + padded to a common frame before the
+  // join, so a differing set doesn't fail or corrupt.
+  it("normalizes every input to a common frame when a size is given", () => {
+    const args = buildConcatArgs(["/a.mp4", "/b.mp4"], "/out.mp4", {
+      size: { width: 1920, height: 1080 },
+    });
+    const filter = args[args.indexOf("-filter_complex") + 1]!;
+    expect(filter).toContain(
+      "[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1[v0]",
+    );
+    expect(filter).toContain("[v0][v1]concat=n=2:v=1:a=0[out]");
+  });
+
+  // Issue #56: crossfade the seams with xfade. Each transition's offset accounts for the timeline
+  // shortening by the crossfade duration at every prior seam.
+  it("builds an xfade chain with cumulative offsets for a crossfade", () => {
+    const args = buildConcatArgs(["/a.mp4", "/b.mp4", "/c.mp4"], "/out.mp4", {
+      size: { width: 1280, height: 720 },
+      crossfade: { durationSec: 0.5, durations: [8, 8, 8] },
+    });
+    const filter = args[args.indexOf("-filter_complex") + 1]!;
+    // First seam at 8 − 0.5 = 7.5; second at (8 + 8 − 0.5) − 0.5 = 15.
+    expect(filter).toContain(
+      "[v0][v1]xfade=transition=fade:duration=0.5:offset=7.500[x1]",
+    );
+    expect(filter).toContain(
+      "[x1][v2]xfade=transition=fade:duration=0.5:offset=15.000[out]",
+    );
+    expect(filter).not.toContain("concat=");
+  });
+});
+
+describe("resolveConcatBuild (issue #56)", () => {
+  const info = (width: number, height: number, durationSec = 8): VideoInfo => ({
+    width,
+    height,
+    durationSec,
+    codec: "h264",
+    container: "mp4",
+  });
+
+  it("adds no normalization for same-size clips with no crossfade (keeps the minimal graph)", () => {
+    const build = resolveConcatBuild([info(1920, 1080), info(1920, 1080)]);
+    expect(build.size).toBeUndefined();
+    expect(build.crossfade).toBeUndefined();
+  });
+
+  it("normalizes to the largest frame when clips differ in size", () => {
+    const build = resolveConcatBuild([info(1920, 1080), info(1280, 720)]);
+    expect(build.size).toEqual({ width: 1920, height: 1080 });
+  });
+
+  it("normalizes and carries per-clip durations when a crossfade is requested", () => {
+    const build = resolveConcatBuild(
+      [info(1280, 720, 8), info(1280, 720, 10)],
+      { crossfade: { durationSec: 0.5 } },
+    );
+    expect(build.size).toEqual({ width: 1280, height: 720 });
+    expect(build.crossfade).toEqual({ durationSec: 0.5, durations: [8, 10] });
   });
 });
 
@@ -105,6 +175,22 @@ describe("spliceVisualizer", () => {
       s.paths.visualizerFile("bbbb2222-v2"),
       s.paths.visualizerFile("bbbb2222-v0"),
     ]);
+  });
+
+  it("passes a plain concat by default and threads a crossfade option when asked (issue #56)", async () => {
+    const s = store();
+    const id = seedClips(s, "cccc7777", 3);
+    const prober = recordingProber();
+
+    await actions.spliceVisualizer(deps(s, prober), id);
+    expect(prober.opts[0]?.crossfade).toBeUndefined();
+
+    // Re-seed (the first splice advanced the album out of the attachable window).
+    const id2 = seedClips(s, "dddd8888", 3);
+    await actions.spliceVisualizer(deps(s, prober), id2, undefined, {
+      crossfade: { durationSec: 0.5 },
+    });
+    expect(prober.opts[1]?.crossfade).toEqual({ durationSec: 0.5 });
   });
 
   it("rejects an album with no generated clips", async () => {

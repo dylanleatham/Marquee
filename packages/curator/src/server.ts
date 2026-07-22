@@ -28,6 +28,7 @@ import { addDiscogsAlbum } from "./albums/add-discogs.js";
 import { SpotifyClient, SpotifyError } from "./spotify/client.js";
 import { SpotifyAuth, SpotifyAuthError } from "./spotify/auth.js";
 import { DiscogsClient, DiscogsError } from "./discogs/client.js";
+import { DiscogsOAuth, DiscogsOAuthError } from "./discogs/oauth.js";
 import { GeminiClient } from "./gemini/client.js";
 import {
   writeSpotifyCreds,
@@ -43,7 +44,7 @@ import {
 } from "./albums/asset.js";
 import * as actions from "./albums/actions.js";
 import { NotFoundError, type ActionDeps } from "./albums/actions.js";
-import { GenerationJobs } from "./jobs/manager.js";
+import { GenerationJobs, FileJobStore } from "./jobs/manager.js";
 import { flipperNfcFile } from "./tags/flipper-nfc.js";
 import {
   ffmpegProber,
@@ -73,6 +74,8 @@ export interface BuildOptions {
   spotifyAuth?: SpotifyAuth;
   /** Injected Discogs client (tests pass one backed by fake-discogs); prod builds from config. */
   discogs?: DiscogsClient;
+  /** Injected Discogs OAuth manager (tests pass one with an injected fetch); prod builds from config. */
+  discogsAuth?: DiscogsOAuth;
   /** Injected Gemini client (tests pass one backed by fake-gemini); prod builds from config. */
   gemini?: GeminiClient;
   /** Override the opt-in generation flags (tests); prod reads them from config.gemini. */
@@ -312,11 +315,31 @@ export function buildServer(opts: BuildOptions = {}) {
     (config.spotify
       ? new SpotifyClient({ ...config.spotify, getUserToken: userTokenOrNull })
       : undefined);
-  // Discogs (ADR 0016): a personal-access-token client. Absent → the collection/add routes 503.
+  // Discogs OAuth 1.0a "log in with Discogs" (issue #59): built whenever consumer creds are
+  // configured. The client prefers a connected OAuth session's signed header and falls back to the
+  // personal token (ADR 0016) — so both auth mechanisms coexist behind one DiscogsClient.
+  const discogsAuth =
+    opts.discogsAuth ??
+    (config.discogs?.consumerKey &&
+    config.discogs?.consumerSecret &&
+    config.discogs?.callbackUrl
+      ? new DiscogsOAuth({
+          consumerKey: config.discogs.consumerKey,
+          consumerSecret: config.discogs.consumerSecret,
+          callbackUrl: config.discogs.callbackUrl,
+          dataDir: config.dataDir,
+        })
+      : undefined);
+  // Absent both token and OAuth → the collection/add routes 503.
   const discogs =
     opts.discogs ??
-    (config.discogs
-      ? new DiscogsClient({ token: config.discogs.token })
+    (config.discogs && (config.discogs.token || discogsAuth)
+      ? new DiscogsClient({
+          ...(config.discogs.token ? { token: config.discogs.token } : {}),
+          ...(discogsAuth
+            ? { authHeader: () => discogsAuth.apiAuthHeader() }
+            : {}),
+        })
       : undefined);
   // Resolve the collection username once: the configured value wins; otherwise ask the token's
   // identity and cache it (a token maps to exactly one user, so this never changes at runtime).
@@ -354,8 +377,14 @@ export function buildServer(opts: BuildOptions = {}) {
     generateVideo: genVideo,
   };
   // Background jobs for the long-running AI generation actions (issue #30 / ADR 0018): the generate
-  // routes enqueue here and return a jobId instead of holding the request open for minutes.
-  const jobs = opts.jobs ?? new GenerationJobs();
+  // routes enqueue here and return a jobId instead of holding the request open for minutes. Persisted
+  // to a small on-disk log (issue #57) so recent jobs survive a restart — a job left running when the
+  // process died is restored as failed (its runner is gone), not a zombie.
+  const jobs =
+    opts.jobs ??
+    new GenerationJobs({
+      store: new FileJobStore(join(config.dataDir, "generation-jobs.json")),
+    });
   // Backdrop sync (step 9). Off unless a Backdrop URL is configured — then video attach/detach and
   // the manual resync/verify routes push Curator's library projection to Backdrop (roadie-spec §6).
   const backdrop: BackdropSyncLike =
@@ -734,9 +763,20 @@ export function buildServer(opts: BuildOptions = {}) {
   // { order?: number[] } — the ordered clip indices to join (default: all, in index order).
   app.post("/api/albums/:curatorId/video/splice", async (req, reply) => {
     const { curatorId } = req.params as { curatorId: string };
-    const { order } = (req.body ?? {}) as { order?: number[] };
+    const { order, crossfadeSec } = (req.body ?? {}) as {
+      order?: number[];
+      crossfadeSec?: number;
+    };
+    // Opt-in seam crossfade (issue #56): a positive, bounded duration → xfade at the seams; anything
+    // else → a plain concat. Cap it so a silly value can't eat most of a short clip.
+    const crossfade =
+      typeof crossfadeSec === "number" && crossfadeSec > 0
+        ? { durationSec: Math.min(crossfadeSec, 2) }
+        : undefined;
     try {
-      const asset = await actions.spliceVisualizer(actionDeps, curatorId, order);
+      const asset = await actions.spliceVisualizer(actionDeps, curatorId, order, {
+        crossfade,
+      });
       // ★sync (roadie-spec §6): the album now has a playable video — push it to Backdrop.
       await backdrop.syncAlbum(asset);
       return { state: asset.roadie.state, visualizer: asset.visualizer };
@@ -755,9 +795,10 @@ export function buildServer(opts: BuildOptions = {}) {
     } catch (err) {
       return actionError(err, reply, req);
     }
-    const job = jobs.start("video", curatorId, async ({ onProgress }) => {
+    const job = jobs.start("video", curatorId, async ({ onProgress, signal }) => {
       const asset = await actions.generateVideoSet(actionDeps, curatorId, {
         onProgress,
+        signal,
       });
       return { videoClips: asset.videoClips };
     });
@@ -830,12 +871,17 @@ export function buildServer(opts: BuildOptions = {}) {
     } catch (err) {
       return actionError(err, reply, req);
     }
-    const job = jobs.start("cardArt", curatorId, async ({ onProgress }) => {
-      const asset = await actions.generateCardArtSet(actionDeps, curatorId, {
-        onProgress,
-      });
-      return { cardArtCandidates: asset.cardArtCandidates };
-    });
+    const job = jobs.start(
+      "cardArt",
+      curatorId,
+      async ({ onProgress, signal }) => {
+        const asset = await actions.generateCardArtSet(actionDeps, curatorId, {
+          onProgress,
+          signal,
+        });
+        return { cardArtCandidates: asset.cardArtCandidates };
+      },
+    );
     return reply.code(202).send(job);
   });
 
@@ -843,6 +889,14 @@ export function buildServer(opts: BuildOptions = {}) {
   app.get("/api/jobs/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
     const job = jobs.get(id);
+    return job ?? reply.code(404).send({ error: "job not found" });
+  });
+
+  // Cancel an in-flight generation job (issue #57): abort the runner (stopping the Gemini fetch) and
+  // mark it cancelled. Idempotent — cancelling a terminal job returns it unchanged; unknown → 404.
+  app.post("/api/jobs/:id/cancel", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const job = jobs.cancel(id);
     return job ?? reply.code(404).send({ error: "job not found" });
   });
 
@@ -891,6 +945,50 @@ export function buildServer(opts: BuildOptions = {}) {
     try {
       const asset = actions.rejectPreview(actionDeps, curatorId, to);
       return { state: asset.roadie.state };
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
+  });
+
+  // --- Tag write / verify (step 11, curator-spec §7) ---
+  // Record that a physical sticker was written. Writing the sleeve (scanned on the stand) advances
+  // awaiting_tag_write → awaiting_verify; the card is independent bookkeeping. Optional tagUid.
+  app.post("/api/albums/:curatorId/tag-written", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const { object, tagUid } = (req.body ?? {}) as {
+      object?: "sleeve" | "card";
+      tagUid?: string;
+    };
+    if (object !== "sleeve" && object !== "card")
+      return reply
+        .code(400)
+        .send({ error: 'object must be "sleeve" or "card"' });
+    try {
+      const asset = actions.markTagWritten(
+        actionDeps,
+        curatorId,
+        object,
+        tagUid,
+      );
+      return { state: asset.roadie.state, tag: asset.tag };
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
+  });
+
+  // Mark the album physically verified: awaiting_verify → verified, record physicallyVerifiedAt, then
+  // fire the ★verify Backdrop reconcile (roadie-spec §6 / ADR 0015) — the last human step of onboarding.
+  app.post("/api/albums/:curatorId/verify-physical", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    try {
+      const asset = actions.verifyPhysical(actionDeps, curatorId);
+      // ★verify-on-verified: confirm Backdrop carries this album; discrepancies surface as syncIssues
+      // (non-blocking — the album is verified regardless of Backdrop reachability).
+      const verify = await backdrop.verifyAlbum(asset).catch((err) => ({
+        ok: false,
+        discrepancies: [`Backdrop verify unreachable: ${(err as Error).message}`],
+      }));
+      return { state: asset.roadie.state, verify };
     } catch (err) {
       return actionError(err, reply, req);
     }
@@ -1142,27 +1240,102 @@ export function buildServer(opts: BuildOptions = {}) {
     return { ok: true, restartRequired: true };
   });
 
-  // --- Settings: Discogs personal access token (ADR 0016) ---
-  // Same trust model + settings.json store as Spotify. The token is write-only (never returned);
-  // `configured` + the (optional) username are the read-back so the UI can reflect them.
+  // --- Settings: Discogs personal access token (ADR 0016) + OAuth consumer creds (issue #59) ---
+  // Same trust model + settings.json store as Spotify. Secrets are write-only (never returned);
+  // `configured` (token), `oauthConfigured` (consumer creds present), and the (optional) username are
+  // the read-back so the UI can reflect them.
   app.get("/api/settings/discogs", async () => ({
     configured: Boolean(discogs),
+    oauthConfigured: Boolean(discogsAuth),
     username: config.discogs?.username ?? null,
   }));
 
   app.put("/api/settings/discogs", async (req, reply) => {
-    const { token, username } = (req.body ?? {}) as {
+    const { token, username, consumerKey, consumerSecret } = (req.body ??
+      {}) as {
       token?: string;
       username?: string;
+      consumerKey?: string;
+      consumerSecret?: string;
     };
-    if (!token?.trim())
-      return reply.code(400).send({ error: "token is required" });
+    // Accept a personal token, OAuth consumer creds, or both — but not an empty save.
+    const hasToken = Boolean(token?.trim());
+    const hasConsumer = Boolean(consumerKey?.trim() && consumerSecret?.trim());
+    if (!hasToken && !hasConsumer && username === undefined)
+      return reply
+        .code(400)
+        .send({ error: "provide a token and/or OAuth consumer key + secret" });
     writeDiscogsSettings(config.dataDir, {
-      token: token.trim(),
-      ...(username?.trim() ? { username: username.trim() } : {}),
+      ...(hasToken ? { token: token!.trim() } : {}),
+      ...(username !== undefined ? { username } : {}),
+      ...(hasConsumer
+        ? {
+            consumerKey: consumerKey!.trim(),
+            consumerSecret: consumerSecret!.trim(),
+          }
+        : {}),
     });
-    // The Discogs client + Roadie are built once at boot, so the new token takes effect on restart.
+    // The Discogs client + auth are built once at boot, so new creds take effect on restart.
     return { ok: true, restartRequired: true };
+  });
+
+  // --- Discogs OAuth 1.0a "log in with Discogs" (issue #59) — mirrors the Spotify auth routes ---
+  // Start a login: hand the SPA the authorize URL to open. Request token + secret are held server-side.
+  app.get("/api/discogs/auth/login", async (_req, reply) => {
+    if (!discogsAuth)
+      return reply
+        .code(503)
+        .send({ error: "Discogs OAuth not configured (set consumer key + secret)" });
+    try {
+      return { authorizeUrl: await discogsAuth.buildAuthorizeUrl() };
+    } catch (err) {
+      const msg =
+        err instanceof DiscogsOAuthError ? err.message : "unexpected error";
+      return reply.code(502).send({ error: msg });
+    }
+  });
+
+  // The redirect target. Hit directly in the browser (not the SPA), so it answers with HTML.
+  app.get("/api/discogs/auth/callback", async (req, reply) => {
+    const { oauth_token, oauth_verifier, denied } = req.query as {
+      oauth_token?: string;
+      oauth_verifier?: string;
+      denied?: string;
+    };
+    reply.type("text/html");
+    if (!discogsAuth)
+      return reply.code(503).send(callbackHtml("Discogs OAuth is not configured."));
+    if (denied)
+      return reply.send(callbackHtml("Discogs login was cancelled."));
+    if (!oauth_token || !oauth_verifier)
+      return reply
+        .code(400)
+        .send(callbackHtml("Missing OAuth token or verifier."));
+    try {
+      await discogsAuth.handleCallback(oauth_token, oauth_verifier);
+      return reply.send(
+        callbackHtml(
+          "Discogs connected. You can close this tab and return to Marquee.",
+          true,
+        ),
+      );
+    } catch (err) {
+      const msg =
+        err instanceof DiscogsOAuthError ? err.message : "unexpected error";
+      return reply.code(400).send(callbackHtml(`Login failed: ${msg}.`));
+    }
+  });
+
+  app.get(
+    "/api/discogs/auth/status",
+    async () => discogsAuth?.status() ?? { connected: false },
+  );
+
+  app.post("/api/discogs/auth/disconnect", async (_req, reply) => {
+    if (!discogsAuth)
+      return reply.code(503).send({ error: "Discogs OAuth not configured" });
+    discogsAuth.disconnect();
+    return { ok: true };
   });
 
   // --- Discogs collection (read-only browse; add happens through POST /api/albums) ---

@@ -64,5 +64,18 @@ maps to 4xx via the synchronous precheck.
 - Tests: the route tests now assert `202 + poll-to-done/failed + progress`; the action-level tests
   (`video-gen`, `card-art-gen`) are unchanged since the action signatures are compatible. The job
   manager has its own unit tests (dedupe, progress, failure, GC, re-attach listing).
-- **Not done here** (kept small, per the issue): job **cancel** (nice-to-have follow-up) and
-  **persistence across restarts** (in-memory is intentional for now).
+- ~~**Not done here** (kept small, per the issue): job **cancel** (nice-to-have follow-up) and
+  **persistence across restarts** (in-memory is intentional for now).~~
+
+  **Update (2026-07-22, issue #57) — both landed:**
+  - **Cancel** — each running job carries an `AbortController`; `POST /api/jobs/:id/cancel` aborts
+    it and marks the job `cancelled` (a fourth terminal status). The signal is threaded through the
+    generate actions into the Gemini client's `fetch`, so an in-flight upstream call is actually
+    aborted (surfacing as a distinct `499`) rather than running to completion; a runner that
+    resolves after the abort has its result discarded. Cancel is idempotent (terminal/unknown → no-op
+    / `404`). The UI shows a **Cancel** button next to the generate button while running.
+  - **Persistence** — an optional on-disk `JobStore` (`FileJobStore`, `{dataDir}/generation-jobs.json`)
+    persists the job list across a restart so the UI can still see recent jobs. A job left `running`
+    when the process died can't be resumed (its runner is gone), so it's restored as a **failed**
+    "interrupted by a Curator restart" job rather than a zombie. Best-effort: a corrupt/unreadable log
+    loads as empty and never blocks generation.

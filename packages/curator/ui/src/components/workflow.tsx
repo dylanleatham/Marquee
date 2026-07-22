@@ -171,6 +171,9 @@ function SpliceControls({
 }) {
   const allIndices = clips.map((c) => c.index);
   const [order, setOrder] = useState<number[]>(allIndices);
+  // Opt-in seam crossfade (issue #56): plain concat is the default; 0.5s blends the hard cuts.
+  const [crossfade, setCrossfade] = useState(false);
+  const CROSSFADE_SEC = 0.5;
   // Reset the selection when the clip set changes (e.g. clips regenerated).
   const clipKey = allIndices.join(",");
   useEffect(() => {
@@ -240,10 +243,26 @@ function SpliceControls({
           ))}
         </div>
       )}
+      <label className="splice__opt">
+        <input
+          type="checkbox"
+          checked={crossfade}
+          onChange={(e) => setCrossfade(e.target.checked)}
+        />
+        Crossfade the seams ({CROSSFADE_SEC}s) — smoother, but trims a little from each clip
+      </label>
       <AsyncButton
         className="btn btn--primary btn--sm"
         disabled={order.length === 0}
-        onClick={() => run(() => api.spliceVisualizer(curatorId, order))}
+        onClick={() =>
+          run(() =>
+            api.spliceVisualizer(
+              curatorId,
+              order,
+              crossfade ? CROSSFADE_SEC : undefined,
+            ),
+          )
+        }
         pendingLabel="Splicing…"
         title="Concatenate the selected clips (in this order) into one looping MP4 and attach it"
       >
@@ -317,6 +336,15 @@ export function VideoSection({
               clips.length > 0,
             )}
           </button>
+          {generating && (
+            <button
+              className="btn btn--sm btn--danger"
+              onClick={gen.cancel}
+              title="Stop the in-flight generation"
+            >
+              Cancel
+            </button>
+          )}
           {clips.length > 0 && !generating && (
             <span className="muted">
               Splice them into one loop below, or download a clip to edit
@@ -489,6 +517,15 @@ export function CardArtSection({
               candidates.length > 0,
             )}
           </button>
+          {generating && (
+            <button
+              className="btn btn--sm btn--danger"
+              onClick={gen.cancel}
+              title="Stop the in-flight generation"
+            >
+              Cancel
+            </button>
+          )}
           {candidates.length > 0 && !generating && (
             <span className="muted">
               Click an option to use it as the card.
@@ -665,6 +702,76 @@ export function PreviewSection({
           Back to palette
         </AsyncButton>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The last human step (step 11, curator-spec §7): mark each physical sticker written, then mark the
+ * album physically verified. Writing the sleeve (scanned on the stand) advances the album to
+ * awaiting_verify; the card is independent bookkeeping. Verifying finishes onboarding.
+ */
+export function TagWriteSection({
+  curatorId,
+  asset,
+  run,
+}: {
+  curatorId: string;
+  asset: AlbumAsset;
+  run: Run;
+}) {
+  const state = asset.roadie.state;
+  const tag = asset.tag;
+  const payload = tag?.payload ?? `curator:album:${curatorId}`;
+  const verified = state === "verified";
+  const canVerify = state === "awaiting_verify";
+
+  const writeRow = (object: "sleeve" | "card", label: string) => {
+    const written = tag?.[object]?.written ?? false;
+    return (
+      <div className="tagwrite__obj">
+        {written ? (
+          <span className="tagwrite__done">✓ {label} written</span>
+        ) : (
+          <button
+            className="btn btn--sm"
+            onClick={() => run(() => api.markTagWritten(curatorId, object))}
+          >
+            Mark {label} written
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="tagwrite">
+      <div className="tagwrite__payload">
+        <span className="muted">Write this URI to both stickers:</span>
+        <code>{payload}</code>
+      </div>
+      <div className="tagwrite__objects">
+        {writeRow("sleeve", "sleeve tag")}
+        {writeRow("card", "card tag")}
+      </div>
+      {verified ? (
+        <div className="banner banner--ok">
+          Verified ✓ — this album is fully onboarded.
+        </div>
+      ) : (
+        <button
+          className="btn btn--primary"
+          disabled={!canVerify}
+          onClick={() => run(() => api.verifyAlbum(curatorId))}
+          title={
+            canVerify
+              ? "Record the physical scan check and finish onboarding"
+              : "Write the sleeve tag first"
+          }
+        >
+          Mark physically verified
+        </button>
+      )}
     </div>
   );
 }

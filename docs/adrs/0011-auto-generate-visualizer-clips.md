@@ -88,5 +88,22 @@ The deferred in-app splice landed, so the generated clips no longer have to leav
 
 Decision 3 above ("the human still uploads the final spliced loop") and the "In-app splicing is
 explicitly deferred" consequence are **superseded** by this: splicing is now a one-click in-app
-action. Seamless-loop polish (crossfade at the seam) and normalizing mismatched clip dimensions
-remain follow-ups — a plain concat of same-sized clips is the MVP.
+action. ~~Seamless-loop polish (crossfade at the seam) and normalizing mismatched clip dimensions
+remain follow-ups — a plain concat of same-sized clips is the MVP.~~
+
+**Update (2026-07-22, issue #56) — both follow-ups landed:**
+
+- **Normalize mismatched dimensions** — `concat` now probes every input and, when their frames
+  differ, scales-to-fit + pads each to the largest common size (`setsar=1`) before joining, so a
+  mismatched clip set no longer fails or corrupts the concat. Same-size clips keep the original
+  minimal filtergraph (no needless re-scale). The probe→build decision is a pure, unit-tested
+  helper (`resolveConcatBuild`).
+- **Seam crossfade** — an opt-in `crossfade` blends consecutive clips with `xfade` (offsets
+  computed from each clip's probed duration) instead of a hard cut. Plain `concat` stays the
+  default; the UI adds a "Crossfade the seams (0.5s)" checkbox and the route takes a bounded
+  `crossfadeSec` (`POST …/video/splice`, body `{ order?, crossfadeSec? }`). The longer xfade encode
+  is covered by the existing `CONCAT_TIMEOUT_MS`.
+
+  *Still a further refinement:* a dedicated **head/tail wrap** crossfade at the loop point (end→start)
+  — the seam crossfade removes the hard cuts between clips, which is the dominant artifact; the single
+  loop-seam blend is best tuned against real playback on the stand (step 12 / issue #53). Not blocking.

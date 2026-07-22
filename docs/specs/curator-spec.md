@@ -41,7 +41,6 @@ The queue-first workflow — Roadie does everything it can, humans work through 
 - NFC reader integration (phone handles tag writing)
 - Runtime playback (Conductor and Backdrop own that)
 - Video transcoding (validate-and-move only; reject bad formats with a clear error)
-- Seamless-loop polish for spliced clips — crossfade at the seam, normalizing mismatched clip dimensions ([#29](https://github.com/dylanleatham/Marquee/issues/29) shipped a plain in-app concat; these refinements are the follow-up)
 - Multi-user or cloud sync
 - Audio-feature-driven pattern selection (Spotify Audio Features deprecated; static defaults fine)
 - Track-level or per-side asset variation
@@ -305,8 +304,17 @@ Runs on `http://localhost:4739` locally.
 > collection browser) writes a `fresh` `source: "discogs"` asset, dedupes on the Discogs release id
 > (**409**), and hands off to Roadie (which fetches the authoritative release detail + cover image).
 > `GET /api/discogs/collection?page=&perPage=` backs the browser (paginated), and
-> `GET`/`PUT /api/settings/discogs` store the personal access token. All Discogs routes **503** when
-> no token is configured. Auth is a personal access token, not OAuth (unlike Spotify's user login).
+> `GET`/`PUT /api/settings/discogs` store the personal access token **and/or the OAuth consumer creds**.
+> All Discogs routes **503** when neither a token nor a connected OAuth session is configured.
+>
+> **Auth (issue #24 / #59):** a **personal access token** (the simple default) *or* full **OAuth 1.0a**
+> "log in with Discogs" (3-legged, PLAINTEXT-signed — [ADR 0017](../adrs/0017-discogs-personal-token-and-direct-images.md)).
+> The OAuth routes mirror Spotify's: `GET /api/discogs/auth/login` → `{ authorizeUrl }`;
+> `GET /api/discogs/auth/callback?oauth_token=&oauth_verifier=` (browser-facing, HTML);
+> `GET /api/discogs/auth/status` → `{ connected, username? }`;
+> `POST /api/discogs/auth/disconnect`. A connected session signs each API request behind the same
+> `DiscogsClient`; absent one, the personal token is used. OAuth routes **503** unless consumer creds
+> are configured.
 
 | Method | Path                     | Purpose                                                                                                                                                             |
 | ------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -400,11 +408,12 @@ Runs on `http://localhost:4739` locally.
 | POST   | `/api/albums/:curatorId/attach-video`                | Body: `{ fileId }` — either an ID of a file already in `visualizers/`, or the filename of a file in `/incoming/` (moves it).                                                                                                                                                                                  |
 | POST   | `/api/albums/:curatorId/detach-video`                | Removes the visualizer reference. File stays on disk unless `?delete=1`.                                                                                                                                                                                                                                      |
 | POST   | `/api/albums/:curatorId/video/generate`              | Start a clip-set generation — one image-to-video clip per drafted video prompt variant, off the cover (Omni Flash). Runs as a **background job** (issue #30 / [ADR 0018](../adrs/0018-generation-runs-as-background-jobs.md)): returns `202 { id, status, progress, … }`; poll `GET /api/jobs/:id`. On success stores `videoClips`. `400` (immediate precheck) if no Gemini key, generation off (opt-in, ADR 0012), no video prompt, or no cover art; whole-batch upstream failure → the **job** ends `failed` (partial success kept). Long-running (ADRs 0011/0013). |
-| GET    | `/api/jobs/:id`                                       | Poll a generation job — `{ id, kind, curatorId, status: running\|done\|failed, progress: {done,total}, result?, error? }`. `404` once unknown/expired (ADR 0018).                                                                                                                                              |
+| GET    | `/api/jobs/:id`                                       | Poll a generation job — `{ id, kind, curatorId, status: running\|done\|failed\|cancelled, progress: {done,total}, result?, error? }`. `404` once unknown/expired (ADR 0018). Jobs persist across a restart; one left running when the process died is restored as `failed` "interrupted" (issue #57).            |
+| POST   | `/api/jobs/:id/cancel`                                | Cancel an in-flight generation job — aborts the runner (stopping the Gemini fetch) and marks it `cancelled`. Idempotent: a terminal job returns unchanged, unknown → `404` (issue #57).                                                                                                                        |
 | GET    | `/api/albums/:curatorId/jobs`                         | An album's active + recent generation jobs (optional `?kind=video\|cardArt`) — lets the UI re-attach to a running job after a reload (ADR 0018).                                                                                                                                                               |
 | GET    | `/api/albums/:curatorId/video/clip/:index`           | Serves a generated clip (`?download=1` for a named download).                                                                                                                                                                                                                                                 |
 | GET    | `/api/albums/:curatorId/video/clip/:index/thumbnail` | Serves the clip's poster frame.                                                                                                                                                                                                                                                                               |
-| POST   | `/api/albums/:curatorId/video/splice`                | Splice the generated clips into one looping MP4 in-app (issue #29 / [ADR 0011 addendum](../adrs/0011-auto-generate-visualizer-clips.md)) and attach it as the visualizer. Body: `{ order?: number[] }` — clip indices to join, in order (default: all). ffmpeg-concats (re-encoded H.264), ingests via the normal path, advances to `awaiting_preview`. `400` if no clips / bad order. |
+| POST   | `/api/albums/:curatorId/video/splice`                | Splice the generated clips into one looping MP4 in-app (issue #29 / [ADR 0011 addendum](../adrs/0011-auto-generate-visualizer-clips.md)) and attach it as the visualizer. Body: `{ order?: number[], crossfadeSec?: number }` — clip indices to join, in order (default: all); a positive bounded `crossfadeSec` blends the seams with `xfade` instead of a hard cut (issue #56, default plain concat). Mismatched clip dimensions are normalized to a common frame. ffmpeg-concats (re-encoded H.264), ingests via the normal path, advances to `awaiting_preview`. `400` if no clips / bad order. |
 
 ### Card art
 
@@ -439,14 +448,14 @@ Runs on `http://localhost:4739` locally.
 | GET    | `/api/albums/:curatorId/preview`         | Serves the preview view — palette animating alongside the video, browser-rendered, no hardware.           |
 | POST   | `/api/albums/:curatorId/preview/approve` | Marks preview as approved. Transitions state to `awaiting_tag_write`.                                     |
 | POST   | `/api/albums/:curatorId/simulate-scan`   | Fires simulated scan to both Conductor and Backdrop for this album. Useful for pre-physical verification. |
-| POST   | `/api/albums/:curatorId/verify-physical` | Marks the album as physically verified. Called from the UI after a real scan test.                        |
+| POST   | `/api/albums/:curatorId/verify-physical` | Marks the album physically verified: records `verification.physicallyVerifiedAt` and transitions `awaiting_verify → verified` (issue #55). Fires the ★verify Backdrop reconcile (roadie-spec §6 / [ADR 0015](../adrs/0015-backdrop-sync-triggered-at-projection-changes.md)); Backdrop drift surfaces as `syncIssues`, non-blocking. `4xx` if not in `awaiting_verify`. |
 
 ### Tag writing
 
 | Method | Path                                 | Purpose                                                                                                                                            |
 | ------ | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | GET    | `/api/albums/:curatorId/tag-payload` | Returns `{ payload: "curator:album:2k7bxq9m", qrDataUrl: "data:image/svg+xml;..." }`. Same payload written to both sleeve and card. UI shows both. |
-| POST   | `/api/albums/:curatorId/tag-written` | Body: `{ object: "sleeve" \| "card", tagUid?: string }`. Marks the tag written for the specified physical object.                                  |
+| POST   | `/api/albums/:curatorId/tag-written` | Body: `{ object: "sleeve" \| "card", tagUid?: string }`. Marks the tag written for the specified physical object (records `tag.<object>`, setting `tag.payload` if absent). Writing the **sleeve** (scanned on the stand) advances `awaiting_tag_write → awaiting_verify`; the **card** is independent bookkeeping and never transitions (issue #55). |
 | GET    | `/api/albums/:curatorId/tag.nfc`     | Download a Flipper Zero-writable `.nfc` for the album (NTAG213 with the `curator:album:<id>` NDEF pre-laid) — issue #67 / [ADR 0020](../adrs/0020-flipper-tag-authoring.md). Write it to a blank tag with the stock Flipper NFC app. |
 | GET    | `/api/tags/pending`                  | `{ pending: [{ curatorId, name, artist }] }` — albums in `awaiting_tag_write`, so you know which `.nfc`s to fetch (issue #67).                     |
 

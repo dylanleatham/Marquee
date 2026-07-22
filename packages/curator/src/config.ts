@@ -22,11 +22,18 @@ export interface Config {
    */
   spotify?: { clientId: string; clientSecret: string; redirectUri: string };
   /**
-   * Discogs config, if a personal access token is set (ADR 0016). Absent → the Discogs collection/
-   * add routes 503. `username` is optional — when omitted, the client resolves it from the token's
-   * identity. This is a separate auth mechanism from Spotify (a personal token, not OAuth).
+   * Discogs config, if a personal access token (ADR 0016) OR OAuth consumer creds (issue #59) are
+   * set. Absent → the Discogs collection/add routes 503. `username` is optional — when omitted, the
+   * client resolves it from the token's identity. The consumer key/secret + callback enable the
+   * 3-legged "log in with Discogs" OAuth 1.0a flow; the personal token remains the simpler default.
    */
-  discogs?: { token: string; username?: string };
+  discogs?: {
+    token?: string;
+    username?: string;
+    consumerKey?: string;
+    consumerSecret?: string;
+    callbackUrl?: string;
+  };
   /**
    * Gemini config, if a key is set. Powers LLM prompt drafting (always on when keyed) plus the
    * *optional* artifact generation. Absent → Roadie falls back to the deterministic prompt templates
@@ -119,6 +126,15 @@ export function loadConfig(override: Partial<Config> = {}): Config {
     (discogsFile.username as string | undefined) ??
     process.env.DISCOGS_USERNAME ??
     settings.discogs?.username;
+  // OAuth 1.0a consumer creds (issue #59) — enable "log in with Discogs" alongside the personal token.
+  const discogsConsumerKey =
+    (discogsFile.consumer_key as string | undefined) ??
+    process.env.DISCOGS_CONSUMER_KEY ??
+    settings.discogs?.consumerKey;
+  const discogsConsumerSecret =
+    (discogsFile.consumer_secret as string | undefined) ??
+    process.env.DISCOGS_CONSUMER_SECRET ??
+    settings.discogs?.consumerSecret;
 
   const geminiApiKey =
     (geminiFile.api_key as string | undefined) ??
@@ -242,11 +258,22 @@ export function loadConfig(override: Partial<Config> = {}): Config {
     ...(clientId && clientSecret
       ? { spotify: { clientId, clientSecret, redirectUri } }
       : {}),
-    ...(discogsToken
+    ...(discogsToken || (discogsConsumerKey && discogsConsumerSecret)
       ? {
           discogs: {
-            token: discogsToken,
+            ...(discogsToken ? { token: discogsToken } : {}),
             ...(discogsUsername ? { username: discogsUsername } : {}),
+            ...(discogsConsumerKey && discogsConsumerSecret
+              ? {
+                  consumerKey: discogsConsumerKey,
+                  consumerSecret: discogsConsumerSecret,
+                  callbackUrl: String(
+                    (discogsFile.callback_url as string | undefined) ??
+                      process.env.DISCOGS_CALLBACK_URL ??
+                      `http://${host}:${port}/api/discogs/auth/callback`,
+                  ),
+                }
+              : {}),
           },
         }
       : {}),

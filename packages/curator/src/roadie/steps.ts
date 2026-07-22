@@ -16,6 +16,7 @@ import type {
   RoadieState,
 } from "../albums/asset.js";
 import { parseAlbumId } from "../albums/add-spotify.js";
+import { bestSpotifyMatch } from "../albums/spotify-match.js";
 import { draftPrompts } from "./prompts.js";
 import { draftPromptsWithGemini } from "../gemini/draft.js";
 import type { GeminiClient } from "../gemini/client.js";
@@ -131,9 +132,46 @@ const fetchDiscogsMetadata: Step = async (asset, deps) => {
     ...(meta.year !== undefined ? { year: meta.year } : {}),
     ...(meta.genres.length ? { genres: meta.genres } : {}),
   };
+
+  // Try to resolve richer cover art from Spotify (issue #58 / ADR 0017). Best-effort: a miss, an
+  // unconfigured Spotify, or an API error just leaves the Discogs image in place — this never blocks
+  // the Discogs add. On a confident match we stash the Spotify art URL; the art step prefers it.
+  const spotifyArtUrl = await resolveSpotifyArtUrl(deps, {
+    artist: meta.artist,
+    title: meta.title,
+    year: meta.year,
+  });
+  if (spotifyArtUrl) next.spotifyArtUrl = spotifyArtUrl;
+
   asset.metadata = next;
   return "downloading_art";
 };
+
+/**
+ * Fuzzy-match a Discogs release to a Spotify album and return its cover-art URL, or `undefined`.
+ * Best-effort: no Spotify client, no confident match, or an API error → `undefined` (keep the
+ * Discogs image). Never throws — art resolution must not fail a Discogs add (issue #58).
+ */
+async function resolveSpotifyArtUrl(
+  deps: StepDeps,
+  q: { artist: string; title: string; year?: number },
+): Promise<string | undefined> {
+  if (!deps.spotify || !q.artist || !q.title) return undefined;
+  try {
+    const candidates = await deps.spotify.searchAlbums(
+      `${q.artist} ${q.title}`.trim(),
+      10,
+    );
+    return bestSpotifyMatch(q, candidates)?.artUrl;
+  } catch (err) {
+    deps.logger?.warn(
+      `Discogs→Spotify art match skipped (using the Discogs image): ${
+        (err as Error).message
+      }`,
+    );
+    return undefined;
+  }
+}
 
 /**
  * fetching_metadata → downloading_art. Dispatches on the source: Spotify albums fetch from the
@@ -145,7 +183,12 @@ const fetchMetadata: Step = async (asset, deps) =>
     : fetchSpotifyMetadata(asset, deps);
 
 /** Persist downloaded cover art to disk + stamp the artwork section. Shared by both art paths. */
-function saveArt(asset: AlbumAsset, deps: StepDeps, art: Buffer): void {
+function saveArt(
+  asset: AlbumAsset,
+  deps: StepDeps,
+  art: Buffer,
+  source: "spotify" | "discogs",
+): void {
   const abs = deps.store.paths.artworkFile(asset.curatorId);
   mkdirSync(deps.store.paths.artwork, { recursive: true });
   writeFileSync(abs, art);
@@ -153,6 +196,7 @@ function saveArt(asset: AlbumAsset, deps: StepDeps, art: Buffer): void {
     resolvedPath: deps.store.paths.relPosix(abs),
     overrideActive: false,
     contentHash: "sha256:" + createHash("sha256").update(art).digest("hex"),
+    source,
   };
 }
 
@@ -174,12 +218,33 @@ const downloadSpotifyArt: Step = async (asset, deps) => {
     if (err instanceof SpotifyError) classifySpotify(err, "art_unavailable");
     throw err;
   }
-  saveArt(asset, deps, art);
+  saveArt(asset, deps, art, "spotify");
   return "generating_palette";
 };
 
-/** Discogs art download (ADR 0016 — the release's own image, no Spotify resolution). */
+/**
+ * Discogs art download (issue #58 / ADR 0017). Prefers a **Spotify-resolved** cover when the metadata
+ * step found a confident match (`spotifyArtUrl` set) — richer + consistent, reusing the Spotify art
+ * pipeline — and falls back to the Discogs release image otherwise (or if the Spotify download fails).
+ * The Discogs image is always the safety net, so a Spotify hiccup never blocks a Discogs add.
+ */
 const downloadDiscogsArt: Step = async (asset, deps) => {
+  const spotifyArtUrl = asset.metadata.spotifyArtUrl;
+  if (spotifyArtUrl && deps.spotify) {
+    try {
+      const art = await deps.spotify.downloadArt(spotifyArtUrl);
+      saveArt(asset, deps, art, "spotify");
+      return "generating_palette";
+    } catch (err) {
+      deps.logger?.warn(
+        `Spotify art download failed for ${asset.curatorId}; falling back to the Discogs image: ${
+          (err as Error).message
+        }`,
+      );
+      // fall through to the Discogs image
+    }
+  }
+
   if (!deps.discogs)
     throw new ConfigError("Discogs not configured but album needs its art");
   const url = asset.metadata.discogsArtUrl;
@@ -196,7 +261,7 @@ const downloadDiscogsArt: Step = async (asset, deps) => {
     if (err instanceof DiscogsError) classifyDiscogs(err, "art_unavailable");
     throw err;
   }
-  saveArt(asset, deps, art);
+  saveArt(asset, deps, art, "discogs");
   return "generating_palette";
 };
 

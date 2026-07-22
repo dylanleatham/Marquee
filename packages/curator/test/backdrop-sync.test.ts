@@ -177,6 +177,25 @@ describe("BackdropSync → Backdrop (real HTTP)", () => {
       "curator:album:missing1 not in Backdrop library",
     ]);
   });
+
+  // Issue #55 / ADR 0015: ★verify-on-verified confirms one album is present and records any drift as
+  // its syncIssues (non-blocking), the symmetric counterpart to syncAlbum.
+  it("verifyAlbum records a discrepancy as the album's syncIssues when it isn't in Backdrop", async () => {
+    store.save(withVideo("verme001"));
+    const check = await sync().verifyAlbum(store.read("verme001")!);
+    expect(check.ok).toBe(false);
+    expect(store.read("verme001")!.roadie.syncIssues).toEqual([
+      "curator:album:verme001 not in Backdrop library",
+    ]);
+  });
+
+  it("verifyAlbum clears syncIssues once the album is present", async () => {
+    store.save(withVideo("verme002"));
+    await sync().syncAlbum(store.read("verme002")!); // push it first
+    const check = await sync().verifyAlbum(store.read("verme002")!);
+    expect(check.ok).toBe(true);
+    expect(store.read("verme002")!.roadie.syncIssues).toEqual([]);
+  });
 });
 
 describe("server routes trigger Backdrop sync", () => {

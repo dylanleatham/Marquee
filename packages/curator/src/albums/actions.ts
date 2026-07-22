@@ -275,6 +275,7 @@ export async function spliceVisualizer(
   deps: ActionDeps,
   curatorId: string,
   order?: number[],
+  opts: { crossfade?: { durationSec: number } } = {},
 ): Promise<AlbumAsset> {
   const asset = load(deps.store, curatorId);
   if (!VIDEO_ATTACHABLE.includes(asset.roadie.state))
@@ -310,7 +311,7 @@ export async function spliceVisualizer(
   );
   let vis;
   try {
-    await deps.prober.concat(files, tmp);
+    await deps.prober.concat(files, tmp, opts);
     vis = await ingestVideo(
       { prober: deps.prober, paths: deps.store.paths, now: deps.now },
       {
@@ -351,6 +352,9 @@ export function detachVideo(
 export interface GenerateOptions {
   /** Called as each variant settles (fulfilled or rejected): `(done, total)`. */
   onProgress?: (done: number, total: number) => void;
+  /** Aborts in-flight generation when the job is cancelled (issue #57); threaded into the Gemini
+   * fetch so an upstream call stops rather than running to completion. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -445,7 +449,12 @@ export async function generateVideoSet(
   mkdirSync(deps.store.paths.incoming, { recursive: true });
   const results = await settleWithProgress(
     draft.variants.map(async (v, i): Promise<VideoClip> => {
-      const bytes = await gemini.generateVideo(v.text, cover);
+      const bytes = await gemini.generateVideo(
+        v.text,
+        cover,
+        undefined,
+        opts.signal,
+      );
       const tmp = deps.store.paths.incomingFile(
         `.vidgen-${curatorId}-${i}-${randomUUID()}.mp4`,
       );
@@ -616,7 +625,7 @@ export async function generateCardArtSet(
       ingestCardArtCandidate(
         { paths: deps.store.paths, now: deps.now },
         {
-          buffer: await gemini.generateImage(v.text),
+          buffer: await gemini.generateImage(v.text, undefined, opts.signal),
           curatorId,
           index: i,
           nudge: v.nudge,
@@ -709,6 +718,56 @@ export function rejectPreview(
 ): AlbumAsset {
   const asset = load(deps.store, curatorId);
   transitionTo(asset, to, clock(deps)); // throws if not a legal step back
+  deps.store.save(asset);
+  return asset;
+}
+
+// --- tag write / verify (step 11, curator-spec §7) ---------------------------------------------
+
+/**
+ * Record that a physical sticker was written for this album (curator-spec §7). Sleeve and card are
+ * tracked separately, since one may be written without the other. Writing the **sleeve** — the object
+ * scanned on the stand — advances `awaiting_tag_write → awaiting_verify`; the card is independent
+ * bookkeeping (it may be printed and tagged later) and never gates the transition. The physical act
+ * (actually writing the NTAG) is manual; this is the Curator-side record.
+ */
+export function markTagWritten(
+  deps: ActionDeps,
+  curatorId: string,
+  object: "sleeve" | "card",
+  tagUid?: string,
+): AlbumAsset {
+  const asset = load(deps.store, curatorId);
+  const now = clock(deps);
+  const tag = asset.tag ?? { payload: `curator:album:${curatorId}` };
+  tag[object] = {
+    written: true,
+    writtenAt: now(),
+    ...(tagUid ? { tagUid } : {}),
+  };
+  asset.tag = tag;
+  if (object === "sleeve" && asset.roadie.state === "awaiting_tag_write")
+    transitionTo(asset, "awaiting_verify", now); // recomputes status
+  deps.store.save(asset);
+  return asset;
+}
+
+/**
+ * Mark the album physically verified (step 11): record `verification.physicallyVerifiedAt` and
+ * transition `awaiting_verify → verified` (throws if not in `awaiting_verify`). The ★verify Backdrop
+ * reconcile (ADR 0015) is fired by the route after this, so it stays out of the store transaction.
+ */
+export function verifyPhysical(
+  deps: ActionDeps,
+  curatorId: string,
+): AlbumAsset {
+  const asset = load(deps.store, curatorId);
+  const now = clock(deps);
+  transitionTo(asset, "verified", now); // throws if not in awaiting_verify
+  asset.verification = {
+    ...asset.verification,
+    physicallyVerifiedAt: now(),
+  };
   deps.store.save(asset);
   return asset;
 }

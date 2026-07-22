@@ -173,6 +173,27 @@ describe("useGenerationJob", () => {
     await flush();
     expect(albumJobs).not.toHaveBeenCalled();
   });
+
+  // Issue #57: cancel() optimistically flips to cancelled and POSTs the cancel for the polled job.
+  it("cancel() marks the job cancelled and calls api.cancelJob for it", async () => {
+    vi.spyOn(api, "albumJobs").mockResolvedValue({ jobs: [] });
+    vi.spyOn(api, "job").mockResolvedValue(job({ status: "running" }));
+    const cancelJob = vi
+      .spyOn(api, "cancelJob")
+      .mockResolvedValue(job({ status: "cancelled" }));
+    const starter = vi.fn().mockResolvedValue(job({ status: "running" }));
+
+    const { result } = renderHook(() =>
+      useGenerationJob("abcd1234", "video", starter, vi.fn()),
+    );
+    await act(async () => result.current.start());
+    // Wait until the job is being polled (adopt has set the id cancel() targets).
+    await waitFor(() => expect(api.job).toHaveBeenCalled());
+
+    await act(async () => result.current.cancel());
+    expect(result.current.status).toBe("cancelled");
+    expect(cancelJob).toHaveBeenCalledWith("job-1");
+  });
 });
 
 describe("usePending", () => {

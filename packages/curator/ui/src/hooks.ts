@@ -84,11 +84,13 @@ export function usePending(): [boolean, (fn: () => unknown) => Promise<void>] {
 }
 
 export interface GenerationJobHook {
-  status: "idle" | "running" | "done" | "failed";
+  status: "idle" | "running" | "done" | "failed" | "cancelled";
   progress: { done: number; total: number } | null;
   error: string | null;
   /** Kick off a new generation job (POST → poll until terminal). */
   start: () => void;
+  /** Cancel the in-flight job (issue #57). No-op when nothing is running. */
+  cancel: () => void;
 }
 
 /**
@@ -111,6 +113,8 @@ export function useGenerationJob(
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout>>();
+  /** The id of the job currently being polled — lets cancel() target it. */
+  const jobId = useRef<string | null>(null);
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
   const starterRef = useRef(starter);
@@ -123,6 +127,7 @@ export function useGenerationJob(
 
   const poll = useCallback((id: string) => {
     stop();
+    jobId.current = id;
     const tick = async () => {
       try {
         const job = await api.job(id);
@@ -132,6 +137,8 @@ export function useGenerationJob(
         } else if (job.status === "done") {
           setStatus("done");
           onDoneRef.current();
+        } else if (job.status === "cancelled") {
+          setStatus("cancelled");
         } else {
           setStatus("failed");
           setError(job.error ?? "generation failed");
@@ -145,9 +152,20 @@ export function useGenerationJob(
     void tick();
   }, []);
 
+  const cancel = useCallback(() => {
+    const id = jobId.current;
+    if (!id) return;
+    stop();
+    setStatus("cancelled");
+    // Fire-and-forget: the optimistic status flips immediately; a failed request just means the job
+    // finishes on its own (the next poll would have shown it) — nothing to strand the UI on.
+    void api.cancelJob(id).catch(() => {});
+  }, []);
+
   const adopt = useCallback(
     (job: GenerationJob) => {
       setProgress(job.progress);
+      jobId.current = job.id;
       if (job.status === "running") {
         setStatus("running");
         setError(null);
@@ -155,6 +173,8 @@ export function useGenerationJob(
       } else if (job.status === "failed") {
         setStatus("failed");
         setError(job.error ?? "generation failed");
+      } else if (job.status === "cancelled") {
+        setStatus("cancelled");
       } else {
         setStatus("done"); // results already on the asset; the album poll shows them
       }
@@ -195,5 +215,5 @@ export function useGenerationJob(
     };
   }, [curatorId, kind, adopt, enabled]);
 
-  return { status, progress, error, start };
+  return { status, progress, error, start, cancel };
 }
