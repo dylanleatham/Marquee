@@ -53,10 +53,17 @@ changes — not on every `AssetStore.save`.**
    best-effort and records its outcome in `roadie.syncIssues` (surfaced through the derived status)
    instead of throwing into the human action that triggered it. Albums never move backward on a
    sync failure.
-4. **★verify-on-`verified` is deferred** with the rest of the tag-write/verify flow (step 11): there
+4. ~~**★verify-on-`verified` is deferred** with the rest of the tag-write/verify flow (step 11): there
    is no `verified` endpoint to fire it from yet. The _capability_ ships now as the manual
    `POST /api/backdrop/verify-sync`; wiring it to the automatic transition is a one-line addition when
-   that endpoint lands.
+   that endpoint lands.~~
+
+   **Update (2026-07-22, issue #55):** the `verified` endpoint landed
+   (`POST /api/albums/:id/verify-physical`), so ★verify-on-`verified` is now wired. It calls a
+   single-album `BackdropSync.verifyAlbum` (the counterpart to `syncAlbum`) which compares this
+   album's expected projection against Backdrop's live library and records any drift as
+   `roadie.syncIssues` — best-effort and non-blocking, so the album stays `verified` regardless of
+   Backdrop reachability. The manual full-library `POST /api/backdrop/verify-sync` remains for recovery.
 
 ## Consequences
 

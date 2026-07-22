@@ -173,6 +173,11 @@ export interface AlbumAsset {
   videoClips?: VideoClip[];
   cardArt?: CardArt;
   cardArtCandidates?: CardArtCandidate[];
+  tag?: {
+    payload: string;
+    sleeve?: { written: boolean; writtenAt?: string; tagUid?: string };
+    card?: { written: boolean; writtenAt?: string; tagUid?: string };
+  };
   verification?: { previewApprovedAt?: string; physicallyVerifiedAt?: string };
   roadie: {
     state: RoadieState;
@@ -411,6 +416,17 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ to }),
     }),
+  // --- Tag write / verify (step 11) ---
+  markTagWritten: (id: string, object: "sleeve" | "card") =>
+    req<{ state: RoadieState }>(`/api/albums/${id}/tag-written`, {
+      method: "POST",
+      body: JSON.stringify({ object }),
+    }),
+  verifyAlbum: (id: string) =>
+    req<{
+      state: RoadieState;
+      verify: { ok: boolean; discrepancies: string[] };
+    }>(`/api/albums/${id}/verify-physical`, { method: "POST" }),
   // --- Settings: Spotify credentials (packaged app has no repo .env) ---
   spotifySettings: () => req<SpotifySettings>("/api/settings/spotify"),
   saveSpotifySettings: (clientId: string, clientSecret: string) =>

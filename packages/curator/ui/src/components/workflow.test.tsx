@@ -6,7 +6,12 @@ import {
   fireEvent,
   waitFor,
 } from "@testing-library/react";
-import { PromptBlock, VideoSection, CardArtSection } from "./workflow";
+import {
+  PromptBlock,
+  VideoSection,
+  CardArtSection,
+  TagWriteSection,
+} from "./workflow";
 import {
   api,
   type AlbumAsset,
@@ -431,5 +436,56 @@ describe("CardArtSection", () => {
     // Clicking a candidate routes the select through run.
     fireEvent.click(screen.getByText("shimmer"));
     expect(run).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("TagWriteSection (issue #55)", () => {
+  it("marks the sleeve tag written and can't verify before the album is ready", () => {
+    const run = vi.fn();
+    render(
+      <TagWriteSection
+        curatorId="abcd1234"
+        asset={albumAt("awaiting_tag_write")}
+        run={run}
+      />,
+    );
+    // The payload to write is shown, and the verify button is disabled until awaiting_verify.
+    expect(screen.getByText("curator:album:abcd1234")).toBeTruthy();
+    expect(
+      screen.getByText("Mark physically verified").closest("button")!.disabled,
+    ).toBe(true);
+    fireEvent.click(screen.getByText("Mark sleeve tag written"));
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the sleeve as done and enables verify at awaiting_verify", () => {
+    const run = vi.fn();
+    render(
+      <TagWriteSection
+        curatorId="abcd1234"
+        asset={albumAt("awaiting_verify", {
+          tag: {
+            payload: "curator:album:abcd1234",
+            sleeve: { written: true, writtenAt: "2026-07-22T00:00:00Z" },
+          },
+        })}
+        run={run}
+      />,
+    );
+    expect(screen.getByText("✓ sleeve tag written")).toBeTruthy();
+    fireEvent.click(screen.getByText("Mark physically verified"));
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the verified banner once done", () => {
+    render(
+      <TagWriteSection
+        curatorId="abcd1234"
+        asset={albumAt("verified")}
+        run={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/fully onboarded/)).toBeTruthy();
+    expect(screen.queryByText("Mark physically verified")).toBeNull();
   });
 });

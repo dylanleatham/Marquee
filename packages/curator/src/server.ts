@@ -919,6 +919,50 @@ export function buildServer(opts: BuildOptions = {}) {
     }
   });
 
+  // --- Tag write / verify (step 11, curator-spec §7) ---
+  // Record that a physical sticker was written. Writing the sleeve (scanned on the stand) advances
+  // awaiting_tag_write → awaiting_verify; the card is independent bookkeeping. Optional tagUid.
+  app.post("/api/albums/:curatorId/tag-written", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const { object, tagUid } = (req.body ?? {}) as {
+      object?: "sleeve" | "card";
+      tagUid?: string;
+    };
+    if (object !== "sleeve" && object !== "card")
+      return reply
+        .code(400)
+        .send({ error: 'object must be "sleeve" or "card"' });
+    try {
+      const asset = actions.markTagWritten(
+        actionDeps,
+        curatorId,
+        object,
+        tagUid,
+      );
+      return { state: asset.roadie.state, tag: asset.tag };
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
+  });
+
+  // Mark the album physically verified: awaiting_verify → verified, record physicallyVerifiedAt, then
+  // fire the ★verify Backdrop reconcile (roadie-spec §6 / ADR 0015) — the last human step of onboarding.
+  app.post("/api/albums/:curatorId/verify-physical", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    try {
+      const asset = actions.verifyPhysical(actionDeps, curatorId);
+      // ★verify-on-verified: confirm Backdrop carries this album; discrepancies surface as syncIssues
+      // (non-blocking — the album is verified regardless of Backdrop reachability).
+      const verify = await backdrop.verifyAlbum(asset).catch((err) => ({
+        ok: false,
+        discrepancies: [`Backdrop verify unreachable: ${(err as Error).message}`],
+      }));
+      return { state: asset.roadie.state, verify };
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
+  });
+
   // --- Demo / runtime preview: drive the real Hue lights via Conductor (runtime-overview §6) ---
   // Curator proxies Conductor so the browser never holds the shared secret and there's no CORS.
   // See ADR 0007. `fetch`/`Response` are Node 22 globals; type via the fetch signature to avoid

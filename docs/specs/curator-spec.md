@@ -448,14 +448,14 @@ Runs on `http://localhost:4739` locally.
 | GET    | `/api/albums/:curatorId/preview`         | Serves the preview view — palette animating alongside the video, browser-rendered, no hardware.           |
 | POST   | `/api/albums/:curatorId/preview/approve` | Marks preview as approved. Transitions state to `awaiting_tag_write`.                                     |
 | POST   | `/api/albums/:curatorId/simulate-scan`   | Fires simulated scan to both Conductor and Backdrop for this album. Useful for pre-physical verification. |
-| POST   | `/api/albums/:curatorId/verify-physical` | Marks the album as physically verified. Called from the UI after a real scan test.                        |
+| POST   | `/api/albums/:curatorId/verify-physical` | Marks the album physically verified: records `verification.physicallyVerifiedAt` and transitions `awaiting_verify → verified` (issue #55). Fires the ★verify Backdrop reconcile (roadie-spec §6 / [ADR 0015](../adrs/0015-backdrop-sync-triggered-at-projection-changes.md)); Backdrop drift surfaces as `syncIssues`, non-blocking. `4xx` if not in `awaiting_verify`. |
 
 ### Tag writing
 
 | Method | Path                                 | Purpose                                                                                                                                            |
 | ------ | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | GET    | `/api/albums/:curatorId/tag-payload` | Returns `{ payload: "curator:album:2k7bxq9m", qrDataUrl: "data:image/svg+xml;..." }`. Same payload written to both sleeve and card. UI shows both. |
-| POST   | `/api/albums/:curatorId/tag-written` | Body: `{ object: "sleeve" \| "card", tagUid?: string }`. Marks the tag written for the specified physical object.                                  |
+| POST   | `/api/albums/:curatorId/tag-written` | Body: `{ object: "sleeve" \| "card", tagUid?: string }`. Marks the tag written for the specified physical object (records `tag.<object>`, setting `tag.payload` if absent). Writing the **sleeve** (scanned on the stand) advances `awaiting_tag_write → awaiting_verify`; the **card** is independent bookkeeping and never transitions (issue #55). |
 | GET    | `/api/albums/:curatorId/tag.nfc`     | Download a Flipper Zero-writable `.nfc` for the album (NTAG213 with the `curator:album:<id>` NDEF pre-laid) — issue #67 / [ADR 0020](../adrs/0020-flipper-tag-authoring.md). Write it to a blank tag with the stock Flipper NFC app. |
 | GET    | `/api/tags/pending`                  | `{ pending: [{ curatorId, name, artist }] }` — albums in `awaiting_tag_write`, so you know which `.nfc`s to fetch (issue #67).                     |
 
