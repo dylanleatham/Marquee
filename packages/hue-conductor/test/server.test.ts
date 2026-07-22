@@ -501,7 +501,7 @@ describe("hue-conductor HTTP API", () => {
       );
     });
 
-    it("history returns most-recent first and honors ?limit", async () => {
+    it("a swap closes the previous row and opens a new one, newest first; ?limit trims", async () => {
       const { app } = build({
         "2k7bxq9m": ALBUM,
         aaaa1111: { ...ALBUM, metadata: { name: "1999", artist: "Prince" } },
@@ -512,12 +512,19 @@ describe("hue-conductor HTTP API", () => {
         uri: "curator:album:aaaa1111",
         tagUid: "x",
         at: "t",
-      }); // swap → 1999
-      const { history } = (
-        await get(app, "/api/playback/history?limit=1")
-      ).json();
-      expect(history).toHaveLength(1);
-      expect(history[0].source.name).toBe("1999");
+      }); // swap → 1999 (same session/room)
+
+      const { history } = (await get(app, "/api/playback/history")).json();
+      expect(history.map((h: { source: { name: string } }) => h.source.name)) //
+        .toEqual(["1999", "Purple Rain"]); // newest first
+      expect(history[0].stoppedAt).toBeUndefined(); // 1999 still playing
+      expect(history[1].stoppedAt).toBeTruthy(); // Purple Rain closed by the swap
+
+      // ?limit trims to the most recent.
+      const trimmed = (await get(app, "/api/playback/history?limit=1")).json()
+        .history;
+      expect(trimmed).toHaveLength(1);
+      expect(trimmed[0].source.name).toBe("1999");
     });
 
     it("requires the shared secret", async () => {
