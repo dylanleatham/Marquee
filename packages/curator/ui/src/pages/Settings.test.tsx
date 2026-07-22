@@ -17,6 +17,11 @@ vi.mock("../api", () => ({
     spotifyDisconnect: vi.fn(),
     geminiSettings: vi.fn(),
     saveGeminiSettings: vi.fn(),
+    discogsSettings: vi.fn(),
+    saveDiscogsSettings: vi.fn(),
+    discogsAuthStatus: vi.fn(),
+    discogsLogin: vi.fn(),
+    discogsDisconnect: vi.fn(),
   },
   ApiError: class ApiError extends Error {},
 }));
@@ -54,6 +59,20 @@ beforeEach(() => {
     ok: true,
     restartRequired: true,
   });
+  vi.mocked(api.discogsSettings).mockResolvedValue({
+    configured: false,
+    oauthConfigured: false,
+    username: null,
+  });
+  vi.mocked(api.saveDiscogsSettings).mockResolvedValue({
+    ok: true,
+    restartRequired: true,
+  });
+  vi.mocked(api.discogsAuthStatus).mockResolvedValue({ connected: false });
+  vi.mocked(api.discogsLogin).mockResolvedValue({
+    authorizeUrl: "https://www.discogs.com/oauth/authorize?oauth_token=REQ",
+  });
+  vi.mocked(api.discogsDisconnect).mockResolvedValue({ ok: true });
 });
 afterEach(() => {
   cleanup();
@@ -168,5 +187,59 @@ describe("Settings", () => {
     const disconnect = screen.getByRole("button", { name: /disconnect/i });
     fireEvent.click(disconnect);
     await waitFor(() => expect(api.spotifyDisconnect).toHaveBeenCalled());
+  });
+
+  // Issue #59: "log in with Discogs" — the OAuth Connect button appears only once consumer creds are
+  // configured, and opens the authorize URL.
+  it("hides Connect Discogs until OAuth consumer creds are configured", async () => {
+    vi.mocked(api.discogsSettings).mockResolvedValue({
+      configured: true,
+      oauthConfigured: false,
+      username: "dj",
+    });
+    renderSettings();
+    await screen.findByText(/connected — dj/i);
+    expect(
+      screen.queryByRole("button", { name: /connect discogs/i }),
+    ).toBeNull();
+  });
+
+  it("opens the Discogs authorize URL when Connect Discogs is clicked", async () => {
+    vi.mocked(api.discogsSettings).mockResolvedValue({
+      configured: false,
+      oauthConfigured: true,
+      username: null,
+    });
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    renderSettings();
+    const connect = await screen.findByRole("button", {
+      name: /connect discogs/i,
+    });
+    fireEvent.click(connect);
+    await waitFor(() => expect(api.discogsLogin).toHaveBeenCalled());
+    expect(open).toHaveBeenCalledWith(
+      "https://www.discogs.com/oauth/authorize?oauth_token=REQ",
+      "_blank",
+      "noopener",
+    );
+    open.mockRestore();
+  });
+
+  it("shows Disconnect when logged in with Discogs", async () => {
+    vi.mocked(api.discogsSettings).mockResolvedValue({
+      configured: false,
+      oauthConfigured: true,
+      username: null,
+    });
+    vi.mocked(api.discogsAuthStatus).mockResolvedValue({
+      connected: true,
+      username: "crate_digger",
+    });
+    renderSettings();
+    await screen.findByText(/logged in with discogs — crate_digger/i);
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /disconnect/i }).at(-1)!,
+    );
+    await waitFor(() => expect(api.discogsDisconnect).toHaveBeenCalled());
   });
 });

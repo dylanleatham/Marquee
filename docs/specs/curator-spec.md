@@ -305,8 +305,17 @@ Runs on `http://localhost:4739` locally.
 > collection browser) writes a `fresh` `source: "discogs"` asset, dedupes on the Discogs release id
 > (**409**), and hands off to Roadie (which fetches the authoritative release detail + cover image).
 > `GET /api/discogs/collection?page=&perPage=` backs the browser (paginated), and
-> `GET`/`PUT /api/settings/discogs` store the personal access token. All Discogs routes **503** when
-> no token is configured. Auth is a personal access token, not OAuth (unlike Spotify's user login).
+> `GET`/`PUT /api/settings/discogs` store the personal access token **and/or the OAuth consumer creds**.
+> All Discogs routes **503** when neither a token nor a connected OAuth session is configured.
+>
+> **Auth (issue #24 / #59):** a **personal access token** (the simple default) *or* full **OAuth 1.0a**
+> "log in with Discogs" (3-legged, PLAINTEXT-signed — [ADR 0017](../adrs/0017-discogs-personal-token-and-direct-images.md)).
+> The OAuth routes mirror Spotify's: `GET /api/discogs/auth/login` → `{ authorizeUrl }`;
+> `GET /api/discogs/auth/callback?oauth_token=&oauth_verifier=` (browser-facing, HTML);
+> `GET /api/discogs/auth/status` → `{ connected, username? }`;
+> `POST /api/discogs/auth/disconnect`. A connected session signs each API request behind the same
+> `DiscogsClient`; absent one, the personal token is used. OAuth routes **503** unless consumer creds
+> are configured.
 
 | Method | Path                     | Purpose                                                                                                                                                             |
 | ------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
