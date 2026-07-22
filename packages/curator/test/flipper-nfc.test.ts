@@ -66,6 +66,10 @@ describe("ndefUriTlv — the byte contract Stylus reads", () => {
     // message starts at offset 2; payload byte after [D1,01,len,55] is the prefix code.
     expect(tlv[6]).toBe(0x00);
   });
+
+  it("rejects a URI too long for a short NDEF record", () => {
+    expect(() => ndefUriTlv("x".repeat(300))).toThrow(/short NDEF record/);
+  });
 });
 
 describe("ntag213Pages", () => {
@@ -90,6 +94,10 @@ describe("ntag213Pages", () => {
   it("has a well-formed placeholder UID (valid BCC0)", () => {
     // BCC0 = CT(0x88) ^ UID0 ^ UID1 ^ UID2
     expect(pages[0]![3]).toBe(0x88 ^ pages[0]![0]! ^ pages[0]![1]! ^ pages[0]![2]!);
+  });
+
+  it("rejects a URI that won't fit NTAG213 user memory", () => {
+    expect(() => ntag213Pages("x".repeat(150))).toThrow(/user memory/);
   });
 });
 
