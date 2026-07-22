@@ -8,7 +8,17 @@ import {
   type HueDriver,
 } from "./bridge/adapter.js";
 import { PlaybackEngine, type Timers } from "./playback/engine.js";
-import type { PalettePayload } from "@marquee/contracts";
+import {
+  buildPalettePayload,
+  PaletteNotReadyError,
+  type PalettePayload,
+  type ScanEvent,
+} from "@marquee/contracts";
+import {
+  FsAlbumAssetReader,
+  curatorIdFromUri,
+  type AlbumAssetReader,
+} from "./assets.js";
 
 export interface BuildOptions {
   /** Config overrides (tests inject a shared secret + temp data dir). */
@@ -19,6 +29,38 @@ export interface BuildOptions {
   driver?: HueDriver;
   /** Injected timers for the playback engine (tests step patterns deterministically). */
   timers?: Timers;
+  /** Injected album-assets reader (tests seed albums in memory); prod reads the synced store. */
+  assets?: AlbumAssetReader;
+}
+
+/** Parse a scan event at the boundary (mirrors Backdrop's parser). Returns null on a malformed body. */
+function parseScan(body: unknown): ScanEvent | null {
+  if (typeof body !== "object" || body === null) return null;
+  const b = body as Record<string, unknown>;
+  if (b.event === "stop") {
+    return {
+      event: "stop",
+      readerId: b.readerId as string | undefined,
+      at: String(b.at ?? ""),
+    };
+  }
+  // A real start always carries a uri + tagUid (scan-event.schema.json requires both).
+  if (
+    b.event === "start" &&
+    typeof b.uri === "string" &&
+    b.uri.length > 0 &&
+    typeof b.tagUid === "string" &&
+    b.tagUid.length > 0
+  ) {
+    return {
+      event: "start",
+      uri: b.uri,
+      tagUid: b.tagUid,
+      readerId: b.readerId as string | undefined,
+      at: String(b.at ?? ""),
+    };
+  }
+  return null;
 }
 
 export function buildServer(opts: BuildOptions = {}) {
@@ -30,6 +72,8 @@ export function buildServer(opts: BuildOptions = {}) {
     // Honor config.toml's [runtime] idle_timeout_minutes (spec §9) — was previously inert.
     idleTimeoutMs: config.idleTimeoutMinutes * 60_000,
   });
+  // Reads the synced album-assets store so a raw scan can drive the lights (issue #45 / ADR 0019).
+  const assets = opts.assets ?? new FsAlbumAssetReader(config.albumAssetsDir);
   const app = Fastify({
     logger: { level: process.env.NODE_ENV === "test" ? "silent" : "info" },
   });
@@ -113,6 +157,75 @@ export function buildServer(opts: BuildOptions = {}) {
       });
     await engine.stop(target);
     return { stopped: true, roomId: target };
+  });
+
+  // Runtime scan intake from Stylus (issue #45). Unlike /api/playback (Curator's Demo Room proxy,
+  // ADR 0007), this is the real runtime entrypoint: a raw ScanEvent, resolved against the synced
+  // album-assets store, drives the listening room. `start` → build the palette from the album and
+  // play it; `stop` → restore the pre-scan snapshot. A valid scan we can't act on (no listening room,
+  // album not synced yet, album not far enough along) degrades gracefully to a 202 "ignored" rather
+  // than an error — a scan must never error-storm the always-on service (runtime-overview §9). The
+  // engine arms the 90-min idle timeout on start, the safety net for a lost `stop`.
+  app.post("/api/scan", async (req, reply) => {
+    const scan = parseScan(req.body);
+    if (!scan)
+      return reply.code(400).send({
+        error:
+          "expected a scan event: start needs { uri, tagUid, at }, stop needs { at }",
+      });
+
+    const roomId = resolveRoom();
+
+    if (scan.event === "stop") {
+      if (!roomId)
+        return reply
+          .code(202)
+          .send({ ok: true, action: "ignored", reason: "no listening room" });
+      await engine.stop(roomId);
+      return reply.code(202).send({ ok: true, action: "stopped", roomId });
+    }
+
+    // start — validate the URI first, so a malformed one is always a 400 (not silently degraded
+    // when no room is configured), matching ADR 0019 / the spec note.
+    const curatorId = curatorIdFromUri(scan.uri);
+    if (!curatorId)
+      return reply
+        .code(400)
+        .send({ error: `not a curator album URI: ${scan.uri}` });
+
+    if (!roomId) {
+      req.log.warn(`scan ${scan.uri}: no listening room configured — staying put`);
+      return reply
+        .code(202)
+        .send({ ok: true, action: "ignored", reason: "no listening room" });
+    }
+
+    const asset = await assets.read(curatorId);
+    if (!asset) {
+      req.log.warn(`scan ${scan.uri}: album not in synced store — staying put`);
+      return reply
+        .code(202)
+        .send({ ok: true, action: "ignored", reason: "album not synced", curatorId });
+    }
+
+    let payload: PalettePayload;
+    try {
+      payload = buildPalettePayload(asset);
+    } catch (err) {
+      if (err instanceof PaletteNotReadyError) {
+        req.log.warn(`scan ${scan.uri}: ${err.message} — staying put`);
+        return reply
+          .code(202)
+          .send({ ok: true, action: "ignored", reason: "album not ready", curatorId });
+      }
+      throw err;
+    }
+
+    // Bridge failures bubble to the error handler (409 not paired / 502) like /api/playback does.
+    const { playbackId } = await engine.start(roomId, payload);
+    return reply
+      .code(202)
+      .send({ ok: true, action: "playing", roomId, curatorId, playbackId });
   });
 
   app.setErrorHandler((err, req, reply) => {

@@ -101,3 +101,72 @@ export interface LibraryEntry {
 
 // TODO(build order): also export AlbumAsset (hand-written or generated) once that boundary is
 // promoted out of curator/src/albums/asset.ts.
+
+// --- Album → PalettePayload mapping (Curator Demo Room + Conductor /api/scan) -------------------
+// The narrow slice of an album asset needed to build the light-show payload. Curator's full
+// AlbumAsset satisfies this structurally, so both Curator (Demo Room) and Conductor (which reads the
+// synced album-assets store at scan time, issue #45 / ADR 0019) map the same way via one function.
+
+/** The minimum an album must carry to drive a light show. `AlbumAsset` is a structural superset. */
+export interface AlbumPaletteInput {
+  metadata: { name: string; artist: string; year?: number };
+  palette?: {
+    colors: Array<{ hex: string; role: string; cie_xy?: [number, number] }>;
+  };
+  pattern?: { type: string; params: unknown };
+}
+
+/** The album isn't far enough along to drive a light show (no palette/pattern yet). Callers → 409. */
+export class PaletteNotReadyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PaletteNotReadyError";
+  }
+}
+
+const PALETTE_ROLES: PaletteRole[] = ["primary", "secondary", "accent"];
+const asRole = (role: string): PaletteRole =>
+  (PALETTE_ROLES as string[]).includes(role) ? (role as PaletteRole) : "accent";
+
+const PATTERN_TYPES: PalettePayload["pattern"]["type"][] = [
+  "static",
+  "rotate",
+  "pulse",
+  "crossfade",
+];
+
+/**
+ * Map a stored album into the palette+pattern payload Conductor plays. Throws PaletteNotReadyError if
+ * the album has no palette/pattern yet (still in Roadie's pipeline). Roles/pattern-type outside the
+ * contract's unions are coerced to safe defaults rather than rejected — the light show is best-effort.
+ */
+export function buildPalettePayload(asset: AlbumPaletteInput): PalettePayload {
+  if (!asset.palette || asset.palette.colors.length === 0)
+    throw new PaletteNotReadyError("album has no palette yet");
+  if (!asset.pattern) throw new PaletteNotReadyError("album has no pattern yet");
+
+  const type = (PATTERN_TYPES as string[]).includes(asset.pattern.type)
+    ? (asset.pattern.type as PalettePayload["pattern"]["type"])
+    : "static";
+
+  return {
+    version: 1,
+    source: {
+      type: "album",
+      name: asset.metadata.name,
+      artist: asset.metadata.artist,
+      ...(asset.metadata.year ? { year: asset.metadata.year } : {}),
+    },
+    palette: {
+      colors: asset.palette.colors.map((c) => ({
+        hex: c.hex,
+        role: asRole(c.role),
+        ...(c.cie_xy ? { cie_xy: c.cie_xy } : {}),
+      })),
+    },
+    pattern: {
+      type,
+      params: asset.pattern.params as PalettePayload["pattern"]["params"],
+    },
+  };
+}

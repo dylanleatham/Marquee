@@ -150,6 +150,16 @@ The pairing endpoints are called by a one-time CLI script (`pnpm run pair` in th
 | ------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | POST   | `/api/scan` | Body: `{ event: "start" \| "stop", uri?, tagUid?, readerId, at }`. Called by Stylus. On `start`, resolves the URI to a palette+pattern from the local asset store and applies it to the configured listening room. If a playback is already active, crossfades from the current palette to the new one — this makes running through several albums back-to-back feel seamless (which happens naturally when showing the experience to visitors). On `stop`, fades to idle and restores the session snapshot. Auth via `X-Trigger-Secret` header. |
 
+> **Implemented 2026-07-22 (issue #45 / [ADR 0019](../adrs/0019-conductor-scan-reads-asset-store.md)):**
+> the first build that has Conductor **read the synced album-assets store** (via `config.albumAssetsDir`,
+> default `{dataDir}/album-assets`) instead of only accepting pre-built payloads on `/api/playback`.
+> The album→payload mapping (`buildPalettePayload`) now lives in `@marquee/contracts`, shared with
+> Curator's Demo Room. A *valid* scan Conductor can't act on — no listening room, album not synced,
+> album not far enough along (no palette/pattern) — logs and returns `202 { action: "ignored", reason }`
+> rather than erroring (runtime-overview §9); only a malformed body or non-`curator:album:` URI is a
+> 4xx. The engine arms the 90-min idle timeout on `start`. `/api/playback/current` + `/history` remain
+> unbuilt.
+
 ### Playback (direct submission)
 
 | Method | Path                             | Purpose                                                                                                                                                                                                                                                                                                              |
@@ -222,7 +232,7 @@ The session snapshot (§ State restoration) is **not** touched during palette tr
 
 ### Listening room configuration
 
-Conductor doesn't discover a "listening room" on its own. The room is configured by the user in Curator's settings and pushed to Conductor via `PUT /api/settings`. Conductor stores it on disk and uses it as the default room for scan events. If no room is configured, scan events return 400 with a helpful message pointing the user at Curator's settings.
+Conductor doesn't discover a "listening room" on its own. The room is configured by the user in Curator's settings and pushed to Conductor via `PUT /api/settings`. Conductor stores it on disk and uses it as the default room for scan events. If no room is configured, the admin `/api/playback` endpoint returns **400** with a helpful message pointing the user at Curator's settings; a runtime **`/api/scan`** with no room configured instead **degrades to `202 { action: "ignored" }`** and stays put ([ADR 0019](../adrs/0019-conductor-scan-reads-asset-store.md)) — a hardware scan must not error-storm the always-on service (runtime-overview §9).
 
 The `/api/playback` endpoint accepts an explicit `roomId` for admin operations that need to target a specific room independent of the configured default (mostly for testing and one-off effects from Curator's UI).
 
