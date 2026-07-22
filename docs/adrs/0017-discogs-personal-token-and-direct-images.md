@@ -63,6 +63,15 @@ Resolving Discogs → Spotify for "richer/consistent" art adds a fuzzy-match ste
 on Spotify config for a Discogs-only feature. It stays a **later enhancement** (a Discogs album whose
 art you dislike can already be fixed with the existing manual art-override).
 
+> **Update (2026-07-22, issue #58) — the enhancement landed, as an *opt-in fallback*:** the Discogs
+> metadata step now attempts a **conservative** fuzzy match to a Spotify album (artist + title both
+> must match closely; year is a tiebreaker — `albums/spotify-match.ts`, `bestSpotifyMatch`). On a
+> confident match with cover art, the art step downloads the **Spotify** image (reusing the Spotify
+> art seam) and stamps `artwork.source: "spotify"`; otherwise it downloads the **Discogs** image
+> (`artwork.source: "discogs"`). It's strictly best-effort: no Spotify client, no confident match, or
+> any Spotify error → the Discogs image, so a Discogs add is **never blocked or failed** by this. The
+> chosen source is surfaced on the album detail; the manual art-override still wins over both.
+
 ### 3. Dedupe: per-source, on the Discogs release id
 
 Dedupe is **per-source**, mirroring today's per-Spotify-URI behavior: adding a Discogs release whose
@@ -93,6 +102,6 @@ warrants, and the failure mode (two entries for one record) is easy to spot and 
   if multi-user ever matters.~~ **Landed as an opt-in alternative (issue #59)** — see the §1 update
   above; the personal token stays the default.
 - **Resolve to Spotify for art** — richer art, but couples a Discogs feature to Spotify and adds
-  fuzzy matching. Deferred.
+  fuzzy matching. ~~Deferred.~~ **Landed as an opt-in fallback (issue #58)** — see the §2 update above.
 - **Cross-source dedupe** — more correct in theory; deferred for lack of a reliable cross-provider
   identity and a low-stakes failure mode.

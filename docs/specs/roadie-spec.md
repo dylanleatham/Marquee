@@ -150,7 +150,7 @@ Two important properties:
 ### downloading_art
 
 - Input: art URL from previous step (Spotify art URL, or the Discogs release's primary image URL; or manually provided art via `override_art_url` in asset file)
-- Action: fetch art bytes, hash for cache invalidation, save to `media/artwork/{curatorId}.jpg`. Discogs image hosts require the same token + `User-Agent` as the API (ADR 0017 — the release's own image, no Spotify resolution).
+- Action: fetch art bytes, hash for cache invalidation, save to `media/artwork/{curatorId}.jpg`, and stamp `artwork.source`. For a Discogs album the metadata step attempts a conservative fuzzy match to a Spotify album (issue #58): on a confident hit it downloads the **Spotify** cover (richer/consistent, `source: "spotify"`), otherwise the **Discogs** release image (`source: "discogs"`) — best-effort, so a miss/error never blocks the add. Discogs image hosts require the same token + `User-Agent` as the API (ADR 0017).
 - Success: transition to `generating_palette`
 - Failure: retry with backoff; after 3 fails, `errored` with reason
 

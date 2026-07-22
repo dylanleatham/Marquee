@@ -165,7 +165,11 @@ export interface AlbumAsset {
     discogsUri?: string;
     discogsReleaseId?: number;
   };
-  artwork?: { resolvedPath: string; contentHash: string };
+  artwork?: {
+    resolvedPath: string;
+    contentHash: string;
+    source?: "spotify" | "discogs";
+  };
   palette?: { colors: PaletteColor[]; insufficient?: boolean; reason?: string };
   pattern?: { type: string; params: Record<string, unknown> };
   promptDrafts?: { video?: DraftedPrompt; cardArt?: DraftedPrompt };

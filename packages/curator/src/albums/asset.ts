@@ -174,6 +174,9 @@ export interface AlbumAsset {
     resolvedPath: string;
     overrideActive: boolean;
     contentHash: string;
+    /** Where the auto-downloaded cover came from (issue #58). A Discogs album resolves to Spotify
+     * art on a confident match, else the Discogs image; absent for a manual override. */
+    source?: "spotify" | "discogs";
   };
   /** Present once Palette Press has run. */
   palette?: PaletteSection;
