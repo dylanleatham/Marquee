@@ -157,8 +157,8 @@ The pairing endpoints are called by a one-time CLI script (`pnpm run pair` in th
 > Curator's Demo Room. A *valid* scan Conductor can't act on — no listening room, album not synced,
 > album not far enough along (no palette/pattern) — logs and returns `202 { action: "ignored", reason }`
 > rather than erroring (runtime-overview §9); only a malformed body or non-`curator:album:` URI is a
-> 4xx. The engine arms the 90-min idle timeout on `start`. `/api/playback/current` + `/history` remain
-> unbuilt.
+> 4xx. The engine arms the 90-min idle timeout on `start`. (`/api/playback/current` + `/history` are
+> now built — issue #54.)
 
 ### Playback (direct submission)
 
@@ -166,8 +166,8 @@ The pairing endpoints are called by a one-time CLI script (`pnpm run pair` in th
 | ------ | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | POST   | `/api/playback`                  | Body: `{ roomId?, palette }`. Starts playback of the palette pattern. If `roomId` is omitted, uses the configured listening room. If a playback is already active, crossfades to the new palette (same session; no re-snapshot). Returns `{ playbackId }`. Useful for Curator's admin operations and manual testing. |
 | POST   | `/api/playback/stop`             | Stops current playback, restores the session snapshot.                                                                                                                                                                                                                                                               |
-| GET    | `/api/playback/current`          | Current active playback + progress.                                                                                                                                                                                                                                                                                  |
-| GET    | `/api/playback/history?limit=50` | Recent playbacks.                                                                                                                                                                                                                                                                                                    |
+| GET    | `/api/playback/current`          | The album(s) playing now, one per active room: `{ playback: [{ playbackId, roomId, source: { name, artist, year }, pattern, startedAt }] }`. Empty when idle (issue #54).                                                                                                                                              |
+| GET    | `/api/playback/history?limit=50` | Recent playbacks, most-recent first (bounded ring, cap 50; `limit` ≤ 200). Each row adds `stoppedAt` once its playback ended; a mid-session album swap closes the previous row and opens a new one (issue #54).                                                                                                        |
 
 ### Settings (pushed from Curator)
 

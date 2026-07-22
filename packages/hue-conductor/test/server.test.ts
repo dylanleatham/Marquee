@@ -435,4 +435,105 @@ describe("hue-conductor HTTP API", () => {
       expect(res.statusCode).toBe(401);
     });
   });
+
+  describe("playback introspection (issue #54)", () => {
+    const ALBUM = {
+      metadata: { name: "Purple Rain", artist: "Prince", year: 1984 },
+      palette: { colors: [{ hex: "#4B0082", role: "primary" }] },
+      pattern: { type: "static", params: {} },
+    };
+    const build = (albums: Record<string, unknown>, room = true) => {
+      const store = seededStore();
+      if (room) store.setListeningRoom("1");
+      return buildServer({
+        config: { sharedSecret: SECRET },
+        store,
+        driver: livingRoom().driver,
+        timers: new FakeTimers(),
+        assets: { read: async (id: string) => (albums[id] ?? null) as never },
+      });
+    };
+    const scanStart = {
+      event: "start",
+      uri: "curator:album:2k7bxq9m",
+      tagUid: "x",
+      at: "t",
+    };
+    const get = (app: ReturnType<typeof buildServer>["app"], url: string) =>
+      app.inject({ method: "GET", url, headers: AUTH });
+    const post = (
+      app: ReturnType<typeof buildServer>["app"],
+      payload: unknown,
+    ) => app.inject({ method: "POST", url: "/api/scan", headers: AUTH, payload });
+
+    it("current is empty when idle", async () => {
+      const { app } = build({});
+      expect((await get(app, "/api/playback/current")).json().playback).toEqual(
+        [],
+      );
+    });
+
+    it("current reports the album playing after a scan", async () => {
+      const { app } = build({ "2k7bxq9m": ALBUM });
+      await post(app, scanStart);
+      const [p] = (await get(app, "/api/playback/current")).json().playback;
+      expect(p).toMatchObject({
+        roomId: "1",
+        pattern: "static",
+        source: { name: "Purple Rain", artist: "Prince" },
+      });
+      expect(p.playbackId).toBeTruthy();
+      expect(p.startedAt).toBeTruthy();
+    });
+
+    it("history records the playback, then its stop time", async () => {
+      const { app } = build({ "2k7bxq9m": ALBUM });
+      await post(app, scanStart);
+      let [h] = (await get(app, "/api/playback/history")).json().history;
+      expect(h).toMatchObject({ roomId: "1", source: { name: "Purple Rain" } });
+      expect(h.stoppedAt).toBeUndefined(); // still playing
+
+      await post(app, { event: "stop", at: "t" });
+      [h] = (await get(app, "/api/playback/history")).json().history;
+      expect(h.stoppedAt).toBeTruthy();
+      expect((await get(app, "/api/playback/current")).json().playback).toEqual(
+        [],
+      );
+    });
+
+    it("a swap closes the previous row and opens a new one, newest first; ?limit trims", async () => {
+      const { app } = build({
+        "2k7bxq9m": ALBUM,
+        aaaa1111: { ...ALBUM, metadata: { name: "1999", artist: "Prince" } },
+      });
+      await post(app, scanStart); // Purple Rain
+      await post(app, {
+        event: "start",
+        uri: "curator:album:aaaa1111",
+        tagUid: "x",
+        at: "t",
+      }); // swap → 1999 (same session/room)
+
+      const { history } = (await get(app, "/api/playback/history")).json();
+      expect(history.map((h: { source: { name: string } }) => h.source.name)) //
+        .toEqual(["1999", "Purple Rain"]); // newest first
+      expect(history[0].stoppedAt).toBeUndefined(); // 1999 still playing
+      expect(history[1].stoppedAt).toBeTruthy(); // Purple Rain closed by the swap
+
+      // ?limit trims to the most recent.
+      const trimmed = (await get(app, "/api/playback/history?limit=1")).json()
+        .history;
+      expect(trimmed).toHaveLength(1);
+      expect(trimmed[0].source.name).toBe("1999");
+    });
+
+    it("requires the shared secret", async () => {
+      const { app } = build({});
+      const res = await app.inject({
+        method: "GET",
+        url: "/api/playback/current",
+      });
+      expect(res.statusCode).toBe(401);
+    });
+  });
 });
