@@ -119,7 +119,7 @@ The album onboarding workflow already defined per-album states. Roadie doesn't i
 
   ★ = Roadie sync triggers on human-driven transitions (see §6):
       ★sync   = rsync video file to Backdrop's SD card
-      ★verify = call verify-sync endpoint, log any discrepancies
+      ★verify = verify this album is in Backdrop's library, log any discrepancies
 ```
 
 Two important properties:
@@ -180,9 +180,10 @@ Two important properties:
 > album delete (remove) — plus a manual full-reconcile (`POST /api/backdrop/sync`) and drift check
 > (`POST /api/backdrop/verify-sync`). Per ADR 0015 the trigger lives at Curator's action/route layer, not a
 > literal every-save hook (an album with no video has nothing to project). Sync failures record on the
-> album as `roadie.syncIssues` and never move it backward. **★verify-on-`verified` is still pending**
-> the `verified` transition endpoint (that arrives with the tag-write/verify flow, step 11); the
-> verify _capability_ already ships as the manual route above.
+> album as `roadie.syncIssues` and never move it backward. **★verify-on-`verified` is now wired**
+> (issue #55): the `verified`-transition endpoint (`POST /api/albums/:id/verify-physical`) fires a
+> single-album verify (`syncAlbum`'s counterpart `verifyAlbum`) that records any drift as
+> `syncIssues`; the manual full-library `POST /api/backdrop/verify-sync` remains for recovery.
 
 Curator synchronizes Backdrop at two human-driven transitions. _(Original step-5 design below; the
 mechanism was revised by [ADR 0015](../adrs/0015-backdrop-sync-triggered-at-projection-changes.md) —
@@ -201,9 +202,9 @@ simulate-scan flows have the real file available when the user tries them.
 compares Curator's expected projection against Backdrop's live library; discrepancies (missing
 entries, filePath drift) are logged as issues on the album — it stays `verified` because the human
 confirmed it works physically, but the warning surfaces so it can be resolved before the next play.
-_(Per ADR 0015 the automatic firing of this on the `verified` transition is **pending** the
-`verified`-transition endpoint, which arrives with the tag-write/verify flow in step 11; the manual
-`POST /api/backdrop/verify-sync` route ships now.)_
+_(Per ADR 0015 the automatic firing of this on the `verified` transition **now happens** (issue #55):
+`POST /api/albums/:id/verify-physical` runs a single-album `verifyAlbum` after the transition. The
+manual full-library `POST /api/backdrop/verify-sync` route remains for recovery.)_
 
 Sync failures never move albums backward through the state machine. They're recorded as issues; the human decides whether to retry, investigate, or ignore. This preserves the invariant that "Roadie only forward-transitions" — sync is a side effect, not a state.
 

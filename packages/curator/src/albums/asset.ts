@@ -134,6 +134,22 @@ export interface VerificationSection {
   physicallyVerifiedAt?: string;
 }
 
+/** Per-physical-object tag-write status (curator-spec §7). Sleeve and card are tracked separately
+ * since one may be written without the other (sleeve today, card printed + tagged next week). */
+export interface TagObjectSection {
+  written: boolean;
+  writtenAt?: string;
+  /** The NTAG's UID, if the writer captured it (optional bookkeeping). */
+  tagUid?: string;
+}
+
+export interface TagSection {
+  /** The `curator:album:<id>` URI written to both stickers — the same payload on sleeve and card. */
+  payload: string;
+  sleeve?: TagObjectSection;
+  card?: TagObjectSection;
+}
+
 export interface RoadieSection {
   state: RoadieState;
   subState: string | null;
@@ -173,6 +189,8 @@ export interface AlbumAsset {
   cardArt?: CardArtSection;
   /** Gemini-generated card-art candidates (curator-spec §Card art); the human picks one to attach. */
   cardArtCandidates?: CardArtCandidate[];
+  /** Per-object tag-write status (step 11); `tag.payload` is the URI written to both stickers. */
+  tag?: TagSection;
   /** Preview-approval and physical-verification timestamps (steps 7/11). */
   verification?: VerificationSection;
   roadie: RoadieSection;

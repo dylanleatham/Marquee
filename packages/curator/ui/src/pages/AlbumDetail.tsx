@@ -9,6 +9,7 @@ import {
   VideoSection,
   CardArtSection,
   PreviewSection,
+  TagWriteSection,
   type Run,
 } from "../components/workflow";
 
@@ -264,10 +265,17 @@ export function AlbumDetail() {
           </Section>
         )}
 
+        {(roadie.state === "awaiting_tag_write" ||
+          roadie.state === "awaiting_verify" ||
+          roadie.state === "verified") && (
+          <Section title="Tag & verify">
+            <TagWriteSection curatorId={curatorId} asset={asset} run={run} />
+          </Section>
+        )}
+
         <Section title="Coming in later steps">
           <p className="muted">
-            Palette editing, tag writing, and physical verification arrive in
-            subsequent build steps.
+            Palette editing arrives in a subsequent build step.
           </p>
         </Section>
       </main>
