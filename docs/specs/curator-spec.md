@@ -447,6 +447,8 @@ Runs on `http://localhost:4739` locally.
 | ------ | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | GET    | `/api/albums/:curatorId/tag-payload` | Returns `{ payload: "curator:album:2k7bxq9m", qrDataUrl: "data:image/svg+xml;..." }`. Same payload written to both sleeve and card. UI shows both. |
 | POST   | `/api/albums/:curatorId/tag-written` | Body: `{ object: "sleeve" \| "card", tagUid?: string }`. Marks the tag written for the specified physical object.                                  |
+| GET    | `/api/albums/:curatorId/tag.nfc`     | Download a Flipper Zero-writable `.nfc` for the album (NTAG213 with the `curator:album:<id>` NDEF pre-laid) — issue #67 / [ADR 0020](../adrs/0020-flipper-tag-authoring.md). Write it to a blank tag with the stock Flipper NFC app. |
+| GET    | `/api/tags/pending`                  | `{ pending: [{ curatorId, name, artist }] }` — albums in `awaiting_tag_write`, so you know which `.nfc`s to fetch (issue #67).                     |
 
 ### Roadie (agent) endpoints
 

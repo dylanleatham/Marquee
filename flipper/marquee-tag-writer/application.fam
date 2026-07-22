@@ -1,0 +1,14 @@
+# Flipper application manifest for the Marquee Tag Writer (Route B, issue #68).
+# Build with ufbt (see README.md). Scaffold — the NFC write path is a TODO (spec §6).
+App(
+    appid="marquee_tag_writer",
+    name="Marquee Tag Writer",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="marquee_tag_writer_app",
+    stack_size=4 * 1024,
+    fap_category="NFC",
+    fap_author="Marquee",
+    fap_description="Write curator:album:<id> NDEF URIs to NTAG213 from a Curator-exported list.",
+    # NFC is required for the write path; storage for the pending-list CSV; gui for the menu.
+    requires=["gui", "storage", "nfc", "dialogs"],
+)

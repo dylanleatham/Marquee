@@ -44,6 +44,7 @@ import {
 import * as actions from "./albums/actions.js";
 import { NotFoundError, type ActionDeps } from "./albums/actions.js";
 import { GenerationJobs } from "./jobs/manager.js";
+import { flipperNfcFile } from "./tags/flipper-nfc.js";
 import {
   ffmpegProber,
   ffmpegAvailable,
@@ -397,6 +398,32 @@ export function buildServer(opts: BuildOptions = {}) {
     const { curatorId } = req.params as { curatorId: string };
     const asset = store.read(curatorId);
     return asset ?? reply.code(404).send({ error: "not found" });
+  });
+
+  // Flipper Zero tag authoring (issue #67, "Route A"): download a ready-to-write `.nfc` for an album,
+  // and list the albums awaiting a tag write so you know which to fetch. Drop the `.nfc` on the
+  // Flipper's SD card and write it to a blank NTAG213 via the stock NFC app (Saved → Write).
+  app.get("/api/tags/pending", async () => ({
+    pending: store
+      .list()
+      .filter((a) => a.roadie.state === "awaiting_tag_write")
+      .map((a) => ({
+        curatorId: a.curatorId,
+        name: a.metadata.name,
+        artist: a.metadata.artist,
+      })),
+  }));
+
+  app.get("/api/albums/:curatorId/tag.nfc", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    if (!store.read(curatorId))
+      return reply.code(404).send({ error: "not found" });
+    reply.header(
+      "content-disposition",
+      `attachment; filename="${curatorId}.nfc"`,
+    );
+    reply.type("application/octet-stream");
+    return flipperNfcFile(curatorId);
   });
 
   app.delete("/api/albums/:curatorId", async (req, reply) => {
