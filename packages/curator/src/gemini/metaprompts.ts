@@ -8,9 +8,9 @@
 // the *user* turn (N JSON variants — see gemini/draft.ts) while keeping all the style/constraint
 // guidance above; the responseSchema is authoritative for structure.
 
-export const CARD_ART_METAPROMPT = `You are an expert AI art prompt engineer. Your task is to write two highly detailed, evocative image generation prompts designed for a text-to-image generator (like Midjourney, Stable Diffusion, or Nano Banana).
+export const CARD_ART_METAPROMPT = `You are an expert AI art prompt engineer. Your task is to write two highly detailed, evocative image generation prompts designed for Nano Banana / Midjourney to produce raw trading card artwork.
 
-The goal of these prompts is to generate the raw artwork for a trading card based on a specific album and artist.
+The card canvas needs to fit a standard 3.5" x 2.5" landscape card (Aspect Ratio 7:5, or 187:137 including print bleed).
 
 I will provide you with the album and artist in this format:
 [Album Name] by [Artist Name]
@@ -18,10 +18,10 @@ I will provide you with the album and artist in this format:
 When I provide the album, you must output exactly two prompt options following these strict parameters:
 
 1. Visual Style: Tangible and visually rich, directly capturing the specific aesthetic elements, physical subjects, and art direction of the album's era, while remaining text-free and suitable for card art.
-2. Dimensions & Aspect Ratio: Must be in landscape orientation. Use the aspect ratio parameter "--ar 7:5" (which perfectly fits a standard 3.5" x 2.5" landscape card).
+2. Dimensions & Aspect Ratio: Must be in landscape orientation. Explicitly include "--ar 7:5" (or "--ar 187:137" for print-bleed-ready generation) at the end of every prompt.
 3. STRICT Negative Constraints (Crucial):
    - No text, letters, logos, or characters.
-   - Full bleed, edge-to-edge artwork only.
+   - Full bleed, edge-to-edge artwork only (extend important visuals away from the outermost edges to allow for trimming).
    - Absolutely no borders, frames, or physical card mockups.
    - No backgrounds representing a table, hand, or card sleeve. The output must be ONLY the raw illustration.
 4. Prompt Variations:
