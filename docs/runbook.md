@@ -209,9 +209,49 @@ curl -XPOST http://marquee-pizero:4741/simulate -d '{"clear":true}'   # = sleeve
 
 ### A7. Tag the sleeve + the real scan
 
-1. In **NFC Tools** on your phone, write the record `curator:album:<curatorId>` to an **NTAG213**
-   sticker; stick it on the sleeve. (Marking it written in-app is issue #55 — not required for the test.)
-2. **The moment:** place the tagged sleeve on the stand → lights + video become the record. Lift it →
+**What goes on the tag.** An **NTAG213** carrying one **NDEF well-known record** — a **URI record**
+(type `U`) or a **Text record** (type `T`) — whose content is the literal `curator:album:<curatorId>`.
+Stylus's parser (`packages/stylus/stylus/ndef.py`) accepts either. `curator:` is a custom scheme, so a
+URI record stores it with prefix-code `0x00` (no abbreviation) + the full string — which is exactly
+what any writer produces when you give it a non-`http`/`tel`/… URI. NTAG213's ~144 bytes is far more
+than enough.
+
+#### Option 1 — phone (simplest for unique per-album URIs)
+
+In **NFC Tools** (or **NXP TagWriter**): *Write* → *Add a record* → **URI/URL** (or **Text**) →
+`curator:album:<curatorId>` → *Write*, hold the sticker to the phone. Each album has a unique
+`curatorId`, so this is the path of least friction when every tag differs.
+
+#### Option 2 — Flipper Zero
+
+The Flipper shines at **reading/verifying** and **bench-testing**; for *authoring* a brand-new custom
+URI its on-device NDEF editor is firmware-dependent, so the reliable pattern is author-once-then-clone.
+
+- **Read / verify a tag** (native, reliable): **NFC → Read**, hold the Flipper over the tag. It
+  identifies **NTAG213**, shows the **UID**, and parses the **NDEF** — confirm the `curator:album:<id>`
+  string is there and matches the album. Use this to check a sticker after writing, or to debug "the
+  stand isn't reacting" (is the tag even readable, and is the URI right?). **Save** it (e.g.
+  `album_<curatorId>`) if you want to reuse it below.
+- **Write by clone** (for duplicates of the *same* album): author one good tag with the phone (Option
+  1), **NFC → Read → Save** it on the Flipper, then **NFC → Saved → _that file_ → Write** onto blank
+  NTAG213s. This clones identical tags fast. (For *different* albums, each needs its own source tag —
+  the phone is simpler than editing NDEF pages by hand.) If your firmware (official 1.x, Momentum,
+  Unleashed, RogueMaster) exposes an NDEF/"Add card → URL" authoring flow, you can compose
+  `curator:album:<id>` directly instead of cloning — the menu path varies by firmware.
+- **Emulate a tag to test *without a sticker*** (great during bring-up): with a tag saved, **NFC →
+  Saved → _file_ → Emulate**, then hold the Flipper against the **PN532** on the stand. Stylus reads it
+  as if a sleeve were placed → the whole chain fires. Lets you test read range, debounce, and the
+  publish path before you've stuck anything on a sleeve. (UID emulation is reliable; full NTAG NDEF
+  emulation depends on firmware — if Stylus doesn't get the URI while emulating, fall back to a real
+  written tag.)
+
+> ⚠️ **Don't touch the lock/password pages.** NTAG213 **lock bits** and **password (AUTH0/PWD)** pages
+> are one-way — a write that sets them can permanently freeze a tag read-only or lock you out. Stick to
+> writing the **NDEF data** only; avoid any "lock", "set password", or "unlock" action on the Flipper
+> or the phone app.
+
+2. Stick the written tag on the sleeve. (Marking it written in-app is issue #55 — not required for the test.)
+3. **The moment:** place the tagged sleeve on the stand → lights + video become the record. Lift it →
    both fade back.
 
 ---
