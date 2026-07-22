@@ -678,6 +678,33 @@ em {
   color: var(--muted);
   cursor: pointer;
 }
+
+/* --- tag write / verify (step 11) --- */
+.tagwrite {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.tagwrite__payload {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px;
+}
+.tagwrite__payload code {
+  color: var(--amber);
+  word-break: break-all;
+}
+.tagwrite__objects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.tagwrite__done {
+  color: var(--sage);
+  font-weight: 600;
+  font-size: 14px;
+}
 .tag {
   font-size: 11px;
   letter-spacing: 0.06em;

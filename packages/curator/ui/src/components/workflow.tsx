@@ -660,3 +660,73 @@ export function PreviewSection({
     </div>
   );
 }
+
+/**
+ * The last human step (step 11, curator-spec §7): mark each physical sticker written, then mark the
+ * album physically verified. Writing the sleeve (scanned on the stand) advances the album to
+ * awaiting_verify; the card is independent bookkeeping. Verifying finishes onboarding.
+ */
+export function TagWriteSection({
+  curatorId,
+  asset,
+  run,
+}: {
+  curatorId: string;
+  asset: AlbumAsset;
+  run: Run;
+}) {
+  const state = asset.roadie.state;
+  const tag = asset.tag;
+  const payload = tag?.payload ?? `curator:album:${curatorId}`;
+  const verified = state === "verified";
+  const canVerify = state === "awaiting_verify";
+
+  const writeRow = (object: "sleeve" | "card", label: string) => {
+    const written = tag?.[object]?.written ?? false;
+    return (
+      <div className="tagwrite__obj">
+        {written ? (
+          <span className="tagwrite__done">✓ {label} written</span>
+        ) : (
+          <button
+            className="btn btn--sm"
+            onClick={() => run(() => api.markTagWritten(curatorId, object))}
+          >
+            Mark {label} written
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="tagwrite">
+      <div className="tagwrite__payload">
+        <span className="muted">Write this URI to both stickers:</span>
+        <code>{payload}</code>
+      </div>
+      <div className="tagwrite__objects">
+        {writeRow("sleeve", "sleeve tag")}
+        {writeRow("card", "card tag")}
+      </div>
+      {verified ? (
+        <div className="banner banner--ok">
+          Verified ✓ — this album is fully onboarded.
+        </div>
+      ) : (
+        <button
+          className="btn btn--primary"
+          disabled={!canVerify}
+          onClick={() => run(() => api.verifyAlbum(curatorId))}
+          title={
+            canVerify
+              ? "Record the physical scan check and finish onboarding"
+              : "Write the sleeve tag first"
+          }
+        >
+          Mark physically verified
+        </button>
+      )}
+    </div>
+  );
+}

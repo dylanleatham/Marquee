@@ -120,6 +120,55 @@ describe("onboarding workflow", () => {
     expect(store.read(curatorId)!.verification!.previewApprovedAt).toBeTruthy();
   });
 
+  // Issue #55: the last human step — mark the stickers written, then verify → verified.
+  it("writes the sleeve/card tags then verifies (step 11)", async () => {
+    const { app, store, curatorId } = await serverWithReviewedAlbum();
+    await post(app, `/api/albums/${curatorId}/prompts/video/copied`);
+    await uploadVideo(app, curatorId);
+    await post(app, `/api/albums/${curatorId}/preview/approve`);
+    expect(store.read(curatorId)!.roadie.state).toBe("awaiting_tag_write");
+
+    // The card is independent bookkeeping — marking it does not advance the workflow.
+    const card = await post(app, `/api/albums/${curatorId}/tag-written`, {
+      object: "card",
+    });
+    expect(card.json().state).toBe("awaiting_tag_write");
+    expect(store.read(curatorId)!.tag!.card!.written).toBe(true);
+
+    // The sleeve is scanned on the stand — writing it advances to awaiting_verify.
+    const sleeve = await post(app, `/api/albums/${curatorId}/tag-written`, {
+      object: "sleeve",
+    });
+    expect(sleeve.json().state).toBe("awaiting_verify");
+    const tagged = store.read(curatorId)!;
+    expect(tagged.tag!.sleeve!.written).toBe(true);
+    expect(tagged.tag!.payload).toBe(`curator:album:${curatorId}`);
+
+    // Verify → verified, with the physical-verification timestamp recorded.
+    const verify = await post(app, `/api/albums/${curatorId}/verify-physical`);
+    expect(verify.json().state).toBe("verified");
+    const done = store.read(curatorId)!;
+    expect(done.roadie.state).toBe("verified");
+    expect(done.verification!.physicallyVerifiedAt).toBeTruthy();
+  });
+
+  it("won't verify before the sleeve tag advances the album to awaiting_verify", async () => {
+    const { app, curatorId } = await serverWithReviewedAlbum();
+    await post(app, `/api/albums/${curatorId}/prompts/video/copied`);
+    await uploadVideo(app, curatorId);
+    await post(app, `/api/albums/${curatorId}/preview/approve`); // awaiting_tag_write
+    const res = await post(app, `/api/albums/${curatorId}/verify-physical`);
+    expect(res.statusCode).toBeGreaterThanOrEqual(400); // TransitionError, not verified
+  });
+
+  it("400s a tag-written call with an invalid object", async () => {
+    const { app, curatorId } = await serverWithReviewedAlbum();
+    const res = await post(app, `/api/albums/${curatorId}/tag-written`, {
+      object: "bogus",
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
   it("'Something's off' steps back from preview, and detach steps back from preview to video", async () => {
     const { app, store, curatorId } = await serverWithReviewedAlbum();
     await post(app, `/api/albums/${curatorId}/prompts/video/copied`);

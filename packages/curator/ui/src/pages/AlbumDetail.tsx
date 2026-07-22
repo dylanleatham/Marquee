@@ -9,6 +9,7 @@ import {
   VideoSection,
   CardArtSection,
   PreviewSection,
+  TagWriteSection,
   type Run,
 } from "../components/workflow";
 
@@ -139,6 +140,12 @@ export function AlbumDetail() {
         <div className="detail__meta">
           {m.year && <span>{m.year}</span>}
           <span className="tag">{m.source}</span>
+          {/* For a Discogs album the cover may be resolved from Spotify (issue #58) — show which. */}
+          {m.source === "discogs" && asset.artwork?.source && (
+            <span className="tag" title="Cover art source">
+              cover: {asset.artwork.source}
+            </span>
+          )}
           {m.genres?.length ? <span>{m.genres.join(", ")}</span> : null}
         </div>
         <div className="detail__state">
@@ -264,10 +271,17 @@ export function AlbumDetail() {
           </Section>
         )}
 
+        {(roadie.state === "awaiting_tag_write" ||
+          roadie.state === "awaiting_verify" ||
+          roadie.state === "verified") && (
+          <Section title="Tag & verify">
+            <TagWriteSection curatorId={curatorId} asset={asset} run={run} />
+          </Section>
+        )}
+
         <Section title="Coming in later steps">
           <p className="muted">
-            Palette editing, tag writing, and physical verification arrive in
-            subsequent build steps.
+            Palette editing arrives in a subsequent build step.
           </p>
         </Section>
       </main>

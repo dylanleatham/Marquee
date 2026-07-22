@@ -28,6 +28,7 @@ import { addDiscogsAlbum } from "./albums/add-discogs.js";
 import { SpotifyClient, SpotifyError } from "./spotify/client.js";
 import { SpotifyAuth, SpotifyAuthError } from "./spotify/auth.js";
 import { DiscogsClient, DiscogsError } from "./discogs/client.js";
+import { DiscogsOAuth, DiscogsOAuthError } from "./discogs/oauth.js";
 import { GeminiClient } from "./gemini/client.js";
 import {
   writeSpotifyCreds,
@@ -73,6 +74,8 @@ export interface BuildOptions {
   spotifyAuth?: SpotifyAuth;
   /** Injected Discogs client (tests pass one backed by fake-discogs); prod builds from config. */
   discogs?: DiscogsClient;
+  /** Injected Discogs OAuth manager (tests pass one with an injected fetch); prod builds from config. */
+  discogsAuth?: DiscogsOAuth;
   /** Injected Gemini client (tests pass one backed by fake-gemini); prod builds from config. */
   gemini?: GeminiClient;
   /** Override the opt-in generation flags (tests); prod reads them from config.gemini. */
@@ -312,11 +315,31 @@ export function buildServer(opts: BuildOptions = {}) {
     (config.spotify
       ? new SpotifyClient({ ...config.spotify, getUserToken: userTokenOrNull })
       : undefined);
-  // Discogs (ADR 0016): a personal-access-token client. Absent → the collection/add routes 503.
+  // Discogs OAuth 1.0a "log in with Discogs" (issue #59): built whenever consumer creds are
+  // configured. The client prefers a connected OAuth session's signed header and falls back to the
+  // personal token (ADR 0016) — so both auth mechanisms coexist behind one DiscogsClient.
+  const discogsAuth =
+    opts.discogsAuth ??
+    (config.discogs?.consumerKey &&
+    config.discogs?.consumerSecret &&
+    config.discogs?.callbackUrl
+      ? new DiscogsOAuth({
+          consumerKey: config.discogs.consumerKey,
+          consumerSecret: config.discogs.consumerSecret,
+          callbackUrl: config.discogs.callbackUrl,
+          dataDir: config.dataDir,
+        })
+      : undefined);
+  // Absent both token and OAuth → the collection/add routes 503.
   const discogs =
     opts.discogs ??
-    (config.discogs
-      ? new DiscogsClient({ token: config.discogs.token })
+    (config.discogs && (config.discogs.token || discogsAuth)
+      ? new DiscogsClient({
+          ...(config.discogs.token ? { token: config.discogs.token } : {}),
+          ...(discogsAuth
+            ? { authHeader: () => discogsAuth.apiAuthHeader() }
+            : {}),
+        })
       : undefined);
   // Resolve the collection username once: the configured value wins; otherwise ask the token's
   // identity and cache it (a token maps to exactly one user, so this never changes at runtime).
@@ -907,6 +930,50 @@ export function buildServer(opts: BuildOptions = {}) {
     }
   });
 
+  // --- Tag write / verify (step 11, curator-spec §7) ---
+  // Record that a physical sticker was written. Writing the sleeve (scanned on the stand) advances
+  // awaiting_tag_write → awaiting_verify; the card is independent bookkeeping. Optional tagUid.
+  app.post("/api/albums/:curatorId/tag-written", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const { object, tagUid } = (req.body ?? {}) as {
+      object?: "sleeve" | "card";
+      tagUid?: string;
+    };
+    if (object !== "sleeve" && object !== "card")
+      return reply
+        .code(400)
+        .send({ error: 'object must be "sleeve" or "card"' });
+    try {
+      const asset = actions.markTagWritten(
+        actionDeps,
+        curatorId,
+        object,
+        tagUid,
+      );
+      return { state: asset.roadie.state, tag: asset.tag };
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
+  });
+
+  // Mark the album physically verified: awaiting_verify → verified, record physicallyVerifiedAt, then
+  // fire the ★verify Backdrop reconcile (roadie-spec §6 / ADR 0015) — the last human step of onboarding.
+  app.post("/api/albums/:curatorId/verify-physical", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    try {
+      const asset = actions.verifyPhysical(actionDeps, curatorId);
+      // ★verify-on-verified: confirm Backdrop carries this album; discrepancies surface as syncIssues
+      // (non-blocking — the album is verified regardless of Backdrop reachability).
+      const verify = await backdrop.verifyAlbum(asset).catch((err) => ({
+        ok: false,
+        discrepancies: [`Backdrop verify unreachable: ${(err as Error).message}`],
+      }));
+      return { state: asset.roadie.state, verify };
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
+  });
+
   // --- Demo / runtime preview: drive the real Hue lights via Conductor (runtime-overview §6) ---
   // Curator proxies Conductor so the browser never holds the shared secret and there's no CORS.
   // See ADR 0007. `fetch`/`Response` are Node 22 globals; type via the fetch signature to avoid
@@ -1153,27 +1220,102 @@ export function buildServer(opts: BuildOptions = {}) {
     return { ok: true, restartRequired: true };
   });
 
-  // --- Settings: Discogs personal access token (ADR 0016) ---
-  // Same trust model + settings.json store as Spotify. The token is write-only (never returned);
-  // `configured` + the (optional) username are the read-back so the UI can reflect them.
+  // --- Settings: Discogs personal access token (ADR 0016) + OAuth consumer creds (issue #59) ---
+  // Same trust model + settings.json store as Spotify. Secrets are write-only (never returned);
+  // `configured` (token), `oauthConfigured` (consumer creds present), and the (optional) username are
+  // the read-back so the UI can reflect them.
   app.get("/api/settings/discogs", async () => ({
     configured: Boolean(discogs),
+    oauthConfigured: Boolean(discogsAuth),
     username: config.discogs?.username ?? null,
   }));
 
   app.put("/api/settings/discogs", async (req, reply) => {
-    const { token, username } = (req.body ?? {}) as {
+    const { token, username, consumerKey, consumerSecret } = (req.body ??
+      {}) as {
       token?: string;
       username?: string;
+      consumerKey?: string;
+      consumerSecret?: string;
     };
-    if (!token?.trim())
-      return reply.code(400).send({ error: "token is required" });
+    // Accept a personal token, OAuth consumer creds, or both — but not an empty save.
+    const hasToken = Boolean(token?.trim());
+    const hasConsumer = Boolean(consumerKey?.trim() && consumerSecret?.trim());
+    if (!hasToken && !hasConsumer && username === undefined)
+      return reply
+        .code(400)
+        .send({ error: "provide a token and/or OAuth consumer key + secret" });
     writeDiscogsSettings(config.dataDir, {
-      token: token.trim(),
-      ...(username?.trim() ? { username: username.trim() } : {}),
+      ...(hasToken ? { token: token!.trim() } : {}),
+      ...(username !== undefined ? { username } : {}),
+      ...(hasConsumer
+        ? {
+            consumerKey: consumerKey!.trim(),
+            consumerSecret: consumerSecret!.trim(),
+          }
+        : {}),
     });
-    // The Discogs client + Roadie are built once at boot, so the new token takes effect on restart.
+    // The Discogs client + auth are built once at boot, so new creds take effect on restart.
     return { ok: true, restartRequired: true };
+  });
+
+  // --- Discogs OAuth 1.0a "log in with Discogs" (issue #59) — mirrors the Spotify auth routes ---
+  // Start a login: hand the SPA the authorize URL to open. Request token + secret are held server-side.
+  app.get("/api/discogs/auth/login", async (_req, reply) => {
+    if (!discogsAuth)
+      return reply
+        .code(503)
+        .send({ error: "Discogs OAuth not configured (set consumer key + secret)" });
+    try {
+      return { authorizeUrl: await discogsAuth.buildAuthorizeUrl() };
+    } catch (err) {
+      const msg =
+        err instanceof DiscogsOAuthError ? err.message : "unexpected error";
+      return reply.code(502).send({ error: msg });
+    }
+  });
+
+  // The redirect target. Hit directly in the browser (not the SPA), so it answers with HTML.
+  app.get("/api/discogs/auth/callback", async (req, reply) => {
+    const { oauth_token, oauth_verifier, denied } = req.query as {
+      oauth_token?: string;
+      oauth_verifier?: string;
+      denied?: string;
+    };
+    reply.type("text/html");
+    if (!discogsAuth)
+      return reply.code(503).send(callbackHtml("Discogs OAuth is not configured."));
+    if (denied)
+      return reply.send(callbackHtml("Discogs login was cancelled."));
+    if (!oauth_token || !oauth_verifier)
+      return reply
+        .code(400)
+        .send(callbackHtml("Missing OAuth token or verifier."));
+    try {
+      await discogsAuth.handleCallback(oauth_token, oauth_verifier);
+      return reply.send(
+        callbackHtml(
+          "Discogs connected. You can close this tab and return to Marquee.",
+          true,
+        ),
+      );
+    } catch (err) {
+      const msg =
+        err instanceof DiscogsOAuthError ? err.message : "unexpected error";
+      return reply.code(400).send(callbackHtml(`Login failed: ${msg}.`));
+    }
+  });
+
+  app.get(
+    "/api/discogs/auth/status",
+    async () => discogsAuth?.status() ?? { connected: false },
+  );
+
+  app.post("/api/discogs/auth/disconnect", async (_req, reply) => {
+    if (!discogsAuth)
+      return reply.code(503).send({ error: "Discogs OAuth not configured" });
+    discogsAuth.disconnect();
+    return { ok: true };
   });
 
   // --- Discogs collection (read-only browse; add happens through POST /api/albums) ---

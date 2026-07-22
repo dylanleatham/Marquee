@@ -714,6 +714,56 @@ export function rejectPreview(
   return asset;
 }
 
+// --- tag write / verify (step 11, curator-spec §7) ---------------------------------------------
+
+/**
+ * Record that a physical sticker was written for this album (curator-spec §7). Sleeve and card are
+ * tracked separately, since one may be written without the other. Writing the **sleeve** — the object
+ * scanned on the stand — advances `awaiting_tag_write → awaiting_verify`; the card is independent
+ * bookkeeping (it may be printed and tagged later) and never gates the transition. The physical act
+ * (actually writing the NTAG) is manual; this is the Curator-side record.
+ */
+export function markTagWritten(
+  deps: ActionDeps,
+  curatorId: string,
+  object: "sleeve" | "card",
+  tagUid?: string,
+): AlbumAsset {
+  const asset = load(deps.store, curatorId);
+  const now = clock(deps);
+  const tag = asset.tag ?? { payload: `curator:album:${curatorId}` };
+  tag[object] = {
+    written: true,
+    writtenAt: now(),
+    ...(tagUid ? { tagUid } : {}),
+  };
+  asset.tag = tag;
+  if (object === "sleeve" && asset.roadie.state === "awaiting_tag_write")
+    transitionTo(asset, "awaiting_verify", now); // recomputes status
+  deps.store.save(asset);
+  return asset;
+}
+
+/**
+ * Mark the album physically verified (step 11): record `verification.physicallyVerifiedAt` and
+ * transition `awaiting_verify → verified` (throws if not in `awaiting_verify`). The ★verify Backdrop
+ * reconcile (ADR 0015) is fired by the route after this, so it stays out of the store transaction.
+ */
+export function verifyPhysical(
+  deps: ActionDeps,
+  curatorId: string,
+): AlbumAsset {
+  const asset = load(deps.store, curatorId);
+  const now = clock(deps);
+  transitionTo(asset, "verified", now); // throws if not in awaiting_verify
+  asset.verification = {
+    ...asset.verification,
+    physicallyVerifiedAt: now(),
+  };
+  deps.store.save(asset);
+  return asset;
+}
+
 // --- helpers -----------------------------------------------------------------------------------
 
 /** Resolve a name to a path inside /incoming/, rejecting any traversal or nested path. */

@@ -172,6 +172,19 @@ export class BackdropSync {
     return { ok: discrepancies.length === 0, discrepancies };
   }
 
+  /**
+   * ★verify-on-`verified` (roadie-spec §6 / ADR 0015): confirm Backdrop actually carries this album
+   * the moment it's marked verified, and surface any discrepancy as the album's syncIssues so it
+   * shows in the UI — without blocking the verify action. The symmetric counterpart to `syncAlbum`.
+   */
+  async verifyAlbum(
+    asset: AlbumAsset,
+  ): Promise<{ ok: boolean; discrepancies: string[] }> {
+    const check = await this.verify([asset]);
+    this.recordSyncIssues(asset.curatorId, check.ok ? [] : check.discrepancies);
+    return check;
+  }
+
   private async transferMedia(
     asset: AlbumAsset,
     _filePath: string,
@@ -210,10 +223,13 @@ export const disabledBackdropSync = {
   async verify() {
     return { ok: true, discrepancies: [] as string[] };
   },
+  async verifyAlbum() {
+    return { ok: true, discrepancies: [] as string[] };
+  },
 };
 
 /** Either a live sync or the disabled no-op — the type the routes depend on. */
 export type BackdropSyncLike = Pick<
   BackdropSync,
-  "syncAlbum" | "removeAlbum" | "resyncAll" | "verify"
+  "syncAlbum" | "removeAlbum" | "resyncAll" | "verify" | "verifyAlbum"
 > & { enabled: boolean };
