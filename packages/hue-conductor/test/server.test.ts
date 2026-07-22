@@ -278,4 +278,148 @@ describe("hue-conductor HTTP API", () => {
       expect(res.json()).toMatchObject({ stopped: true, roomId: "1" });
     });
   });
+
+  describe("scan intake (issue #45)", () => {
+    const URI = "curator:album:2k7bxq9m";
+    const ALBUM = {
+      metadata: { name: "Purple Rain", artist: "Prince", year: 1984 },
+      palette: { colors: [{ hex: "#4B0082", role: "primary" }] },
+      pattern: { type: "static", params: {} },
+    };
+    // An in-memory asset reader seeded with whatever albums a test needs.
+    const reader = (albums: Record<string, unknown> = {}) => ({
+      read: (id: string) => (albums[id] ?? null) as never,
+    });
+    const build = (
+      store: Store,
+      driver: ReturnType<typeof livingRoom>,
+      albums?: Record<string, unknown>,
+    ) =>
+      buildServer({
+        config: { sharedSecret: SECRET },
+        store,
+        driver: driver.driver,
+        timers: new FakeTimers(),
+        assets: reader(albums),
+      });
+    const scanStart = { event: "start", uri: URI, tagUid: "04:A1", at: "t" };
+
+    it("start drives the listening room from the synced album", async () => {
+      const store = seededStore();
+      store.setListeningRoom("1");
+      const fake = livingRoom();
+      const { app } = build(store, fake, { "2k7bxq9m": ALBUM });
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/scan",
+        headers: AUTH,
+        payload: scanStart,
+      });
+      expect(res.statusCode).toBe(202);
+      expect(res.json()).toMatchObject({ action: "playing", roomId: "1" });
+      expect(fake.setCalls).toHaveLength(2); // both lights in Living
+    });
+
+    it("stop restores the room after a start", async () => {
+      const store = seededStore();
+      store.setListeningRoom("1");
+      const fake = livingRoom();
+      const { app } = build(store, fake, { "2k7bxq9m": ALBUM });
+      await app.inject({
+        method: "POST",
+        url: "/api/scan",
+        headers: AUTH,
+        payload: scanStart,
+      });
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/scan",
+        headers: AUTH,
+        payload: { event: "stop", at: "t" },
+      });
+      expect(res.statusCode).toBe(202);
+      expect(res.json()).toMatchObject({ action: "stopped", roomId: "1" });
+    });
+
+    it("degrades gracefully with no listening room configured", async () => {
+      const fake = livingRoom();
+      const { app } = build(seededStore(), fake, { "2k7bxq9m": ALBUM });
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/scan",
+        headers: AUTH,
+        payload: scanStart,
+      });
+      expect(res.statusCode).toBe(202);
+      expect(res.json()).toMatchObject({ action: "ignored" });
+      expect(fake.setCalls).toHaveLength(0); // lights untouched
+    });
+
+    it("degrades gracefully when the album isn't synced yet", async () => {
+      const store = seededStore();
+      store.setListeningRoom("1");
+      const fake = livingRoom();
+      const { app } = build(store, fake, {}); // nothing seeded
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/scan",
+        headers: AUTH,
+        payload: scanStart,
+      });
+      expect(res.statusCode).toBe(202);
+      expect(res.json()).toMatchObject({ action: "ignored", reason: "album not synced" });
+      expect(fake.setCalls).toHaveLength(0);
+    });
+
+    it("degrades gracefully when the album has no palette yet", async () => {
+      const store = seededStore();
+      store.setListeningRoom("1");
+      const fake = livingRoom();
+      const { app } = build(store, fake, {
+        "2k7bxq9m": { metadata: { name: "X", artist: "Y" } }, // no palette/pattern
+      });
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/scan",
+        headers: AUTH,
+        payload: scanStart,
+      });
+      expect(res.statusCode).toBe(202);
+      expect(res.json()).toMatchObject({ action: "ignored", reason: "album not ready" });
+    });
+
+    it("400s a non-curator album URI", async () => {
+      const store = seededStore();
+      store.setListeningRoom("1");
+      const { app } = build(store, livingRoom(), {});
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/scan",
+        headers: AUTH,
+        payload: { event: "start", uri: "spotify:album:abc", tagUid: "x", at: "t" },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it("400s a malformed scan body", async () => {
+      const { app } = build(seededStore(), livingRoom(), {});
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/scan",
+        headers: AUTH,
+        payload: { nonsense: true },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it("requires the shared secret", async () => {
+      const { app } = build(seededStore(), livingRoom(), {});
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/scan",
+        payload: scanStart,
+      });
+      expect(res.statusCode).toBe(401);
+    });
+  });
 });

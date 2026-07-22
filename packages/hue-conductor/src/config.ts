@@ -10,6 +10,12 @@ export interface Config {
   host: string;
   sharedSecret: string | null;
   dataDir: string;
+  /**
+   * Where Conductor reads the synced album-assets store at scan time (issue #45 / ADR 0019). Curator
+   * rsyncs `{curatorDataDir}/album-assets/` here; defaults to `{dataDir}/album-assets` and is
+   * overridable so the sync target can differ from Conductor's own data dir.
+   */
+  albumAssetsDir: string;
   idleTimeoutMinutes: number;
 }
 
@@ -40,6 +46,14 @@ export function loadConfig(override: Partial<Config> = {}): Config {
       process.env.TRIGGER_SHARED_SECRET ??
       null,
     dataDir: resolve(pkgDir, String(storage.data_dir ?? "data")),
+    albumAssetsDir: resolve(
+      pkgDir,
+      String(
+        storage.album_assets_dir ??
+          process.env.ALBUM_ASSETS_DIR ??
+          join(String(storage.data_dir ?? "data"), "album-assets"),
+      ),
+    ),
     idleTimeoutMinutes: Number(runtime.idle_timeout_minutes ?? 90),
   };
   // `override` (used by tests) wins over file/env/defaults.

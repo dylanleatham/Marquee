@@ -127,6 +127,8 @@ The `uri` is Curator's internal identifier scheme (`curator:album:<curatorId>`),
 
 Fired to both Conductor (`/api/scan`) and Backdrop (`/api/scan`) in parallel. Both services independently look up what they need (Conductor reads the album-assets store; Backdrop reads its library.json).
 
+> **Both halves built (2026-07-22):** Backdrop's `/api/scan` (build step 8) and now Conductor's ([issue #45](https://github.com/dylanleatham/Marquee/issues/45) / [ADR 0019](../adrs/0019-conductor-scan-reads-asset-store.md)) both exist, so a raw scan drives lights *and* video — the full "place sleeve → room becomes the record" loop (§10 step 11). Conductor reads its synced copy of the album-assets store at scan time via the shared `buildPalettePayload` in `@marquee/contracts`.
+
 **Fan-out over centralization**: there is no central "playback state" service. Conductor and Backdrop each own their own state, driven by the same events. This is a deliberate choice — simpler failure modes, no orchestrator to become a single point of failure, and each service is testable in isolation.
 
 ## 6. The full loop (narrative)
