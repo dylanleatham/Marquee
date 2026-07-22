@@ -15,6 +15,7 @@ import {
   type ServiceSpec,
   type FfmpegPaths,
 } from "./services";
+import { registerRendererDiagnostics } from "./crash-log";
 
 const children: ChildProcess[] = [];
 let mainWindow: BrowserWindow | null = null;
@@ -134,6 +135,9 @@ function createWindow(): void {
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
+  // The shell surfaces service failures but was blind to renderer crashes — a React exception or a
+  // failed load blanked the window with nothing logged (issue #63). Log those to the same stream.
+  registerRendererDiagnostics(mainWindow.webContents);
   // External links (Spotify, GitHub) open in the system browser, not inside the app shell.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
