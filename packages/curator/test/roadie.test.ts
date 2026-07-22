@@ -1,11 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AssetStore } from "../src/store/asset-store.js";
 import { Roadie } from "../src/roadie/worker.js";
 import { buildFreshAsset, type AlbumMetadata } from "../src/albums/asset.js";
 import { SpotifyError, type SpotifyClient } from "../src/spotify/client.js";
+import type { DiscogsClient } from "../src/discogs/client.js";
 import { GeminiClient } from "../src/gemini/client.js";
 import { createFakeGemini } from "@marquee/fake-gemini";
 import { fakeGenerate, fakePayload } from "./helpers.js";
@@ -28,6 +29,39 @@ const fakeSpotify = (over: Partial<SpotifyClient> = {}): SpotifyClient =>
     downloadArt: async () => Buffer.from("art-bytes"),
     ...over,
   }) as unknown as SpotifyClient;
+
+/** A minimal Discogs stand-in — steps only call getRelease + downloadArt + (via resolve) nothing. */
+const fakeDiscogs = (over: Partial<DiscogsClient> = {}): DiscogsClient =>
+  ({
+    getRelease: async (id: number) => ({
+      releaseId: id,
+      discogsUri: `discogs:release:${id}`,
+      title: "In Rainbows",
+      artist: "Radiohead",
+      year: 2007,
+      genres: ["rock"],
+      artUrl: "https://img.discogs.test/x.jpg",
+    }),
+    downloadArt: async () => Buffer.from("discogs-art"),
+    ...over,
+  }) as unknown as DiscogsClient;
+
+/** Seed a fresh Discogs album (no art yet) that the worker drives from `fetching_metadata`. */
+function seedDiscogs(s: AssetStore, id = "dsc11111") {
+  const asset = buildFreshAsset({
+    curatorId: id,
+    metadata: {
+      name: "",
+      artist: "",
+      source: "discogs",
+      discogsReleaseId: 12345,
+      discogsUri: "discogs:release:12345",
+    },
+    now: () => "2026-07-11T00:00:00.000Z",
+  });
+  s.save(asset);
+  return id;
+}
 
 /** Seed a manual album already saved on disk with its cover, in `generating_palette`. */
 function seedManual(s: AssetStore, id = "aaaa1111") {
@@ -168,6 +202,100 @@ describe("Roadie state machine", () => {
     expect(asset.roadie.state).toBe("awaiting_review");
     expect(asset.roadie.flags.palette_insufficient).toBe(true);
     expect(asset.promptDrafts).toBeUndefined();
+  });
+});
+
+describe("Discogs → Spotify art resolution (issue #58)", () => {
+  const spotifyWithMatch = () =>
+    fakeSpotify({
+      searchAlbums: async () => [
+        {
+          spotifyId: "sp1",
+          spotifyUri: "spotify:album:sp1",
+          name: "In Rainbows",
+          artist: "Radiohead",
+          year: 2007,
+          artUrl: "https://i.scdn.test/rainbows",
+        },
+      ],
+      downloadArt: async () => Buffer.from("spotify-art"),
+    });
+
+  const artBytes = (s: AssetStore, id: string) =>
+    readFileSync(s.paths.artworkFile(id)).toString();
+
+  it("uses Spotify art on a confident match", async () => {
+    const s = store();
+    const id = seedDiscogs(s);
+    const roadie = roadieFor(s, {
+      discogs: fakeDiscogs(),
+      spotify: spotifyWithMatch(),
+    });
+    roadie.enqueue(id);
+    await roadie.drain();
+
+    const done = s.read(id)!;
+    expect(done.roadie.state).toBe("awaiting_review");
+    expect(done.metadata.spotifyArtUrl).toBe("https://i.scdn.test/rainbows");
+    expect(done.artwork!.source).toBe("spotify");
+    expect(artBytes(s, id)).toBe("spotify-art");
+  });
+
+  it("falls back to the Discogs image when Spotify has no confident match", async () => {
+    const s = store();
+    const id = seedDiscogs(s);
+    const roadie = roadieFor(s, {
+      discogs: fakeDiscogs(),
+      spotify: fakeSpotify({
+        searchAlbums: async () => [
+          {
+            spotifyId: "wrong",
+            spotifyUri: "spotify:album:wrong",
+            name: "OK Computer", // different album
+            artist: "Radiohead",
+            artUrl: "https://i.scdn.test/okc",
+          },
+        ],
+      }),
+    });
+    roadie.enqueue(id);
+    await roadie.drain();
+
+    const done = s.read(id)!;
+    expect(done.metadata.spotifyArtUrl).toBeUndefined();
+    expect(done.artwork!.source).toBe("discogs");
+    expect(artBytes(s, id)).toBe("discogs-art");
+  });
+
+  it("uses the Discogs image when Spotify isn't configured", async () => {
+    const s = store();
+    const id = seedDiscogs(s);
+    const roadie = roadieFor(s, { discogs: fakeDiscogs() }); // no spotify
+    roadie.enqueue(id);
+    await roadie.drain();
+
+    const done = s.read(id)!;
+    expect(done.artwork!.source).toBe("discogs");
+    expect(artBytes(s, id)).toBe("discogs-art");
+  });
+
+  it("never fails the add when the Spotify search errors — keeps the Discogs image", async () => {
+    const s = store();
+    const id = seedDiscogs(s);
+    const roadie = roadieFor(s, {
+      discogs: fakeDiscogs(),
+      spotify: fakeSpotify({
+        searchAlbums: async () => {
+          throw new Error("spotify 500");
+        },
+      }),
+    });
+    roadie.enqueue(id);
+    await roadie.drain();
+
+    const done = s.read(id)!;
+    expect(done.roadie.state).toBe("awaiting_review");
+    expect(done.artwork!.source).toBe("discogs");
   });
 });
 

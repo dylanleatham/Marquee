@@ -139,6 +139,12 @@ export function AlbumDetail() {
         <div className="detail__meta">
           {m.year && <span>{m.year}</span>}
           <span className="tag">{m.source}</span>
+          {/* For a Discogs album the cover may be resolved from Spotify (issue #58) — show which. */}
+          {m.source === "discogs" && asset.artwork?.source && (
+            <span className="tag" title="Cover art source">
+              cover: {asset.artwork.source}
+            </span>
+          )}
           {m.genres?.length ? <span>{m.genres.join(", ")}</span> : null}
         </div>
         <div className="detail__state">
