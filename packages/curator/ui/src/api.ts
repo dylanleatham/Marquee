@@ -380,10 +380,16 @@ export const api = {
     req<GenerationJob>(`/api/albums/${id}/video/generate`, { method: "POST" }),
   // Splice the generated clips into one loop and attach it (issue #29). `order` = clip indices to
   // join, in order (default: all).
-  spliceVisualizer: (id: string, order?: number[]) =>
+  spliceVisualizer: (id: string, order?: number[], crossfadeSec?: number) =>
     req<{ state: RoadieState; visualizer: Visualizer }>(
       `/api/albums/${id}/video/splice`,
-      { method: "POST", body: JSON.stringify(order ? { order } : {}) },
+      {
+        method: "POST",
+        body: JSON.stringify({
+          ...(order ? { order } : {}),
+          ...(crossfadeSec ? { crossfadeSec } : {}),
+        }),
+      },
     ),
   uploadCardArt: (id: string, form: FormData) => {
     form.set("curatorId", id);

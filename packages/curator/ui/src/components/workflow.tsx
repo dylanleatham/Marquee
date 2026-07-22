@@ -163,6 +163,9 @@ function SpliceControls({
 }) {
   const allIndices = clips.map((c) => c.index);
   const [order, setOrder] = useState<number[]>(allIndices);
+  // Opt-in seam crossfade (issue #56): plain concat is the default; 0.5s blends the hard cuts.
+  const [crossfade, setCrossfade] = useState(false);
+  const CROSSFADE_SEC = 0.5;
   // Reset the selection when the clip set changes (e.g. clips regenerated).
   const clipKey = allIndices.join(",");
   useEffect(() => {
@@ -232,10 +235,26 @@ function SpliceControls({
           ))}
         </div>
       )}
+      <label className="splice__opt">
+        <input
+          type="checkbox"
+          checked={crossfade}
+          onChange={(e) => setCrossfade(e.target.checked)}
+        />
+        Crossfade the seams ({CROSSFADE_SEC}s) — smoother, but trims a little from each clip
+      </label>
       <button
         className="btn btn--primary btn--sm"
         disabled={order.length === 0}
-        onClick={() => run(() => api.spliceVisualizer(curatorId, order))}
+        onClick={() =>
+          run(() =>
+            api.spliceVisualizer(
+              curatorId,
+              order,
+              crossfade ? CROSSFADE_SEC : undefined,
+            ),
+          )
+        }
         title="Concatenate the selected clips (in this order) into one looping MP4 and attach it"
       >
         Splice {order.length} clip{order.length === 1 ? "" : "s"} into loop

@@ -670,6 +670,14 @@ em {
   align-items: center;
   gap: 6px;
 }
+.splice__opt {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}
 
 /* --- tag write / verify (step 11) --- */
 .tagwrite {
