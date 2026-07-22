@@ -1,5 +1,31 @@
 import { describe, it, expect } from "vitest";
-import { GenerationJobs } from "../src/jobs/manager.js";
+import {
+  GenerationJobs,
+  type GenerationJob,
+  type JobStore,
+} from "../src/jobs/manager.js";
+
+/** An in-memory JobStore so persistence is testable without touching the filesystem. */
+function memStore(): JobStore & { data: GenerationJob[] } {
+  const s = {
+    data: [] as GenerationJob[],
+    load: () => s.data,
+    save: (jobs: GenerationJob[]) => {
+      s.data = jobs;
+    },
+  };
+  return s;
+}
+
+/** A runner that never settles on its own — only a cancel (abort) ends it. */
+const neverSettles =
+  () =>
+  ({ signal }: { signal: AbortSignal }): Promise<never> =>
+    new Promise((_resolve, reject) => {
+      signal.addEventListener("abort", () =>
+        reject(new DOMException("aborted", "AbortError")),
+      );
+    });
 
 /** A runner whose completion the test controls, so job transitions are deterministic. */
 function deferred<T>() {
@@ -108,5 +134,88 @@ describe("GenerationJobs", () => {
     const job = jobs.start("video", "abcd1234", async () => deferred().promise);
     job.progress.done = 99;
     expect(jobs.get(job.id)!.progress.done).toBe(0);
+  });
+
+  // --- cancel (issue #57) ---
+
+  it("cancels a running job and aborts the signal handed to its runner", async () => {
+    const jobs = new GenerationJobs();
+    let signal!: AbortSignal;
+    const job = jobs.start("video", "abcd1234", async (ctx) => {
+      signal = ctx.signal;
+      return neverSettles()(ctx);
+    });
+    expect(jobs.get(job.id)!.status).toBe("running");
+    expect(signal.aborted).toBe(false);
+
+    const cancelled = jobs.cancel(job.id)!;
+    expect(cancelled.status).toBe("cancelled");
+    expect(signal.aborted).toBe(true);
+    await tick();
+    // The abort-induced rejection is classified as cancelled, not failed.
+    expect(jobs.get(job.id)!.status).toBe("cancelled");
+  });
+
+  it("is idempotent: cancelling a terminal or unknown job is a no-op", async () => {
+    const jobs = new GenerationJobs();
+    const d = deferred<{ videoClips: [] }>();
+    const job = jobs.start("video", "abcd1234", async () => d.promise);
+    d.resolve({ videoClips: [] });
+    await tick();
+    expect(jobs.get(job.id)!.status).toBe("done");
+    expect(jobs.cancel(job.id)!.status).toBe("done"); // unchanged
+    expect(jobs.cancel("no-such-id")).toBeUndefined();
+  });
+
+  it("drops the result of a runner that resolves after it was cancelled", async () => {
+    const jobs = new GenerationJobs();
+    const d = deferred<{ videoClips: [] }>();
+    const job = jobs.start("video", "abcd1234", async () => d.promise);
+    jobs.cancel(job.id);
+    d.resolve({ videoClips: [] }); // the abort raced the resolve
+    await tick();
+    const j = jobs.get(job.id)!;
+    expect(j.status).toBe("cancelled");
+    expect(j.result).toBeUndefined();
+  });
+
+  // --- persistence (issue #57) ---
+
+  it("persists jobs and restores them into a fresh manager", async () => {
+    const store = memStore();
+    const jobs = new GenerationJobs({ store });
+    const d = deferred<{ cardArtCandidates: [] }>();
+    const job = jobs.start("cardArt", "abcd1234", async () => d.promise);
+    d.resolve({ cardArtCandidates: [] });
+    await tick();
+
+    const restored = new GenerationJobs({ store });
+    const j = restored.get(job.id)!;
+    expect(j.status).toBe("done");
+    expect(j.result).toEqual({ cardArtCandidates: [] });
+  });
+
+  it("restores a job left running at shutdown as a failed 'interrupted' job", async () => {
+    const store = memStore();
+    const jobs = new GenerationJobs({ store });
+    const job = jobs.start("video", "abcd1234", neverSettles());
+    expect(jobs.get(job.id)!.status).toBe("running"); // persisted as running
+
+    // Simulate a restart: a new manager loads the same store. The runner is gone, so the job can't
+    // be running any more — it's normalized to failed.
+    const restored = new GenerationJobs({ store });
+    const j = restored.get(job.id)!;
+    expect(j.status).toBe("failed");
+    expect(j.error).toMatch(/interrupted/i);
+  });
+
+  it("survives a corrupt/unreadable job log by starting empty", () => {
+    const throwing: JobStore = {
+      load: () => {
+        throw new Error("corrupt json");
+      },
+      save: () => {},
+    };
+    expect(() => new GenerationJobs({ store: throwing })).not.toThrow();
   });
 });

@@ -137,7 +137,7 @@ export interface CardArtCandidate {
 export type PromptType = "video" | "cardArt";
 
 export type JobKind = "video" | "cardArt";
-export type JobStatus = "running" | "done" | "failed";
+export type JobStatus = "running" | "done" | "failed" | "cancelled";
 
 /** A background generation job (issue #30 / ADR 0018). Mirrors GenerationJob on the server. */
 export interface GenerationJob {
@@ -403,6 +403,9 @@ export const api = {
       method: "POST",
     }),
   job: (jobId: string) => req<GenerationJob>(`/api/jobs/${jobId}`),
+  // Cancel an in-flight generation job (issue #57).
+  cancelJob: (jobId: string) =>
+    req<GenerationJob>(`/api/jobs/${jobId}/cancel`, { method: "POST" }),
   albumJobs: (id: string, kind?: JobKind) =>
     req<{ jobs: GenerationJob[] }>(
       `/api/albums/${id}/jobs${kind ? `?kind=${kind}` : ""}`,

@@ -214,4 +214,40 @@ describe("GeminiClient", () => {
       status: 504,
     });
   });
+
+  // Issue #57: a cancelled generation job aborts the external signal, which must stop the in-flight
+  // Gemini fetch — and surface as a distinct 499 (cancelled), not a 504 (timeout).
+  it("aborts an in-flight request when the external signal fires (499)", async () => {
+    const hanging: FetchLike = (_input, init) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () =>
+          reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
+        );
+      });
+    const c = new GeminiClient({ apiKey: "k", fetch: hanging });
+    const ctrl = new AbortController();
+    const p = c.generateImage("a purple sky", undefined, ctrl.signal);
+    ctrl.abort();
+    await expect(p).rejects.toMatchObject({
+      name: "GeminiError",
+      status: 499,
+    });
+  });
+
+  it("fails fast when handed an already-aborted signal", async () => {
+    // A spec-compliant fetch rejects immediately when its signal is already aborted.
+    const hanging: FetchLike = (_input, init) =>
+      new Promise((_resolve, reject) => {
+        const abort = () =>
+          reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+        if (init?.signal?.aborted) return abort();
+        init?.signal?.addEventListener("abort", abort);
+      });
+    const c = new GeminiClient({ apiKey: "k", fetch: hanging });
+    const ctrl = new AbortController();
+    ctrl.abort();
+    await expect(
+      c.generateImage("x", undefined, ctrl.signal),
+    ).rejects.toMatchObject({ name: "GeminiError", status: 499 });
+  });
 });

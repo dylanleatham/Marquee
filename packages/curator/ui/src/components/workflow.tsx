@@ -325,6 +325,15 @@ export function VideoSection({
               clips.length > 0,
             )}
           </button>
+          {generating && (
+            <button
+              className="btn btn--sm btn--danger"
+              onClick={gen.cancel}
+              title="Stop the in-flight generation"
+            >
+              Cancel
+            </button>
+          )}
           {clips.length > 0 && !generating && (
             <span className="muted">
               Splice them into one loop below, or download a clip to edit
@@ -491,6 +500,15 @@ export function CardArtSection({
               candidates.length > 0,
             )}
           </button>
+          {generating && (
+            <button
+              className="btn btn--sm btn--danger"
+              onClick={gen.cancel}
+              title="Stop the in-flight generation"
+            >
+              Cancel
+            </button>
+          )}
           {candidates.length > 0 && !generating && (
             <span className="muted">
               Click an option to use it as the card.

@@ -44,7 +44,7 @@ import {
 } from "./albums/asset.js";
 import * as actions from "./albums/actions.js";
 import { NotFoundError, type ActionDeps } from "./albums/actions.js";
-import { GenerationJobs } from "./jobs/manager.js";
+import { GenerationJobs, FileJobStore } from "./jobs/manager.js";
 import { flipperNfcFile } from "./tags/flipper-nfc.js";
 import {
   ffmpegProber,
@@ -377,8 +377,14 @@ export function buildServer(opts: BuildOptions = {}) {
     generateVideo: genVideo,
   };
   // Background jobs for the long-running AI generation actions (issue #30 / ADR 0018): the generate
-  // routes enqueue here and return a jobId instead of holding the request open for minutes.
-  const jobs = opts.jobs ?? new GenerationJobs();
+  // routes enqueue here and return a jobId instead of holding the request open for minutes. Persisted
+  // to a small on-disk log (issue #57) so recent jobs survive a restart — a job left running when the
+  // process died is restored as failed (its runner is gone), not a zombie.
+  const jobs =
+    opts.jobs ??
+    new GenerationJobs({
+      store: new FileJobStore(join(config.dataDir, "generation-jobs.json")),
+    });
   // Backdrop sync (step 9). Off unless a Backdrop URL is configured — then video attach/detach and
   // the manual resync/verify routes push Curator's library projection to Backdrop (roadie-spec §6).
   const backdrop: BackdropSyncLike =
@@ -789,9 +795,10 @@ export function buildServer(opts: BuildOptions = {}) {
     } catch (err) {
       return actionError(err, reply, req);
     }
-    const job = jobs.start("video", curatorId, async ({ onProgress }) => {
+    const job = jobs.start("video", curatorId, async ({ onProgress, signal }) => {
       const asset = await actions.generateVideoSet(actionDeps, curatorId, {
         onProgress,
+        signal,
       });
       return { videoClips: asset.videoClips };
     });
@@ -864,12 +871,17 @@ export function buildServer(opts: BuildOptions = {}) {
     } catch (err) {
       return actionError(err, reply, req);
     }
-    const job = jobs.start("cardArt", curatorId, async ({ onProgress }) => {
-      const asset = await actions.generateCardArtSet(actionDeps, curatorId, {
-        onProgress,
-      });
-      return { cardArtCandidates: asset.cardArtCandidates };
-    });
+    const job = jobs.start(
+      "cardArt",
+      curatorId,
+      async ({ onProgress, signal }) => {
+        const asset = await actions.generateCardArtSet(actionDeps, curatorId, {
+          onProgress,
+          signal,
+        });
+        return { cardArtCandidates: asset.cardArtCandidates };
+      },
+    );
     return reply.code(202).send(job);
   });
 
@@ -877,6 +889,14 @@ export function buildServer(opts: BuildOptions = {}) {
   app.get("/api/jobs/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
     const job = jobs.get(id);
+    return job ?? reply.code(404).send({ error: "job not found" });
+  });
+
+  // Cancel an in-flight generation job (issue #57): abort the runner (stopping the Gemini fetch) and
+  // mark it cancelled. Idempotent — cancelling a terminal job returns it unchanged; unknown → 404.
+  app.post("/api/jobs/:id/cancel", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const job = jobs.cancel(id);
     return job ?? reply.code(404).send({ error: "job not found" });
   });
 
