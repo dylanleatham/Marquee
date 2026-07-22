@@ -288,7 +288,7 @@ describe("hue-conductor HTTP API", () => {
     };
     // An in-memory asset reader seeded with whatever albums a test needs.
     const reader = (albums: Record<string, unknown> = {}) => ({
-      read: (id: string) => (albums[id] ?? null) as never,
+      read: async (id: string) => (albums[id] ?? null) as never,
     });
     const build = (
       store: Store,
@@ -392,6 +392,19 @@ describe("hue-conductor HTTP API", () => {
       const store = seededStore();
       store.setListeningRoom("1");
       const { app } = build(store, livingRoom(), {});
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/scan",
+        headers: AUTH,
+        payload: { event: "start", uri: "spotify:album:abc", tagUid: "x", at: "t" },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it("400s a bad album URI even when no listening room is configured", async () => {
+      // URI validation runs before the no-room graceful path (ADR 0019): a malformed URI is always
+      // a 400, never silently degraded.
+      const { app } = build(seededStore(), livingRoom(), {}); // no listening room set
       const res = await app.inject({
         method: "POST",
         url: "/api/scan",

@@ -185,20 +185,22 @@ export function buildServer(opts: BuildOptions = {}) {
       return reply.code(202).send({ ok: true, action: "stopped", roomId });
     }
 
-    // start
-    if (!roomId) {
-      req.log.warn(`scan ${scan.uri}: no listening room configured — staying put`);
-      return reply
-        .code(202)
-        .send({ ok: true, action: "ignored", reason: "no listening room" });
-    }
+    // start — validate the URI first, so a malformed one is always a 400 (not silently degraded
+    // when no room is configured), matching ADR 0019 / the spec note.
     const curatorId = curatorIdFromUri(scan.uri);
     if (!curatorId)
       return reply
         .code(400)
         .send({ error: `not a curator album URI: ${scan.uri}` });
 
-    const asset = assets.read(curatorId);
+    if (!roomId) {
+      req.log.warn(`scan ${scan.uri}: no listening room configured — staying put`);
+      return reply
+        .code(202)
+        .send({ ok: true, action: "ignored", reason: "no listening room" });
+    }
+
+    const asset = await assets.read(curatorId);
     if (!asset) {
       req.log.warn(`scan ${scan.uri}: album not in synced store — staying put`);
       return reply

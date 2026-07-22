@@ -61,4 +61,17 @@ describe("loadConfig", () => {
       "override",
     );
   });
+
+  it("defaults albumAssetsDir under the data dir, and honors env / file overrides (issue #45)", () => {
+    noFile();
+    delete process.env.ALBUM_ASSETS_DIR;
+    // Default: sits beside the (default) data dir.
+    expect(loadConfig().albumAssetsDir).toMatch(/[\\/]data[\\/]album-assets$/);
+    // Env override (absolute path wins).
+    process.env.ALBUM_ASSETS_DIR = "/srv/marquee/album-assets";
+    expect(loadConfig().albumAssetsDir).toBe("/srv/marquee/album-assets");
+    // File override beats env.
+    withFile('[storage]\nalbum_assets_dir = "/from/toml/album-assets"\n');
+    expect(loadConfig().albumAssetsDir).toBe("/from/toml/album-assets");
+  });
 });

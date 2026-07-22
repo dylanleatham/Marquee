@@ -2,13 +2,13 @@
 // Conductor reads Curator's store (runtime-overview §5: "Conductor reads the album-assets store");
 // until now it only accepted pre-built payloads on /api/playback. Injectable so tests seed albums
 // without touching disk.
-import { readFileSync, existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AlbumPaletteInput } from "@marquee/contracts";
 
 /** Reads one album's palette-relevant fields by curatorId, or null if absent/unreadable. */
 export interface AlbumAssetReader {
-  read(curatorId: string): AlbumPaletteInput | null;
+  read(curatorId: string): Promise<AlbumPaletteInput | null>;
 }
 
 const CURATOR_URI = /^curator:album:([a-z0-9]{8})$/;
@@ -19,21 +19,22 @@ export function curatorIdFromUri(uri: string): string | null {
 }
 
 /**
- * Filesystem reader over the synced store at `{albumAssetsDir}/{curatorId}.json`. A missing or
+ * Filesystem reader over the synced store at `{albumAssetsDir}/{curatorId}.json`. Async so the disk
+ * read doesn't block Fastify's event loop on the always-on service (review: runtime). A missing or
  * unparseable file returns null rather than throwing — a scan for an album Conductor hasn't synced
  * yet must degrade gracefully (stay put), not error (runtime-overview §9).
  */
 export class FsAlbumAssetReader implements AlbumAssetReader {
   constructor(private readonly dir: string) {}
 
-  read(curatorId: string): AlbumPaletteInput | null {
+  async read(curatorId: string): Promise<AlbumPaletteInput | null> {
     // curatorId reaches here from a scan URI — validate its shape before building a path from it.
     if (!/^[a-z0-9]{8}$/.test(curatorId)) return null;
-    const file = join(this.dir, `${curatorId}.json`);
-    if (!existsSync(file)) return null;
     try {
-      return JSON.parse(readFileSync(file, "utf8")) as AlbumPaletteInput;
+      const raw = await readFile(join(this.dir, `${curatorId}.json`), "utf8");
+      return JSON.parse(raw) as AlbumPaletteInput;
     } catch {
+      // ENOENT (not synced) or bad JSON — both degrade to "stay put".
       return null;
     }
   }

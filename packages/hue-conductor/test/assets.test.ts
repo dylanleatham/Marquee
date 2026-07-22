@@ -30,27 +30,27 @@ describe("curatorIdFromUri", () => {
 });
 
 describe("FsAlbumAssetReader", () => {
-  it("reads a synced album by curatorId", () => {
+  it("reads a synced album by curatorId", async () => {
     const reader = new FsAlbumAssetReader(seededDir());
-    expect(reader.read(ID)).toMatchObject({
+    expect(await reader.read(ID)).toMatchObject({
       metadata: { name: "Purple Rain", artist: "Prince" },
       pattern: { type: "static" },
     });
   });
 
-  it("returns null for an album that isn't synced", () => {
-    expect(new FsAlbumAssetReader(seededDir()).read("aaaa1111")).toBeNull();
+  it("returns null for an album that isn't synced", async () => {
+    expect(await new FsAlbumAssetReader(seededDir()).read("aaaa1111")).toBeNull();
   });
 
-  it("returns null (not throw) on a corrupt file", () => {
+  it("returns null (not throw) on a corrupt file", async () => {
     const dir = mkdtempSync(join(tmpdir(), "conductor-assets-bad-"));
     writeFileSync(join(dir, `${ID}.json`), "{ not json");
-    expect(new FsAlbumAssetReader(dir).read(ID)).toBeNull();
+    expect(await new FsAlbumAssetReader(dir).read(ID)).toBeNull();
   });
 
-  it("rejects an id that isn't the curatorId shape (path-traversal guard)", () => {
+  it("rejects an id that isn't the curatorId shape (path-traversal guard)", async () => {
     const reader = new FsAlbumAssetReader(seededDir());
-    expect(reader.read("../conductor")).toBeNull();
-    expect(reader.read("2k7bxq9m/../x")).toBeNull();
+    expect(await reader.read("../conductor")).toBeNull();
+    expect(await reader.read("2k7bxq9m/../x")).toBeNull();
   });
 });
