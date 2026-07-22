@@ -7,6 +7,10 @@ Two parts:
 - **[Part B — Operate the live system](#part-b--operate-the-live-system)** — the day-to-day reference
   once it's running.
 
+> **Doing the bring-up right now?** Work from **[`bring-up-checklist.md`](bring-up-checklist.md)** — the
+> gated tick-list version of Part A, with the moving values (secret, hostnames, test album id) captured
+> once at the top. This page is the reference it points back to for detail.
+
 **Topology** (runtime-overview §7): **Curator** on your workstation; **Conductor + Backdrop** on the
 **Pi 5** by the TV; **Stylus** on the **Pi Zero 2 W** in the stand. Hue bridge, both Pis, and the
 workstation must share one **LAN**.
@@ -191,7 +195,7 @@ page. **Power off the Pi before wiring.**
    / `pyproject.toml`. These are imported lazily, only on the Pi (ADR 0016).
 2. **Config** (`packages/stylus/config.example.toml` → your `config.toml`): Conductor + Backdrop URLs and
    the shared secret; keep `[led].gpio_pin = 17` unless you wired the LED elsewhere.
-3. Run the real reader: `python -m stylus` (the default builds `create_pn532_reader`; `--simulated` uses
+3. Run the real reader: `python -m stylus` (the default builds `create_pn532_reader`; `--simulate` uses
    the fake). Then a `marquee-stylus` **systemd** unit with `Wants=network-online.target` +
    restart-on-hang (stylus-spec §12).
    - **Check:** logs show it polling; hold a written NTAG213 near the antenna → it reads the UID + URI and
@@ -200,12 +204,16 @@ page. **Power off the Pi before wiring.**
 #### A6.3 Simulate a read without a tag
 
 Stylus's status server (port 4741) can inject a fake read that fans out exactly like a real one — handy
-before the antenna/mount is tuned:
+before the antenna/mount is tuned. **`/simulate` only works with the simulated reader** (it returns
+`409` under the real PN532), so run Stylus with `--simulate` for this check:
 ```sh
+python -m stylus --simulate    # /simulate is disabled under the real reader
 curl -XPOST http://marquee-pizero:4741/simulate -d '{"uid":"04:A1:B2","uri":"curator:album:<id>"}'
 curl -XPOST http://marquee-pizero:4741/simulate -d '{"clear":true}'   # = sleeve lifted
 ```
-- **Check:** the simulate fires the same start/stop the A5 curl did — now driven through Stylus end-to-end.
+- **Check:** the simulate fires the same start/stop the A5 curl did — now driven through Stylus's publish
+  path. This proves Stylus's Conductor/Backdrop URLs + secret; the antenna/PN532 itself is exercised in
+  A7 with a written tag. Restart with `python -m stylus` (real reader) afterward.
 
 ### A7. Tag the sleeve + the real scan
 
