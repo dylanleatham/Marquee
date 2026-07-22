@@ -39,6 +39,19 @@ This is a **separate** auth mechanism from the Spotify user-OAuth in ADR 0014 �
 shared. If a multi-user or "log in" experience is ever wanted, OAuth 1.0a is a later enhancement that
 can sit behind the same `DiscogsClient`.
 
+> **Update (2026-07-22, issue #59) — OAuth 1.0a landed alongside the personal token.** The full
+> 3-legged "log in with Discogs" flow now ships as an **alternative**, not a replacement: register a
+> Discogs app, configure its consumer key/secret (env `DISCOGS_CONSUMER_KEY`/`_SECRET`, TOML, or the
+> Settings form), and click **Connect Discogs**. Implementation: `discogs/oauth.ts` (`DiscogsOAuth` —
+> request token → authorize → access token, mirroring `SpotifyAuth`), `discogs/oauth-sign.ts`
+> (**PLAINTEXT** signing over HTTPS — `enc(consumerSecret)&enc(tokenSecret)`, no HMAC base string),
+> and `discogs/oauth-token-store.ts` (the access token/secret persisted in `discogs-tokens.json`,
+> parallel to `spotify-tokens.json`). `DiscogsClient` gained an injectable `authHeader` provider, so
+> when a session is connected it signs each request transparently and the collection/add paths are
+> unchanged; absent a session it falls back to the personal token. Routes `GET /api/discogs/auth/login`,
+> `GET /api/discogs/auth/callback`, `GET /api/discogs/auth/status`, `POST /api/discogs/auth/disconnect`
+> mirror the Spotify ones. The personal token remains the simpler default for the single-user case.
+
 ### 2. Cover art: use the Discogs release image directly
 
 Roadie's Discogs path fetches the release detail (`GET /releases/{id}`), takes its **primary image**,
@@ -76,8 +89,9 @@ warrants, and the failure mode (two entries for one record) is easy to spot and 
 
 ## Alternatives considered
 
-- **OAuth 1.0a login** — the "real" experience; rejected as disproportionate for one user. Revisit if
-  multi-user ever matters.
+- **OAuth 1.0a login** — the "real" experience; ~~rejected as disproportionate for one user. Revisit
+  if multi-user ever matters.~~ **Landed as an opt-in alternative (issue #59)** — see the §1 update
+  above; the personal token stays the default.
 - **Resolve to Spotify for art** — richer art, but couples a Discogs feature to Spotify and adds
   fuzzy matching. Deferred.
 - **Cross-source dedupe** — more correct in theory; deferred for lack of a reliable cross-provider

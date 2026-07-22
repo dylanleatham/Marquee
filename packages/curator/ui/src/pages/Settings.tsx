@@ -61,6 +61,8 @@ export function Settings() {
   );
   const [discogsToken, setDiscogsToken] = useState("");
   const [discogsUsername, setDiscogsUsername] = useState("");
+  const [discogsConsumerKey, setDiscogsConsumerKey] = useState("");
+  const [discogsConsumerSecret, setDiscogsConsumerSecret] = useState("");
   const [discogsBusy, setDiscogsBusy] = useState(false);
   const [discogsError, setDiscogsError] = useState<string | null>(null);
   const [discogsSaved, setDiscogsSaved] = useState(false);
@@ -71,17 +73,57 @@ export function Settings() {
     setDiscogsError(null);
     setDiscogsSaved(false);
     try {
-      await api.saveDiscogsSettings(
-        discogsToken.trim(),
-        discogsUsername.trim() || undefined,
-      );
+      await api.saveDiscogsSettings({
+        token: discogsToken.trim() || undefined,
+        username: discogsUsername.trim() || undefined,
+        consumerKey: discogsConsumerKey.trim() || undefined,
+        consumerSecret: discogsConsumerSecret.trim() || undefined,
+      });
       setDiscogsSaved(true);
-      setDiscogsToken(""); // don't keep the token in the field after saving
+      setDiscogsToken(""); // don't keep secrets in the fields after saving
+      setDiscogsConsumerKey("");
+      setDiscogsConsumerSecret("");
       await refreshDiscogs();
     } catch (err) {
       setDiscogsError(err instanceof ApiError ? err.message : String(err));
     } finally {
       setDiscogsBusy(false);
+    }
+  };
+
+  // Discogs OAuth "log in with Discogs" (issue #59) — parallels the Spotify user login. Only offered
+  // once consumer creds are configured (discogs.oauthConfigured). Poll so the connected state updates
+  // after the browser handshake returns.
+  const { data: discogsAuth, refresh: refreshDiscogsAuth } = usePoll(
+    api.discogsAuthStatus,
+    5000,
+  );
+  const [discogsAuthBusy, setDiscogsAuthBusy] = useState(false);
+  const [discogsAuthError, setDiscogsAuthError] = useState<string | null>(null);
+
+  const connectDiscogs = async () => {
+    setDiscogsAuthBusy(true);
+    setDiscogsAuthError(null);
+    try {
+      const { authorizeUrl } = await api.discogsLogin();
+      window.open(authorizeUrl, "_blank", "noopener");
+    } catch (err) {
+      setDiscogsAuthError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setDiscogsAuthBusy(false);
+    }
+  };
+
+  const disconnectDiscogs = async () => {
+    setDiscogsAuthBusy(true);
+    setDiscogsAuthError(null);
+    try {
+      await api.discogsDisconnect();
+      await refreshDiscogsAuth();
+    } catch (err) {
+      setDiscogsAuthError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setDiscogsAuthBusy(false);
     }
   };
 
@@ -304,9 +346,35 @@ export function Settings() {
               spellCheck={false}
             />
           </label>
+          {/* OAuth consumer creds (issue #59): the alternative to the personal token — a real
+              "log in with Discogs" experience. Register a Discogs app to get these. */}
+          <label>
+            OAuth consumer key (optional — enables "log in with Discogs")
+            <input
+              value={discogsConsumerKey}
+              onChange={(e) => setDiscogsConsumerKey(e.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </label>
+          <label>
+            OAuth consumer secret (optional)
+            <input
+              type="password"
+              value={discogsConsumerSecret}
+              onChange={(e) => setDiscogsConsumerSecret(e.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </label>
           <button
             className="btn btn--primary"
-            disabled={discogsBusy || !discogsToken.trim()}
+            disabled={
+              discogsBusy ||
+              (!discogsToken.trim() &&
+                !(discogsConsumerKey.trim() && discogsConsumerSecret.trim()) &&
+                !discogsUsername.trim())
+            }
           >
             {discogsBusy ? "Saving…" : "Save"}
           </button>
@@ -317,7 +385,39 @@ export function Settings() {
         )}
         {discogsSaved && (
           <div className="banner banner--warn">
-            Saved. <b>Restart Marquee</b> to connect Discogs.
+            Saved. <b>Restart Marquee</b> to apply the new credentials.
+          </div>
+        )}
+
+        {/* "Log in with Discogs" — only once OAuth consumer creds are configured (issue #59). */}
+        {discogs?.oauthConfigured && (
+          <div className="auth-connect">
+            {discogsAuth?.connected ? (
+              <>
+                <div className="banner banner--ok">
+                  Logged in with Discogs
+                  {discogsAuth.username ? ` — ${discogsAuth.username}` : ""}.
+                </div>
+                <button
+                  className="btn"
+                  onClick={disconnectDiscogs}
+                  disabled={discogsAuthBusy}
+                >
+                  {discogsAuthBusy ? "…" : "Disconnect"}
+                </button>
+              </>
+            ) : (
+              <button
+                className="btn btn--primary"
+                onClick={connectDiscogs}
+                disabled={discogsAuthBusy}
+              >
+                {discogsAuthBusy ? "Opening Discogs…" : "Connect Discogs"}
+              </button>
+            )}
+            {discogsAuthError && (
+              <div className="banner banner--error">{discogsAuthError}</div>
+            )}
           </div>
         )}
       </section>

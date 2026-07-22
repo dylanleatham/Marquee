@@ -6,8 +6,14 @@ import { join } from "node:path";
 
 export interface CuratorSettings {
   spotify?: { clientId: string; clientSecret: string };
-  /** Discogs personal access token + optional collection username (ADR 0016). */
-  discogs?: { token: string; username?: string };
+  /** Discogs auth: a personal access token (ADR 0016) and/or OAuth consumer creds (issue #59), plus
+   * an optional collection username. */
+  discogs?: {
+    token?: string;
+    username?: string;
+    consumerKey?: string;
+    consumerSecret?: string;
+  };
   gemini?: {
     apiKey?: string;
     /** Opt-in artifact generation (default off — prompts only). */
@@ -45,19 +51,32 @@ export function writeSpotifyCreds(
 }
 
 /**
- * Persist the Discogs personal access token (+ optional username), merged with existing settings.
- * A blank username is dropped so the client falls back to resolving it from the token's identity.
- * Same read-modify-write story as `writeSpotifyCreds` (the sole writer is the Settings form).
+ * Merge a Discogs settings patch (personal token + username, and/or OAuth consumer creds) into the
+ * existing settings — so saving the token doesn't wipe the consumer creds, and vice versa (issue #59).
+ * Only the fields present in the patch change; a provided-but-blank username is dropped so the client
+ * falls back to resolving it from the token's identity. Same read-modify-write story as
+ * `writeSpotifyCreds` (the sole writer is the Settings form).
  */
 export function writeDiscogsSettings(
   dataDir: string,
-  creds: { token: string; username?: string },
+  patch: {
+    token?: string;
+    username?: string;
+    consumerKey?: string;
+    consumerSecret?: string;
+  },
 ): void {
-  const discogs: NonNullable<CuratorSettings["discogs"]> = {
-    token: creds.token,
-    ...(creds.username?.trim() ? { username: creds.username.trim() } : {}),
-  };
-  const next: CuratorSettings = { ...readSettings(dataDir), discogs };
+  const cur = readSettings(dataDir);
+  const discogs: NonNullable<CuratorSettings["discogs"]> = { ...cur.discogs };
+  if (patch.token !== undefined) discogs.token = patch.token;
+  if (patch.username !== undefined) {
+    if (patch.username.trim()) discogs.username = patch.username.trim();
+    else delete discogs.username;
+  }
+  if (patch.consumerKey !== undefined) discogs.consumerKey = patch.consumerKey;
+  if (patch.consumerSecret !== undefined)
+    discogs.consumerSecret = patch.consumerSecret;
+  const next: CuratorSettings = { ...cur, discogs };
   mkdirSync(dataDir, { recursive: true });
   writeFileSync(settingsFile(dataDir), JSON.stringify(next, null, 2));
 }
