@@ -63,6 +63,13 @@ interface Plan {
   frames(step: number): Frame[];
 }
 
+/** What the album currently on a room is — surfaced by `current()`/`history()` (issue #54). */
+interface PlaybackSource {
+  name?: string;
+  artist?: string;
+  year?: number;
+}
+
 interface Session {
   roomId: string;
   lightIds: string[];
@@ -72,7 +79,36 @@ interface Session {
   timer: unknown | null;
   idleTimer: unknown | null;
   playbackId: string;
+  /** Current album + pattern + when it was applied (updates on a swap within the session). */
+  source: PlaybackSource;
+  pattern: string;
+  appliedAt: number;
 }
+
+/** A public view of an active (`current`) or past (`history`) playback (conductor-spec §7, issue #54). */
+export interface PlaybackView {
+  playbackId: string;
+  roomId: string;
+  source: PlaybackSource;
+  pattern: string;
+  /** ISO-8601. */
+  startedAt: string;
+  /** ISO-8601; present only on history entries whose playback has ended. */
+  stoppedAt?: string;
+}
+
+/** Internal history row (timestamps kept as ms; converted to ISO at the boundary). */
+interface HistoryEntry {
+  playbackId: string;
+  roomId: string;
+  source: PlaybackSource;
+  pattern: string;
+  startedAt: number;
+  stoppedAt: number | null;
+}
+
+/** How many recent playbacks to retain (bounded — this is an always-on service). */
+const HISTORY_CAP = 50;
 
 export interface EngineOptions {
   timers?: Timers;
@@ -89,6 +125,9 @@ export class PlaybackEngine {
   private readonly rate: RateLimiter;
   private readonly idleTimeoutMs: number;
   private readonly bridgeTimeoutMs: number;
+  private readonly now: () => number;
+  /** Recent playbacks, oldest first, capped at HISTORY_CAP (issue #54). */
+  private readonly log: HistoryEntry[] = [];
 
   constructor(
     private readonly bridge: BridgeAdapter,
@@ -97,12 +136,52 @@ export class PlaybackEngine {
     this.timers = opts.timers ?? realTimers;
     this.idleTimeoutMs = opts.idleTimeoutMs ?? 90 * 60 * 1000;
     this.bridgeTimeoutMs = opts.bridgeTimeoutMs ?? BRIDGE_TIMEOUT_MS;
+    this.now = opts.now ?? Date.now;
     this.rate = new RateLimiter(RATE_PER_SEC, RATE_BURST, opts.now);
   }
 
   /** True while a room has an active playback session. */
   isPlaying(roomId: string): boolean {
     return this.sessions.has(roomId);
+  }
+
+  /** The albums currently playing, one per active room (conductor-spec §7 `/api/playback/current`). */
+  current(): PlaybackView[] {
+    return [...this.sessions.values()].map((s) => ({
+      playbackId: s.playbackId,
+      roomId: s.roomId,
+      source: s.source,
+      pattern: s.pattern,
+      startedAt: new Date(s.appliedAt).toISOString(),
+    }));
+  }
+
+  /** Recent playbacks, most-recent first (conductor-spec §7 `/api/playback/history`). */
+  history(limit = HISTORY_CAP): PlaybackView[] {
+    return this.log
+      .slice(-Math.max(1, limit))
+      .reverse()
+      .map((e) => ({
+        playbackId: e.playbackId,
+        roomId: e.roomId,
+        source: e.source,
+        pattern: e.pattern,
+        startedAt: new Date(e.startedAt).toISOString(),
+        ...(e.stoppedAt != null
+          ? { stoppedAt: new Date(e.stoppedAt).toISOString() }
+          : {}),
+      }));
+  }
+
+  /** Close the open (unstopped) history row for a room — a swap or a stop ends the current album. */
+  private closeLog(roomId: string, at: number): void {
+    for (let i = this.log.length - 1; i >= 0; i--) {
+      const e = this.log[i]!;
+      if (e.roomId === roomId && e.stoppedAt == null) {
+        e.stoppedAt = at;
+        return;
+      }
+    }
   }
 
   /**
@@ -135,6 +214,12 @@ export class PlaybackEngine {
         "snapshotRoom",
       ));
 
+    const appliedAt = this.now();
+    const source: PlaybackSource = {
+      ...(payload.source.name ? { name: payload.source.name } : {}),
+      ...(payload.source.artist ? { artist: payload.source.artist } : {}),
+      ...(payload.source.year ? { year: payload.source.year } : {}),
+    };
     const session: Session = {
       roomId,
       lightIds,
@@ -144,8 +229,23 @@ export class PlaybackEngine {
       timer: null,
       idleTimer: existing?.idleTimer ?? null,
       playbackId: existing?.playbackId ?? randomUUID(),
+      source,
+      pattern: payload.pattern.type,
+      appliedAt,
     };
     this.sessions.set(roomId, session);
+
+    // History: a swap ends the previous album's row; every start opens a new one (issue #54).
+    this.closeLog(roomId, appliedAt);
+    this.log.push({
+      playbackId: session.playbackId,
+      roomId,
+      source,
+      pattern: session.pattern,
+      startedAt: appliedAt,
+      stoppedAt: null,
+    });
+    if (this.log.length > HISTORY_CAP) this.log.shift();
 
     // First frame fades in / crossfades over SWAP_TRANSITION_MS (not rate-limited: one cmd per light).
     await withTimeout(
@@ -173,6 +273,7 @@ export class PlaybackEngine {
     if (session.timer) this.timers.clear(session.timer);
     if (session.idleTimer) this.timers.clear(session.idleTimer);
     this.sessions.delete(roomId);
+    this.closeLog(roomId, this.now()); // mark the playback's end time (issue #54)
     await withTimeout(
       this.bridge.restoreRoom(roomId, session.snapshot, STOP_TRANSITION_MS),
       this.bridgeTimeoutMs,

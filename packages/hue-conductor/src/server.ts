@@ -159,6 +159,21 @@ export function buildServer(opts: BuildOptions = {}) {
     return { stopped: true, roomId: target };
   });
 
+  // Introspection (conductor-spec §7, issue #54): what's playing now + recent playbacks. Backs the
+  // Demo Room UI and — the motivating case — debugging the runtime loop during hardware bring-up
+  // ("I placed a sleeve and nothing happened — did Conductor even resolve the scan?").
+  app.get("/api/playback/current", async () => ({
+    playback: engine.current(),
+  }));
+
+  app.get("/api/playback/history", async (req) => {
+    const raw = (req.query as { limit?: string }).limit;
+    const parsed = raw ? Number(raw) : 50;
+    const limit =
+      Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 200) : 50;
+    return { history: engine.history(limit) };
+  });
+
   // Runtime scan intake from Stylus (issue #45). Unlike /api/playback (Curator's Demo Room proxy,
   // ADR 0007), this is the real runtime entrypoint: a raw ScanEvent, resolved against the synced
   // album-assets store, drives the listening room. `start` → build the palette from the album and
