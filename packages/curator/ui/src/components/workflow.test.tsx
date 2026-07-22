@@ -179,6 +179,30 @@ describe("PromptBlock", () => {
     fireEvent.click(screen.getByText("Regenerate with AI"));
     expect(run).toHaveBeenCalledTimes(1);
   });
+
+  // Issue #62: the slow AI redraft must show it's working — spinner + "Regenerating…" + disabled —
+  // until the action settles, so it can't be fired twice.
+  it("shows a Regenerating… affordance while the AI redraft is in flight", async () => {
+    let release!: () => void;
+    const run = vi.fn(
+      () => new Promise<void>((r) => (release = r)),
+    ) as unknown as (fn: () => Promise<unknown>) => Promise<void>;
+    render(
+      <PromptBlock
+        curatorId="abcd1234"
+        type="cardArt"
+        prompt={prompt}
+        run={run}
+      />,
+    );
+    fireEvent.click(screen.getByText("Regenerate with AI"));
+    const btn = await screen.findByText("Regenerating…");
+    expect(btn.closest("button")!.disabled).toBe(true);
+    release();
+    await waitFor(() =>
+      expect(screen.getByText("Regenerate with AI")).toBeTruthy(),
+    );
+  });
 });
 
 describe("VideoSection", () => {

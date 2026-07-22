@@ -580,6 +580,10 @@ em {
   border-color: var(--cyan);
   color: var(--text);
 }
+.cardart__candidate:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 .cardart__candidate img {
   width: 100%;
   aspect-ratio: 7 / 5;

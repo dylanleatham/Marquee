@@ -20,7 +20,8 @@ import {
   type PromptType,
   type VideoClip,
 } from "../api";
-import { useGenerationJob, type GenerationJobHook } from "../hooks";
+import { useGenerationJob, usePending, type GenerationJobHook } from "../hooks";
+import { AsyncButton, Spinner } from "./common";
 
 /** The generate button's label reflects live job progress ("Generating 3/5…"). */
 function generateLabel(
@@ -65,6 +66,9 @@ export function PromptBlock({
   run: Run;
 }) {
   const [copied, setCopied] = useState(false);
+  // A template change re-runs the deterministic drafter server-side; disable the <select> (not a
+  // button, so no AsyncButton) while that round-trips so it can't be spammed (issue #62).
+  const [redrafting, wrapRedraft] = usePending();
   const templates = type === "video" ? VIDEO_TEMPLATES : CARD_ART_TEMPLATES;
   const defaultTemplate = templates[0];
   const isAI = prompt.generator === "gemini";
@@ -95,19 +99,23 @@ export function PromptBlock({
         >
           {isAI ? "AI · grounded" : "Template"}
         </span>
-        <button
+        <AsyncButton
           className="btn btn--sm"
           onClick={() => run(() => api.regeneratePromptAI(curatorId, type))}
+          pendingLabel="Regenerating…"
           title="Re-draft with Gemini, grounded in real album details"
         >
           Regenerate with AI
-        </button>
+        </AsyncButton>
         <select
           className="select"
           value={prompt.template ?? defaultTemplate}
           aria-label="prompt template"
+          disabled={redrafting}
           onChange={(e) =>
-            run(() => api.redraftPrompt(curatorId, type, e.target.value))
+            wrapRedraft(() =>
+              run(() => api.redraftPrompt(curatorId, type, e.target.value)),
+            )
           }
         >
           {templates.map((t) => (
@@ -127,7 +135,7 @@ export function PromptBlock({
           aria-label="prompt variants"
         >
           {prompt.variants.map((v, i) => (
-            <button
+            <AsyncButton
               key={i}
               role="radio"
               aria-checked={i === prompt.selectedIndex}
@@ -138,7 +146,7 @@ export function PromptBlock({
               title={v.text}
             >
               {i + 1}. {v.nudge || `Variant ${i + 1}`}
-            </button>
+            </AsyncButton>
           ))}
         </div>
       )}
@@ -243,7 +251,7 @@ function SpliceControls({
         />
         Crossfade the seams ({CROSSFADE_SEC}s) — smoother, but trims a little from each clip
       </label>
-      <button
+      <AsyncButton
         className="btn btn--primary btn--sm"
         disabled={order.length === 0}
         onClick={() =>
@@ -255,10 +263,11 @@ function SpliceControls({
             ),
           )
         }
+        pendingLabel="Splicing…"
         title="Concatenate the selected clips (in this order) into one looping MP4 and attach it"
       >
         Splice {order.length} clip{order.length === 1 ? "" : "s"} into loop
-      </button>
+      </AsyncButton>
     </div>
   );
 }
@@ -316,8 +325,10 @@ export function VideoSection({
             className="btn btn--sm"
             onClick={gen.start}
             disabled={generating}
+            aria-busy={generating || undefined}
             title="Generate short clips from the album cover with Gemini, one per prompt variant"
           >
+            {generating && <Spinner />}{" "}
             {generateLabel(
               gen,
               "Generate clips with AI",
@@ -402,12 +413,13 @@ export function VideoSection({
             >
               Replace
             </button>
-            <button
+            <AsyncButton
               className="btn btn--sm btn--danger"
               onClick={() => run(() => api.detachVideo(curatorId, true))}
+              pendingLabel="Detaching…"
             >
               Detach
-            </button>
+            </AsyncButton>
             <input
               ref={fileRef}
               type="file"
@@ -482,6 +494,9 @@ export function CardArtSection({
     canGenerate,
   );
   const generating = gen.status === "running";
+  // Choosing a candidate is a quick server call; disable the gallery while it lands so a second
+  // click can't race it (issue #62).
+  const [selecting, wrapSelect] = usePending();
 
   return (
     <div className="cardart">
@@ -491,8 +506,10 @@ export function CardArtSection({
             className="btn btn--sm"
             onClick={gen.start}
             disabled={generating}
+            aria-busy={generating || undefined}
             title="Generate a set of card-art options with Gemini, one per prompt variant"
           >
+            {generating && <Spinner />}{" "}
             {generateLabel(
               gen,
               "Generate options with AI",
@@ -525,7 +542,13 @@ export function CardArtSection({
               key={c.index}
               className="cardart__candidate"
               title={c.nudge || `Option ${c.index + 1}`}
-              onClick={() => run(() => api.selectCardArt(curatorId, c.index))}
+              disabled={selecting}
+              aria-busy={selecting || undefined}
+              onClick={() =>
+                wrapSelect(() =>
+                  run(() => api.selectCardArt(curatorId, c.index)),
+                )
+              }
             >
               <img
                 src={cardArtCandidateUrl(curatorId, c.index)}
@@ -562,12 +585,13 @@ export function CardArtSection({
             >
               Replace
             </button>
-            <button
+            <AsyncButton
               className="btn btn--sm btn--danger"
               onClick={() => run(() => api.detachCardArt(curatorId, true))}
+              pendingLabel="Detaching…"
             >
               Detach
-            </button>
+            </AsyncButton>
             <input
               ref={fileRef}
               type="file"
@@ -652,28 +676,31 @@ export function PreviewSection({
         />
       </div>
       <div className="row-actions">
-        <button
+        <AsyncButton
           className="btn btn--primary"
           onClick={() => run(() => api.approvePreview(curatorId))}
+          pendingLabel="Saving…"
         >
           Looks good →
-        </button>
-        <button
+        </AsyncButton>
+        <AsyncButton
           className="btn"
           onClick={() =>
             run(() => api.rejectPreview(curatorId, "awaiting_video"))
           }
+          pendingLabel="Saving…"
         >
           Something's off — back to video
-        </button>
-        <button
+        </AsyncButton>
+        <AsyncButton
           className="btn btn--ghost"
           onClick={() =>
             run(() => api.rejectPreview(curatorId, "awaiting_review"))
           }
+          pendingLabel="Saving…"
         >
           Back to palette
-        </button>
+        </AsyncButton>
       </div>
     </div>
   );
