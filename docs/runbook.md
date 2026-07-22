@@ -155,17 +155,57 @@ Getting a clean start/stop here isolates "the software chain works" from "the NF
 
 ### A6. Stylus on the Pi Zero 2 W
 
-1. Flash the Pi Zero, install Python + the Stylus deps (stylus/README.md), wire the **real PN532**
-   driver at the hardware seam (it's a bench build against a fake today — ADR 0016). Config: Conductor
-   + Backdrop URLs and the shared secret.
-2. systemd `marquee-stylus` with `Wants=network-online.target` + restart-on-hang (stylus-spec §12).
-3. **Simulate a read without a tag** — Stylus's status server (port 4741) fans out exactly like a real
-   scan:
-   ```sh
-   curl -XPOST http://marquee-pizero:4741/simulate -d '{"uid":"04:A1:B2","uri":"curator:album:<id>"}'
-   curl -XPOST http://marquee-pizero:4741/simulate -d '{"clear":true}'   # = sleeve lifted
-   ```
-   - **Check:** the simulate fires the same start/stop the curl in A5 did — now driven through Stylus.
+#### A6.1 Wire the PN532 reader to the Pi (physical)
+
+The code drives the PN532 in **I²C mode** (`adafruit_pn532.i2c`), so the module and the wiring must be
+I²C. The authoritative pinout lives in **stylus-spec §4**; repeated here so you don't have to leave the
+page. **Power off the Pi before wiring.**
+
+1. **Set the module to I²C.** A PN532 board has a little interface selector — a pair of **DIP switches**
+   or **solder-jumper pads**. Set it to **I2C** using the combo printed on your board's silkscreen (each
+   board revision labels it slightly differently, so trust the label, not a remembered setting; the
+   `i2cdetect` check in step 4 confirms you got it right). Adafruit breakouts default to I²C.
+2. **Connect 4 jumper wires** PN532 → Pi Zero 2 W (Pi pin numbers are the physical header positions,
+   counting the 40-pin header with pin 1 nearest the SD card / corner):
+
+   | PN532 pin | Pi Zero 2 W pin        | Wire      |
+   | --------- | ---------------------- | --------- |
+   | VCC       | **3.3V** (pin 1)       | red       |
+   | GND       | **GND** (pin 6)        | black     |
+   | SDA       | **GPIO 2 / SDA** (pin 3)| e.g. blue |
+   | SCL       | **GPIO 3 / SCL** (pin 5)| e.g. green|
+
+   ⚠️ Use **3.3V (pin 1), not 5V** — the Pi's I²C lines are 3.3V. Double-check SDA→pin 3 and SCL→pin 5
+   before powering on.
+3. **Status LED** (optional but nice): LED long leg (anode) → a **330Ω resistor** → **GPIO 17 (pin 11)**;
+   LED short leg (cathode) → any GND. GPIO 17 HIGH = LED on. (Configurable — `[led].gpio_pin`, default 17.)
+4. **Enable I²C on the Pi:** `sudo raspi-config` → *Interface Options* → *I2C* → *Enable*, then reboot.
+   - **Check the bus sees the reader:** `sudo apt-get install -y i2c-tools && i2cdetect -y 1` should show
+     a device (the PN532 answers at address **0x24**). If the grid is empty, re-check the 4 wires and the
+     I²C DIP/jumper setting before going further.
+
+#### A6.2 Install + run Stylus
+
+1. Clone the repo on the Pi Zero; install Python 3 + the Stylus package **with hardware extras**
+   (`adafruit-circuitpython-pn532`, `Adafruit-Blinka` for `board`/`busio`) per `packages/stylus/README.md`
+   / `pyproject.toml`. These are imported lazily, only on the Pi (ADR 0016).
+2. **Config** (`packages/stylus/config.example.toml` → your `config.toml`): Conductor + Backdrop URLs and
+   the shared secret; keep `[led].gpio_pin = 17` unless you wired the LED elsewhere.
+3. Run the real reader: `python -m stylus` (the default builds `create_pn532_reader`; `--simulated` uses
+   the fake). Then a `marquee-stylus` **systemd** unit with `Wants=network-online.target` +
+   restart-on-hang (stylus-spec §12).
+   - **Check:** logs show it polling; hold a written NTAG213 near the antenna → it reads the UID + URI and
+     POSTs a `start`.
+
+#### A6.3 Simulate a read without a tag
+
+Stylus's status server (port 4741) can inject a fake read that fans out exactly like a real one — handy
+before the antenna/mount is tuned:
+```sh
+curl -XPOST http://marquee-pizero:4741/simulate -d '{"uid":"04:A1:B2","uri":"curator:album:<id>"}'
+curl -XPOST http://marquee-pizero:4741/simulate -d '{"clear":true}'   # = sleeve lifted
+```
+- **Check:** the simulate fires the same start/stop the A5 curl did — now driven through Stylus end-to-end.
 
 ### A7. Tag the sleeve + the real scan
 
