@@ -250,6 +250,20 @@ URI its on-device NDEF editor is firmware-dependent, so the reliable pattern is 
 > writing the **NDEF data** only; avoid any "lock", "set password", or "unlock" action on the Flipper
 > or the phone app.
 
+#### Option 3 — Curator-generated `.nfc` for the Flipper (least typing, many albums)
+
+Curator can emit a ready-to-write Flipper file per album, so you never type an id (issue #67):
+
+- `GET http://localhost:4739/api/tags/pending` → the albums awaiting a tag (`curatorId`, name, artist).
+- `GET http://localhost:4739/api/albums/<curatorId>/tag.nfc` → downloads `<curatorId>.nfc` with the
+  `curator:album:<id>` NDEF pre-laid into an NTAG213.
+- Copy the `.nfc` files onto the Flipper's SD card (`/ext/nfc/…` via qFlipper), then **NFC → Saved →
+  _that file_ → Write** onto a blank NTAG213.
+
+The page/NDEF bytes are the tested part (they're pinned to exactly what Stylus reads). The `.nfc`
+**header schema** targets recent firmware — validate once by writing a tag and reading it back (Option
+2's read step); if your firmware wants a tweak, it's a one-place fix in Curator.
+
 2. Stick the written tag on the sleeve. (Marking it written in-app is issue #55 — not required for the test.)
 3. **The moment:** place the tagged sleeve on the stand → lights + video become the record. Lift it →
    both fade back.
