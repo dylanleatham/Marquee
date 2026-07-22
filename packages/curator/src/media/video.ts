@@ -26,9 +26,17 @@ export interface VideoProber {
   /**
    * Concatenate `files` (in order) into one H.264/MP4 at `outPath`, re-encoding for a uniform loop
    * (issue #29). Video-only — the runtime visualizer plays muted — so audio-stream mismatches can't
-   * fail the join.
+   * fail the join. Mismatched input dimensions are normalized to a common size, and `crossfade`
+   * blends the seams instead of hard-cutting (issue #56).
    */
-  concat(files: string[], outPath: string): Promise<void>;
+  concat(files: string[], outPath: string, opts?: ConcatOptions): Promise<void>;
+}
+
+/** User-facing splice options (issue #56). Dimension normalization is automatic; crossfade is opt-in. */
+export interface ConcatOptions {
+  /** Blend each seam over this many seconds with an `xfade` instead of a hard cut. Omit for a plain
+   * concat (the default). */
+  crossfade?: { durationSec: number };
 }
 
 /** A rejected upload — bad container/codec or an unreadable file. Surfaced to the UI as 422. */
@@ -183,22 +191,75 @@ export function ffmpegAvailable(spawn: typeof spawnSync = spawnSync): boolean {
   }
 }
 
+/** Fully-resolved concat options (the prober fills these from probing each input; issue #56). */
+export interface BuildConcatArgs {
+  /** Scale + pad every input to this pixel size before joining — for mismatched clip dimensions.
+   * Omit when the inputs are known same-size (keeps the plain, minimal filtergraph). */
+  size?: { width: number; height: number };
+  /** Crossfade consecutive clips at the seam. `durations` is the per-input length (seconds), needed
+   * to place each transition's offset. */
+  crossfade?: { durationSec: number; durations: number[] };
+}
+
 /**
- * Build the ffmpeg argv for concatenating `files` into one H.264/MP4 loop at `outPath`. Uses the
- * `concat` filter (not `-c copy`) so the output is always re-encoded to a uniform H.264 stream that
- * passes `validateVideo`, regardless of the inputs' individual encodings. Video-only (`a=0`).
- * Exported so tests assert the exact command without shelling out (mirrors `ffmpegAvailable`'s seam).
- * Inputs are assumed same-dimension (clips off one album cover); mismatched sizes are a follow-up.
+ * Build the ffmpeg argv for joining `files` into one H.264/MP4 loop at `outPath`. Uses the filter
+ * graph (not `-c copy`) so the output is always re-encoded to a uniform H.264 stream that passes
+ * `validateVideo`, regardless of the inputs' individual encodings. Video-only (`a=0`).
+ *
+ * With `size`, each input is scaled to fit + padded to a common frame (mismatched clip dimensions,
+ * issue #56) — `xfade`/`concat` both require identical geometry, so this is required whenever the
+ * inputs might differ. With `crossfade`, consecutive clips blend at the seam via `xfade` instead of a
+ * hard cut. Neither → the original plain `concat` (the default). Exported so tests assert the exact
+ * command without shelling out (mirrors `ffmpegAvailable`'s seam).
  */
-export function buildConcatArgs(files: string[], outPath: string): string[] {
+export function buildConcatArgs(
+  files: string[],
+  outPath: string,
+  opts: BuildConcatArgs = {},
+): string[] {
   const inputs = files.flatMap((f) => ["-i", f]);
-  const labels = files.map((_, i) => `[${i}:v]`).join("");
-  const filter = `${labels}concat=n=${files.length}:v=1:a=0[out]`;
+  const n = files.length;
+  const { size, crossfade } = opts;
+
+  // Per-input normalization: with a target size, each `[k:v]` becomes a scaled+padded `[vk]`; without
+  // one we reference `[k:v]` directly (keeps the minimal graph for known same-size clips).
+  const pre: string[] = [];
+  const labels = files.map((_, i) => {
+    if (!size) return `[${i}:v]`;
+    pre.push(
+      `[${i}:v]scale=${size.width}:${size.height}:force_original_aspect_ratio=decrease,` +
+        `pad=${size.width}:${size.height}:(ow-iw)/2:(oh-ih)/2,setsar=1[v${i}]`,
+    );
+    return `[v${i}]`;
+  });
+
+  let graph: string[];
+  if (crossfade && n > 1) {
+    // xfade chain: overlap each seam by `d`s. The k-th transition (joining clip k) starts at
+    // offset = (sum of the clips already placed) − k·d, since each xfade shortens the timeline by d.
+    const d = crossfade.durationSec;
+    const dur = crossfade.durations;
+    let prev = labels[0]!;
+    let placed = dur[0] ?? 0;
+    graph = [...pre];
+    for (let k = 1; k < n; k++) {
+      const out = k === n - 1 ? "[out]" : `[x${k}]`;
+      const offset = Math.max(0, placed - d).toFixed(3);
+      graph.push(
+        `${prev}${labels[k]}xfade=transition=fade:duration=${d}:offset=${offset}${out}`,
+      );
+      placed += (dur[k] ?? 0) - d;
+      prev = out;
+    }
+  } else {
+    graph = [...pre, `${labels.join("")}concat=n=${n}:v=1:a=0[out]`];
+  }
+
   return [
     "-y",
     ...inputs,
     "-filter_complex",
-    filter,
+    graph.join(";"),
     "-map",
     "[out]",
     "-c:v",
@@ -264,9 +325,39 @@ export const ffmpegProber: VideoProber = {
     ]);
   },
 
-  async concat(files, outPath) {
+  async concat(files, outPath, opts = {}) {
     if (files.length === 0)
       throw new VideoError("no clips to splice into a loop");
-    await run(FFMPEG, buildConcatArgs(files, outPath), CONCAT_TIMEOUT_MS);
+    // Probe every input up front (issue #56) to resolve normalization + crossfade timing. A single
+    // clip needs neither, so it skips the probe and takes the plain path.
+    const build =
+      files.length > 1
+        ? resolveConcatBuild(await Promise.all(files.map((f) => this.probe(f))), opts)
+        : {};
+    await run(FFMPEG, buildConcatArgs(files, outPath, build), CONCAT_TIMEOUT_MS);
   },
 };
+
+/**
+ * Decide the concat build from the probed inputs (issue #56): normalize to the largest frame only
+ * when the clips actually differ (same-size clips keep the minimal filtergraph and original argv),
+ * and — for a crossfade, which requires identical geometry — always normalize and carry the per-clip
+ * durations that place each seam. Pure, so the decision is unit-tested without shelling out.
+ */
+export function resolveConcatBuild(
+  infos: VideoInfo[],
+  opts: ConcatOptions = {},
+): BuildConcatArgs {
+  if (infos.length <= 1) return {};
+  const width = Math.max(...infos.map((i) => i.width));
+  const height = Math.max(...infos.map((i) => i.height));
+  const uniform = infos.every((i) => i.width === width && i.height === height);
+  const build: BuildConcatArgs = {};
+  if (!uniform || opts.crossfade) build.size = { width, height };
+  if (opts.crossfade)
+    build.crossfade = {
+      durationSec: opts.crossfade.durationSec,
+      durations: infos.map((i) => i.durationSec),
+    };
+  return build;
+}

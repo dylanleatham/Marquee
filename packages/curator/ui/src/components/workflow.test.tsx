@@ -339,7 +339,8 @@ describe("VideoSection — splice (issue #29)", () => {
     );
     fireEvent.click(screen.getByText(/Splice 3 clips into loop/));
     await waitFor(() =>
-      expect(splice).toHaveBeenCalledWith("abcd1234", [0, 1, 2]),
+      // 3rd arg is the crossfade seconds — undefined unless the box is checked (issue #56).
+      expect(splice).toHaveBeenCalledWith("abcd1234", [0, 1, 2], undefined),
     );
   });
 
@@ -355,7 +356,21 @@ describe("VideoSection — splice (issue #29)", () => {
     fireEvent.click(screen.getByLabelText("Move motion 2 earlier"));
     fireEvent.click(screen.getByText(/Splice 2 clips into loop/));
     await waitFor(() =>
-      expect(splice).toHaveBeenCalledWith("abcd1234", [2, 0]),
+      expect(splice).toHaveBeenCalledWith("abcd1234", [2, 0], undefined),
+    );
+  });
+
+  it("sends the crossfade duration when the seam-crossfade box is checked (issue #56)", async () => {
+    const splice = vi
+      .spyOn(api, "spliceVisualizer")
+      .mockResolvedValue({ state: "awaiting_preview", visualizer: {} as never });
+    render(
+      <VideoSection curatorId="abcd1234" asset={withClips(2)} run={run} />,
+    );
+    fireEvent.click(screen.getByRole("checkbox", { name: /Crossfade the seams/ }));
+    fireEvent.click(screen.getByText(/Splice 2 clips into loop/));
+    await waitFor(() =>
+      expect(splice).toHaveBeenCalledWith("abcd1234", [0, 1], 0.5),
     );
   });
 

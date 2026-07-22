@@ -275,6 +275,7 @@ export async function spliceVisualizer(
   deps: ActionDeps,
   curatorId: string,
   order?: number[],
+  opts: { crossfade?: { durationSec: number } } = {},
 ): Promise<AlbumAsset> {
   const asset = load(deps.store, curatorId);
   if (!VIDEO_ATTACHABLE.includes(asset.roadie.state))
@@ -310,7 +311,7 @@ export async function spliceVisualizer(
   );
   let vis;
   try {
-    await deps.prober.concat(files, tmp);
+    await deps.prober.concat(files, tmp, opts);
     vis = await ingestVideo(
       { prober: deps.prober, paths: deps.store.paths, now: deps.now },
       {

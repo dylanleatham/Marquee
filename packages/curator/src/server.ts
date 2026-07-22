@@ -734,9 +734,20 @@ export function buildServer(opts: BuildOptions = {}) {
   // { order?: number[] } — the ordered clip indices to join (default: all, in index order).
   app.post("/api/albums/:curatorId/video/splice", async (req, reply) => {
     const { curatorId } = req.params as { curatorId: string };
-    const { order } = (req.body ?? {}) as { order?: number[] };
+    const { order, crossfadeSec } = (req.body ?? {}) as {
+      order?: number[];
+      crossfadeSec?: number;
+    };
+    // Opt-in seam crossfade (issue #56): a positive, bounded duration → xfade at the seams; anything
+    // else → a plain concat. Cap it so a silly value can't eat most of a short clip.
+    const crossfade =
+      typeof crossfadeSec === "number" && crossfadeSec > 0
+        ? { durationSec: Math.min(crossfadeSec, 2) }
+        : undefined;
     try {
-      const asset = await actions.spliceVisualizer(actionDeps, curatorId, order);
+      const asset = await actions.spliceVisualizer(actionDeps, curatorId, order, {
+        crossfade,
+      });
       // ★sync (roadie-spec §6): the album now has a playable video — push it to Backdrop.
       await backdrop.syncAlbum(asset);
       return { state: asset.roadie.state, visualizer: asset.visualizer };
