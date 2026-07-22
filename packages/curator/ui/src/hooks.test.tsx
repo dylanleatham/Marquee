@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
-import { usePoll, useGenerationJob } from "./hooks";
+import { usePoll, useGenerationJob, usePending } from "./hooks";
 import { api, type GenerationJob, type JobKind } from "./api";
 
 // Flush the microtasks an async fetcher resolves on (fake timers don't fake promises).
@@ -172,5 +172,35 @@ describe("useGenerationJob", () => {
     );
     await flush();
     expect(albumJobs).not.toHaveBeenCalled();
+  });
+});
+
+describe("usePending", () => {
+  it("flips pending true for the life of the wrapped action, then back to false", async () => {
+    let release!: () => void;
+    const { result } = renderHook(() => usePending());
+    expect(result.current[0]).toBe(false);
+
+    let done!: Promise<void>;
+    act(() => {
+      done = result.current[1](() => new Promise<void>((r) => (release = r)));
+    });
+    await waitFor(() => expect(result.current[0]).toBe(true));
+
+    await act(async () => {
+      release();
+      await done;
+    });
+    expect(result.current[0]).toBe(false);
+  });
+
+  it("clears pending even when the wrapped action rejects", async () => {
+    const { result } = renderHook(() => usePending());
+    await act(async () => {
+      await result.current[1](() => Promise.reject(new Error("boom"))).catch(
+        () => {},
+      );
+    });
+    expect(result.current[0]).toBe(false);
   });
 });

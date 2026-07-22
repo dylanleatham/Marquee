@@ -1,6 +1,12 @@
-import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, cleanup, fireEvent } from "@testing-library/react";
-import { AlbumThumb, Cover, StateBadge } from "./common";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import {
+  render,
+  screen,
+  cleanup,
+  fireEvent,
+  waitFor,
+} from "@testing-library/react";
+import { AlbumThumb, AsyncButton, Cover, StateBadge } from "./common";
 
 afterEach(cleanup);
 
@@ -67,6 +73,60 @@ describe("Cover", () => {
     expect(el).not.toBeNull();
     expect(el?.getAttribute("src")).toBe(
       "/api/albums/abcd1234/artwork?v=deadbeef",
+    );
+  });
+});
+
+// Issue #62: the slow generative actions gave no in-flight feedback. AsyncButton is the primitive
+// that fixes it — each button owns its own spinner + disabled state for the life of its click.
+describe("AsyncButton", () => {
+  it("renders its children and is enabled while idle", () => {
+    render(<AsyncButton onClick={() => Promise.resolve()}>Go</AsyncButton>);
+    const btn = screen.getByRole("button", { name: "Go" });
+    expect((btn as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("shows spinner + pending label and disables itself in flight, then restores on resolve", async () => {
+    let release!: () => void;
+    const onClick = vi.fn(() => new Promise<void>((r) => (release = r)));
+    render(
+      <AsyncButton onClick={onClick} pendingLabel="Working…">
+        Go
+      </AsyncButton>,
+    );
+    fireEvent.click(screen.getByRole("button"));
+    expect(onClick).toHaveBeenCalledTimes(1);
+
+    // In flight: disabled, spinner shown, label swapped.
+    await waitFor(() =>
+      expect((screen.getByRole("button") as HTMLButtonElement).disabled).toBe(
+        true,
+      ),
+    );
+    expect(screen.getByLabelText("loading")).toBeTruthy();
+    expect(screen.getByText("Working…")).toBeTruthy();
+
+    // A second click while pending is ignored (no double-submit).
+    fireEvent.click(screen.getByRole("button"));
+    expect(onClick).toHaveBeenCalledTimes(1);
+
+    release();
+    await waitFor(() =>
+      expect((screen.getByRole("button") as HTMLButtonElement).disabled).toBe(
+        false,
+      ),
+    );
+    expect(screen.getByText("Go")).toBeTruthy();
+  });
+
+  it("honors an explicit disabled prop while idle", () => {
+    render(
+      <AsyncButton onClick={() => Promise.resolve()} disabled>
+        Go
+      </AsyncButton>,
+    );
+    expect((screen.getByRole("button") as HTMLButtonElement).disabled).toBe(
+      true,
     );
   });
 });

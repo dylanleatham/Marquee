@@ -1,6 +1,12 @@
-import { useEffect, useState } from "react";
+import {
+  useEffect,
+  useState,
+  type ButtonHTMLAttributes,
+  type ReactNode,
+} from "react";
 import { artworkUrl, type RoadieState } from "../api";
 import { STATE_LABEL, isProcessing } from "../format";
+import { usePending } from "../hooks";
 
 const initialsOf = (title: string): string =>
   title
@@ -110,4 +116,51 @@ export function StateBadge({ state }: { state: RoadieState }) {
 
 export function Spinner() {
   return <span className="spinner" aria-label="loading" />;
+}
+
+type AsyncButtonProps = Omit<
+  ButtonHTMLAttributes<HTMLButtonElement>,
+  "onClick"
+> & {
+  /** The async action; the button shows a spinner + disables itself until it settles. */
+  onClick: () => unknown;
+  /** Label shown (with the spinner) while in flight. Defaults to the normal children. */
+  pendingLabel?: ReactNode;
+  children: ReactNode;
+};
+
+/**
+ * A button that owns its own in-flight state (issue #62): while its onClick promise is pending it
+ * disables itself (blocking double-submits), shows a spinner, and can swap in a "…ing" label. Drop
+ * it in for the slow, generative actions — regenerate/splice/generate — and any other run-routed
+ * action, so each control gives its own feedback instead of relying on one page-level boolean.
+ */
+export function AsyncButton({
+  onClick,
+  pendingLabel,
+  children,
+  disabled,
+  ...rest
+}: AsyncButtonProps) {
+  const [pending, wrap] = usePending();
+  return (
+    <button
+      {...rest}
+      disabled={disabled || pending}
+      aria-busy={pending || undefined}
+      onClick={() => {
+        // Errors are the caller's job (the run helper surfaces them); swallow here only so a
+        // rejected action can't raise an unhandled rejection. The finally in wrap still clears pending.
+        if (!pending) void wrap(onClick).catch(() => {});
+      }}
+    >
+      {pending ? (
+        <>
+          <Spinner /> {pendingLabel ?? children}
+        </>
+      ) : (
+        children
+      )}
+    </button>
+  );
 }

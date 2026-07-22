@@ -63,6 +63,26 @@ export function usePoll<T>(
   return { data, error, loading, refresh: run };
 }
 
+/**
+ * Track whether a single async action is in flight, for per-button loading affordances (issue #62).
+ * `wrap` runs the given thunk, flipping `pending` true for its duration — so each button owns its own
+ * spinner/disabled state instead of sharing one page-level boolean. The thunk is invoked
+ * synchronously (before the first await), so callers relying on the underlying call firing on click
+ * are unaffected.
+ */
+export function usePending(): [boolean, (fn: () => unknown) => Promise<void>] {
+  const [pending, setPending] = useState(false);
+  const wrap = useCallback(async (fn: () => unknown): Promise<void> => {
+    setPending(true);
+    try {
+      await fn();
+    } finally {
+      setPending(false);
+    }
+  }, []);
+  return [pending, wrap];
+}
+
 export interface GenerationJobHook {
   status: "idle" | "running" | "done" | "failed";
   progress: { done: number; total: number } | null;
