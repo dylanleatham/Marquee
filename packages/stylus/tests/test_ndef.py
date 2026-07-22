@@ -66,3 +66,13 @@ def test_malformed_input_returns_none():
 def test_non_uri_record_returns_none():
     # A MIME (TNF 0x02) record isn't a URI/Text record → nothing to extract.
     assert parse_uri(_record(0x02, b"text/plain", b"hello")) is None
+
+
+def test_parses_the_exact_bytes_curator_generates():
+    """Cross-service contract (issue #67): the NTAG NDEF-message TLV Curator's Flipper `.nfc`
+    generator emits for ALBUM (packages/curator/src/tags/flipper-nfc.ts, asserted byte-for-byte by
+    its own test) must parse back to the album URI here. What Curator writes, Stylus reads."""
+    tlv = bytes.fromhex(
+        "031bd10117550063757261746f723a616c62756d3a326b37627871396dfe"
+    )
+    assert parse_uri(tlv) == ALBUM
