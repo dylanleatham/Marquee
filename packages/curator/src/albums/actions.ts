@@ -351,6 +351,9 @@ export function detachVideo(
 export interface GenerateOptions {
   /** Called as each variant settles (fulfilled or rejected): `(done, total)`. */
   onProgress?: (done: number, total: number) => void;
+  /** Aborts in-flight generation when the job is cancelled (issue #57); threaded into the Gemini
+   * fetch so an upstream call stops rather than running to completion. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -445,7 +448,12 @@ export async function generateVideoSet(
   mkdirSync(deps.store.paths.incoming, { recursive: true });
   const results = await settleWithProgress(
     draft.variants.map(async (v, i): Promise<VideoClip> => {
-      const bytes = await gemini.generateVideo(v.text, cover);
+      const bytes = await gemini.generateVideo(
+        v.text,
+        cover,
+        undefined,
+        opts.signal,
+      );
       const tmp = deps.store.paths.incomingFile(
         `.vidgen-${curatorId}-${i}-${randomUUID()}.mp4`,
       );
@@ -616,7 +624,7 @@ export async function generateCardArtSet(
       ingestCardArtCandidate(
         { paths: deps.store.paths, now: deps.now },
         {
-          buffer: await gemini.generateImage(v.text),
+          buffer: await gemini.generateImage(v.text, undefined, opts.signal),
           curatorId,
           index: i,
           nudge: v.nudge,
