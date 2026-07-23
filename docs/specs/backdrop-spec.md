@@ -7,7 +7,8 @@ _The visual companion to the record spinning — it's the backdrop, not the show
 > with the idle-timeout safety net, the WebSocket hub, the full §8 HTTP API, and the vanilla kiosk
 > SPA. 39 tests; verified live in a browser (WS connect, `/healthz` gating, scan→play→idle, the
 > `show-message` path). Milestones 1/10/11 (kiosk launcher, systemd, real NFC) are hardware and are
-> documented in the package README, not yet automated.
+> documented as a step-by-step runbook in
+> [packages/backdrop/DEPLOY.md](../../packages/backdrop/DEPLOY.md), not yet automated.
 >
 > **One correction to this spec:** §6 says launch the kiosk with `--app=http://localhost:4740`. A
 > page served over `http://` **cannot** load the local `file://` video clips (Chromium blocks
