@@ -80,6 +80,12 @@ Type `yes` to trust it the first time, then the password you set. You're now typ
 Pi**. (If `ssh` isn't found on Windows, use the same command in PowerShell — it's built in — or use
 PuTTY.)
 
+> ⚠️ **Include the `pi@`.** If you run `ssh 192.168.1.42` with no username, SSH silently fills in
+> your **laptop's** username — which doesn't exist on the Pi, so every password gets
+> `Permission denied` no matter how correctly you type it. The prompt itself tells you who you're
+> logging in as (`pi@…`). Also normal: **nothing appears while you type a password** — no dots, no
+> asterisks. Type it blind and press Enter.
+
 ## 4. Update the system and confirm the clock
 
 Backdrop's idle-timeout is time-based, so an accurate clock matters. Run:
@@ -120,12 +126,27 @@ $ chromium-browser --version
 
 ## 6. Get the code and build Backdrop
 
-Clone the project and build the Backdrop package. The first install downloads the whole monorepo's
-dependencies and takes a few minutes on a Pi — that's normal.
+The Marquee repo is **private**, so the Pi has to authenticate to GitHub before it can clone — and
+GitHub no longer accepts account passwords for git (a plain `git clone` prompts for a password and
+then always fails with _"Password authentication is not supported"_). The easiest path is GitHub's
+CLI with a browser login — no tokens to create or paste:
+
+```
+$ sudo apt install -y gh
+$ gh auth login
+```
+
+Answer its prompts: **GitHub.com** → protocol **HTTPS** → _"Authenticate Git with your GitHub
+credentials?"_ **Yes** (this wires git up so `clone`/`pull` work from then on) → **Login with a web
+browser**. It prints a one-time code and a URL — open the URL on your laptop, sign in, type the
+code, approve.
+
+Now clone and build. The first install downloads the whole monorepo's dependencies and takes a few
+minutes on a Pi — that's normal.
 
 ```
 $ cd ~
-$ git clone https://github.com/dylanleatham/Marquee.git
+$ gh repo clone dylanleatham/Marquee
 $ cd Marquee
 $ pnpm install
 $ pnpm --filter @marquee/backdrop build
@@ -388,15 +409,17 @@ router, or rely on the `backdrop.local` name (mDNS) if your network supports it.
 
 ## 14. Troubleshooting
 
-| Symptom                                      | Likely cause / fix                                                                                                                                                                                                                                                |
-| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Blank desktop, no Backdrop page              | Kiosk script didn't run. Check `~/.config/lxsession/LXDE-pi/autostart` and that `~/kiosk.sh` is executable. Are you on the X11 desktop (step 11a)?                                                                                                                |
-| Page loads but **unstyled / frozen**         | The `.css`/`.js` didn't load — make sure you launched the `file://.../public/index.html` path exactly, and that you're on a build that includes this doc (older builds used absolute asset paths that break under `file://`).                                     |
-| Idle gradient shows, but a scan does nothing | Open with `?debug=1`. Red dot = backend not reachable (`systemctl status backdrop`). A "video not in library" / "video file missing" toast = the URI isn't registered or the file isn't in `media_dir` — check `journalctl -u backdrop` for the matching warning. |
-| Video registered but won't play              | The file must be **H.264 in an .mp4**. Re-encode if unsure: `ffmpeg -i in.mov -c:v libx264 -pix_fmt yuv420p out.mp4`.                                                                                                                                             |
-| `401 unauthorized` from a `curl`             | Shared secret mismatch — the `X-Trigger-Secret` header must equal `config.toml`'s `shared_secret`.                                                                                                                                                                |
-| Screen goes black after ~10 min              | Screen blanking still on. Re-check step 11a (raspi-config) and the `xset` lines in `kiosk.sh`.                                                                                                                                                                    |
-| Backend won't start                          | `journalctl -u backdrop -e` shows the error. Common: wrong path/username in the service file, or you never ran the build in step 6.                                                                                                                               |
+| Symptom                                                                                   | Likely cause / fix                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SSH: `Permission denied` at the password prompt                                           | You're probably logging in as the wrong user — the prompt must say `pi@…` (or whatever username you set in Imager). Plain `ssh <ip>` silently uses your **laptop's** username. Also: nothing appears while typing a password (normal), and if you picked "public-key only" in Imager's SSH setting, all passwords are rejected — log in on the Pi directly and set `PasswordAuthentication yes` in `/etc/ssh/sshd_config`, then `sudo systemctl restart ssh`. |
+| `git clone` asks for a username, then fails: _"Password authentication is not supported"_ | The repo is private and GitHub doesn't accept account passwords for git. Do step 6's `gh auth login` browser flow, then clone with `gh repo clone dylanleatham/Marquee`.                                                                                                                                                                                                                                                                                      |
+| Blank desktop, no Backdrop page                                                           | Kiosk script didn't run. Check `~/.config/lxsession/LXDE-pi/autostart` and that `~/kiosk.sh` is executable. Are you on the X11 desktop (step 11a)?                                                                                                                                                                                                                                                                                                            |
+| Page loads but **unstyled / frozen**                                                      | The `.css`/`.js` didn't load — make sure you launched the `file://.../public/index.html` path exactly, and that you're on a build that includes this doc (older builds used absolute asset paths that break under `file://`).                                                                                                                                                                                                                                 |
+| Idle gradient shows, but a scan does nothing                                              | Open with `?debug=1`. Red dot = backend not reachable (`systemctl status backdrop`). A "video not in library" / "video file missing" toast = the URI isn't registered or the file isn't in `media_dir` — check `journalctl -u backdrop` for the matching warning.                                                                                                                                                                                             |
+| Video registered but won't play                                                           | The file must be **H.264 in an .mp4**. Re-encode if unsure: `ffmpeg -i in.mov -c:v libx264 -pix_fmt yuv420p out.mp4`.                                                                                                                                                                                                                                                                                                                                         |
+| `401 unauthorized` from a `curl`                                                          | Shared secret mismatch — the `X-Trigger-Secret` header must equal `config.toml`'s `shared_secret`.                                                                                                                                                                                                                                                                                                                                                            |
+| Screen goes black after ~10 min                                                           | Screen blanking still on. Re-check step 11a (raspi-config) and the `xset` lines in `kiosk.sh`.                                                                                                                                                                                                                                                                                                                                                                |
+| Backend won't start                                                                       | `journalctl -u backdrop -e` shows the error. Common: wrong path/username in the service file, or you never ran the build in step 6.                                                                                                                                                                                                                                                                                                                           |
 
 ## 15. Updating Backdrop later
 
