@@ -4,7 +4,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
   api,
-  activePromptText,
   videoUrl,
   thumbnailUrl,
   videoClipUrl,
@@ -117,22 +116,68 @@ const writeClipboard = (text: string) =>
   navigator.clipboard.writeText(text).catch(() => {});
 
 /**
- * The card-art prompt set (ADR 0021): the five fixed-angle prompts, each surfaced in full with its
- * own Copy (to take to Google Flow / Midjourney by hand) and — when API generation is enabled — its
- * own "Generate art" button that runs that one prompt against Nano Banana and drops the result into
- * the candidate gallery below. Distinct from the single-video prompt, where you pick one variant.
+ * Per-prompt clip generation (ADR 0022): a clip is a multi-minute Omni call, so each button drives
+ * its own background job (keyed on the prompt index), polled for progress and re-attached on reload.
+ * The generated clip lands in the clip gallery + splice controls below (VideoSection).
  */
-function CardArtPrompts({
+function VideoClipGenerateButton({
   curatorId,
-  prompt,
-  run,
-  canGenerate,
+  index,
+  refresh,
 }: {
   curatorId: string;
+  index: number;
+  refresh: () => void;
+}) {
+  const gen = useGenerationJob(
+    curatorId,
+    "video",
+    () => api.generateVideoOne(curatorId, index),
+    refresh,
+    true,
+    index,
+  );
+  const generating = gen.status === "running";
+  return (
+    <>
+      <button
+        className="btn btn--sm"
+        onClick={gen.start}
+        disabled={generating}
+        aria-busy={generating || undefined}
+        title="Generate a clip from this prompt with Gemini (Omni)"
+      >
+        {generating && <Spinner />}{" "}
+        {generating ? "Generating…" : "Generate clip"}
+      </button>
+      {gen.error && <span className="banner banner--error">{gen.error}</span>}
+    </>
+  );
+}
+
+/**
+ * The prompt set (ADR 0021/0022): every drafted prompt surfaced in full, each with its own Copy (to
+ * take to Google Flow / Midjourney by hand) and — when API generation is enabled — its own generate
+ * button (`renderGenerate`), which runs that one prompt and drops the result into the candidate/clip
+ * gallery below. Copying records the copy server-side (card art: bookkeeping; video: advances the
+ * album to awaiting_video at review, ADR 0005) — the click is the signal, the clipboard is best-effort.
+ */
+function PromptList({
+  curatorId,
+  type,
+  prompt,
+  run,
+  fallbackLabel,
+  renderGenerate,
+}: {
+  curatorId: string;
+  type: PromptType;
   prompt: DraftedPrompt;
   run: Run;
-  /** API card-art generation is opt-in (Settings); off → no per-prompt "Generate art" button. */
-  canGenerate: boolean;
+  /** Label for a variant whose nudge is empty (e.g. "Option 3", "Prompt 3"). */
+  fallbackLabel: (i: number) => string;
+  /** Optional per-prompt generate control (omitted when API generation is off). */
+  renderGenerate?: (i: number) => React.ReactNode;
 }) {
   // Which prompt's Copy most recently fired, for the transient "Copied ✓" affordance.
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
@@ -140,23 +185,17 @@ function CardArtPrompts({
     void writeClipboard(text);
     setCopiedIndex(i);
     setTimeout(() => setCopiedIndex((cur) => (cur === i ? null : cur)), 1500);
-    // Copying a card-art prompt is bookkeeping only (ADR 0005) — records copiedAt, no transition.
-    run(() => api.markPromptCopied(curatorId, "cardArt"));
+    run(() => api.markPromptCopied(curatorId, type));
   };
   return (
     <div className="prompt">
-      <PromptHead
-        curatorId={curatorId}
-        type="cardArt"
-        prompt={prompt}
-        run={run}
-      />
+      <PromptHead curatorId={curatorId} type={type} prompt={prompt} run={run} />
       <ol className="prompt__list">
         {prompt.variants.map((v, i) => (
           <li key={i} className="prompt__item">
             <div className="prompt__item-head">
               <span className="chip chip--static">
-                {i + 1}. {v.nudge || `Option ${i + 1}`}
+                {i + 1}. {v.nudge || fallbackLabel(i)}
               </span>
               <button
                 className="btn btn--primary btn--sm"
@@ -164,18 +203,7 @@ function CardArtPrompts({
               >
                 {copiedIndex === i ? "Copied ✓" : "Copy"}
               </button>
-              {canGenerate && (
-                <AsyncButton
-                  className="btn btn--sm"
-                  onClick={() =>
-                    run(() => api.generateCardArtOne(curatorId, i))
-                  }
-                  pendingLabel="Generating…"
-                  title="Generate a card-art option from this prompt with Gemini (Nano Banana)"
-                >
-                  Generate art
-                </AsyncButton>
-              )}
+              {renderGenerate?.(i)}
             </div>
             <pre className="prompt__text">{v.text}</pre>
           </li>
@@ -186,9 +214,9 @@ function CardArtPrompts({
 }
 
 /**
- * A drafted prompt. The video prompt is a single hand-off: grounded LLM drafts carry several
- * variants (the human picks one) and Copy hands off the active one; template drafts carry one. Card
- * art instead surfaces every prompt with its own Copy + Generate (ADR 0021) via CardArtPrompts. The
+ * A drafted prompt set — every variant surfaced with its own Copy and, when API generation is on, its
+ * own generate button: card art → one Nano Banana image per prompt (synchronous, into the candidate
+ * gallery); video → one Omni clip per prompt (background job, into the clip gallery + splice). The
  * template <select> reruns the deterministic template; "Regenerate with AI" re-runs the LLM drafter.
  */
 export function PromptBlock({
@@ -197,66 +225,48 @@ export function PromptBlock({
   prompt,
   run,
   canGenerate = false,
+  refresh = () => {},
 }: {
   curatorId: string;
   type: PromptType;
   prompt: DraftedPrompt;
   run: Run;
-  /** Card art only: whether the per-prompt "Generate art" buttons are shown (API generation opt-in). */
+  /** Whether the per-prompt generate buttons are shown (API generation is opt-in in Settings). */
   canGenerate?: boolean;
+  /** Pull fresh album data once a clip generation finishes (video). Defaults to a no-op. */
+  refresh?: () => void;
 }) {
-  const [copied, setCopied] = useState(false);
-  if (type === "cardArt")
-    return (
-      <CardArtPrompts
-        curatorId={curatorId}
-        prompt={prompt}
-        run={run}
-        canGenerate={canGenerate}
-      />
-    );
-
-  const multiple = prompt.variants.length > 1;
-  // Copying the prompt *is* the signal (ADR 0005) — no second "Mark copied" click. For the video
-  // prompt at review it advances the album to awaiting_video. The clipboard write is best-effort:
-  // the text is on screen to take by hand, so a denied permission must not strand the album.
-  const copy = async () => {
-    await writeClipboard(activePromptText(prompt));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-    run(() => api.markPromptCopied(curatorId, type));
-  };
+  const renderGenerate = !canGenerate
+    ? undefined
+    : type === "cardArt"
+      ? (i: number) => (
+          <AsyncButton
+            className="btn btn--sm"
+            onClick={() => run(() => api.generateCardArtOne(curatorId, i))}
+            pendingLabel="Generating…"
+            title="Generate a card-art option from this prompt with Gemini (Nano Banana)"
+          >
+            Generate art
+          </AsyncButton>
+        )
+      : (i: number) => (
+          <VideoClipGenerateButton
+            curatorId={curatorId}
+            index={i}
+            refresh={refresh}
+          />
+        );
+  const fallbackLabel = (i: number) =>
+    type === "cardArt" ? `Option ${i + 1}` : `Prompt ${i + 1}`;
   return (
-    <div className="prompt">
-      <PromptHead curatorId={curatorId} type={type} prompt={prompt} run={run}>
-        <button className="btn btn--primary btn--sm" onClick={copy}>
-          {copied ? "Copied ✓" : "Copy prompt"}
-        </button>
-      </PromptHead>
-      {multiple && (
-        <div
-          className="prompt__variants"
-          role="radiogroup"
-          aria-label="prompt variants"
-        >
-          {prompt.variants.map((v, i) => (
-            <AsyncButton
-              key={i}
-              role="radio"
-              aria-checked={i === prompt.selectedIndex}
-              className={`chip ${i === prompt.selectedIndex ? "chip--on" : ""}`}
-              onClick={() =>
-                run(() => api.selectPromptVariant(curatorId, type, i))
-              }
-              title={v.text}
-            >
-              {i + 1}. {v.nudge || `Variant ${i + 1}`}
-            </AsyncButton>
-          ))}
-        </div>
-      )}
-      <pre className="prompt__text">{activePromptText(prompt)}</pre>
-    </div>
+    <PromptList
+      curatorId={curatorId}
+      type={type}
+      prompt={prompt}
+      run={run}
+      fallbackLabel={fallbackLabel}
+      renderGenerate={renderGenerate}
+    />
   );
 }
 

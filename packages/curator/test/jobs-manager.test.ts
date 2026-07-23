@@ -102,13 +102,34 @@ describe("GenerationJobs", () => {
     // Once the first finishes, a new run is allowed again.
     d.resolve({ videoClips: [] });
     await tick();
-    const third = jobs.start("video", "abcd1234", async () => deferred().promise);
+    const third = jobs.start(
+      "video",
+      "abcd1234",
+      async () => deferred().promise,
+    );
     expect(third.id).not.toBe(first.id);
+  });
+
+  it("keys per-prompt jobs on the index (ADR 0022): different indices don't shadow each other", async () => {
+    const jobs = new GenerationJobs();
+    const runner = async () => deferred<{ videoClips: [] }>().promise;
+    // A whole-set job (no index) and a per-prompt job (index 0) are distinct, and so are two
+    // different indices — clicking "Generate clip" on prompt 0 and prompt 2 starts two real jobs.
+    const set = jobs.start("video", "abcd1234", runner);
+    const clip0 = jobs.start("video", "abcd1234", runner, 0);
+    const clip2 = jobs.start("video", "abcd1234", runner, 2);
+    expect(new Set([set.id, clip0.id, clip2.id]).size).toBe(3);
+    expect(clip0.index).toBe(0);
+    // Re-clicking the same index while it runs is still a no-op (returns the live job).
+    const clip0Again = jobs.start("video", "abcd1234", runner, 0);
+    expect(clip0Again.id).toBe(clip0.id);
   });
 
   it("lists active + recent jobs for an album, newest first, filterable by kind", async () => {
     let t = 0;
-    const jobs = new GenerationJobs({ now: () => `2026-07-21T00:00:0${t++}.000Z` });
+    const jobs = new GenerationJobs({
+      now: () => `2026-07-21T00:00:0${t++}.000Z`,
+    });
     const v = jobs.start("video", "abcd1234", async () => deferred().promise);
     const c = jobs.start("cardArt", "abcd1234", async () => deferred().promise);
     jobs.start("video", "zzzz9999", async () => deferred().promise);

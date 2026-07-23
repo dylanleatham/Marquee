@@ -676,6 +676,35 @@ describe("video generation (routes)", () => {
     expect(job.status).toBe("failed");
     expect(job.error).toBeTruthy();
   });
+
+  // Per-prompt clip generation (ADR 0022): one clip from one prompt, its own index-keyed job.
+  it("generates a single clip from one prompt (background job keyed on the index)", async () => {
+    const { app, curatorId } = await serverWithVideoPrompt();
+    const gen = await post(app, `/api/albums/${curatorId}/video/generate/2`);
+    expect(gen.statusCode).toBe(202);
+    expect(gen.json().index).toBe(2);
+    const job = await pollJob(app, gen.json().id);
+    expect(job.status).toBe("done");
+    expect(job.result.videoClips).toHaveLength(1);
+    expect(job.result.videoClips[0].index).toBe(2);
+    const clip = await app.inject({
+      method: "GET",
+      url: `/api/albums/${curatorId}/video/clip/2`,
+    });
+    expect(clip.statusCode).toBe(200);
+  });
+
+  it("400s a per-prompt clip generate for an out-of-range index", async () => {
+    const { app, curatorId } = await serverWithVideoPrompt();
+    const res = await post(app, `/api/albums/${curatorId}/video/generate/9`);
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("400s a per-prompt clip generate when generation is off (opt-in)", async () => {
+    const { app, curatorId } = await serverWithVideoPrompt("disabled");
+    const res = await post(app, `/api/albums/${curatorId}/video/generate/0`);
+    expect(res.statusCode).toBe(400);
+  });
 });
 
 describe("video splice (routes) — issue #29", () => {

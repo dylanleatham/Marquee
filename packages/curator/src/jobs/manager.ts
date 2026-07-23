@@ -9,12 +9,7 @@
 // mid-flight when the process died can't be resumed (its runner is gone), so it's restored as failed.
 // Roadie's queue is untouched (roadie-spec §15: generation lives outside the queue).
 import { randomUUID } from "node:crypto";
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { VideoClip, CardArtCandidate } from "../albums/asset.js";
 
@@ -32,6 +27,12 @@ export interface GenerationJob {
   kind: JobKind;
   curatorId: string;
   status: JobStatus;
+  /**
+   * The prompt-variant index this job generates, for a *per-prompt* generation (ADR 0021/0022); a
+   * whole-set job leaves it undefined. Part of the dedup key, so a per-clip job and the set job (and
+   * two different per-clip jobs) run side by side instead of one shadowing the other.
+   */
+  index?: number;
   /** e.g. `{ done: 3, total: 5 }` — the UI shows "Generating 3/5…". */
   progress: { done: number; total: number };
   createdAt: string;
@@ -154,22 +155,34 @@ export class GenerationJobs {
       .map(snapshot);
   }
 
-  private running(curatorId: string, kind: JobKind): GenerationJob | undefined {
+  private running(
+    curatorId: string,
+    kind: JobKind,
+    index?: number,
+  ): GenerationJob | undefined {
     return [...this.jobs.values()].find(
       (j) =>
         j.curatorId === curatorId &&
         j.kind === kind &&
+        j.index === index &&
         j.status === "running",
     );
   }
 
   /**
-   * Start a job. If one is already running for the same album+kind, returns it instead of launching
-   * a duplicate multi-minute run (clicking generate twice is a no-op, and a reload re-attaches to the
-   * live job rather than starting a second). Returns immediately; the runner drives in the background.
+   * Start a job. If one is already running for the same album+kind (+prompt index for a per-prompt
+   * job), returns it instead of launching a duplicate multi-minute run (clicking generate twice is a
+   * no-op, and a reload re-attaches to the live job rather than starting a second). A per-prompt job
+   * (`index` set) is keyed separately from the whole-set job and from other indices, so they don't
+   * shadow each other. Returns immediately; the runner drives in the background.
    */
-  start(kind: JobKind, curatorId: string, run: JobRunner): GenerationJob {
-    const existing = this.running(curatorId, kind);
+  start(
+    kind: JobKind,
+    curatorId: string,
+    run: JobRunner,
+    index?: number,
+  ): GenerationJob {
+    const existing = this.running(curatorId, kind, index);
     if (existing) return snapshot(existing);
 
     const at = this.now();
@@ -178,6 +191,7 @@ export class GenerationJobs {
       kind,
       curatorId,
       status: "running",
+      ...(index !== undefined ? { index } : {}),
       progress: { done: 0, total: 0 },
       createdAt: at,
       updatedAt: at,

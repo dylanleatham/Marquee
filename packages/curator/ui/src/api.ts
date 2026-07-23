@@ -145,6 +145,8 @@ export interface GenerationJob {
   kind: JobKind;
   curatorId: string;
   status: JobStatus;
+  /** The prompt-variant index for a per-prompt generation; absent on a whole-set job. */
+  index?: number;
   progress: { done: number; total: number };
   createdAt: string;
   updatedAt: string;
@@ -378,6 +380,12 @@ export const api = {
   // Generation is a background job (issue #30): POST returns the job (202); poll job() until done.
   generateVideoSet: (id: string) =>
     req<GenerationJob>(`/api/albums/${id}/video/generate`, { method: "POST" }),
+  // Generate a single clip from one drafted video prompt variant (per-prompt button, ADR 0022).
+  // Also a background job (a clip is a multi-minute Omni call), keyed on the prompt index.
+  generateVideoOne: (id: string, index: number) =>
+    req<GenerationJob>(`/api/albums/${id}/video/generate/${index}`, {
+      method: "POST",
+    }),
   // Splice the generated clips into one loop and attach it (issue #29). `order` = clip indices to
   // join, in order (default: all).
   spliceVisualizer: (id: string, order?: number[], crossfadeSec?: number) =>
