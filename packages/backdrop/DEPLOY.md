@@ -314,12 +314,9 @@ Paste:
 
 ```bash
 #!/bin/bash
-# Wait until the Backdrop backend is listening before opening the browser. /healthz returns 503
-# until a browser attaches (which is us), so we just wait for *any* HTTP response — 000 means
-# "connection refused / not up yet".
-until [ "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:4740/healthz)" != "000" ]; do
-  sleep 1
-done
+# No waiting for the backend here on purpose: the page is a local file:// and shows the idle
+# gradient even with the backend down, and its WebSocket auto-reconnects once the backend is up.
+# (An earlier version waited in a loop — a dead backend then meant "desktop, no browser, no error".)
 
 # Keep the screen awake (belt-and-braces with raspi-config's screen-blanking setting).
 xset s off
@@ -327,7 +324,10 @@ xset -dpms
 xset s noblank
 
 # Launch Chromium full-screen with no chrome, no update nags, no "restore pages" bubble.
+# --password-store=basic stops Chromium touching the GNOME keyring — without it, first launch
+# demands you create a keyring password, and every boot after that blocks on unlocking it.
 chromium-browser \
+  --password-store=basic \
   --kiosk --start-fullscreen --window-position=0,0 \
   --noerrdialogs --disable-infobars --disable-session-crashed-bubble \
   --check-for-update-interval=31536000 \
@@ -415,7 +415,8 @@ router, or rely on the `backdrop.local` name (mDNS) if your network supports it.
 | `git clone` asks for a username, then fails: _"Password authentication is not supported"_ | The repo is private and GitHub doesn't accept account passwords for git. Do step 6's `gh auth login` browser flow, then clone with `gh repo clone dylanleatham/Marquee`.                                                                                                                                                                                                                                                                                      |
 | `gh repo clone` fails: _"Could not resolve to a Repository"_                              | You're authenticated as a GitHub account that can't see the private repo — the browser you approved the device code in was signed into the wrong account. `gh auth status` shows who the Pi is logged in as; if it's wrong, `gh auth logout`, sign into github.com as the repo owner on your laptop, and rerun `gh auth login`. If the account is right but it still fails, the token lacks the `repo` scope: `gh auth refresh -h github.com -s repo`.        |
 | Blank desktop, no Backdrop page                                                           | Kiosk script didn't run. Check `~/.config/lxsession/LXDE-pi/autostart` and that `~/kiosk.sh` is executable. Are you on the X11 desktop (step 11a)?                                                                                                                                                                                                                                                                                                            |
-| Page loads but **unstyled / frozen**                                                      | The `.css`/`.js` didn't load — make sure you launched the `file://.../public/index.html` path exactly, and that you're on a build that includes this doc (older builds used absolute asset paths that break under `file://`).                                                                                                                                                                                                                                 |
+| **Blank white screen** in the kiosk                                                       | The `.css`/`.js` didn't load, so the black background never applied. Almost always: your clone predates the relative-asset-path fix (`grep styles.css ~/Marquee/packages/backdrop/public/index.html` — `href="/styles.css"` with the leading slash is the broken version). Fix: `cd ~/Marquee && git pull`. Also confirm you launched the exact `file://…/public/index.html` path.                                                                                 |
+| Chromium asks to **create/unlock a keyring password**                                     | Chromium is trying to use the GNOME keyring, which auto-login never unlocks — on a headless boot this silently blocks the kiosk. Make sure `kiosk.sh` launches Chromium with `--password-store=basic` (step 11b).                                                                                                                                                                                                                                             |
 | Idle gradient shows, but a scan does nothing                                              | Open with `?debug=1`. Red dot = backend not reachable (`systemctl status backdrop`). A "video not in library" / "video file missing" toast = the URI isn't registered or the file isn't in `media_dir` — check `journalctl -u backdrop` for the matching warning.                                                                                                                                                                                             |
 | Video registered but won't play                                                           | The file must be **H.264 in an .mp4**. Re-encode if unsure: `ffmpeg -i in.mov -c:v libx264 -pix_fmt yuv420p out.mp4`.                                                                                                                                                                                                                                                                                                                                         |
 | `401 unauthorized` from a `curl`                                                          | Shared secret mismatch — the `X-Trigger-Secret` header must equal `config.toml`'s `shared_secret`.                                                                                                                                                                                                                                                                                                                                                            |
