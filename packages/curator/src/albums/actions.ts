@@ -666,6 +666,49 @@ export async function generateCardArtSet(
   return saved;
 }
 
+/**
+ * Generate a single card-art candidate from one drafted prompt variant (Nano Banana), for the
+ * per-prompt "Generate art" buttons (ADR 0021). Unlike the whole-set job, this is a single bounded
+ * image call, so the route runs it synchronously and returns the merged candidate list. The new
+ * candidate replaces any existing one at that index and is merged into `cardArtCandidates` under a
+ * re-read (#38) so it never clobbers a sibling candidate a concurrent per-prompt/set run just wrote.
+ * Requires a Gemini client + generation enabled (opt-in); an out-of-range index is a 400.
+ */
+export async function generateCardArtOne(
+  deps: ActionDeps,
+  curatorId: string,
+  index: number,
+  opts: GenerateOptions = {},
+): Promise<AlbumAsset> {
+  const { gemini, draft } = ensureCardArtGenerable(deps, curatorId);
+  if (!Number.isInteger(index) || index < 0 || index >= draft.variants.length)
+    throw new ValidationError(
+      `variant index ${index} out of range (0..${draft.variants.length - 1})`,
+    );
+  const variant = draft.variants[index]!;
+
+  const buffer = await gemini.generateImage(
+    variant.text,
+    undefined,
+    opts.signal,
+  );
+  const candidate = ingestCardArtCandidate(
+    { paths: deps.store.paths, now: deps.now },
+    { buffer, curatorId, index, nudge: variant.nudge },
+  );
+
+  const saved = deps.store.update(curatorId, (a) => {
+    const others = (a.cardArtCandidates ?? []).filter((c) => c.index !== index);
+    a.cardArtCandidates = [...others, candidate].sort(
+      (x, y) => x.index - y.index,
+    );
+    a.status = deriveStatus(a.roadie);
+  });
+  if (!saved)
+    throw new NotFoundError(`album ${curatorId} was deleted mid-generation`);
+  return saved;
+}
+
 /** Promote a generated candidate to the attached card art (reuses the normal ingest/serve path). */
 export function selectCardArt(
   deps: ActionDeps,

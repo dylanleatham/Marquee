@@ -225,8 +225,10 @@ Roadie drafts two prompts per album: one for the visualizer video that plays on 
 the grounded two-pass drafter: pass 1 researches the album's real visual identity (cover subjects,
 booklet/music-video motifs, era aesthetic) with Google Search grounding; pass 2 turns that research
 plus the matching metaprompt (`docs/prompts/`, bundled at `gemini/metaprompts.ts`) into
-`PROMPT_VARIANTS` (5) distinct variants with variance nudges. Each drafted prompt records provenance
-(`generator: "gemini" | "template"`) and the human picks the active variant in the detail UI.
+`PROMPT_VARIANTS` (5) variants. For **video** these are distinct variance angles the human picks
+between; for **card art** they are the metaprompt's five fixed options in order (Cover Reimagining,
+Signature Motif, Visual Artist Provenance, Live Performance Era, Album Lore — ADR 0021), each
+surfaced individually. Each drafted prompt records provenance (`generator: "gemini" | "template"`).
 Grounding and structured JSON can't share one Gemini call, hence the two passes.
 
 ### Video prompt structure
@@ -260,6 +262,14 @@ Video style templates (motion-oriented):
 - `minimal_gradient` — "Nothing but a slowly shifting color gradient..."
 
 ### Card art prompt structure
+
+> **Amended 2026-07-23 by [ADR 0021](../adrs/0021-card-art-five-option-prompt-strategy.md).** On the
+> **LLM path** the card-art metaprompt now defines **five fixed-angle options** — Cover Reimagining,
+> Signature Motif, Visual Artist Provenance, Live Performance Era, Album Lore & Narrative Artifact —
+> and the drafter asks for those in order (each labelled by its option title), not generic variance
+> nudges. The detail UI surfaces all five prompts, each individually copyable and generatable
+> (per-prompt "Generate art"). The deterministic **template** shape below remains the fallback and the
+> on-demand style `redraft`.
 
 ```
 [Card art style template preamble — user-selectable]

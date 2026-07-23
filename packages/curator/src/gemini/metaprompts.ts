@@ -3,32 +3,40 @@
 // human-readable copies live in docs/prompts/; the drift-guard test (test/metaprompts.test.ts)
 // asserts these stay byte-for-byte in sync so the two never silently diverge.
 //
-// Note: the trailing "output exactly two prompts / ready-to-copy" instructions in each metaprompt
+// Note: the trailing "output exactly N prompts / ready-to-copy" instructions in each metaprompt
 // are for the manual paste-into-a-chat workflow. Roadie's drafter overrides the output format in
-// the *user* turn (N JSON variants — see gemini/draft.ts) while keeping all the style/constraint
-// guidance above; the responseSchema is authoritative for structure.
+// the *user* turn (JSON variants — see gemini/draft.ts) while keeping all the style/constraint
+// guidance above; the responseSchema is authoritative for structure. The card-art metaprompt
+// defines five *fixed* options (Cover Reimagining, Signature Motif, Visual Artist Provenance, Live
+// Performance Era, Album Lore) — the drafter's card-art override asks for those in order rather than
+// generic variance (ADR 0021).
 
-export const CARD_ART_METAPROMPT = `You are an expert AI art prompt engineer. Your task is to write two highly detailed, evocative image generation prompts designed for Nano Banana / Midjourney to produce raw trading card artwork.
+export const CARD_ART_METAPROMPT = `You are an expert AI art prompt engineer and visual design historian. Your task is to write five highly detailed, evocative image generation prompts designed for Nano Banana / Midjourney to produce raw trading card artwork based on a specific album and artist.
 
-The card canvas needs to fit a standard 3.5" x 2.5" landscape card (Aspect Ratio 7:5, or 187:137 including print bleed).
+The card canvas needs to fit a standard 3.5" x 2.5" landscape card (Aspect Ratio 7:5).
 
 I will provide you with the album and artist in this format:
 [Album Name] by [Artist Name]
 
-When I provide the album, you must output exactly two prompt options following these strict parameters:
+When I provide the album, you must first identify the actual visual artist(s), art director(s), designer(s), or photographer(s) responsible for the official album artwork and visual era.
 
-1. Visual Style: Tangible and visually rich, directly capturing the specific aesthetic elements, physical subjects, and art direction of the album's era, while remaining text-free and suitable for card art.
-2. Dimensions & Aspect Ratio: Must be in landscape orientation. Explicitly include "--ar 7:5" (or "--ar 187:137" for print-bleed-ready generation) at the end of every prompt.
+Then, output exactly five prompt options following these strict parameters:
+
+1. Visual Authenticity & Medium: Avoid generic AI-art tropes (e.g., random floating geometric shapes, generic glowing light trails, or glossy digital collages). Every prompt MUST specify a distinct, tangible artistic medium (e.g., 35mm film photography, high-contrast macro photography, screenprint, gouache painting, vintage ink illustration) that matches the artist's real-world aesthetic.
+2. Dimensions & Aspect Ratio: Must be in landscape orientation. Explicitly include "--ar 7:5" at the end of every prompt.
 3. STRICT Negative Constraints (Crucial):
    - No text, letters, logos, or characters.
-   - Full bleed, edge-to-edge artwork only (extend important visuals away from the outermost edges to allow for trimming).
+   - Full bleed, edge-to-edge artwork only (keep main focal points centered within a 144px safe boundary to allow for print trimming).
    - Absolutely no borders, frames, or physical card mockups.
    - No backgrounds representing a table, hand, or card sleeve. The output must be ONLY the raw illustration.
-4. Prompt Variations:
-   - Option 1 (The Visual Translation): Focuses directly on the primary, iconic subject matter, physical elements, and color scheme of the official front album cover.
-   - Option 2 (The Art Direction Translation): Focuses on the broader visual identity of the album era. This should pull concrete visual motifs, textures, and symbolic themes from the inner booklet artwork, music videos, promotional materials, and physical design elements associated with the release (avoiding purely abstract color patterns or mood-only descriptions).
+4. The Five Prompt Variations:
+   - Option 1 (The Cover Reimagining): A direct landscape adaptation of the primary, iconic front cover artwork, emphasizing its exact color palette, key subject, and authentic visual medium.
+   - Option 2 (The Signature Motif): Focuses on ONE specific, highly recognizable alternate physical element or scene directly associated with the artist for that album era (e.g., an iconic music video set, a signature stage prop, or a real-world location from the release cycle). Must be a grounded, physical subject—NOT an abstract interpretation.
+   - Option 3 (The Visual Artist Provenance): Explicitly names and style-matches the original visual artist, photographer, or art director who created the album art. Reinterprets the era's aesthetic strictly through their specific studio techniques, lighting setups, mediums, and artistic habits.
+   - Option 4 (The Live Performance Era): Focuses on the visual production, light design, and stage atmosphere of the album's official live tour or iconic performances. Rendered as high-contrast, atmospheric 35mm concert or architectural photography without showing clear faces of performance artists.
+   - Option 5 (The Album Lore & Narrative Artifact): A custom visual built purely around the central narrative concept or underlying theme of the album. Translates the emotional core or storyline of the record into a single, tangible, highly detailed physical object or focal scene rendered in the album's exact cinematic mood.
 
-Provide only the two ready-to-copy prompts with a brief sentence explaining the focus of each. Do not write conversational intro or outro text.`;
+At the top of your response, state the identified visual artist(s)/creative director(s). Then provide only the five ready-to-copy prompts with a brief sentence explaining the focus of each. Do not write conversational intro or outro text.`;
 
 export const VIDEO_PHOTO_METAPROMPT = `You are an expert AI video prompt engineer specializing in Gemini Omni, a model that natively understands motion, physics, and camera direction from image references. Your task is to write two highly detailed, evocative video generation prompts designed to animate a user-uploaded image reference (the album cover).
 

@@ -255,6 +255,7 @@ export function AlbumDetail() {
               type="cardArt"
               prompt={promptDrafts.cardArt}
               run={run}
+              canGenerate={gemini?.generateCardArt ?? false}
             />
           </Section>
         )}
