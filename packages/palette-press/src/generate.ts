@@ -39,7 +39,9 @@ export async function generatePalette(
 
   const { swatches, populations } = await extractSwatches(artwork, options);
   const result = postProcessPalette(swatches, options, populations);
-  const pattern = selectDefaultPattern(result);
+  const pattern = selectDefaultPattern(result, {
+    audioFeatures: metadata.audioFeatures,
+  });
 
   return {
     version: 1,
@@ -59,6 +61,14 @@ export async function generatePalette(
         : {}),
     },
     pattern,
-    meta: { generatedAt: new Date().toISOString(), generator: GENERATOR },
+    meta: {
+      generatedAt: new Date().toISOString(),
+      generator: GENERATOR,
+      // Echo audio features into the payload when the caller supplied them, so the signal that
+      // shaped the pattern travels with it (integration-contract §1). Absent for most albums today.
+      ...(metadata.audioFeatures
+        ? { audioFeatures: metadata.audioFeatures }
+        : {}),
+    },
   };
 }

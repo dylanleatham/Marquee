@@ -27,6 +27,20 @@ export type PatternParams =
   | { periodMs: number; minBrightness: number; maxBrightness: number } // pulse
   | { transitionMs: number; holdMs: number }; // crossfade
 
+/**
+ * Optional per-album audio descriptors (integration-contract §1 `meta.audioFeatures`). Present only
+ * when a generator had access — Spotify's audio-features endpoint is deprecated, so today this is a
+ * hand-authored / future-analyzer signal, not an automatic one. The producer uses it (when present)
+ * to refine pattern params — tempo-locking motion, widening dynamics with energy (ADR 0022). All
+ * fields optional; consumers ignore what they don't understand.
+ */
+export interface AudioFeatures {
+  energy?: number; // 0..1
+  valence?: number; // 0..1
+  tempo?: number; // BPM
+  danceability?: number; // 0..1
+}
+
 export interface PalettePayload {
   version: 1;
   source: {
@@ -45,12 +59,7 @@ export interface PalettePayload {
   meta?: {
     generatedAt?: string;
     generator?: string;
-    audioFeatures?: {
-      energy?: number;
-      valence?: number;
-      tempo?: number;
-      danceability?: number;
-    };
+    audioFeatures?: AudioFeatures;
   };
 }
 
@@ -143,7 +152,8 @@ const PATTERN_TYPES: PalettePayload["pattern"]["type"][] = [
 export function buildPalettePayload(asset: AlbumPaletteInput): PalettePayload {
   if (!asset.palette || asset.palette.colors.length === 0)
     throw new PaletteNotReadyError("album has no palette yet");
-  if (!asset.pattern) throw new PaletteNotReadyError("album has no pattern yet");
+  if (!asset.pattern)
+    throw new PaletteNotReadyError("album has no pattern yet");
 
   const type = (PATTERN_TYPES as string[]).includes(asset.pattern.type)
     ? (asset.pattern.type as PalettePayload["pattern"]["type"])

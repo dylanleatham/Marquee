@@ -204,7 +204,7 @@ Sketch:
 
 ## 4. Ownership of semantics
 
-- **Palette Press** decides _what colors_ and _what pattern type + params_ to send. It knows about music.
+- **Palette Press** decides _what colors_ and _what pattern type + params_ to send. It knows about music. Pattern choice is **energy-aware**: it reads a vividness score from the palette itself (vivid → `rotate`/`pulse`, muted → `crossfade`/`static`), and, when `meta.audioFeatures` is present, uses `energy` as a truer read and `tempo` to beat-lock the motion ([ADR 0022](../adrs/0022-palette-derived-motion-energy.md); palette-press-spec §7). `audioFeatures` is optional and hand-authored/analyzer-sourced — **not** auto-fetched from Spotify (deprecated endpoint) — so it's usually absent.
 - **Hue Conductor** decides _how to render_ that pattern on specific hardware in a specific room. It knows about lights.
 - Roles (`primary`/`secondary`/`accent`) are a hint; the Conductor may map them differently based on room layout (which light is "central" vs. "peripheral"). Treat them as a preference-ordered list and cycle if there are more lights than colors.
 

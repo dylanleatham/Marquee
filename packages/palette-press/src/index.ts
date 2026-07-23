@@ -5,7 +5,8 @@ export { generatePalette } from "./generate.js";
 export type { GeneratedPalettePayload } from "./generate.js";
 export { extractRawSwatches } from "./extract.js";
 export { postProcessPalette } from "./postprocess.js";
-export { selectDefaultPattern } from "./pattern.js";
+export { selectDefaultPattern, paletteEnergy } from "./pattern.js";
+export type { SelectPatternOptions } from "./pattern.js";
 
 // Lower-level color helpers, exported for testing and advanced use.
 export {
@@ -22,6 +23,7 @@ export {
 export type {
   RGB,
   AlbumMetadata,
+  AudioFeatures,
   ExtractOptions,
   PostProcessOptions,
   GenerateOptions,

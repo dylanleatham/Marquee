@@ -42,7 +42,7 @@ The queue-first workflow — Roadie does everything it can, humans work through 
 - Runtime playback (Conductor and Backdrop own that)
 - Video transcoding (validate-and-move only; reject bad formats with a clear error)
 - Multi-user or cloud sync
-- Audio-feature-driven pattern selection (Spotify Audio Features deprecated; static defaults fine)
+- **Automatic** audio-feature fetching (Spotify Audio Features deprecated). Palette Press selects patterns from palette energy instead ([ADR 0022](../adrs/0022-palette-derived-motion-energy.md)); hand-authored `audioFeatures` refine it
 - Track-level or per-side asset variation
 
 ## 4. Where Curator fits

@@ -1,6 +1,10 @@
 // Public types for Palette Press. The PalettePayload return shape comes from
 // @marquee/contracts (the integration contract is the source of truth for that).
 
+import type { AudioFeatures } from "@marquee/contracts";
+
+export type { AudioFeatures };
+
 export type RGB = [number, number, number]; // 0..255 each
 
 export interface AlbumMetadata {
@@ -9,6 +13,12 @@ export interface AlbumMetadata {
   artist?: string;
   year?: number;
   spotifyUri?: string;
+  /**
+   * Optional audio descriptors (energy/tempo/…). When present, they refine pattern selection —
+   * tempo-locking motion and widening dynamics (ADR 0022). Absent for most albums today (Spotify's
+   * audio-features endpoint is deprecated); pattern energy then comes from the palette itself.
+   */
+  audioFeatures?: AudioFeatures;
 }
 
 export interface ExtractOptions {
@@ -67,7 +77,19 @@ export type PaletteResult = Palette | InsufficientPaletteResult;
 
 export type Pattern =
   | { type: "static"; params: Record<string, never> }
-  | { type: "crossfade"; params: { transitionMs: number; holdMs: number } };
+  | { type: "crossfade"; params: { transitionMs: number; holdMs: number } }
+  | {
+      type: "rotate";
+      params: { intervalMs: number; direction: "forward" | "reverse" };
+    }
+  | {
+      type: "pulse";
+      params: {
+        periodMs: number;
+        minBrightness: number;
+        maxBrightness: number;
+      };
+    };
 
 // Preference order Vibrant swatches are considered in (best first). Drives role assignment.
 export const SWATCH_ORDER = [

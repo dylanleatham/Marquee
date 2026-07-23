@@ -20,7 +20,7 @@ Secondary: **the same album art produces the same palette every time.** Determin
 
 - Palette extraction from album art (via node-vibrant)
 - Hue-aware post-processing: gamut clamping, saturation and brightness floors, contrast filtering, role assignment
-- Default pattern selection (static/crossfade rules based on palette size)
+- Default pattern selection (energy-aware: static/crossfade for muted palettes, rotate/pulse for vivid ones — [ADR 0022](../adrs/0022-palette-derived-motion-energy.md))
 - Emit a well-typed `PalettePayload` matching the integration contract
 - Export lower-level functions (raw swatch extraction, post-processing, pattern selection) for testing and advanced use
 - Graceful handling of album covers that produce insufficient color data
@@ -29,7 +29,7 @@ Secondary: **the same album art produces the same palette every time.** Determin
 
 - Album lookup or artwork fetching (caller provides bytes)
 - Persistence, caching, or memoization (caller's responsibility)
-- Audio-feature-based pattern selection (Spotify's audio features endpoints are deprecated; default patterns are used)
+- **Automatic** audio-feature fetching (Spotify's audio-features endpoint is deprecated). Pattern selection is instead driven by energy read from the palette itself; `audioFeatures` is honored only when a caller hand-authors it — see §7 and [ADR 0022](../adrs/0022-palette-derived-motion-energy.md)
 - Track-level or per-side palette variation
 - HTTP surface, UI, or hosting — this is a library
 
@@ -78,7 +78,13 @@ export function postProcessPalette(
   populations?: SwatchPopulations, // added 2026-07-11 — enables dominant-first ordering (§6)
 ): PaletteResult;
 
-export function selectDefaultPattern(palette: Palette): Pattern;
+export function selectDefaultPattern(
+  palette: Pick<PaletteResult, "colors"> & { insufficient?: boolean },
+  opts?: { audioFeatures?: AudioFeatures }, // optional override (§7)
+): Pattern;
+
+// Exported too: the palette-energy read that drives selection (§7).
+export function paletteEnergy(colors: ReadonlyArray<{ hex: string }>): number;
 ```
 
 These exist because the testing strategy emphasizes unit tests of pure logic. Exposing each step lets tests exercise it in isolation with fixture inputs and golden outputs, rather than only end-to-end through `generatePalette`.
@@ -153,7 +159,19 @@ type InsufficientPaletteResult = {
 
 type Pattern =
   | { type: "static"; params: {} }
-  | { type: "crossfade"; params: { transitionMs: number; holdMs: number } };
+  | { type: "crossfade"; params: { transitionMs: number; holdMs: number } }
+  | {
+      type: "rotate";
+      params: { intervalMs: number; direction: "forward" | "reverse" };
+    }
+  | {
+      type: "pulse";
+      params: {
+        periodMs: number;
+        minBrightness: number;
+        maxBrightness: number;
+      };
+    };
 ```
 
 The `PalettePayload` return type comes from `@marquee/contracts`, so the integration contract is the single source of truth for that shape.
@@ -212,15 +230,38 @@ Each color also carries its `sourceSwatch` name (`"DarkVibrant"`, etc.) for debu
 
 ## 7. Pattern selection
 
-Deterministic default rules. No audio features.
+> **Updated 2026-07-23 (supersedes the original size-only, "no audio features" rules; see
+> [ADR 0022](../adrs/0022-palette-derived-motion-energy.md)).** Selection is now **energy-aware**:
+> a vivid palette earns lively motion, a muted one keeps the calm defaults it always had.
 
-| Palette color count | Pattern                                                |
-| ------------------- | ------------------------------------------------------ |
-| 1                   | `static`                                               |
-| 2                   | `crossfade` — `{ transitionMs: 8000, holdMs: 30000 }`  |
-| 3+                  | `crossfade` — `{ transitionMs: 12000, holdMs: 45000 }` |
+Deterministic and pure — energy is read from the palette, so the same palette always selects the same
+pattern (golden/caching guarantees hold).
 
-Slow, gentle, hard to make ugly. Curator's UI lets the user override on the way out for specific albums. When richer signals become available (track-level audio analysis, audio-feature return, hand-authored album metadata), the pattern-selection function is the seam to plug them into.
+**Palette energy** (`paletteEnergy`) scores how vivid a palette reads on the wall, 0..1: a blend of
+mean HSV saturation (weight 0.55) and brightness (0.45). Grey/near-black palettes score ~0; saturated,
+bright palettes score high.
+
+| Palette                  | Pattern                                                                                             |
+| ------------------------ | --------------------------------------------------------------------------------------------------- |
+| **insufficient** (any)   | `static` — colors were saturation-boosted to floors, so their energy isn't real                     |
+| 1 color, energy < 0.66   | `static`                                                                                            |
+| 1 color, energy ≥ 0.66   | `pulse` — breathes; period ≈3000→1400ms and brightness swing widen with energy                      |
+| 2+ colors, energy < 0.62 | `crossfade` — `{8000,30000}` (2 colors) / `{12000,45000}` (3+), as before                           |
+| 2+ colors, energy ≥ 0.62 | `rotate` — palette walks the room; interval ≈1600→700ms (faster at higher energy), floored at 400ms |
+
+Muted palettes are unchanged from the old rules; only vivid palettes gain motion. Curator's UI still
+lets the user override the result on the way to review.
+
+**Optional `audioFeatures` override.** `selectDefaultPattern` accepts an optional `audioFeatures`
+(from hand-authored album metadata or a future local analyzer — **not** auto-fetched from Spotify,
+whose endpoint is deprecated). When present:
+
+- `energy` (0..1) **replaces** the palette-derived read (a truer signal than the art alone).
+- `tempo` (BPM) **tempo-locks** the motion: the rotate interval / pulse period snaps to the nearest
+  whole-beat multiple, so the lights move _with_ the record.
+
+Absent — the common case today — the palette drives everything and the payload's `meta.audioFeatures`
+is omitted. Track-level or per-side variation remains out of scope (§3).
 
 ## 8. Handling insufficient palettes
 
