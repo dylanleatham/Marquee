@@ -144,7 +144,7 @@ Each state has a shape: what the album needs from you, what you do, how the UI s
 1. Land on album detail from the queue
 2. Look at the palette next to the album art. Feels right? Great. Something off? Edit the colors, adjust the pattern, or apply a template. Mark handEdited when you change.
 3. Look at the drafted **video prompt**. Copy it — copying moves the album to Awaiting Video, no confirmation step. Optionally regenerate with a different style template if the default isn't the vibe you want.
-4. Look at the drafted **card art prompt**. Copy it (or defer if you're not making a card for this album). Same template picker.
+4. Look at the drafted **card art prompts** — five fixed-angle options ([ADR 0021](../adrs/0021-card-art-five-option-prompt-strategy.md)). Copy any/all to take to Google Flow (or hit a prompt's **Generate art** to run just that one through Nano Banana), or defer if you're not making a card. Same template picker + Regenerate.
 
 **Or skip the prompt entirely.** If you already have the video — you made it by hand, it predates the album, you generated it somewhere Curator never saw — drag it onto the video drop zone right here. The album goes straight to Awaiting Preview, skipping Awaiting Video. Copying the prompt was never a precondition for having a video; it's just the usual way you get one ([ADR 0005](../adrs/0005-video-attach-does-not-require-copying-the-prompt.md)).
 
@@ -242,20 +242,22 @@ Card art is Curator-only — Backdrop and Conductor never see it. It's a physica
 
 Because it's optional and Curator-only, it doesn't fit into the queue-state model. It runs as a parallel track that touches only two of the primary states:
 
-**During "Awaiting review"**: Roadie has drafted both the video prompt and the card art prompt. You can copy either or both, or defer the card art entirely. Deferring doesn't hold up anything.
+**During "Awaiting review"**: Roadie has drafted the video prompt and the five card-art prompts. You can copy any of them, or defer the card art entirely. Deferring doesn't hold up anything.
 
 **During "Awaiting tag write"**: if a card exists (the card art file is attached), the tag write step covers both the sleeve sticker and the card sticker. Same URI on both.
 
 **Between those**, generating and attaching the card art is asynchronous from everything else. Two
 ways to get the image:
 
-- **Generate in-app (default, [ADR 0010](../adrs/0010-auto-card-art-generation-candidate-set.md)):**
-  in album detail's Card Art section, hit **"Generate options with AI"**. Curator runs each drafted
-  card-art prompt variant through Gemini (Nano Banana) and shows the results as a click-to-pick
-  thumbnail gallery; click the one you like and it becomes the attached card art. Needs a Gemini key
-  (Settings); without one the button's action just 400s and you use the manual path.
-- **Bring your own:** copy the card art prompt, generate the image in whatever tool you like, and
-  drop the PNG/JPEG on the same Card Art section. This override works with or without a Gemini key.
+- **Generate in-app (default, [ADR 0010](../adrs/0010-auto-card-art-generation-candidate-set.md) /
+  [ADR 0021](../adrs/0021-card-art-five-option-prompt-strategy.md)):** hit **"Generate options with
+  AI"** to run all five prompts through Gemini (Nano Banana) at once, or a single prompt's **Generate
+  art** to run just that angle. Either way the results land in a click-to-pick thumbnail gallery;
+  click the one you like and it becomes the attached card art. Needs a Gemini key (Settings); without
+  one the button's action just 400s and you use the manual path.
+- **Bring your own:** copy any of the five card-art prompts, generate the image in whatever tool you
+  like (e.g. Google Flow), and drop the PNG/JPEG on the same Card Art section. This override works
+  with or without a Gemini key.
 
 Then:
 

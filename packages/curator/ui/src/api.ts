@@ -402,6 +402,13 @@ export const api = {
     req<GenerationJob>(`/api/albums/${id}/card-art/generate`, {
       method: "POST",
     }),
+  // Generate a single candidate from one drafted card-art prompt variant (per-prompt button, ADR
+  // 0021). Synchronous — resolves with the merged candidate list rather than a job to poll.
+  generateCardArtOne: (id: string, index: number) =>
+    req<{ cardArtCandidates: CardArtCandidate[] }>(
+      `/api/albums/${id}/card-art/generate/${index}`,
+      { method: "POST" },
+    ),
   job: (jobId: string) => req<GenerationJob>(`/api/jobs/${jobId}`),
   // Cancel an in-flight generation job (issue #57).
   cancelJob: (jobId: string) =>

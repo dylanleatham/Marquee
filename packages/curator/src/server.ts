@@ -774,9 +774,14 @@ export function buildServer(opts: BuildOptions = {}) {
         ? { durationSec: Math.min(crossfadeSec, 2) }
         : undefined;
     try {
-      const asset = await actions.spliceVisualizer(actionDeps, curatorId, order, {
-        crossfade,
-      });
+      const asset = await actions.spliceVisualizer(
+        actionDeps,
+        curatorId,
+        order,
+        {
+          crossfade,
+        },
+      );
       // ★sync (roadie-spec §6): the album now has a playable video — push it to Backdrop.
       await backdrop.syncAlbum(asset);
       return { state: asset.roadie.state, visualizer: asset.visualizer };
@@ -795,13 +800,17 @@ export function buildServer(opts: BuildOptions = {}) {
     } catch (err) {
       return actionError(err, reply, req);
     }
-    const job = jobs.start("video", curatorId, async ({ onProgress, signal }) => {
-      const asset = await actions.generateVideoSet(actionDeps, curatorId, {
-        onProgress,
-        signal,
-      });
-      return { videoClips: asset.videoClips };
-    });
+    const job = jobs.start(
+      "video",
+      curatorId,
+      async ({ onProgress, signal }) => {
+        const asset = await actions.generateVideoSet(actionDeps, curatorId, {
+          onProgress,
+          signal,
+        });
+        return { videoClips: asset.videoClips };
+      },
+    );
     return reply.code(202).send(job);
   });
 
@@ -884,6 +893,29 @@ export function buildServer(opts: BuildOptions = {}) {
     );
     return reply.code(202).send(job);
   });
+
+  // Generate a single card-art candidate from one drafted prompt variant (Nano Banana). One bounded
+  // image call, so it runs synchronously (unlike the whole-set background job) and returns the merged
+  // candidate list. The per-prompt "Generate art" buttons drive this (ADR 0021).
+  app.post(
+    "/api/albums/:curatorId/card-art/generate/:index",
+    async (req, reply) => {
+      const { curatorId, index } = req.params as {
+        curatorId: string;
+        index: string;
+      };
+      try {
+        const asset = await actions.generateCardArtOne(
+          actionDeps,
+          curatorId,
+          Number(index),
+        );
+        return { cardArtCandidates: asset.cardArtCandidates };
+      } catch (err) {
+        return actionError(err, reply, req);
+      }
+    },
+  );
 
   // Poll a generation job's status/progress/result (issue #30). 404 once unknown/expired.
   app.get("/api/jobs/:id", async (req, reply) => {
@@ -986,7 +1018,9 @@ export function buildServer(opts: BuildOptions = {}) {
       // (non-blocking — the album is verified regardless of Backdrop reachability).
       const verify = await backdrop.verifyAlbum(asset).catch((err) => ({
         ok: false,
-        discrepancies: [`Backdrop verify unreachable: ${(err as Error).message}`],
+        discrepancies: [
+          `Backdrop verify unreachable: ${(err as Error).message}`,
+        ],
       }));
       return { state: asset.roadie.state, verify };
     } catch (err) {
@@ -1285,7 +1319,9 @@ export function buildServer(opts: BuildOptions = {}) {
     if (!discogsAuth)
       return reply
         .code(503)
-        .send({ error: "Discogs OAuth not configured (set consumer key + secret)" });
+        .send({
+          error: "Discogs OAuth not configured (set consumer key + secret)",
+        });
     try {
       return { authorizeUrl: await discogsAuth.buildAuthorizeUrl() };
     } catch (err) {
@@ -1304,9 +1340,10 @@ export function buildServer(opts: BuildOptions = {}) {
     };
     reply.type("text/html");
     if (!discogsAuth)
-      return reply.code(503).send(callbackHtml("Discogs OAuth is not configured."));
-    if (denied)
-      return reply.send(callbackHtml("Discogs login was cancelled."));
+      return reply
+        .code(503)
+        .send(callbackHtml("Discogs OAuth is not configured."));
+    if (denied) return reply.send(callbackHtml("Discogs login was cancelled."));
     if (!oauth_token || !oauth_verifier)
       return reply
         .code(400)

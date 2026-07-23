@@ -216,6 +216,94 @@ describe("generateCardArtSet", () => {
   });
 });
 
+describe("generateCardArtOne (per-prompt, ADR 0021)", () => {
+  it("generates a single candidate at the given index and stores it", async () => {
+    const s = store();
+    const id = seed(s, "aaaa1111", 5);
+    const fg = createFakeGemini({ imageBase64: pngBytes().toString("base64") });
+    const asset = await actions.generateCardArtOne(
+      deps(s, geminiWith(fg.fetch)),
+      id,
+      2,
+    );
+
+    expect(asset.cardArtCandidates).toHaveLength(1);
+    expect(asset.cardArtCandidates![0]).toMatchObject({
+      index: 2,
+      fileId: "aaaa1111-c2",
+      ext: "png",
+      nudge: "look 2",
+    });
+    expect(existsSync(s.paths.cardArtFile("aaaa1111-c2", "png"))).toBe(true);
+    // Exactly one image call for the single prompt.
+    expect(fg.calls()).toHaveLength(1);
+  });
+
+  it("merges into the existing set: keeps siblings, replaces its own index, stays sorted", async () => {
+    const s = store();
+    const id = seed(s, "bbbb2222", 5);
+    const fg = createFakeGemini({ imageBase64: pngBytes().toString("base64") });
+    const d = deps(s, geminiWith(fg.fetch));
+
+    await actions.generateCardArtOne(d, id, 3);
+    await actions.generateCardArtOne(d, id, 1);
+    // Re-generating index 3 must replace, not duplicate, that candidate.
+    const asset = await actions.generateCardArtOne(d, id, 3);
+
+    expect(asset.cardArtCandidates!.map((c) => c.index)).toEqual([1, 3]);
+  });
+
+  it("400s (ValidationError) for an out-of-range prompt index", async () => {
+    const s = store();
+    const id = seed(s, "cccc3333", 5);
+    const fg = createFakeGemini({ imageBase64: pngBytes().toString("base64") });
+    await expect(
+      actions.generateCardArtOne(deps(s, geminiWith(fg.fetch)), id, 9),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("400s when Gemini isn't configured", async () => {
+    const s = store();
+    const id = seed(s, "dddd4444", 5);
+    await expect(
+      actions.generateCardArtOne(deps(s, undefined), id, 0),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("400s when card-art generation is toggled off (opt-in)", async () => {
+    const s = store();
+    const id = seed(s, "eeee5555", 5);
+    const fg = createFakeGemini({ imageBase64: pngBytes().toString("base64") });
+    await expect(
+      actions.generateCardArtOne(
+        { store: s, prober: fakeProber(), gemini: geminiWith(fg.fetch), now },
+        id,
+        0,
+      ),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("400s when there's no card-art prompt to generate from", async () => {
+    const s = store();
+    const asset = makeAsset("ffff6666");
+    s.save(asset); // no promptDrafts
+    const fg = createFakeGemini({ imageBase64: pngBytes().toString("base64") });
+    await expect(
+      actions.generateCardArtOne(deps(s, geminiWith(fg.fetch)), "ffff6666", 0),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("propagates a generation failure (maps to 5xx)", async () => {
+    const s = store();
+    const id = seed(s, "gggg7777", 5);
+    const fg = createFakeGemini({ failStatus: 500 });
+    await expect(
+      actions.generateCardArtOne(deps(s, geminiWith(fg.fetch)), id, 0),
+    ).rejects.toMatchObject({ name: "GeminiError", status: 500 });
+    expect(s.read(id)!.cardArtCandidates).toBeUndefined();
+  });
+});
+
 describe("selectCardArt", () => {
   it("promotes a candidate to the attached card art", async () => {
     const s = store();

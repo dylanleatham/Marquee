@@ -49,85 +49,190 @@ function pickFile(onFile: (f: File) => void) {
   };
 }
 
-/**
- * A drafted prompt. Grounded LLM drafts carry several variants (the human picks one); template
- * drafts carry a single one. Copy hands off the active variant; the template <select> reruns the
- * deterministic template; "Regenerate with AI" re-runs the grounded LLM drafter.
- */
-export function PromptBlock({
+/** Shared prompt header: provenance badge, "Regenerate with AI", and the template style <select>. */
+function PromptHead({
   curatorId,
   type,
   prompt,
   run,
+  children,
 }: {
   curatorId: string;
   type: PromptType;
   prompt: DraftedPrompt;
   run: Run;
+  /** Type-specific trailing control(s) — e.g. the video "Copy prompt" button. */
+  children?: React.ReactNode;
 }) {
-  const [copied, setCopied] = useState(false);
   // A template change re-runs the deterministic drafter server-side; disable the <select> (not a
   // button, so no AsyncButton) while that round-trips so it can't be spammed (issue #62).
   const [redrafting, wrapRedraft] = usePending();
   const templates = type === "video" ? VIDEO_TEMPLATES : CARD_ART_TEMPLATES;
   const defaultTemplate = templates[0];
   const isAI = prompt.generator === "gemini";
+  return (
+    <div className="prompt__head">
+      <span
+        className={`badge ${isAI ? "badge--ai" : "badge--template"}`}
+        title={
+          isAI
+            ? "Grounded, LLM-authored — references real details of this album"
+            : "Deterministic template fallback"
+        }
+      >
+        {isAI ? "AI · grounded" : "Template"}
+      </span>
+      <AsyncButton
+        className="btn btn--sm"
+        onClick={() => run(() => api.regeneratePromptAI(curatorId, type))}
+        pendingLabel="Regenerating…"
+        title="Re-draft with Gemini, grounded in real album details"
+      >
+        Regenerate with AI
+      </AsyncButton>
+      <select
+        className="select"
+        value={prompt.template ?? defaultTemplate}
+        aria-label="prompt template"
+        disabled={redrafting}
+        onChange={(e) =>
+          wrapRedraft(() =>
+            run(() => api.redraftPrompt(curatorId, type, e.target.value)),
+          )
+        }
+      >
+        {templates.map((t) => (
+          <option key={t} value={t}>
+            {t}
+          </option>
+        ))}
+      </select>
+      {children}
+    </div>
+  );
+}
+
+/** Best-effort clipboard write — a denied permission / unfocused doc must never strand the album. */
+const writeClipboard = (text: string) =>
+  navigator.clipboard.writeText(text).catch(() => {});
+
+/**
+ * The card-art prompt set (ADR 0021): the five fixed-angle prompts, each surfaced in full with its
+ * own Copy (to take to Google Flow / Midjourney by hand) and — when API generation is enabled — its
+ * own "Generate art" button that runs that one prompt against Nano Banana and drops the result into
+ * the candidate gallery below. Distinct from the single-video prompt, where you pick one variant.
+ */
+function CardArtPrompts({
+  curatorId,
+  prompt,
+  run,
+  canGenerate,
+}: {
+  curatorId: string;
+  prompt: DraftedPrompt;
+  run: Run;
+  /** API card-art generation is opt-in (Settings); off → no per-prompt "Generate art" button. */
+  canGenerate: boolean;
+}) {
+  // Which prompt's Copy most recently fired, for the transient "Copied ✓" affordance.
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const copy = (i: number, text: string) => {
+    void writeClipboard(text);
+    setCopiedIndex(i);
+    setTimeout(() => setCopiedIndex((cur) => (cur === i ? null : cur)), 1500);
+    // Copying a card-art prompt is bookkeeping only (ADR 0005) — records copiedAt, no transition.
+    run(() => api.markPromptCopied(curatorId, "cardArt"));
+  };
+  return (
+    <div className="prompt">
+      <PromptHead
+        curatorId={curatorId}
+        type="cardArt"
+        prompt={prompt}
+        run={run}
+      />
+      <ol className="prompt__list">
+        {prompt.variants.map((v, i) => (
+          <li key={i} className="prompt__item">
+            <div className="prompt__item-head">
+              <span className="chip chip--static">
+                {i + 1}. {v.nudge || `Option ${i + 1}`}
+              </span>
+              <button
+                className="btn btn--primary btn--sm"
+                onClick={() => copy(i, v.text)}
+              >
+                {copiedIndex === i ? "Copied ✓" : "Copy"}
+              </button>
+              {canGenerate && (
+                <AsyncButton
+                  className="btn btn--sm"
+                  onClick={() =>
+                    run(() => api.generateCardArtOne(curatorId, i))
+                  }
+                  pendingLabel="Generating…"
+                  title="Generate a card-art option from this prompt with Gemini (Nano Banana)"
+                >
+                  Generate art
+                </AsyncButton>
+              )}
+            </div>
+            <pre className="prompt__text">{v.text}</pre>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+/**
+ * A drafted prompt. The video prompt is a single hand-off: grounded LLM drafts carry several
+ * variants (the human picks one) and Copy hands off the active one; template drafts carry one. Card
+ * art instead surfaces every prompt with its own Copy + Generate (ADR 0021) via CardArtPrompts. The
+ * template <select> reruns the deterministic template; "Regenerate with AI" re-runs the LLM drafter.
+ */
+export function PromptBlock({
+  curatorId,
+  type,
+  prompt,
+  run,
+  canGenerate = false,
+}: {
+  curatorId: string;
+  type: PromptType;
+  prompt: DraftedPrompt;
+  run: Run;
+  /** Card art only: whether the per-prompt "Generate art" buttons are shown (API generation opt-in). */
+  canGenerate?: boolean;
+}) {
+  const [copied, setCopied] = useState(false);
+  if (type === "cardArt")
+    return (
+      <CardArtPrompts
+        curatorId={curatorId}
+        prompt={prompt}
+        run={run}
+        canGenerate={canGenerate}
+      />
+    );
+
   const multiple = prompt.variants.length > 1;
-  // Copying the prompt *is* the signal (ADR 0005) — no second "Mark copied" click. The server
-  // decides what that means: for the video prompt at review it advances to awaiting_video; for
-  // card art it's bookkeeping. The clipboard write is best-effort on purpose: a denied permission
-  // or unfocused document must not strand the album at review, and the text is on screen to take
-  // by hand either way. The click is the signal, not the clipboard.
+  // Copying the prompt *is* the signal (ADR 0005) — no second "Mark copied" click. For the video
+  // prompt at review it advances the album to awaiting_video. The clipboard write is best-effort:
+  // the text is on screen to take by hand, so a denied permission must not strand the album.
   const copy = async () => {
-    await navigator.clipboard
-      .writeText(activePromptText(prompt))
-      .catch(() => {});
+    await writeClipboard(activePromptText(prompt));
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
     run(() => api.markPromptCopied(curatorId, type));
   };
   return (
     <div className="prompt">
-      <div className="prompt__head">
-        <span
-          className={`badge ${isAI ? "badge--ai" : "badge--template"}`}
-          title={
-            isAI
-              ? "Grounded, LLM-authored — references real details of this album"
-              : "Deterministic template fallback"
-          }
-        >
-          {isAI ? "AI · grounded" : "Template"}
-        </span>
-        <AsyncButton
-          className="btn btn--sm"
-          onClick={() => run(() => api.regeneratePromptAI(curatorId, type))}
-          pendingLabel="Regenerating…"
-          title="Re-draft with Gemini, grounded in real album details"
-        >
-          Regenerate with AI
-        </AsyncButton>
-        <select
-          className="select"
-          value={prompt.template ?? defaultTemplate}
-          aria-label="prompt template"
-          disabled={redrafting}
-          onChange={(e) =>
-            wrapRedraft(() =>
-              run(() => api.redraftPrompt(curatorId, type, e.target.value)),
-            )
-          }
-        >
-          {templates.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
+      <PromptHead curatorId={curatorId} type={type} prompt={prompt} run={run}>
         <button className="btn btn--primary btn--sm" onClick={copy}>
           {copied ? "Copied ✓" : "Copy prompt"}
         </button>
-      </div>
+      </PromptHead>
       {multiple && (
         <div
           className="prompt__variants"
@@ -233,11 +338,7 @@ function SpliceControls({
         <div className="splice__excluded">
           <span className="muted">Excluded:</span>
           {excluded.map((idx) => (
-            <button
-              key={idx}
-              className="btn btn--sm"
-              onClick={() => add(idx)}
-            >
+            <button key={idx} className="btn btn--sm" onClick={() => add(idx)}>
               + {label.get(idx)}
             </button>
           ))}
@@ -249,7 +350,8 @@ function SpliceControls({
           checked={crossfade}
           onChange={(e) => setCrossfade(e.target.checked)}
         />
-        Crossfade the seams ({CROSSFADE_SEC}s) — smoother, but trims a little from each clip
+        Crossfade the seams ({CROSSFADE_SEC}s) — smoother, but trims a little
+        from each clip
       </label>
       <AsyncButton
         className="btn btn--primary btn--sm"

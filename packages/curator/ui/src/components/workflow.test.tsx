@@ -95,9 +95,14 @@ describe("PromptBlock", () => {
   // Issue #11 / ADR 0005: copying the prompt *is* the signal. A second "Mark copied" click was
   // pure ceremony — the server decides what a copy means per type (video at review advances the
   // album; card art is bookkeeping), so the button records the copy for both.
-  it.each(["video", "cardArt"] as const)(
+  // Video copies the active variant via "Copy prompt"; card art surfaces every prompt with its own
+  // per-prompt "Copy" (ADR 0021). Either way the click records the copy (no separate button).
+  it.each([
+    ["video", "Copy prompt"],
+    ["cardArt", "Copy"],
+  ] as const)(
     "copies and records the copy in one click (%s), with no separate button",
-    async (type) => {
+    async (type, label) => {
       const run = vi.fn();
       render(
         <PromptBlock
@@ -109,7 +114,7 @@ describe("PromptBlock", () => {
       );
       expect(screen.queryByText("Mark copied →")).toBeNull();
 
-      fireEvent.click(screen.getByText("Copy prompt"));
+      fireEvent.click(screen.getByText(label));
       expect(writeText).toHaveBeenCalledWith("draft text");
       await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
     },
@@ -202,6 +207,91 @@ describe("PromptBlock", () => {
     await waitFor(() =>
       expect(screen.getByText("Regenerate with AI")).toBeTruthy(),
     );
+  });
+});
+
+// The card-art prompt block surfaces all five prompts, each individually copyable and (when API
+// generation is enabled) individually generatable against Nano Banana (ADR 0021).
+describe("PromptBlock — card art prompt set (ADR 0021)", () => {
+  const fivePrompts: DraftedPrompt = {
+    variants: [
+      { text: "cover prompt --ar 7:5", nudge: "Cover Reimagining" },
+      { text: "motif prompt --ar 7:5", nudge: "Signature Motif" },
+      { text: "artist prompt --ar 7:5", nudge: "Visual Artist Provenance" },
+      { text: "live prompt --ar 7:5", nudge: "Live Performance Era" },
+      { text: "lore prompt --ar 7:5", nudge: "Album Lore" },
+    ],
+    selectedIndex: 0,
+    generator: "gemini",
+    generatedAt: "2026-07-23T00:00:00Z",
+  };
+  // A `run` that actually invokes the action so the api spy records the call.
+  const run = ((fn: () => Promise<unknown>) => {
+    void fn();
+    return Promise.resolve();
+  }) as unknown as Parameters<typeof PromptBlock>[0]["run"];
+
+  it("renders every prompt in full, each with its own Copy button", () => {
+    render(
+      <PromptBlock
+        curatorId="abcd1234"
+        type="cardArt"
+        prompt={fivePrompts}
+        run={vi.fn()}
+      />,
+    );
+    // All five prompt texts are on screen (no pick-one hiding), one per option.
+    for (const v of fivePrompts.variants)
+      expect(screen.getByText(v.text)).toBeTruthy();
+    expect(screen.getByText(/Cover Reimagining/)).toBeTruthy();
+    expect(screen.getAllByText("Copy")).toHaveLength(5);
+  });
+
+  it("copies the specific prompt whose Copy button is clicked", () => {
+    render(
+      <PromptBlock
+        curatorId="abcd1234"
+        type="cardArt"
+        prompt={fivePrompts}
+        run={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getAllByText("Copy")[2]!);
+    expect(writeText).toHaveBeenCalledWith("artist prompt --ar 7:5");
+  });
+
+  it("generates art from a single prompt against its index when enabled", async () => {
+    const gen = vi
+      .spyOn(api, "generateCardArtOne")
+      .mockResolvedValue({ cardArtCandidates: [] });
+    render(
+      <PromptBlock
+        curatorId="abcd1234"
+        type="cardArt"
+        prompt={fivePrompts}
+        run={run}
+        canGenerate
+      />,
+    );
+    const buttons = screen.getAllByText("Generate art");
+    expect(buttons).toHaveLength(5);
+    fireEvent.click(buttons[3]!); // the "Live Performance Era" prompt → index 3
+    await waitFor(() => expect(gen).toHaveBeenCalledWith("abcd1234", 3));
+  });
+
+  it("hides the per-prompt Generate art buttons when API generation is off", () => {
+    render(
+      <PromptBlock
+        curatorId="abcd1234"
+        type="cardArt"
+        prompt={fivePrompts}
+        run={vi.fn()}
+        canGenerate={false}
+      />,
+    );
+    expect(screen.queryByText("Generate art")).toBeNull();
+    // Copy is always available so you can still take the prompt to Google Flow by hand.
+    expect(screen.getAllByText("Copy")).toHaveLength(5);
   });
 });
 
@@ -362,7 +452,10 @@ describe("VideoSection — splice (issue #29)", () => {
   it("splices all clips in index order by default", async () => {
     const splice = vi
       .spyOn(api, "spliceVisualizer")
-      .mockResolvedValue({ state: "awaiting_preview", visualizer: {} as never });
+      .mockResolvedValue({
+        state: "awaiting_preview",
+        visualizer: {} as never,
+      });
     render(
       <VideoSection curatorId="abcd1234" asset={withClips(3)} run={run} />,
     );
@@ -376,7 +469,10 @@ describe("VideoSection — splice (issue #29)", () => {
   it("reorders and deselects before splicing", async () => {
     const splice = vi
       .spyOn(api, "spliceVisualizer")
-      .mockResolvedValue({ state: "awaiting_preview", visualizer: {} as never });
+      .mockResolvedValue({
+        state: "awaiting_preview",
+        visualizer: {} as never,
+      });
     render(
       <VideoSection curatorId="abcd1234" asset={withClips(3)} run={run} />,
     );
@@ -392,11 +488,16 @@ describe("VideoSection — splice (issue #29)", () => {
   it("sends the crossfade duration when the seam-crossfade box is checked (issue #56)", async () => {
     const splice = vi
       .spyOn(api, "spliceVisualizer")
-      .mockResolvedValue({ state: "awaiting_preview", visualizer: {} as never });
+      .mockResolvedValue({
+        state: "awaiting_preview",
+        visualizer: {} as never,
+      });
     render(
       <VideoSection curatorId="abcd1234" asset={withClips(2)} run={run} />,
     );
-    fireEvent.click(screen.getByRole("checkbox", { name: /Crossfade the seams/ }));
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /Crossfade the seams/ }),
+    );
     fireEvent.click(screen.getByText(/Splice 2 clips into loop/));
     await waitFor(() =>
       expect(splice).toHaveBeenCalledWith("abcd1234", [0, 1], 0.5),

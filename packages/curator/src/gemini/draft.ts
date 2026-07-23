@@ -70,6 +70,25 @@ function draftUserPrompt(
   research: string,
   n: number,
 ): string {
+  // The card-art metaprompt (ADR 0021) defines five *fixed* options with distinct angles (Cover
+  // Reimagining, Signature Motif, Visual Artist Provenance, Live Performance Era, Album Lore) rather
+  // than free "vary framing/lighting" variance. Ask the model to produce those options in order and
+  // label each with its option title, so the surfaced set matches the metaprompt's structure. Video
+  // keeps the deliberate-variance instruction (one loop, several angles to choose from).
+  const varianceLine =
+    type === "cardArt"
+      ? `Produce exactly ${n} prompts — the five defined options, in order (Option 1 → Option ${n}). ` +
+        "Do not collapse or merge them: each must honor its option's distinct angle, and every prompt " +
+        'must include a tangible medium, the negative constraints, and the "--ar 7:5" suffix. Before ' +
+        "writing, identify the album's real visual artist(s)/art director(s) and use that to ground " +
+        "Option 3 and the mediums throughout."
+      : `Produce exactly ${n} distinct prompt variants that follow every style rule and negative ` +
+        "constraint above. Introduce deliberate variance across the variants — vary framing, focal " +
+        "subject, motion emphasis, lighting, and texture so the outputs differ meaningfully.";
+  const nudgeHint =
+    type === "cardArt"
+      ? 'that option\'s short title (e.g. "Cover Reimagining", "Signature Motif")'
+      : "a short 2–5 word label for that variant's angle";
   const animateLine =
     type === "video"
       ? "Each prompt animates the album cover image as its visual reference — explicitly describe " +
@@ -85,12 +104,9 @@ function draftUserPrompt(
     research,
     "",
     "OUTPUT OVERRIDE (authoritative — supersedes any earlier instruction about the number of " +
-      `options or ready-to-copy formatting): Produce exactly ${n} distinct prompt variants that ` +
-      "follow every style rule and negative constraint above. Introduce deliberate variance across " +
-      "the variants — vary framing, focal subject, motion emphasis, lighting, and texture so the " +
-      `outputs differ meaningfully.\n${animateLine}Return JSON matching the schema: a "variants" ` +
-      'array where each item has "text" (the full, ready-to-use prompt) and "nudge" (a short 2–5 ' +
-      "word label for that variant's angle).",
+      `options or ready-to-copy formatting): ${varianceLine}\n${animateLine}Return JSON matching ` +
+      'the schema: a "variants" array where each item has "text" (the full, ready-to-use prompt) ' +
+      `and "nudge" (${nudgeHint}).`,
   ].join("\n");
 }
 

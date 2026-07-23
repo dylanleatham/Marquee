@@ -552,6 +552,34 @@ em {
   border-color: color-mix(in srgb, var(--cyan) 50%, transparent);
   background: color-mix(in srgb, var(--cyan) 12%, transparent);
 }
+/* a non-interactive chip: the option label heading each card-art prompt (ADR 0021) */
+.chip--static {
+  cursor: default;
+  margin-right: auto;
+}
+.chip--static:hover {
+  border-color: var(--line);
+}
+/* the card-art prompt set: every prompt in full, each with its own Copy + Generate (ADR 0021) */
+.prompt__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.prompt__item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.prompt__item-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 /* generated card-art candidates: a click-to-pick thumbnail grid */
 .cardart {
   display: flex;

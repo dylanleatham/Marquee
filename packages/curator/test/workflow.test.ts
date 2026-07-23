@@ -511,6 +511,33 @@ describe("card-art generation (routes)", () => {
     expect(job.status).toBe("failed");
     expect(job.error).toBeTruthy();
   });
+
+  // Per-prompt generation (ADR 0021): one image from one prompt, synchronously, into the same set.
+  it("generates a single candidate from one prompt and serves it", async () => {
+    const { app, curatorId } = await serverWithCardPrompt();
+    const gen = await post(app, `/api/albums/${curatorId}/card-art/generate/2`);
+    expect(gen.statusCode).toBe(200);
+    expect(gen.json().cardArtCandidates).toHaveLength(1);
+    expect(gen.json().cardArtCandidates[0]).toMatchObject({ index: 2 });
+    const img = await app.inject({
+      method: "GET",
+      url: `/api/albums/${curatorId}/card-art/candidate/2`,
+    });
+    expect(img.statusCode).toBe(200);
+    expect(img.headers["content-type"]).toContain("image/png");
+  });
+
+  it("400s a per-prompt generate for an out-of-range index", async () => {
+    const { app, curatorId } = await serverWithCardPrompt();
+    const res = await post(app, `/api/albums/${curatorId}/card-art/generate/9`);
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("400s a per-prompt generate when generation is off (opt-in)", async () => {
+    const { app, curatorId } = await serverWithCardPrompt("disabled");
+    const res = await post(app, `/api/albums/${curatorId}/card-art/generate/0`);
+    expect(res.statusCode).toBe(400);
+  });
 });
 
 describe("video generation (routes)", () => {
@@ -665,7 +692,10 @@ describe("video splice (routes) — issue #29", () => {
     store.save(asset);
     mkdirSync(store.paths.visualizers, { recursive: true });
     for (const c of asset.videoClips)
-      writeFileSync(store.paths.visualizerFile(c.fileId), Buffer.from(c.fileId));
+      writeFileSync(
+        store.paths.visualizerFile(c.fileId),
+        Buffer.from(c.fileId),
+      );
     return { app, store, curatorId };
   }
 
