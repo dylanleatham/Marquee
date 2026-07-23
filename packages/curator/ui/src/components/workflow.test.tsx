@@ -95,14 +95,11 @@ describe("PromptBlock", () => {
   // Issue #11 / ADR 0005: copying the prompt *is* the signal. A second "Mark copied" click was
   // pure ceremony — the server decides what a copy means per type (video at review advances the
   // album; card art is bookkeeping), so the button records the copy for both.
-  // Video copies the active variant via "Copy prompt"; card art surfaces every prompt with its own
-  // per-prompt "Copy" (ADR 0021). Either way the click records the copy (no separate button).
-  it.each([
-    ["video", "Copy prompt"],
-    ["cardArt", "Copy"],
-  ] as const)(
+  // Both video and card art surface every prompt with its own per-prompt "Copy" (ADR 0021/0022).
+  // Either way the click records the copy (no separate button).
+  it.each(["video", "cardArt"] as const)(
     "copies and records the copy in one click (%s), with no separate button",
-    async (type, label) => {
+    async (type) => {
       const run = vi.fn();
       render(
         <PromptBlock
@@ -114,7 +111,7 @@ describe("PromptBlock", () => {
       );
       expect(screen.queryByText("Mark copied →")).toBeNull();
 
-      fireEvent.click(screen.getByText(label));
+      fireEvent.click(screen.getByText("Copy"));
       expect(writeText).toHaveBeenCalledWith("draft text");
       await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
     },
@@ -133,7 +130,7 @@ describe("PromptBlock", () => {
         run={run}
       />,
     );
-    fireEvent.click(screen.getByText("Copy prompt"));
+    fireEvent.click(screen.getByText("Copy"));
     await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
   });
 
@@ -153,7 +150,7 @@ describe("PromptBlock", () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 
-  it("shows the active variant text and offers a chip per variant (LLM draft)", () => {
+  it("surfaces every video variant in full, each copyable (LLM draft)", () => {
     const run = vi.fn();
     render(
       <PromptBlock
@@ -163,12 +160,16 @@ describe("PromptBlock", () => {
         run={run}
       />,
     );
-    // Active variant (index 0) is shown; the AI-provenance badge is present.
+    // Both variant texts are shown (no pick-one hiding); the AI-provenance badge is present.
     expect(screen.getByText("first variant text")).toBeTruthy();
+    expect(screen.getByText("second variant text")).toBeTruthy();
     expect(screen.getByText(/AI · grounded/)).toBeTruthy();
-    // Selecting the second variant routes through run.
-    fireEvent.click(screen.getByText(/atmospheric shimmer/));
-    expect(run).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/atmospheric shimmer/)).toBeTruthy();
+    // One Copy button per variant; clicking the second copies its text.
+    const copies = screen.getAllByText("Copy");
+    expect(copies).toHaveLength(2);
+    fireEvent.click(copies[1]!);
+    expect(writeText).toHaveBeenCalledWith("second variant text");
   });
 
   it("regenerates with AI through run", () => {
@@ -292,6 +293,72 @@ describe("PromptBlock — card art prompt set (ADR 0021)", () => {
     expect(screen.queryByText("Generate art")).toBeNull();
     // Copy is always available so you can still take the prompt to Google Flow by hand.
     expect(screen.getAllByText("Copy")).toHaveLength(5);
+  });
+});
+
+// The video prompt block surfaces all prompts, each individually copyable and (when API generation is
+// enabled) individually generatable as an Omni clip via a per-prompt background job (ADR 0022).
+describe("PromptBlock — video prompt set (ADR 0022)", () => {
+  const videoPrompts: DraftedPrompt = {
+    variants: [
+      { text: "cover in motion", nudge: "Cover in Motion" },
+      { text: "signature motif", nudge: "Signature Motif" },
+      { text: "live era", nudge: "Live Performance Era" },
+    ],
+    selectedIndex: 0,
+    generator: "gemini",
+    generatedAt: "2026-07-23T00:00:00Z",
+  };
+
+  it("renders every video prompt in full, each with its own Copy button", () => {
+    render(
+      <PromptBlock
+        curatorId="abcd1234"
+        type="video"
+        prompt={videoPrompts}
+        run={vi.fn()}
+      />,
+    );
+    for (const v of videoPrompts.variants)
+      expect(screen.getByText(v.text)).toBeTruthy();
+    expect(screen.getByText(/Cover in Motion/)).toBeTruthy();
+    expect(screen.getAllByText("Copy")).toHaveLength(3);
+  });
+
+  it("generates a clip from a single prompt against its index when enabled", async () => {
+    const gen = vi
+      .spyOn(api, "generateVideoOne")
+      .mockResolvedValue(doneJob("video"));
+    // The per-prompt hooks re-attach on mount via albumJobs — stub it so none are found running.
+    vi.spyOn(api, "albumJobs").mockResolvedValue({ jobs: [] });
+    render(
+      <PromptBlock
+        curatorId="abcd1234"
+        type="video"
+        prompt={videoPrompts}
+        run={vi.fn()}
+        canGenerate
+        refresh={vi.fn()}
+      />,
+    );
+    const buttons = screen.getAllByText("Generate clip");
+    expect(buttons).toHaveLength(3);
+    fireEvent.click(buttons[2]!); // the "Live Performance Era" prompt → index 2
+    await waitFor(() => expect(gen).toHaveBeenCalledWith("abcd1234", 2));
+  });
+
+  it("hides the per-prompt Generate clip buttons when API generation is off", () => {
+    render(
+      <PromptBlock
+        curatorId="abcd1234"
+        type="video"
+        prompt={videoPrompts}
+        run={vi.fn()}
+        canGenerate={false}
+      />,
+    );
+    expect(screen.queryByText("Generate clip")).toBeNull();
+    expect(screen.getAllByText("Copy")).toHaveLength(3);
   });
 });
 
@@ -450,12 +517,10 @@ describe("VideoSection — splice (issue #29)", () => {
   }) as unknown as Parameters<typeof VideoSection>[0]["run"];
 
   it("splices all clips in index order by default", async () => {
-    const splice = vi
-      .spyOn(api, "spliceVisualizer")
-      .mockResolvedValue({
-        state: "awaiting_preview",
-        visualizer: {} as never,
-      });
+    const splice = vi.spyOn(api, "spliceVisualizer").mockResolvedValue({
+      state: "awaiting_preview",
+      visualizer: {} as never,
+    });
     render(
       <VideoSection curatorId="abcd1234" asset={withClips(3)} run={run} />,
     );
@@ -467,12 +532,10 @@ describe("VideoSection — splice (issue #29)", () => {
   });
 
   it("reorders and deselects before splicing", async () => {
-    const splice = vi
-      .spyOn(api, "spliceVisualizer")
-      .mockResolvedValue({
-        state: "awaiting_preview",
-        visualizer: {} as never,
-      });
+    const splice = vi.spyOn(api, "spliceVisualizer").mockResolvedValue({
+      state: "awaiting_preview",
+      visualizer: {} as never,
+    });
     render(
       <VideoSection curatorId="abcd1234" asset={withClips(3)} run={run} />,
     );
@@ -486,12 +549,10 @@ describe("VideoSection — splice (issue #29)", () => {
   });
 
   it("sends the crossfade duration when the seam-crossfade box is checked (issue #56)", async () => {
-    const splice = vi
-      .spyOn(api, "spliceVisualizer")
-      .mockResolvedValue({
-        state: "awaiting_preview",
-        visualizer: {} as never,
-      });
+    const splice = vi.spyOn(api, "spliceVisualizer").mockResolvedValue({
+      state: "awaiting_preview",
+      visualizer: {} as never,
+    });
     render(
       <VideoSection curatorId="abcd1234" asset={withClips(2)} run={run} />,
     );

@@ -105,6 +105,9 @@ export function useGenerationJob(
   starter: () => Promise<GenerationJob>,
   onDone: () => void,
   enabled = true,
+  /** For a per-prompt job (ADR 0021/0022): only re-attach to a running job for this prompt index.
+   * Omit (undefined) for a whole-set job — which matches only the set job, not any per-prompt one. */
+  index?: number,
 ): GenerationJobHook {
   const [status, setStatus] = useState<GenerationJobHook["status"]>("idle");
   const [progress, setProgress] = useState<{
@@ -186,7 +189,8 @@ export function useGenerationJob(
     setStatus("running");
     setError(null);
     setProgress({ done: 0, total: 0 });
-    starterRef.current()
+    starterRef
+      .current()
       .then(adopt)
       .catch((err) => {
         setStatus("failed");
@@ -203,7 +207,11 @@ export function useGenerationJob(
       .albumJobs(curatorId, kind)
       .then(({ jobs }) => {
         if (cancelled) return;
-        const running = jobs.find((j) => j.status === "running");
+        // Match this hook's scope: a per-prompt hook (index set) re-attaches only to its own index;
+        // a whole-set hook (index undefined) re-attaches only to the set job, never a per-prompt one.
+        const running = jobs.find(
+          (j) => j.status === "running" && j.index === index,
+        );
         if (running) adopt(running);
       })
       .catch(() => {
@@ -213,7 +221,7 @@ export function useGenerationJob(
       cancelled = true;
       stop();
     };
-  }, [curatorId, kind, adopt, enabled]);
+  }, [curatorId, kind, adopt, enabled, index]);
 
   return { status, progress, error, start, cancel };
 }

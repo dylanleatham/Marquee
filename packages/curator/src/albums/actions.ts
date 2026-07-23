@@ -26,6 +26,7 @@ import {
   type PromptType,
   type DraftOptions,
   type DraftedPrompt,
+  type PromptVariant,
 } from "../roadie/prompts.js";
 import { draftOnePromptWithGemini } from "../gemini/draft.js";
 import type { GeminiClient } from "../gemini/client.js";
@@ -391,9 +392,23 @@ export function assertGenerable(
   deps: ActionDeps,
   curatorId: string,
   kind: JobKind,
+  index?: number,
 ): void {
-  if (kind === "video") ensureVideoGenerable(deps, curatorId);
-  else ensureCardArtGenerable(deps, curatorId);
+  const { draft } =
+    kind === "video"
+      ? ensureVideoGenerable(deps, curatorId)
+      : ensureCardArtGenerable(deps, curatorId);
+  // For a per-prompt generation, the requested variant index must exist — reject up front so a bad
+  // index is a 4xx precheck, not a job/action failure later.
+  if (index !== undefined) assertVariantIndex(draft, index);
+}
+
+/** Validate a per-prompt variant index against a drafted prompt, or throw a 400 ValidationError. */
+function assertVariantIndex(draft: DraftedPrompt, index: number): void {
+  if (!Number.isInteger(index) || index < 0 || index >= draft.variants.length)
+    throw new ValidationError(
+      `variant index ${index} out of range (0..${draft.variants.length - 1})`,
+    );
 }
 
 /**
@@ -435,6 +450,58 @@ function ensureVideoGenerable(
  * a partial failure keeps the successes — only an all-fail throws (as a 5xx, an upstream fault).
  * Long-running — the server runs it as a background job (issue #30 / ADR 0018), passing `onProgress`.
  */
+/**
+ * Generate one visualizer clip from a single prompt variant: Omni image-to-video off the cover, then
+ * ingest to `visualizers/{curatorId}-v{index}.mp4`. Cleans up its temp file on a validation failure so
+ * failed clips don't leak into /incoming/. Shared by the whole-set and per-prompt generation paths.
+ */
+async function generateVideoClip(
+  deps: ActionDeps,
+  gemini: GeminiClient,
+  curatorId: string,
+  cover: Buffer,
+  variant: PromptVariant,
+  index: number,
+  now: () => string,
+  signal?: AbortSignal,
+): Promise<VideoClip> {
+  const bytes = await gemini.generateVideo(
+    variant.text,
+    cover,
+    undefined,
+    signal,
+  );
+  const tmp = deps.store.paths.incomingFile(
+    `.vidgen-${curatorId}-${index}-${randomUUID()}.mp4`,
+  );
+  await writeFile(tmp, bytes);
+  // ingestVideo removes the temp on success (removeSrc), but throws *before* that on a validation
+  // failure — clean it up ourselves so failed clips don't leak files in /incoming/.
+  let vis;
+  try {
+    vis = await ingestVideo(
+      { prober: deps.prober, paths: deps.store.paths, now: deps.now },
+      {
+        srcPath: tmp,
+        fileId: `${curatorId}-v${index}`,
+        originalFilename: `clip-${variant.nudge ?? index}.mp4`,
+        removeSrc: true,
+      },
+    );
+  } catch (err) {
+    rmSync(tmp, { force: true });
+    throw err;
+  }
+  return {
+    index,
+    fileId: vis.fileId,
+    nudge: variant.nudge,
+    generatedAt: now(),
+    ...(vis.durationSec !== undefined ? { durationSec: vis.durationSec } : {}),
+    ...(vis.resolution ? { resolution: vis.resolution } : {}),
+  };
+}
+
 export async function generateVideoSet(
   deps: ActionDeps,
   curatorId: string,
@@ -448,45 +515,9 @@ export async function generateVideoSet(
   // isolated and the set keeps the rest (mirrors generateCardArtSet).
   mkdirSync(deps.store.paths.incoming, { recursive: true });
   const results = await settleWithProgress(
-    draft.variants.map(async (v, i): Promise<VideoClip> => {
-      const bytes = await gemini.generateVideo(
-        v.text,
-        cover,
-        undefined,
-        opts.signal,
-      );
-      const tmp = deps.store.paths.incomingFile(
-        `.vidgen-${curatorId}-${i}-${randomUUID()}.mp4`,
-      );
-      await writeFile(tmp, bytes);
-      // ingestVideo removes the temp on success (removeSrc), but throws *before* that on a
-      // validation failure — clean it up ourselves so failed clips don't leak files in /incoming/.
-      let vis;
-      try {
-        vis = await ingestVideo(
-          { prober: deps.prober, paths: deps.store.paths, now: deps.now },
-          {
-            srcPath: tmp,
-            fileId: `${curatorId}-v${i}`,
-            originalFilename: `clip-${v.nudge ?? i}.mp4`,
-            removeSrc: true,
-          },
-        );
-      } catch (err) {
-        rmSync(tmp, { force: true });
-        throw err;
-      }
-      return {
-        index: i,
-        fileId: vis.fileId,
-        nudge: v.nudge,
-        generatedAt: now(),
-        ...(vis.durationSec !== undefined
-          ? { durationSec: vis.durationSec }
-          : {}),
-        ...(vis.resolution ? { resolution: vis.resolution } : {}),
-      };
-    }),
+    draft.variants.map((v, i) =>
+      generateVideoClip(deps, gemini, curatorId, cover, v, i, now, opts.signal),
+    ),
     opts.onProgress,
   );
 
@@ -510,6 +541,49 @@ export async function generateVideoSet(
   // Re-read + save synchronously so the slow generation above can't clobber a concurrent write (#38).
   const saved = deps.store.update(curatorId, (a) => {
     a.videoClips = clips;
+    a.status = deriveStatus(a.roadie);
+  });
+  if (!saved)
+    throw new NotFoundError(`album ${curatorId} was deleted mid-generation`);
+  return saved;
+}
+
+/**
+ * Generate a single visualizer clip from one drafted video prompt variant (ADR 0022), for the
+ * per-prompt "Generate clip" buttons. The new clip replaces any existing one at that index and is
+ * merged into `videoClips` under a re-read (#38) so it never clobbers a sibling clip a concurrent
+ * per-prompt/set run just wrote. A clip is a multi-minute Omni call, so — unlike per-prompt card art
+ * — the server runs this as a background job (issue #30 / ADR 0018), passing `onProgress`/`signal`.
+ * Requires a Gemini client + generation enabled (opt-in) + cover art; an out-of-range index is a 400.
+ */
+export async function generateVideoOne(
+  deps: ActionDeps,
+  curatorId: string,
+  index: number,
+  opts: GenerateOptions = {},
+): Promise<AlbumAsset> {
+  const { gemini, draft, coverPath } = ensureVideoGenerable(deps, curatorId);
+  assertVariantIndex(draft, index);
+  const cover = readFileSync(coverPath);
+  const now = clock(deps);
+
+  opts.onProgress?.(0, 1);
+  mkdirSync(deps.store.paths.incoming, { recursive: true });
+  const clip = await generateVideoClip(
+    deps,
+    gemini,
+    curatorId,
+    cover,
+    draft.variants[index]!,
+    index,
+    now,
+    opts.signal,
+  );
+  opts.onProgress?.(1, 1);
+
+  const saved = deps.store.update(curatorId, (a) => {
+    const others = (a.videoClips ?? []).filter((c) => c.index !== index);
+    a.videoClips = [...others, clip].sort((x, y) => x.index - y.index);
     a.status = deriveStatus(a.roadie);
   });
   if (!saved)
@@ -681,10 +755,7 @@ export async function generateCardArtOne(
   opts: GenerateOptions = {},
 ): Promise<AlbumAsset> {
   const { gemini, draft } = ensureCardArtGenerable(deps, curatorId);
-  if (!Number.isInteger(index) || index < 0 || index >= draft.variants.length)
-    throw new ValidationError(
-      `variant index ${index} out of range (0..${draft.variants.length - 1})`,
-    );
+  assertVariantIndex(draft, index);
   const variant = draft.variants[index]!;
 
   const buffer = await gemini.generateImage(

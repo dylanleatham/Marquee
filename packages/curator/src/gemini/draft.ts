@@ -15,16 +15,25 @@ import {
   type PromptVariant,
 } from "../roadie/prompts.js";
 import { GeminiError, type GeminiClient } from "./client.js";
-import { METAPROMPTS, VIDEO_ABSTRACT_METAPROMPT } from "./metaprompts.js";
+import {
+  METAPROMPTS,
+  VIDEO_METAPROMPTS,
+  type VideoStyle,
+} from "./metaprompts.js";
 
 export interface GeminiDraftOptions {
   /** Variants per type (default PROMPT_VARIANTS). */
   n?: number;
-  /** Video metaprompt style: "photo" animates the cover (default); "abstract" is motion-design. */
-  videoStyle?: "photo" | "abstract";
+  /**
+   * Video metaprompt style (ADR 0022): "narrative" is the five fixed cinematic angles (default);
+   * "photo" animates the cover; "abstract" is motion-design.
+   */
+  videoStyle?: VideoStyle;
   /** Timestamp stamped on each draft (injectable for tests). */
   now?: () => string;
 }
+
+const DEFAULT_VIDEO_STYLE: VideoStyle = "narrative";
 
 const RESEARCH_SYSTEM =
   "You are a music visual researcher. Given an album, gather concrete, factual visual details " +
@@ -54,13 +63,15 @@ const VARIANTS_SCHEMA = {
   required: ["variants"],
 } as const;
 
-const metapromptFor = (
-  type: PromptType,
-  videoStyle: "photo" | "abstract",
-): string =>
-  type === "video" && videoStyle === "abstract"
-    ? VIDEO_ABSTRACT_METAPROMPT
-    : METAPROMPTS[type];
+const metapromptFor = (type: PromptType, videoStyle: VideoStyle): string =>
+  type === "video" ? VIDEO_METAPROMPTS[videoStyle] : METAPROMPTS[type];
+
+/**
+ * Whether this draft uses the fixed five-option structure (card art, and the "narrative" video
+ * style) rather than generic variance. Both ask for the metaprompt's defined options in order.
+ */
+const usesFixedOptions = (type: PromptType, videoStyle: VideoStyle): boolean =>
+  type === "cardArt" || (type === "video" && videoStyle === "narrative");
 
 /** Compose the user turn for the drafting pass: album facts + research + the N-variant override. */
 function draftUserPrompt(
@@ -69,26 +80,39 @@ function draftUserPrompt(
   colors: PaletteColorRef[],
   research: string,
   n: number,
+  videoStyle: VideoStyle,
 ): string {
-  // The card-art metaprompt (ADR 0021) defines five *fixed* options with distinct angles (Cover
-  // Reimagining, Signature Motif, Visual Artist Provenance, Live Performance Era, Album Lore) rather
-  // than free "vary framing/lighting" variance. Ask the model to produce those options in order and
-  // label each with its option title, so the surfaced set matches the metaprompt's structure. Video
-  // keeps the deliberate-variance instruction (one loop, several angles to choose from).
-  const varianceLine =
-    type === "cardArt"
-      ? `Produce exactly ${n} prompts — the five defined options, in order (Option 1 → Option ${n}). ` +
-        "Do not collapse or merge them: each must honor its option's distinct angle, and every prompt " +
-        'must include a tangible medium, the negative constraints, and the "--ar 7:5" suffix. Before ' +
-        "writing, identify the album's real visual artist(s)/art director(s) and use that to ground " +
-        "Option 3 and the mediums throughout."
-      : `Produce exactly ${n} distinct prompt variants that follow every style rule and negative ` +
-        "constraint above. Introduce deliberate variance across the variants — vary framing, focal " +
-        "subject, motion emphasis, lighting, and texture so the outputs differ meaningfully.";
-  const nudgeHint =
-    type === "cardArt"
-      ? 'that option\'s short title (e.g. "Cover Reimagining", "Signature Motif")'
-      : "a short 2–5 word label for that variant's angle";
+  // The card-art metaprompt (ADR 0021) and the "narrative" video metaprompt (ADR 0022) define five
+  // *fixed* options with distinct angles (Cover Reimagining / in Motion, Signature Motif, Visual
+  // Artist Provenance, Live Performance Era, Album Lore) rather than free "vary framing/lighting"
+  // variance. Ask the model for those options in order, labelled by option title, so the surfaced
+  // set matches the metaprompt's structure. Photo/abstract video keeps the deliberate-variance
+  // instruction (one loop, several angles to choose from).
+  const fixedOptions = usesFixedOptions(type, videoStyle);
+  let varianceLine: string;
+  if (type === "cardArt")
+    varianceLine =
+      `Produce exactly ${n} prompts — the five defined options, in order (Option 1 → Option ${n}). ` +
+      "Do not collapse or merge them: each must honor its option's distinct angle, and every prompt " +
+      'must include a tangible medium, the negative constraints, and the "--ar 7:5" suffix. Before ' +
+      "writing, identify the album's real visual artist(s)/art director(s) and use that to ground " +
+      "Option 3 and the mediums throughout.";
+  else if (fixedOptions)
+    // video + narrative style
+    varianceLine =
+      `Produce exactly ${n} prompts — the five defined options, in order (Option 1 → Option ${n}). ` +
+      "Do not collapse or merge them: each must honor its option's distinct angle, specify a tangible " +
+      "medium/cinematography, request a seamless loop, and animate elements from the reference cover. " +
+      "Before writing, identify the album's real visual artist(s)/director(s)/cinematographer(s) and " +
+      "use that to ground Option 3 and the mediums throughout.";
+  else
+    varianceLine =
+      `Produce exactly ${n} distinct prompt variants that follow every style rule and negative ` +
+      "constraint above. Introduce deliberate variance across the variants — vary framing, focal " +
+      "subject, motion emphasis, lighting, and texture so the outputs differ meaningfully.";
+  const nudgeHint = fixedOptions
+    ? 'that option\'s short title (e.g. "Cover in Motion", "Signature Motif")'
+    : "a short 2–5 word label for that variant's angle";
   const animateLine =
     type === "video"
       ? "Each prompt animates the album cover image as its visual reference — explicitly describe " +
@@ -140,12 +164,12 @@ async function draftOne(
   colors: PaletteColorRef[],
   research: string,
   n: number,
-  videoStyle: "photo" | "abstract",
+  videoStyle: VideoStyle,
   at: string,
 ): Promise<DraftedPrompt> {
   const json = await client.generateText({
     system: metapromptFor(type, videoStyle),
-    prompt: draftUserPrompt(type, metadata, colors, research, n),
+    prompt: draftUserPrompt(type, metadata, colors, research, n, videoStyle),
     responseSchema: VARIANTS_SCHEMA,
     temperature: 1.0, // lean into variance across the set
   });
@@ -169,7 +193,7 @@ export async function draftPromptsWithGemini(
   opts: GeminiDraftOptions = {},
 ): Promise<Record<"video" | "cardArt", DraftedPrompt>> {
   const n = opts.n ?? PROMPT_VARIANTS;
-  const videoStyle = opts.videoStyle ?? "photo";
+  const videoStyle = opts.videoStyle ?? DEFAULT_VIDEO_STYLE;
   const at = (opts.now ?? (() => new Date().toISOString()))();
 
   const research = await client.generateText({
@@ -198,7 +222,7 @@ export async function draftOnePromptWithGemini(
   opts: GeminiDraftOptions = {},
 ): Promise<DraftedPrompt> {
   const n = opts.n ?? PROMPT_VARIANTS;
-  const videoStyle = opts.videoStyle ?? "photo";
+  const videoStyle = opts.videoStyle ?? DEFAULT_VIDEO_STYLE;
   const at = (opts.now ?? (() => new Date().toISOString()))();
   const research = await client.generateText({
     system: RESEARCH_SYSTEM,

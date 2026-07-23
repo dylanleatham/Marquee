@@ -232,6 +232,10 @@ export function AlbumDetail() {
               type="video"
               prompt={promptDrafts.video}
               run={run}
+              canGenerate={
+                (gemini?.generateVideo ?? false) && asset.artwork != null
+              }
+              refresh={refresh}
             />
           </Section>
         )}

@@ -190,6 +190,93 @@ describe("generateVideoSet", () => {
   });
 });
 
+describe("generateVideoOne (per-prompt, ADR 0022)", () => {
+  it("generates a single clip at the given index and stores it", async () => {
+    const s = store();
+    const id = seed(s, "aaaa1111", 5);
+    const fg = createFakeGemini({ videoBytes: "MP4" });
+    const asset = await actions.generateVideoOne(
+      deps(s, geminiWith(fg.fetch)),
+      id,
+      2,
+    );
+
+    expect(asset.videoClips).toHaveLength(1);
+    expect(asset.videoClips![0]).toMatchObject({
+      index: 2,
+      fileId: "aaaa1111-v2",
+      nudge: "motion 2",
+    });
+    expect(existsSync(s.paths.visualizerFile("aaaa1111-v2"))).toBe(true);
+    // One Omni interaction for the single prompt.
+    expect(fg.calls().filter((x) => x.video === "interaction")).toHaveLength(1);
+  });
+
+  it("merges into the existing set: keeps siblings, replaces its own index, stays sorted", async () => {
+    const s = store();
+    const id = seed(s, "bbbb2222", 5);
+    const fg = createFakeGemini({ videoBytes: "MP4" });
+    const d = deps(s, geminiWith(fg.fetch));
+
+    await actions.generateVideoOne(d, id, 3);
+    await actions.generateVideoOne(d, id, 1);
+    const asset = await actions.generateVideoOne(d, id, 3); // replace, not duplicate
+
+    expect(asset.videoClips!.map((c) => c.index)).toEqual([1, 3]);
+  });
+
+  it("400s (ValidationError) for an out-of-range prompt index", async () => {
+    const s = store();
+    const id = seed(s, "cccc3333", 5);
+    const fg = createFakeGemini({ videoBytes: "MP4" });
+    await expect(
+      actions.generateVideoOne(deps(s, geminiWith(fg.fetch)), id, 9),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("400s when Gemini isn't configured", async () => {
+    const s = store();
+    const id = seed(s, "dddd4444", 5);
+    await expect(
+      actions.generateVideoOne(deps(s, undefined), id, 0),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("400s when video generation is toggled off (opt-in)", async () => {
+    const s = store();
+    const id = seed(s, "eeee5555", 5);
+    const fg = createFakeGemini({ videoBytes: "MP4" });
+    await expect(
+      actions.generateVideoOne(
+        { store: s, prober: fakeProber(), gemini: geminiWith(fg.fetch), now },
+        id,
+        0,
+      ),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("400s when there's no cover art to animate", async () => {
+    const s = store();
+    const asset = makeAsset("ffff6666");
+    asset.promptDrafts = { video: videoDraft(3) };
+    s.save(asset); // no artwork file written
+    const fg = createFakeGemini({ videoBytes: "MP4" });
+    await expect(
+      actions.generateVideoOne(deps(s, geminiWith(fg.fetch)), "ffff6666", 0),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("propagates a generation failure (maps to 5xx)", async () => {
+    const s = store();
+    const id = seed(s, "gggg7777", 5);
+    const fg = createFakeGemini({ failStatus: 500 });
+    await expect(
+      actions.generateVideoOne(deps(s, geminiWith(fg.fetch)), id, 0),
+    ).rejects.toMatchObject({ name: "GeminiError" });
+    expect(s.read(id)!.videoClips).toBeUndefined();
+  });
+});
+
 describe("attachVideoUpload — concurrency (#38)", () => {
   it("re-validates state on the fresh copy; doesn't clobber a concurrent transition", async () => {
     const s = store();

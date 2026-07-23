@@ -6,6 +6,7 @@ import {
   CARD_ART_METAPROMPT,
   VIDEO_PHOTO_METAPROMPT,
   VIDEO_ABSTRACT_METAPROMPT,
+  VIDEO_NARRATIVE_METAPROMPT,
 } from "../src/gemini/metaprompts.js";
 
 // Drift guard: the bundled runtime constants must stay byte-for-byte in sync with the canonical,
@@ -37,6 +38,7 @@ describe("bundled metaprompts match docs/prompts/", () => {
     ["cardArtMetaPrompt.md", CARD_ART_METAPROMPT],
     ["visualizerMetaPromptPhoto.md", VIDEO_PHOTO_METAPROMPT],
     ["visualizerMetaPrompt.md", VIDEO_ABSTRACT_METAPROMPT],
+    ["visualizerMetaPromptNarrative.md", VIDEO_NARRATIVE_METAPROMPT],
   ])("%s", (file, constant) => {
     expect(norm(constant)).toBe(read(file));
   });

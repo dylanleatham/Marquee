@@ -814,6 +814,44 @@ export function buildServer(opts: BuildOptions = {}) {
     return reply.code(202).send(job);
   });
 
+  // Generate a single clip from one drafted video prompt variant (ADR 0022). Like the set it's a
+  // multi-minute Omni call, so it's a background job too — but keyed on the prompt index, so a
+  // per-clip run and the set (or another clip) don't shadow each other. Precheck (incl. index range)
+  // → 4xx now; else enqueue → 202 { jobId }. The per-prompt "Generate clip" buttons drive this.
+  app.post(
+    "/api/albums/:curatorId/video/generate/:index",
+    async (req, reply) => {
+      const { curatorId, index } = req.params as {
+        curatorId: string;
+        index: string;
+      };
+      const i = Number(index);
+      try {
+        actions.assertGenerable(actionDeps, curatorId, "video", i);
+      } catch (err) {
+        return actionError(err, reply, req);
+      }
+      const job = jobs.start(
+        "video",
+        curatorId,
+        async ({ onProgress, signal }) => {
+          const asset = await actions.generateVideoOne(
+            actionDeps,
+            curatorId,
+            i,
+            {
+              onProgress,
+              signal,
+            },
+          );
+          return { videoClips: asset.videoClips };
+        },
+        i,
+      );
+      return reply.code(202).send(job);
+    },
+  );
+
   // --- Card art: upload / attach / detach ---
   app.post("/api/card-art/upload", async (req, reply) => {
     if (!req.isMultipart())
@@ -1317,11 +1355,9 @@ export function buildServer(opts: BuildOptions = {}) {
   // Start a login: hand the SPA the authorize URL to open. Request token + secret are held server-side.
   app.get("/api/discogs/auth/login", async (_req, reply) => {
     if (!discogsAuth)
-      return reply
-        .code(503)
-        .send({
-          error: "Discogs OAuth not configured (set consumer key + secret)",
-        });
+      return reply.code(503).send({
+        error: "Discogs OAuth not configured (set consumer key + secret)",
+      });
     try {
       return { authorizeUrl: await discogsAuth.buildAuthorizeUrl() };
     } catch (err) {

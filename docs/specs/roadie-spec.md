@@ -225,13 +225,24 @@ Roadie drafts two prompts per album: one for the visualizer video that plays on 
 the grounded two-pass drafter: pass 1 researches the album's real visual identity (cover subjects,
 booklet/music-video motifs, era aesthetic) with Google Search grounding; pass 2 turns that research
 plus the matching metaprompt (`docs/prompts/`, bundled at `gemini/metaprompts.ts`) into
-`PROMPT_VARIANTS` (5) variants. For **video** these are distinct variance angles the human picks
-between; for **card art** they are the metaprompt's five fixed options in order (Cover Reimagining,
-Signature Motif, Visual Artist Provenance, Live Performance Era, Album Lore — ADR 0021), each
-surfaced individually. Each drafted prompt records provenance (`generator: "gemini" | "template"`).
-Grounding and structured JSON can't share one Gemini call, hence the two passes.
+`PROMPT_VARIANTS` (5) variants, surfaced individually (each copyable). For **card art** these are the
+metaprompt's five fixed options in order (Cover Reimagining, Signature Motif, Visual Artist
+Provenance, Live Performance Era, Album Lore — ADR 0021). For **video** the default `narrative` style
+ports those same five angles into motion (Cover in Motion, Signature Motif, Visual Artist Provenance,
+Live Performance Era, Album Lore — [ADR 0022](../adrs/0022-video-prompt-parity-narrative-and-per-prompt.md));
+the two earlier styles, `photo` (animate the cover) and `abstract` (motion-design), remain as
+`videoStyle`-selectable alternates and use generic variance angles. Each drafted prompt records
+provenance (`generator: "gemini" | "template"`). Grounding and structured JSON can't share one Gemini
+call, hence the two passes.
 
 ### Video prompt structure
+
+> **Amended 2026-07-23 by [ADR 0022](../adrs/0022-video-prompt-parity-narrative-and-per-prompt.md).**
+> On the **LLM path** the default video style is now `narrative` — the card-art five fixed angles
+> ported into motion — with `photo` and `abstract` kept as the two `videoStyle` alternates. The detail
+> UI surfaces all five prompts, each individually copyable and generatable (per-prompt "Generate
+> clip", a background job keyed on the prompt index). The deterministic **template** shape below
+> remains the fallback and the on-demand style `redraft`.
 
 The **template fallback** emits this shape (its "3 minutes" line is the template's text, not a
 system guarantee). The **LLM path** (ADR 0009) authors the prompt from the metaprompt + research
