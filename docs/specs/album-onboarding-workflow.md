@@ -348,7 +348,7 @@ The queue-pull model with Roadie already IS the agentic experience — just with
 
 **Video service API arrives.** Roadie gains a new sub-state `generating_video` that calls the video API, waits for callback, downloads and attaches the result. The `awaiting_video` human state disappears — humans jump straight from `awaiting_review` to `awaiting_preview`. Same queue view, one less step.
 
-**Audio features return (via ReccoBeats, third-party, or Spotify re-opening).** Roadie's pattern selection becomes context-aware instead of static-default. Pattern hand-edits become rarer. No workflow change; palette review just has one less thing to tweak.
+**Audio features return (via ReccoBeats, third-party, or Spotify re-opening).** Pattern selection is already context-aware — it reads energy from the palette ([ADR 0022](../adrs/0022-palette-derived-motion-energy.md)). A returning audio-features source would refine it further (truer energy, tempo-locked motion), making pattern hand-edits rarer still. No workflow change; palette review just has one less thing to tweak.
 
 **Auto-verification via runtime callback.** Once Backdrop confirms it successfully played a video and Conductor confirms it drove the lights, and enough time has passed for the album to have "played through," we could mark `awaiting_verify` as complete without human input. Feasible but not worth building until we're sure the runtime is stable enough to trust.
 

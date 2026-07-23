@@ -8,35 +8,47 @@
     "colors": [
       {
         "hex": "#7867A0",
-        "cie_xy": [0.26842045740016246, 0.23002320649164257],
+        "cie_xy": [
+          0.26842045740016246,
+          0.23002320649164257
+        ],
         "role": "primary",
         "sourceSwatch": "Muted"
       },
       {
         "hex": "#D5A370",
-        "cie_xy": [0.40993137710806865, 0.3915201576308395],
+        "cie_xy": [
+          0.40993137710806865,
+          0.3915201576308395
+        ],
         "role": "secondary",
         "sourceSwatch": "LightVibrant"
       },
       {
         "hex": "#D98D40",
-        "cie_xy": [0.4728085226407709, 0.4135775394246912],
+        "cie_xy": [
+          0.4728085226407709,
+          0.4135775394246912
+        ],
         "role": "accent",
         "sourceSwatch": "Vibrant"
       },
       {
         "hex": "#711E20",
-        "cie_xy": [0.5411185113605489, 0.32628832811465447],
+        "cie_xy": [
+          0.5411185113605489,
+          0.32628832811465447
+        ],
         "role": "accent",
         "sourceSwatch": "DarkVibrant"
       }
     ]
   },
   "pattern": {
-    "type": "crossfade",
+    "type": "rotate",
     "params": {
-      "transitionMs": 12000,
-      "holdMs": 45000
+      "intervalMs": 1595,
+      "direction": "forward"
     }
   }
 }

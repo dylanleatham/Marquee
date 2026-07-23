@@ -28,7 +28,8 @@ Lower-level exports for testing/advanced use: `extractRawSwatches`, `postProcess
    with purple and Kind of Blue with blue).
 3. **Post-process**: monochrome guards (chroma floor + hue-spread), saturation/brightness floors,
    Hue gamut-C clamp, ΔE contrast filter, cap at 4, role assignment.
-4. **Pattern**: static / crossfade by palette size.
+4. **Pattern**: energy-aware — static/crossfade for muted palettes, rotate/pulse for vivid ones,
+   scaled by palette energy and tempo-locked when `audioFeatures` is supplied (ADR 0022).
 
 All tuning is exposed via `PostProcessOptions` (floors, `maxColors`, `monochromeChroma`,
 `hueSpreadDeg`, `orderColorFloor`, …) so behavior can be adjusted per-album from Curator.

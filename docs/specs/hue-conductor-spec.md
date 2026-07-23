@@ -154,7 +154,7 @@ The pairing endpoints are called by a one-time CLI script (`pnpm run pair` in th
 > the first build that has Conductor **read the synced album-assets store** (via `config.albumAssetsDir`,
 > default `{dataDir}/album-assets`) instead of only accepting pre-built payloads on `/api/playback`.
 > The album→payload mapping (`buildPalettePayload`) now lives in `@marquee/contracts`, shared with
-> Curator's Demo Room. A *valid* scan Conductor can't act on — no listening room, album not synced,
+> Curator's Demo Room. A _valid_ scan Conductor can't act on — no listening room, album not synced,
 > album not far enough along (no palette/pattern) — logs and returns `202 { action: "ignored", reason }`
 > rather than erroring (runtime-overview §9); only a malformed body or non-`curator:album:` URI is a
 > 4xx. The engine arms the 90-min idle timeout on `start`. (`/api/playback/current` + `/history` are
@@ -166,8 +166,8 @@ The pairing endpoints are called by a one-time CLI script (`pnpm run pair` in th
 | ------ | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | POST   | `/api/playback`                  | Body: `{ roomId?, palette }`. Starts playback of the palette pattern. If `roomId` is omitted, uses the configured listening room. If a playback is already active, crossfades to the new palette (same session; no re-snapshot). Returns `{ playbackId }`. Useful for Curator's admin operations and manual testing. |
 | POST   | `/api/playback/stop`             | Stops current playback, restores the session snapshot.                                                                                                                                                                                                                                                               |
-| GET    | `/api/playback/current`          | The album(s) playing now, one per active room: `{ playback: [{ playbackId, roomId, source: { name, artist, year }, pattern, startedAt }] }`. Empty when idle (issue #54).                                                                                                                                              |
-| GET    | `/api/playback/history?limit=50` | Recent playbacks, most-recent first (bounded ring, cap 50; `limit` ≤ 200). Each row adds `stoppedAt` once its playback ended; a mid-session album swap closes the previous row and opens a new one (issue #54).                                                                                                        |
+| GET    | `/api/playback/current`          | The album(s) playing now, one per active room: `{ playback: [{ playbackId, roomId, source: { name, artist, year }, pattern, startedAt }] }`. Empty when idle (issue #54).                                                                                                                                            |
+| GET    | `/api/playback/history?limit=50` | Recent playbacks, most-recent first (bounded ring, cap 50; `limit` ≤ 200). Each row adds `stoppedAt` once its playback ended; a mid-session album swap closes the previous row and opens a new one (issue #54).                                                                                                      |
 
 ### Settings (pushed from Curator)
 
@@ -216,7 +216,7 @@ Quick preview:
 - `pulse` — hold a color; ramp brightness up and down. Params: `{ periodMs: number, minBrightness: 0-100, maxBrightness: 0-100 }`.
 - `crossfade` — smoothly fade between palette colors on all lights together. Params: `{ transitionMs: number, holdMs: number }`.
 
-That's the initial set. Anything beat- or energy-driven is a future extension that needs upstream audio-feature data.
+That's the set the engine renders. _Which_ of these an album uses is chosen upstream by Palette Press, which is now **energy-aware** — a vivid palette gets `rotate`/`pulse` instead of always `crossfade`, read from the palette itself with no audio data required ([ADR 0022](../adrs/0022-palette-derived-motion-energy.md)). What still needs upstream data is live **beat**-sync (real-time audio-reactive effects at streaming rates), which remains a future extension gated on an audio input and the Entertainment API (§9 rate limiting).
 
 ### Palette transitions within a session
 
