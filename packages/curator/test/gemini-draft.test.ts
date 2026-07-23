@@ -74,6 +74,23 @@ describe("draftPromptsWithGemini", () => {
     expect(drafted.variants.map((v) => v.text)).toEqual(["keep 1", "keep 2"]);
   });
 
+  it("injects the no-real-people safety guardrail into the drafting user turn (ADR 0023)", async () => {
+    const fg = createFakeGemini({
+      research: "facts",
+      json: { variants: variants(5) },
+    });
+    await draftOnePromptWithGemini(client(fg), "video", meta, colors, {
+      now: at,
+    });
+    // The structured (responseSchema) drafting call's user turn must carry the guardrail so the
+    // authored prompts never request the recording artist or any identifiable person.
+    const structured = fg.calls().find((c) => c.structured);
+    const userTurn = structured?.body?.contents?.[0]?.parts?.[0]?.text ?? "";
+    expect(userTurn).toContain(
+      "never request real, named, or identifiable people",
+    );
+  });
+
   it("throws on a malformed structured response (caller falls back)", async () => {
     // research ok, but the structured pass returns an empty object → no variants array.
     const fg = createFakeGemini({ research: "facts", json: {} });

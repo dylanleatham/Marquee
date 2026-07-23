@@ -43,3 +43,16 @@ describe("bundled metaprompts match docs/prompts/", () => {
     expect(norm(constant)).toBe(read(file));
   });
 });
+
+// ADR 0023: Gemini rejects prompts that feature real/famous people, so every metaprompt must carry
+// an explicit no-real-people guardrail. Guard it here so a future edit can't silently drop it.
+describe("every metaprompt carries the no-real-people guardrail (ADR 0023)", () => {
+  it.each([
+    ["cardArt", CARD_ART_METAPROMPT],
+    ["photo", VIDEO_PHOTO_METAPROMPT],
+    ["abstract", VIDEO_ABSTRACT_METAPROMPT],
+    ["narrative", VIDEO_NARRATIVE_METAPROMPT],
+  ])("%s forbids real/identifiable people", (_name, constant) => {
+    expect(constant).toContain("No real, identifiable, or famous people");
+  });
+});

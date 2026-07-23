@@ -235,6 +235,12 @@ the two earlier styles, `photo` (animate the cover) and `abstract` (motion-desig
 provenance (`generator: "gemini" | "template"`). Grounding and structured JSON can't share one Gemini
 call, hence the two passes.
 
+**No real people ([ADR 0023](../adrs/0023-metaprompts-exclude-real-people.md)).** Gemini rejects
+prompts that feature real/identifiable people, so every metaprompt carries a no-real-people guardrail
+(no depiction/naming/likeness of the recording artist or any public figure; portrait covers lean on
+environment/technique instead), and the drafter reinforces it in the output override. A drift-guard
+plus content-assertion tests keep it from being silently dropped.
+
 ### Video prompt structure
 
 > **Amended 2026-07-23 by [ADR 0022](../adrs/0022-video-prompt-parity-narrative-and-per-prompt.md).**

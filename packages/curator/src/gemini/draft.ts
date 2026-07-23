@@ -118,6 +118,15 @@ function draftUserPrompt(
       ? "Each prompt animates the album cover image as its visual reference — explicitly describe " +
         "how to animate elements already present in the cover.\n"
       : "";
+  // Reinforce the meta prompts' no-people guardrail in the authored output, regardless of style —
+  // the downstream image/video models reject prompts that request real, identifiable people, so no
+  // authored prompt may ask for the recording artist (or any real figure) or a recognizable face.
+  const safetyLine =
+    "SAFETY (every prompt, non-negotiable): never request real, named, or identifiable people — the " +
+    "recording artist and band members included. Build from environments, objects, textures, " +
+    "wardrobe, silhouettes, and described techniques; keep any human presence anonymized and never " +
+    "call for a recognizable face or a named person's likeness (a prompt featuring a real person is " +
+    "rejected downstream).\n";
   return [
     `Album: ${albumLine(metadata)}`,
     genreLine(metadata),
@@ -128,9 +137,9 @@ function draftUserPrompt(
     research,
     "",
     "OUTPUT OVERRIDE (authoritative — supersedes any earlier instruction about the number of " +
-      `options or ready-to-copy formatting): ${varianceLine}\n${animateLine}Return JSON matching ` +
-      'the schema: a "variants" array where each item has "text" (the full, ready-to-use prompt) ' +
-      `and "nudge" (${nudgeHint}).`,
+      `options or ready-to-copy formatting): ${varianceLine}\n${animateLine}${safetyLine}Return ` +
+      'JSON matching the schema: a "variants" array where each item has "text" (the full, ' +
+      `ready-to-use prompt) and "nudge" (${nudgeHint}).`,
   ].join("\n");
 }
 

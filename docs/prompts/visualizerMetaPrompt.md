@@ -7,11 +7,12 @@ I will provide you with the album and artist in this format:
 
 When I provide the album, you must output exactly two prompt options following these strict parameters:
 
-1. Visual Style: Abstract, artistic, and visually rich. The video must look like high-end motion design or an art-installation visual. No literal band members, stage performances, or realistic concert footage unless explicitly iconic to the album.
+1. Visual Style: Abstract, artistic, and visually rich. The video must look like high-end motion design or an art-installation visual. No literal band members, real people, identifiable faces, or realistic concert footage.
 2. Motion & Camera: Describe specific, smooth, continuous camera movements (e.g., "slow continuous zoom", "gentle orbital pan", "seamless drifting forward motion"). Avoid sudden cuts or chaotic shaking to ensure it feels hypnotic.
 3. Looping Constraint: The prompt must explicitly request a seamless loop, where the ending frame flows perfectly back into the starting frame.
 4. STRICT Negative Constraints (Crucial):
    - No text, letters, logos, lyrics, or watermarks.
+   - No real, identifiable, or famous people or recognizable human faces.
    - Full bleed, edge-to-edge video only—no borders, frames, or mockups.
 5. Prompt Variations:
    - Option 1 (The Visual Motion Translation): Focuses on moving, flowing, and shifting elements directly inspired by the textures, physical motifs, and colors of the official album cover.
