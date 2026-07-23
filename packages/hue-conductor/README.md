@@ -67,9 +67,11 @@ curl -s -X POST localhost:4737/api/playback/stop \
 
 ## Notes
 
-- Uses `node-hue-api` **v4** (stable). The spec suggests v5 for the Entertainment API
-  (25 Hz streaming), which is out of scope until the streaming visualizer work — the thin
-  Bridge Adapter (`src/bridge/adapter.ts`) is the seam to swap it then.
+- Uses `node-hue-api` **v4** (stable) for CLIP v2 flat color. The Entertainment API (25 Hz
+  streaming) is **in progress** (ADR 0023): the pure effect engine — aurora/shimmer/wave over a
+  `StreamEngine` — lives in `src/stream/` and is tested; run `pnpm preview:stream` to watch it.
+  The DTLS transport that carries frames to the bridge is the hardware follow-up, behind the
+  `StreamTransport` port.
 - Colors are sent as RGB and converted to the light's gamut by the library (spec §9,
   option 1). If deep purples land as blue on your bulbs, that's the gamut-clamping case to
   revisit with explicit xy conversion.
