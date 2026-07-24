@@ -1,0 +1,9 @@
+{
+  "name": "marquee-spike-spotify-connect",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Path B viability spike: play a Spotify album on Sonos via the official Spotify Web API (Connect). No deps.",
+  "scripts": {
+    "play": "node play-album.js"
+  }
+}
