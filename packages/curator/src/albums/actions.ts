@@ -291,6 +291,13 @@ export async function regeneratePalette(
   const now = clock(deps);
 
   const saved = deps.store.update(curatorId, (a) => {
+    // Re-validate on the fresh copy: the album may have moved while `generate` ran (issue #38). The
+    // pre-await checks aren't enough on their own — the per-album lock has to hold at write time too.
+    assertNotProcessing(a);
+    if (a.palette?.handEdited && !force)
+      throw new PaletteConflictError(
+        "palette was hand-edited during re-extraction — discarding the edits needs force",
+      );
     a.palette = {
       colors: payload.palette.colors,
       generatedAt: payload.meta?.generatedAt ?? now(),

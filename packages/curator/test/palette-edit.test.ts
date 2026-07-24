@@ -16,7 +16,13 @@ import {
   MAX_PALETTE_COLORS,
 } from "../src/albums/palette.js";
 import { buildFreshAsset } from "../src/albums/asset.js";
-import { fakeGenerate, fakeProber, makeAsset, pngBytes } from "./helpers.js";
+import {
+  fakeGenerate,
+  fakePayload,
+  fakeProber,
+  makeAsset,
+  pngBytes,
+} from "./helpers.js";
 
 const NOW = "2026-07-24T00:00:00.000Z";
 
@@ -193,6 +199,28 @@ describe("regeneratePalette", () => {
     seed(store);
     const re = await regeneratePalette(deps(store), "aaaa1111", false);
     expect(re.palette!.colors).toHaveLength(2);
+  });
+
+  it("re-checks the hand-edit guard at write time (race across the await)", async () => {
+    const store = tmpStore();
+    seed(store); // handEdited: false at the pre-await check
+    const racing: ActionDeps = {
+      store,
+      prober: fakeProber(),
+      now: () => NOW,
+      // A concurrent hand-edit lands while Palette Press is running.
+      generate: async () => {
+        store.update("aaaa1111", (a) => {
+          a.palette!.handEdited = true;
+        });
+        return fakePayload();
+      },
+    };
+    await expect(
+      regeneratePalette(racing, "aaaa1111", false),
+    ).rejects.toBeInstanceOf(PaletteConflictError);
+    // the concurrent hand-edit is preserved, not clobbered by the stale regeneration
+    expect(store.read("aaaa1111")!.palette!.handEdited).toBe(true);
   });
 
   it("400s when there is no cover art on disk", async () => {

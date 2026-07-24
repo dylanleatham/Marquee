@@ -137,31 +137,31 @@ export function PaletteEditor({
     <div className="palette-editor">
       <PalettePreview colors={draft} pattern={asset.pattern?.type} />
 
-      <ul className="pe-rows">
+      <ul className="palette-editor__rows">
         {draft.map((c, i) => (
-          <li className="pe-row" key={i}>
+          <li className="palette-editor__row" key={i}>
             <span
-              className="pe-row__chip"
+              className="palette-editor__chip"
               style={{ background: c.hex }}
               aria-hidden="true"
             />
             <input
               type="color"
-              className="pe-row__picker"
+              className="palette-editor__picker"
               aria-label={`Color ${i + 1} picker`}
               value={c.hex}
               onChange={(e) => setHex(i, e.target.value)}
             />
             <input
               type="text"
-              className="pe-row__hex"
+              className="palette-editor__hex"
               aria-label={`Color ${i + 1} hex`}
               value={c.hex}
               spellCheck={false}
               onChange={(e) => setHex(i, e.target.value)}
             />
             <select
-              className="pe-row__role"
+              className="palette-editor__role"
               aria-label={`Color ${i + 1} role`}
               value={c.role}
               onChange={(e) => setRole(i, e.target.value as PaletteRole)}
@@ -172,10 +172,10 @@ export function PaletteEditor({
                 </option>
               ))}
             </select>
-            <span className="pe-row__pos">
+            <span className="palette-editor__pos">
               {i === 0 ? "dominant" : `#${i + 1}`}
             </span>
-            <span className="pe-row__moves">
+            <span className="palette-editor__moves">
               <button
                 className="btn btn--sm btn--ghost"
                 aria-label={`Move color ${i + 1} up`}
@@ -208,7 +208,7 @@ export function PaletteEditor({
         ))}
       </ul>
 
-      <div className="pe-actions">
+      <div className="palette-editor__actions">
         <button
           className="btn btn--sm"
           onClick={add}
@@ -245,7 +245,7 @@ export function PaletteEditor({
         </button>
       </div>
       {dirty && (
-        <p className="pe-hint muted">
+        <p className="palette-editor__hint muted">
           Unsaved changes — Save to keep them, or Discard to revert.
         </p>
       )}
@@ -267,13 +267,13 @@ function PalettePreview({
       ? stops[0]
       : `linear-gradient(90deg, ${stops.join(", ")})`;
   return (
-    <div className="pe-preview" data-testid="palette-preview">
+    <div className="palette-editor__preview" data-testid="palette-preview">
       <div
-        className="pe-preview__bar"
+        className="palette-editor__preview-bar"
         style={{ background: gradient }}
         aria-hidden="true"
       />
-      <div className="pe-preview__label muted">
+      <div className="palette-editor__preview-label muted">
         Live preview{pattern ? ` · ${pattern}` : ""}
       </div>
     </div>
