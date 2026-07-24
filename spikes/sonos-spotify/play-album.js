@@ -33,7 +33,7 @@
  */
 
 const http = require('http');
-const { SonosManager } = require('@svrooij/sonos');
+const { SonosManager, MetaDataHelper } = require('@svrooij/sonos');
 
 // Read the household's linked music-service accounts straight from a player's
 // built-in status page (http://<ip>:1400/status/accounts, no auth). This is the
@@ -229,7 +229,6 @@ async function main() {
   }
 
   const uri = toSpotifyAlbumUri(args.album);
-  const albumId = uri.replace('spotify:album:', '');
 
   // The library's hardcoded sid=9/sn=7 don't match this household, and modern
   // Sonos hides the account behind cloud auth (/status/accounts is empty). So
@@ -248,22 +247,19 @@ async function main() {
   console.log(`→ album:  ${uri}`);
   console.log(`→ binding: sid=${binding.sid} sn=${binding.sn} token=${binding.token}`);
 
-  // Build the container URI + DIDL metadata exactly as a Sonos Spotify favorite
-  // does, substituting the target album id and this household's real binding.
-  const enc = `spotify%3aalbum%3a${albumId}`;
-  const trackUri = `x-rincon-cpcontainer:1004206c${enc}?sid=${binding.sid}&flags=8300&sn=${binding.sn}`;
-  const metadata =
-    '<DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" ' +
-    'xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" ' +
-    'xmlns:r="urn:schemas-rinconnetworks-com:metadata-1-0/" ' +
-    'xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/">' +
-    `<item id="1004206c${enc}" parentID="1004206c${enc}" restricted="true">` +
-    '<dc:title>Marquee album</dc:title>' +
-    '<upnp:class>object.container.album.musicAlbum</upnp:class>' +
-    `<desc id="cdudn" nameSpace="urn:schemas-rinconnetworks-com:metadata-1-0/">${binding.token}</desc>` +
-    '</item></DIDL-Lite>';
+  // Let the library build the container URI + metadata (its serialization is
+  // known-valid — it only ever failed semantically with UPnP 800, never 402),
+  // then patch in this household's real sid/sn. The region for the cdudn token
+  // comes from the derived token itself (SA_RINCON<region>), so the metadata
+  // matches the account.
+  const region = (binding.token.match(/SA_RINCON(\d+)_/) || [])[1] || '3079';
+  const guessed = MetaDataHelper.GuessMetaDataAndTrackUri(uri, region);
+  const trackUri = guessed.trackUri
+    .replace(/([?&])sid=\d+/, `$1sid=${binding.sid}`)
+    .replace(/([?&])sn=\d+/, `$1sn=${binding.sn}`);
+  console.log(`→ enqueue: ${trackUri}`);
 
-  // Fresh queue → add album (explicit URI + metadata) → switch to queue → play.
+  // Fresh queue → add album (library metadata + patched URI) → switch → play.
   // All queue/playback operations target the coordinator (see note above).
   await coordinator.AVTransportService.RemoveAllTracksFromQueue({ InstanceID: 0 }).catch(() => {
     /* empty queue / not supported — ignore, the add below still works */
@@ -271,9 +267,9 @@ async function main() {
   await coordinator.AVTransportService.AddURIToQueue({
     InstanceID: 0,
     EnqueuedURI: trackUri,
-    EnqueuedURIMetaData: metadata,
+    EnqueuedURIMetaData: guessed.metadata,
     DesiredFirstTrackNumberEnqueued: 0,
-    EnqueueAsNext: false,
+    EnqueueAsNext: true,
   });
   await coordinator.SwitchToQueue();
   await coordinator.Play();
