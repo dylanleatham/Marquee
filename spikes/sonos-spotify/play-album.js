@@ -23,7 +23,40 @@
  *              (Wrong region is the usual cause of "it queues but won't play".)
  */
 
+const http = require('http');
 const { SonosManager, MetaDataHelper } = require('@svrooij/sonos');
+
+// Read the household's linked music-service accounts straight from a player's
+// built-in status page (http://<ip>:1400/status/accounts, no auth). This is the
+// authoritative source for the Spotify service "Type" (region code) and account
+// serial number — the two values that, when mismatched, cause AddURIToQueue to
+// fail with UPnP 800 even on a valid coordinator. Bounded by a short timeout so
+// a slow player can't hang the run.
+function httpGet(url, timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    const req = http.get(url, (res) => {
+      let body = '';
+      res.on('data', (c) => (body += c));
+      res.on('end', () => resolve(body));
+    });
+    req.on('error', reject);
+    req.setTimeout(timeoutMs, () => req.destroy(new Error('timed out')));
+  });
+}
+
+// Sonos "Type" codes for the Spotify service (region-encoded). Matching these
+// identifies the Spotify account among all linked services.
+const SPOTIFY_TYPES = new Set(['2311', '3079', '9223', '12']);
+
+async function detectAccounts(host) {
+  const body = await httpGet(`http://${host}:1400/status/accounts`);
+  const blocks = body.match(/<Account\b[\s\S]*?<\/Account>/g) || [];
+  return blocks.map((b) => ({
+    type: (b.match(/Type="(\d+)"/) || [])[1],
+    serial: (b.match(/SerialNum="(\d+)"/) || [])[1],
+    user: (b.match(/<UN>([^<]*)<\/UN>/) || [])[1] || '',
+  }));
+}
 
 // ---- tiny arg parser -------------------------------------------------------
 // Accepts named flags (--speaker "Living Room") AND bare positionals
@@ -142,6 +175,25 @@ async function main() {
     await coordinator.Stop();
     console.log('■ stopped');
     return;
+  }
+
+  // Ground-truth the Spotify binding from the player itself, and align the
+  // region to the real account Type unless the user forced one with --region.
+  try {
+    const accounts = await detectAccounts(coordinator.Host || device.Host);
+    const summary = accounts.length
+      ? accounts.map((a) => `Type=${a.type} sn=${a.serial || '?'} ${a.user}`.trim()).join(' | ')
+      : '(none linked)';
+    console.log(`→ accounts: ${summary}`);
+    const spotify = accounts.find((a) => SPOTIFY_TYPES.has(a.type)) || (accounts.length === 1 ? accounts[0] : undefined);
+    if (!accounts.length) {
+      console.log('  ⚠ no music-service accounts linked — add Spotify in the Sonos app first.');
+    } else if (spotify && spotify.type && !args.region) {
+      process.env.SONOS_REGION_SPOTIFY = spotify.type;
+      console.log(`→ using detected Spotify Type ${spotify.type} as region (account sn=${spotify.serial || '?'})`);
+    }
+  } catch (e) {
+    console.log(`→ accounts: (could not read /status/accounts: ${e.message})`);
   }
 
   const uri = toSpotifyAlbumUri(args.album);
