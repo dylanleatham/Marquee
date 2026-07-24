@@ -4,18 +4,20 @@
 // without touching disk.
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { AlbumPaletteInput } from "@marquee/contracts";
+import { parseCuratorUri, type AlbumPaletteInput } from "@marquee/contracts";
 
 /** Reads one album's palette-relevant fields by curatorId, or null if absent/unreadable. */
 export interface AlbumAssetReader {
   read(curatorId: string): Promise<AlbumPaletteInput | null>;
 }
 
-const CURATOR_URI = /^curator:album:([a-z0-9]{8})$/;
-
-/** Extract the curatorId from a `curator:album:<id>` URI, or null if it isn't one. */
+/**
+ * Extract the curatorId from a `curator:(album|card):<id>` URI, or null if it isn't one. Conductor
+ * treats a card the same as a sleeve — both light up the room — so it only wants the id and ignores
+ * the kind (ADR 0023). Delegates to the shared contracts parser so the accepted shape stays uniform.
+ */
 export function curatorIdFromUri(uri: string): string | null {
-  return uri.match(CURATOR_URI)?.[1] ?? null;
+  return parseCuratorUri(uri)?.curatorId ?? null;
 }
 
 /**

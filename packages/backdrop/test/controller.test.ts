@@ -38,6 +38,23 @@ describe("PlaybackController", () => {
     controller.dispose();
   });
 
+  it("a card scan plays the same album video as the sleeve (ADR 0023)", () => {
+    const { dir, paths } = tempMedia(["x.mp4"]);
+    // Library is keyed by the album URI (as Curator syncs it) — no card key.
+    const { controller, hub } = setup(
+      { "curator:album:2k7bxq9m": { filePath: paths["x.mp4"]! } },
+      dir,
+    );
+
+    controller.play("curator:card:2k7bxq9m");
+
+    expect(hub.last()).toEqual({ type: "play", filePath: paths["x.mp4"] });
+    expect(controller.status().state).toBe("playing");
+    // Status keeps the actual scanned URI, even though lookup normalised to the album key.
+    expect(controller.status().uri).toBe("curator:card:2k7bxq9m");
+    controller.dispose();
+  });
+
   it("stop → broadcasts stop, returns to idle, clears the idle timeout", () => {
     const { dir, paths } = tempMedia(["x.mp4"]);
     const { controller, hub, timers } = setup(

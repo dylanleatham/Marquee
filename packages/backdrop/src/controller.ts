@@ -4,7 +4,7 @@
 // of its own beyond resolving the library + checking a file exists.
 import { existsSync } from "node:fs";
 import { relative, isAbsolute } from "node:path";
-import type { ScanEvent } from "@marquee/contracts";
+import { parseCuratorUri, type ScanEvent } from "@marquee/contracts";
 import type { Broadcaster } from "./hub.js";
 import type { Command, PlaybackState } from "./types.js";
 
@@ -101,7 +101,13 @@ export class PlaybackController {
    * (backdrop-spec §9, §13 "not-in-library happens more than you think").
    */
   play(uri: string): void {
-    const entry = this.library.resolve(uri);
+    // A card and a sleeve for the same album share one visualizer, and Curator keys the library by
+    // the album URI. So resolve any scan by its canonical album key — a `curator:card:<id>` plays
+    // the same video as `curator:album:<id>` (ADR 0023). Non-curator URIs pass through unchanged and
+    // miss the library as before.
+    const parsed = parseCuratorUri(uri);
+    const lookupUri = parsed ? `curator:album:${parsed.curatorId}` : uri;
+    const entry = this.library.resolve(lookupUri);
     if (!entry) {
       this.log.warn(
         { uri },
