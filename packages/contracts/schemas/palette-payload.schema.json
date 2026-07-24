@@ -102,6 +102,12 @@
               }
             }
           }
+        },
+        {
+          "properties": {
+            "type": { "enum": ["aurora", "shimmer", "wave"] },
+            "params": { "type": "object" }
+          }
         }
       ]
     },

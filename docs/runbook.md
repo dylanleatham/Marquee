@@ -15,12 +15,12 @@ Two parts:
 **Pi 5** by the TV; **Stylus** on the **Pi Zero 2 W** in the stand. Hue bridge, both Pis, and the
 workstation must share one **LAN**.
 
-| Service       | Host        | Port          | Prod start                                      |
-| ------------- | ----------- | ------------- | ----------------------------------------------- |
-| Curator       | workstation | 4739          | `pnpm --filter @marquee/curator dev`            |
-| Hue Conductor | Pi 5        | 4737          | systemd: `marquee-conductor` (`node dist/…`)    |
-| Backdrop      | Pi 5        | 4740          | systemd: `marquee-backdrop` (+ Chromium unit)   |
-| Stylus        | Pi Zero 2 W | 4741 (status) | systemd: `marquee-stylus`                       |
+| Service       | Host        | Port          | Prod start                                    |
+| ------------- | ----------- | ------------- | --------------------------------------------- |
+| Curator       | workstation | 4739          | `pnpm --filter @marquee/curator dev`          |
+| Hue Conductor | Pi 5        | 4737          | systemd: `marquee-conductor` (`node dist/…`)  |
+| Backdrop      | Pi 5        | 4740          | systemd: `marquee-backdrop` (+ Chromium unit) |
+| Stylus        | Pi Zero 2 W | 4741 (status) | systemd: `marquee-stylus`                     |
 
 **One shared secret everywhere.** Every service-to-service call carries `X-Trigger-Secret`; pick one
 value and use it in Conductor's `[auth]`, Backdrop's auth, Curator's outbound config, and Stylus's
@@ -90,6 +90,34 @@ Work top-to-bottom; each step ends with a **Check** so a failure tells you which
      `POST /api/test/color { "roomId": "<id>", "hex": "#4B0082" }` → that room turns purple.
      (All `/api/*` calls need `-H "X-Trigger-Secret: <secret>"`.)
 
+### A2.5. Entertainment streaming — aurora / shimmer / wave (optional, [ADR 0024](adrs/0024-entertainment-dtls-transport.md))
+
+The streaming effects render over Hue's Entertainment API (DTLS, 25 Hz) instead of CLIP. They're
+optional: without this setup, an album tagged with a streaming effect falls back to a lively CLIP
+pattern (`rotate`, or `pulse` for a single-colour palette).
+Three one-time steps, all on the Pi / in the Hue app:
+
+1. **Re-pair to capture the DTLS key.** The bridge only returns the `clientkey` (DTLS PSK) when a user
+   is created, so a bridge paired before this feature has none. Re-run
+   `pnpm --filter @marquee/hue-conductor pair` and press the link button; the new record includes the
+   `clientkey`. (Check: `GET /api/entertainment/areas` returns `200`, not the "re-run pair" `409`.)
+2. **Create an entertainment area + position the lights.** In the **Philips Hue app** → Settings →
+   Entertainment areas → create one containing your listening-room lights, then drag each light onto
+   the room map. That drag is what gives Conductor the per-light **positions** the `wave` effect
+   sweeps across. (An area holds ≤10 lights.)
+3. **Point Conductor at the area.** `GET /api/entertainment/areas` to find its id, then
+   `PUT /api/settings { "entertainmentAreaId": "<id>" }` (or set it from Curator).
+
+**Verify on the bulbs:** attach a streaming effect to an album (Curator per-album pattern override →
+`aurora` / `shimmer` / `wave`), sync, and scan the sleeve. The room should stream continuously —
+colours drifting (aurora), twinkling (shimmer), or a band sweeping across the lights (wave). Lift the
+sleeve → it stops and the room restores. If the handshake fails, Conductor logs it and falls back to
+`rotate`; check `journalctl -u marquee-conductor` for `streaming … failed`.
+
+> **Notes.** Starting an Entertainment session takes exclusive control of the area's lights, so
+> Conductor snapshots over CLIP first and restores on stop (as with normal playback). Preview the
+> effects with no hardware via `pnpm --filter @marquee/hue-conductor preview:stream out.html`.
+
 ### A3. Backdrop on the Pi 5 (the video half)
 
 1. **Config** — shared secret + the media dir where visualizer `.mp4`s live on the Pi
@@ -132,7 +160,7 @@ Work top-to-bottom; each step ends with a **Check** so a failure tells you which
    - **Library projection → Backdrop:** `POST /api/backdrop/sync` on Curator pushes the URI→file map.
    - **Check:** `POST /api/backdrop/verify-sync` on Curator reports no drift.
 
-### A5. Smoke-test the full chain — *before* the stand
+### A5. Smoke-test the full chain — _before_ the stand
 
 Prove the software resolves the album's URI before any NFC is involved. With the album's `curatorId`
 from Curator (`URI=curator:album:<curatorId>`, `SECRET=<your-lan-secret>`):
@@ -172,18 +200,19 @@ page. **Power off the Pi before wiring.**
 2. **Connect 4 jumper wires** PN532 → Pi Zero 2 W (Pi pin numbers are the physical header positions,
    counting the 40-pin header with pin 1 nearest the SD card / corner):
 
-   | PN532 pin | Pi Zero 2 W pin        | Wire      |
-   | --------- | ---------------------- | --------- |
-   | VCC       | **3.3V** (pin 1)       | red       |
-   | GND       | **GND** (pin 6)        | black     |
-   | SDA       | **GPIO 2 / SDA** (pin 3)| e.g. blue |
-   | SCL       | **GPIO 3 / SCL** (pin 5)| e.g. green|
+   | PN532 pin | Pi Zero 2 W pin          | Wire       |
+   | --------- | ------------------------ | ---------- |
+   | VCC       | **3.3V** (pin 1)         | red        |
+   | GND       | **GND** (pin 6)          | black      |
+   | SDA       | **GPIO 2 / SDA** (pin 3) | e.g. blue  |
+   | SCL       | **GPIO 3 / SCL** (pin 5) | e.g. green |
 
    ⚠️ Use **3.3V (pin 1), not 5V** — the Pi's I²C lines are 3.3V. Double-check SDA→pin 3 and SCL→pin 5
    before powering on.
+
 3. **Status LED** (optional but nice): LED long leg (anode) → a **330Ω resistor** → **GPIO 17 (pin 11)**;
    LED short leg (cathode) → any GND. GPIO 17 HIGH = LED on. (Configurable — `[led].gpio_pin`, default 17.)
-4. **Enable I²C on the Pi:** `sudo raspi-config` → *Interface Options* → *I2C* → *Enable*, then reboot.
+4. **Enable I²C on the Pi:** `sudo raspi-config` → _Interface Options_ → _I2C_ → _Enable_, then reboot.
    - **Check the bus sees the reader:** `sudo apt-get install -y i2c-tools && i2cdetect -y 1` should show
      a device (the PN532 answers at address **0x24**). If the grid is empty, re-check the 4 wires and the
      I²C DIP/jumper setting before going further.
@@ -206,11 +235,13 @@ page. **Power off the Pi before wiring.**
 Stylus's status server (port 4741) can inject a fake read that fans out exactly like a real one — handy
 before the antenna/mount is tuned. **`/simulate` only works with the simulated reader** (it returns
 `409` under the real PN532), so run Stylus with `--simulate` for this check:
+
 ```sh
 python -m stylus --simulate    # /simulate is disabled under the real reader
 curl -XPOST http://marquee-pizero:4741/simulate -d '{"uid":"04:A1:B2","uri":"curator:album:<id>"}'
 curl -XPOST http://marquee-pizero:4741/simulate -d '{"clear":true}'   # = sleeve lifted
 ```
+
 - **Check:** the simulate fires the same start/stop the A5 curl did — now driven through Stylus's publish
   path. This proves Stylus's Conductor/Backdrop URLs + secret; the antenna/PN532 itself is exercised in
   A7 with a written tag. Restart with `python -m stylus` (real reader) afterward.
@@ -226,13 +257,13 @@ than enough.
 
 #### Option 1 — phone (simplest for unique per-album URIs)
 
-In **NFC Tools** (or **NXP TagWriter**): *Write* → *Add a record* → **URI/URL** (or **Text**) →
-`curator:album:<curatorId>` → *Write*, hold the sticker to the phone. Each album has a unique
+In **NFC Tools** (or **NXP TagWriter**): _Write_ → _Add a record_ → **URI/URL** (or **Text**) →
+`curator:album:<curatorId>` → _Write_, hold the sticker to the phone. Each album has a unique
 `curatorId`, so this is the path of least friction when every tag differs.
 
 #### Option 2 — Flipper Zero
 
-The Flipper shines at **reading/verifying** and **bench-testing**; for *authoring* a brand-new custom
+The Flipper shines at **reading/verifying** and **bench-testing**; for _authoring_ a brand-new custom
 URI its on-device NDEF editor is firmware-dependent, so the reliable pattern is author-once-then-clone.
 
 - **Read / verify a tag** (native, reliable): **NFC → Read**, hold the Flipper over the tag. It
@@ -240,13 +271,13 @@ URI its on-device NDEF editor is firmware-dependent, so the reliable pattern is 
   string is there and matches the album. Use this to check a sticker after writing, or to debug "the
   stand isn't reacting" (is the tag even readable, and is the URI right?). **Save** it (e.g.
   `album_<curatorId>`) if you want to reuse it below.
-- **Write by clone** (for duplicates of the *same* album): author one good tag with the phone (Option
+- **Write by clone** (for duplicates of the _same_ album): author one good tag with the phone (Option
   1), **NFC → Read → Save** it on the Flipper, then **NFC → Saved → _that file_ → Write** onto blank
-  NTAG213s. This clones identical tags fast. (For *different* albums, each needs its own source tag —
+  NTAG213s. This clones identical tags fast. (For _different_ albums, each needs its own source tag —
   the phone is simpler than editing NDEF pages by hand.) If your firmware (official 1.x, Momentum,
   Unleashed, RogueMaster) exposes an NDEF/"Add card → URL" authoring flow, you can compose
   `curator:album:<id>` directly instead of cloning — the menu path varies by firmware.
-- **Emulate a tag to test *without a sticker*** (great during bring-up): with a tag saved, **NFC →
+- **Emulate a tag to test _without a sticker_** (great during bring-up): with a tag saved, **NFC →
   Saved → _file_ → Emulate**, then hold the Flipper against the **PN532** on the stand. Stylus reads it
   as if a sleeve were placed → the whole chain fires. Lets you test read range, debounce, and the
   publish path before you've stuck anything on a sleeve. (UID emulation is reliable; full NTAG NDEF
@@ -294,17 +325,17 @@ The page/NDEF bytes are the tested part (they're pinned to exactly what Stylus r
 
 ### Debug matrix
 
-| Symptom | Look at | Likely cause |
-| --- | --- | --- |
-| `/api/test/color` does nothing | Conductor logs; `GET /api/bridge/status` | Not paired / bridge unreachable — re-run pairing (A2.2) |
-| Any scan → 401 | the `X-Trigger-Secret` on every hop | Secret mismatch between Stylus/Curator and Conductor/Backdrop |
-| Scan `202 ignored: no listening room` | `GET /api/settings` | Listening room not set (A2.4) |
-| Scan `202 ignored: album not synced` | the Pi's `album_assets_dir` | rsync didn't land `{curatorId}.json` (A4.3) |
-| Scan `202 ignored: album not ready` | the album's Roadie state in Curator | No palette/pattern yet — advance to `awaiting_review` (A4.2) |
-| Lights work, no video | Backdrop logs; `POST /api/backdrop/verify-sync` | Library not synced / video file not on Backdrop's SD (A4.3) |
-| `current` empty but scan returned `playing` | Conductor logs | Bridge call failed mid-apply (409 not paired / 502) |
-| Sleeve on stand does nothing, but A5/A6 worked | Stylus logs; LED | NFC read/mount tuning, or Stylus can't reach the Pi 5 |
-| Effect stays after lifting the sleeve | — | Missed `stop`; the 90-min idle timeout is the backstop, or stop it by hand |
+| Symptom                                        | Look at                                         | Likely cause                                                               |
+| ---------------------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------- |
+| `/api/test/color` does nothing                 | Conductor logs; `GET /api/bridge/status`        | Not paired / bridge unreachable — re-run pairing (A2.2)                    |
+| Any scan → 401                                 | the `X-Trigger-Secret` on every hop             | Secret mismatch between Stylus/Curator and Conductor/Backdrop              |
+| Scan `202 ignored: no listening room`          | `GET /api/settings`                             | Listening room not set (A2.4)                                              |
+| Scan `202 ignored: album not synced`           | the Pi's `album_assets_dir`                     | rsync didn't land `{curatorId}.json` (A4.3)                                |
+| Scan `202 ignored: album not ready`            | the album's Roadie state in Curator             | No palette/pattern yet — advance to `awaiting_review` (A4.2)               |
+| Lights work, no video                          | Backdrop logs; `POST /api/backdrop/verify-sync` | Library not synced / video file not on Backdrop's SD (A4.3)                |
+| `current` empty but scan returned `playing`    | Conductor logs                                  | Bridge call failed mid-apply (409 not paired / 502)                        |
+| Sleeve on stand does nothing, but A5/A6 worked | Stylus logs; LED                                | NFC read/mount tuning, or Stylus can't reach the Pi 5                      |
+| Effect stays after lifting the sleeve          | —                                               | Missed `stop`; the 90-min idle timeout is the backstop, or stop it by hand |
 
 Full failure-mode table: `docs/specs/runtime-overview.md §9`. During bring-up, the scan response's
 `action`/`reason` plus Conductor's `/api/playback/current` are your fastest signal for which layer is

@@ -19,6 +19,16 @@ import {
   curatorIdFromUri,
   type AlbumAssetReader,
 } from "./assets.js";
+import { isStreamEffect } from "./stream/renderers.js";
+import { StreamSession } from "./stream/session.js";
+import { Clip2Client, httpsClip2Request } from "./stream/clip2.js";
+import { createHueDtlsSocket } from "./stream/dtls-transport.js";
+
+/** The streaming surface the server drives — a real `StreamSession`, or a fake in tests. */
+export type StreamController = Pick<
+  StreamSession,
+  "start" | "stop" | "isStreaming"
+>;
 
 export interface BuildOptions {
   /** Config overrides (tests inject a shared secret + temp data dir). */
@@ -31,6 +41,27 @@ export interface BuildOptions {
   timers?: Timers;
   /** Injected album-assets reader (tests seed albums in memory); prod reads the synced store. */
   assets?: AlbumAssetReader;
+  /** Injected streaming controller (tests fake it); prod builds one lazily from the paired bridge. */
+  streamSession?: StreamController;
+}
+
+/**
+ * Substitute a streaming effect with a lively CLIP pattern when streaming isn't available, so a
+ * streaming-tagged album still moves on a CLIP-only setup (ADR 0024): rotate a multi-color palette,
+ * or pulse (breathe) a single color — never a flat hold, unless the palette is empty.
+ */
+function clipFallback(payload: PalettePayload): PalettePayload {
+  const n = payload.palette.colors.length;
+  const pattern: PalettePayload["pattern"] =
+    n >= 2
+      ? { type: "rotate", params: { intervalMs: 1200, direction: "forward" } }
+      : n === 1
+        ? {
+            type: "pulse",
+            params: { periodMs: 2000, minBrightness: 30, maxBrightness: 100 },
+          }
+        : { type: "static", params: {} };
+  return { ...payload, pattern };
 }
 
 /** Parse a scan event at the boundary (mirrors Backdrop's parser). Returns null on a malformed body. */
@@ -74,6 +105,34 @@ export function buildServer(opts: BuildOptions = {}) {
   });
   // Reads the synced album-assets store so a raw scan can drive the lights (issue #45 / ADR 0019).
   const assets = opts.assets ?? new FsAlbumAssetReader(config.albumAssetsDir);
+
+  // Streaming (Entertainment API, ADR 0024). Built lazily from the paired bridge on first use — it
+  // needs the DTLS `clientkey`, captured at pairing. Returns null when streaming isn't possible yet
+  // (not paired, no clientkey, or no CLIP v2 client), so callers fall back to the CLIP path.
+  let streamSession: StreamController | null = opts.streamSession ?? null;
+  const streaming = (): StreamController | null => {
+    if (streamSession) return streamSession;
+    const b = store.bridge;
+    if (!b || !b.clientkey) return null;
+    const clip2 = new Clip2Client(
+      httpsClip2Request({ ip: b.ip, applicationKey: b.applicationKey }),
+    );
+    streamSession = new StreamSession(
+      bridge,
+      clip2,
+      (area) =>
+        createHueDtlsSocket({
+          ip: b.ip,
+          applicationKey: b.applicationKey,
+          clientkey: b.clientkey!,
+        }),
+      {
+        idleTimeoutMs: config.idleTimeoutMinutes * 60_000,
+        timers: opts.timers,
+      },
+    );
+    return streamSession;
+  };
   const app = Fastify({
     logger: { level: process.env.NODE_ENV === "test" ? "silent" : "info" },
   });
@@ -116,10 +175,33 @@ export function buildServer(opts: BuildOptions = {}) {
 
   app.get("/api/settings", async () => store.settings);
   app.put("/api/settings", async (req) => {
-    const { listeningRoomId } = (req.body ?? {}) as {
+    const body = (req.body ?? {}) as {
       listeningRoomId?: string | null;
+      entertainmentAreaId?: string | null;
     };
-    return store.setListeningRoom(listeningRoomId ?? null);
+    let settings = store.settings;
+    // Only touch a field the caller actually sent, so a partial PUT can't clear the other.
+    if ("listeningRoomId" in body)
+      settings = store.setListeningRoom(body.listeningRoomId ?? null);
+    if ("entertainmentAreaId" in body)
+      settings = store.setEntertainmentArea(body.entertainmentAreaId ?? null);
+    return settings;
+  });
+
+  // Entertainment areas the bridge knows about, for Curator to pick one as the streaming target
+  // (ADR 0024). Requires a paired bridge with a captured clientkey; otherwise a helpful 409.
+  app.get("/api/entertainment/areas", async (_req, reply) => {
+    const b = store.bridge;
+    if (!b) return reply.code(409).send({ error: "bridge not paired" });
+    if (!b.clientkey)
+      return reply.code(409).send({
+        error:
+          "bridge paired before DTLS support — re-run `pnpm pair` on the Pi to capture the clientkey",
+      });
+    const clip2 = new Clip2Client(
+      httpsClip2Request({ ip: b.ip, applicationKey: b.applicationKey }),
+    );
+    return { areas: await clip2.listEntertainmentAreas() };
   });
 
   // Resolve the target room: explicit roomId wins, else the configured listening room.
@@ -196,6 +278,9 @@ export function buildServer(opts: BuildOptions = {}) {
         return reply
           .code(202)
           .send({ ok: true, action: "ignored", reason: "no listening room" });
+      // Stop whichever path is active — streaming or CLIP (both no-op if idle).
+      const sess = streaming();
+      if (sess?.isStreaming()) await sess.stop();
       await engine.stop(roomId);
       return reply.code(202).send({ ok: true, action: "stopped", roomId });
     }
@@ -209,7 +294,9 @@ export function buildServer(opts: BuildOptions = {}) {
         .send({ error: `not a curator album URI: ${scan.uri}` });
 
     if (!roomId) {
-      req.log.warn(`scan ${scan.uri}: no listening room configured — staying put`);
+      req.log.warn(
+        `scan ${scan.uri}: no listening room configured — staying put`,
+      );
       return reply
         .code(202)
         .send({ ok: true, action: "ignored", reason: "no listening room" });
@@ -218,9 +305,12 @@ export function buildServer(opts: BuildOptions = {}) {
     const asset = await assets.read(curatorId);
     if (!asset) {
       req.log.warn(`scan ${scan.uri}: album not in synced store — staying put`);
-      return reply
-        .code(202)
-        .send({ ok: true, action: "ignored", reason: "album not synced", curatorId });
+      return reply.code(202).send({
+        ok: true,
+        action: "ignored",
+        reason: "album not synced",
+        curatorId,
+      });
     }
 
     let payload: PalettePayload;
@@ -229,11 +319,51 @@ export function buildServer(opts: BuildOptions = {}) {
     } catch (err) {
       if (err instanceof PaletteNotReadyError) {
         req.log.warn(`scan ${scan.uri}: ${err.message} — staying put`);
-        return reply
-          .code(202)
-          .send({ ok: true, action: "ignored", reason: "album not ready", curatorId });
+        return reply.code(202).send({
+          ok: true,
+          action: "ignored",
+          reason: "album not ready",
+          curatorId,
+        });
       }
       throw err;
+    }
+
+    // Streaming effects (aurora/shimmer/wave) go over the Entertainment API when an area is configured
+    // (ADR 0024). If streaming isn't available or the handshake fails, fall back to a lively CLIP
+    // pattern rather than degrading to a flat color — a scan must still do *something* visible.
+    if (isStreamEffect(payload.pattern.type)) {
+      const areaId = store.settings.entertainmentAreaId;
+      const sess = streaming();
+      if (areaId && sess) {
+        try {
+          await engine.stop(roomId); // hand off from CLIP → streaming from the true pre-session state
+          await sess.start(
+            roomId,
+            areaId,
+            payload.pattern.type,
+            payload.palette.colors.map((c) => c.hex),
+            (payload.pattern.params ?? {}) as Record<string, number>,
+          );
+          return reply.code(202).send({
+            ok: true,
+            action: "streaming",
+            roomId,
+            curatorId,
+            areaId,
+            effect: payload.pattern.type,
+          });
+        } catch (err) {
+          req.log.error(
+            `scan ${scan.uri}: streaming ${payload.pattern.type} failed (${(err as Error).message}) — CLIP fallback`,
+          );
+        }
+      } else {
+        req.log.warn(
+          `scan ${scan.uri}: ${payload.pattern.type} needs an entertainment area + clientkey — CLIP fallback`,
+        );
+      }
+      payload = clipFallback(payload);
     }
 
     // Bridge failures bubble to the error handler (409 not paired / 502) like /api/playback does.

@@ -23,7 +23,16 @@ type PalettePayload = {
   };
 
   pattern: {
-    type: "static" | "rotate" | "pulse" | "crossfade";
+    // CLIP patterns, plus the streaming effects (aurora/shimmer/wave) rendered over the
+    // Entertainment API when an area is configured, else a CLIP fallback (ADR 0024).
+    type:
+      | "static"
+      | "rotate"
+      | "pulse"
+      | "crossfade"
+      | "aurora"
+      | "shimmer"
+      | "wave";
     params: PatternParams; // shape depends on type
   };
 
@@ -51,8 +60,18 @@ type PatternParams =
   | {/* static */}
   | { intervalMs: number; direction: "forward" | "reverse" } // rotate
   | { periodMs: number; minBrightness: number; maxBrightness: number } // pulse
-  | { transitionMs: number; holdMs: number }; // crossfade
+  | { transitionMs: number; holdMs: number } // crossfade
+  | { speed?: number; scale?: number; brightness?: number } // aurora (streaming)
+  | { speed?: number; intensity?: number } // shimmer (streaming)
+  | { speed?: number; angleDeg?: number }; // wave (streaming)
 ```
+
+> **Streaming effects (ADR 0024).** `aurora`/`shimmer`/`wave` are rendered by Conductor over the Hue
+> Entertainment API (DTLS, ~25 Hz) instead of CLIP. They need a configured entertainment area; a
+> Conductor without one falls back to a lively CLIP pattern (`rotate`, or `pulse` for a single
+> colour), so they're always safe to send. All their
+> params are optional (sensible defaults). They're opt-in via a Curator per-album override — Palette
+> Press does not auto-select them (ADR 0024).
 
 ## 2. JSON Schema
 
@@ -162,6 +181,12 @@ Sketch:
                 "holdMs": { "type": "integer", "minimum": 0 }
               }
             }
+          }
+        },
+        {
+          "properties": {
+            "type": { "enum": ["aurora", "shimmer", "wave"] },
+            "params": { "type": "object" }
           }
         }
       ]

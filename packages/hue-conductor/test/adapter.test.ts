@@ -51,6 +51,9 @@ describe("BridgeAdapter", () => {
     expect(rec.applicationKey).toBe("app-key-123");
     expect(rec.id).toBe("BID123");
     expect(store.bridge?.applicationKey).toBe("app-key-123");
+    // The DTLS PSK for Entertainment streaming is captured at pairing (ADR 0024).
+    expect(rec.clientkey).toBe("DEADBEEF00");
+    expect(store.bridge?.clientkey).toBe("DEADBEEF00");
   });
 
   it("pair times out if the link button is never pressed, leaving no bridge saved", async () => {

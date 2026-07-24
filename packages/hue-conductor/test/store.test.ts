@@ -24,9 +24,23 @@ describe("Store", () => {
     expect(reloaded.settings.listeningRoomId).toBe("room-1");
   });
 
-  it("defaults to unpaired with no listening room when the dir is empty", () => {
+  it("defaults to unpaired with no listening room or entertainment area", () => {
     const fresh = new Store(tempDir("conductor-empty-"));
     expect(fresh.bridge).toBeNull();
     expect(fresh.settings.listeningRoomId).toBeNull();
+    expect(fresh.settings.entertainmentAreaId).toBeNull();
+  });
+
+  it("sets the entertainment area without clobbering the listening room (and vice versa)", () => {
+    const dir = tempDir("conductor-area-");
+    const s = new Store(dir);
+    s.setListeningRoom("room-1");
+    s.setEntertainmentArea("area-9");
+    expect(s.settings.listeningRoomId).toBe("room-1"); // preserved
+    expect(s.settings.entertainmentAreaId).toBe("area-9");
+
+    s.setListeningRoom("room-2");
+    expect(s.settings.entertainmentAreaId).toBe("area-9"); // preserved
+    expect(new Store(dir).settings.entertainmentAreaId).toBe("area-9"); // persisted
   });
 });
