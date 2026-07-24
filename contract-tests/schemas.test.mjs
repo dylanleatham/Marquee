@@ -21,6 +21,7 @@ const schemaFiles = readdirSync(schemaDir).filter((f) => f.endsWith(".json"));
 for (const file of schemaFiles) ajv.addSchema(loadJson(join(schemaDir, file)));
 
 const PALETTE_ID = "marquee/schemas/palette-payload-v1.json";
+const SCAN_ID = "marquee/schemas/scan-event-v1.json";
 
 test("every schema is valid JSON Schema and compiles", () => {
   for (const file of schemaFiles) {
@@ -48,4 +49,44 @@ test("a malformed palette payload is rejected", () => {
     pattern: { type: "static", params: {} },
   };
   assert.equal(validate(bad), false);
+});
+
+// --- scan-event: both album (sleeve) and card kinds are accepted (ADR 0023) ---
+
+test("a start scan for a sleeve (curator:album) validates", () => {
+  const validate = ajv.getSchema(SCAN_ID);
+  const ev = {
+    event: "start",
+    uri: "curator:album:2k7bxq9m",
+    tagUid: "04:A1:B2:C3:D4:E5:F6",
+    at: "2026-07-24T20:15:22Z",
+  };
+  assert.ok(validate(ev), JSON.stringify(validate.errors, null, 2));
+});
+
+test("a start scan for a card (curator:card) validates", () => {
+  const validate = ajv.getSchema(SCAN_ID);
+  const ev = {
+    event: "start",
+    uri: "curator:card:2k7bxq9m",
+    tagUid: "04:A1:B2:C3:D4:E5:F6",
+    at: "2026-07-24T20:15:22Z",
+  };
+  assert.ok(validate(ev), JSON.stringify(validate.errors, null, 2));
+});
+
+test("a scan URI with an unknown kind is rejected", () => {
+  const validate = ajv.getSchema(SCAN_ID);
+  const bad = {
+    event: "start",
+    uri: "curator:disc:2k7bxq9m",
+    tagUid: "04:A1:B2:C3:D4:E5:F6",
+    at: "2026-07-24T20:15:22Z",
+  };
+  assert.equal(validate(bad), false);
+});
+
+test("a start scan without a uri is rejected", () => {
+  const validate = ajv.getSchema(SCAN_ID);
+  assert.equal(validate({ event: "start", at: "2026-07-24T20:15:22Z" }), false);
 });
