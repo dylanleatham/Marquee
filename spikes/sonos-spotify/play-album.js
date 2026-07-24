@@ -75,6 +75,7 @@ function parseArgs(argv) {
     if (a === '--stop') args.stop = true;
     else if (a === '--list') args.list = true;
     else if (a === '--accounts') args.accounts = true;
+    else if (a === '--favorites') args.favorites = true;
     else if (a === '--speaker') args.speaker = argv[++i];
     else if (a === '--album') args.album = argv[++i];
     else if (a === '--region') args.region = argv[++i];
@@ -180,6 +181,29 @@ async function main() {
   if (args.accounts) {
     const raw = await httpGet(`http://${coordinator.Host || device.Host}:1400/status/accounts`);
     console.log(`\n--- raw /status/accounts (${coordinator.Host || device.Host}) ---\n${raw.trim()}`);
+    return;
+  }
+
+  // Browse Sonos Favorites (FV:2). On modern firmware /status/accounts is empty
+  // (cloud-managed), so an existing Spotify favorite is the authoritative local
+  // source for a KNOWN-GOOD container URI — its real sn and the account <desc>
+  // token that AddURIToQueue needs. Create one Spotify favorite in the Sonos app
+  // first (♡ on any album) if you have none.
+  if (args.favorites) {
+    const res = await coordinator.ContentDirectoryService.Browse({
+      ObjectID: 'FV:2',
+      BrowseFlag: 'BrowseDirectChildren',
+      Filter: '*',
+      StartingIndex: 0,
+      RequestedCount: 100,
+      SortCriteria: '',
+    });
+    const didl = (res && res.Result) || '';
+    console.log(`\n--- Favorites DIDL (${res && res.TotalMatches} total) ---\n${didl}`);
+    const sns = [...didl.matchAll(/sn=(\d+)/g)].map((m) => m[1]);
+    const sids = [...didl.matchAll(/sid=(\d+)/g)].map((m) => m[1]);
+    if (sns.length) console.log(`\n→ observed sn values: ${[...new Set(sns)].join(', ')}  (sid: ${[...new Set(sids)].join(', ')})`);
+    else console.log('\n→ no Spotify favorites found — add one in the Sonos app, then re-run.');
     return;
   }
 
