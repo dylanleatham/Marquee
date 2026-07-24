@@ -121,6 +121,15 @@ export function parseCuratorUri(uri: string): ParsedCuratorUri | null {
   return { kind: m[1] as CuratorUriKind, curatorId: m[2] as string };
 }
 
+/**
+ * Build a Curator scan URI from its kind + id — the inverse of `parseCuratorUri`. Does not validate
+ * the id shape (callers that write tags, e.g. Curator's Flipper authoring, validate the curatorId
+ * first). `curatorUri("card", id)` is what a card sticker carries; `"album"` is a sleeve.
+ */
+export function curatorUri(kind: CuratorUriKind, curatorId: string): string {
+  return `curator:${kind}:${curatorId}`;
+}
+
 // --- Backdrop library entries (Curator → Backdrop) ---------------------------------------------
 // The map *value* in Backdrop's URI → video-file map (backdrop-spec §9): the `uri` is the map key,
 // so it is not repeated in the value here. On the wire (POST /api/library/sync) each element carries

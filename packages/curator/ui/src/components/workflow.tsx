@@ -834,14 +834,25 @@ export function TagWriteSection({
 }) {
   const state = asset.roadie.state;
   const tag = asset.tag;
-  const payload = tag?.payload ?? `curator:album:${curatorId}`;
   const verified = state === "verified";
   const canVerify = state === "awaiting_verify";
 
+  // Sleeve and card carry different URIs since ADR 0023: a sleeve is curator:album (you play the
+  // vinyl), a card is curator:card (Amp streams it over Sonos). Each row shows its URI and a Flipper
+  // .nfc download for that object.
   const writeRow = (object: "sleeve" | "card", label: string) => {
     const written = tag?.[object]?.written ?? false;
+    const uri =
+      object === "card"
+        ? `curator:card:${curatorId}`
+        : (tag?.payload ?? `curator:album:${curatorId}`);
+    const nfcHref = `/api/albums/${curatorId}/tag.nfc${object === "card" ? "?object=card" : ""}`;
     return (
       <div className="tagwrite__obj">
+        <code className="tagwrite__uri">{uri}</code>
+        <a className="btn btn--sm" href={nfcHref} download>
+          Download {label} .nfc
+        </a>
         {written ? (
           <span className="tagwrite__done">✓ {label} written</span>
         ) : (
@@ -858,9 +869,10 @@ export function TagWriteSection({
 
   return (
     <div className="tagwrite">
-      <div className="tagwrite__payload">
-        <span className="muted">Write this URI to both stickers:</span>
-        <code>{payload}</code>
+      <div className="tagwrite__payload muted">
+        Write each URI to its sticker (NFC Tools), or download the Flipper .nfc.
+        The <strong>card</strong> plays over Sonos; the <strong>sleeve</strong>{" "}
+        is for the vinyl.
       </div>
       <div className="tagwrite__objects">
         {writeRow("sleeve", "sleeve tag")}

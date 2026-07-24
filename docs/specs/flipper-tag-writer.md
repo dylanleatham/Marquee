@@ -36,6 +36,13 @@ always 22 chars (`curator:album:` + 8-char id), so the TLV is a fixed 30 bytes a
 byte-identical to `ndefUriTlv()` in Route A. (A cheap way to stay honest: paste the C output hex into
 the same round-trip check Route A/Stylus use.)
 
+> **Card kind (2026-07-24, [ADR 0023](../adrs/0023-amp-sonos-playback-and-card-uri.md)).** A **card**
+> sticker carries `curator:card:<id>` instead of `curator:album:<id>` — same format, one byte shorter
+> (21 chars → a fixed **29-byte** TLV, `Page 4: 03 1A …`). The FAP should offer writing either kind;
+> Route A's `flipperNfcFile(curatorId, "card")` / `GET /api/albums/:id/tag.nfc?object=card` already do.
+> Stylus reads both (`curator:(album|card)`); Conductor/Backdrop treat them alike, only Amp streams the
+> card over Sonos.
+
 ## 3. Input — the pending list from Curator
 
 Curator exposes the albums awaiting a tag write (issue #67):
