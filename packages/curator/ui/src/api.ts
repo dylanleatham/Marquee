@@ -79,6 +79,14 @@ export interface PaletteColor {
   sourceSwatch?: string;
 }
 
+export type PaletteRole = "primary" | "secondary" | "accent";
+
+/** One swatch as the editor sends it back: a hex, and an optional explicit role (else positional). */
+export interface PaletteEditColor {
+  hex: string;
+  role?: PaletteRole;
+}
+
 export interface PromptVariant {
   text: string;
   nudge: string;
@@ -172,7 +180,14 @@ export interface AlbumAsset {
     contentHash: string;
     source?: "spotify" | "discogs";
   };
-  palette?: { colors: PaletteColor[]; insufficient?: boolean; reason?: string };
+  palette?: {
+    colors: PaletteColor[];
+    generatedAt?: string;
+    algorithm?: string;
+    handEdited?: boolean;
+    insufficient?: boolean;
+    reason?: string;
+  };
   pattern?: { type: string; params: Record<string, unknown> };
   promptDrafts?: { video?: DraftedPrompt; cardArt?: DraftedPrompt };
   visualizer?: Visualizer;
@@ -328,6 +343,25 @@ export const api = {
   album: (id: string) => req<AlbumAsset>(`/api/albums/${id}`),
   deleteAlbum: (id: string) =>
     req<{ deleted: string }>(`/api/albums/${id}`, { method: "DELETE" }),
+
+  // --- Palette editing (curator-spec §Palettes) ---
+  // Save a hand-edited palette. Order is authoritative — colors[0] is the dominant/primary.
+  editPalette: (id: string, colors: PaletteEditColor[]) =>
+    req<{ palette: AlbumAsset["palette"] }>(`/api/albums/${id}/palette`, {
+      method: "PUT",
+      body: JSON.stringify({ colors }),
+    }),
+  // Drop the hand-edit flag (keeps the colors) so a later re-extract/batch may replace it.
+  resetPalette: (id: string) =>
+    req<{ palette: AlbumAsset["palette"] }>(`/api/albums/${id}/palette/reset`, {
+      method: "POST",
+    }),
+  // Re-run Palette Press from the cover art. `force` discards a hand-edit (else the server 409s).
+  regeneratePalette: (id: string, force = false) =>
+    req<{ palette: AlbumAsset["palette"]; pattern: AlbumAsset["pattern"] }>(
+      `/api/albums/${id}/palette/generate${force ? "?force=1" : ""}`,
+      { method: "POST" },
+    ),
 
   // --- Demo Room: drive the real Hue lights via Conductor (runtime preview) ---
   demoStatus: () => req<DemoStatus>("/api/demo/status"),

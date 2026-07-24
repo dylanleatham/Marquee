@@ -1,9 +1,10 @@
 import { useCallback, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { api, type AlbumAsset, type PaletteColor } from "../api";
+import { api, type AlbumAsset } from "../api";
 import { STATE_LABEL, STEPPER, stepperIndex, isProcessing } from "../format";
 import { usePoll } from "../hooks";
 import { Cover, StateBadge, Spinner } from "../components/common";
+import { PaletteEditor } from "../components/PaletteEditor";
 import {
   PromptBlock,
   VideoSection,
@@ -12,6 +13,16 @@ import {
   TagWriteSection,
   type Run,
 } from "../components/workflow";
+
+/** True when the palette was (re)generated or hand-edited after a prompt was drafted, so the prompt's
+ * embedded hex colors are stale. Both timestamps are ISO-8601 UTC, so a string compare is chronological. */
+const promptIsStale = (
+  paletteGeneratedAt: string | undefined,
+  promptGeneratedAt: string | undefined,
+): boolean =>
+  paletteGeneratedAt != null &&
+  promptGeneratedAt != null &&
+  promptGeneratedAt < paletteGeneratedAt;
 
 /** Horizontal stepper of the human-driven milestones, current step highlighted (spec §10). */
 function Stepper({ asset }: { asset: AlbumAsset }) {
@@ -27,20 +38,6 @@ function Stepper({ asset }: { asset: AlbumAsset }) {
         );
       })}
     </ol>
-  );
-}
-
-function Swatches({ colors }: { colors: PaletteColor[] }) {
-  return (
-    <div className="swatches">
-      {colors.map((c, i) => (
-        <div key={i} className="swatch" title={`${c.hex} · ${c.role}`}>
-          <span className="swatch__chip" style={{ background: c.hex }} />
-          <span className="swatch__hex">{c.hex}</span>
-          <span className="swatch__role">{c.role}</span>
-        </div>
-      ))}
-    </div>
   );
 }
 
@@ -111,6 +108,11 @@ export function AlbumDetail() {
   const processing = isProcessing(roadie.state);
   // Once Roadie has drafted prompts (awaiting_review onward), the workflow sections are relevant.
   const inWorkflow = !processing && palette != null;
+  // Editing the palette bumps its generatedAt past the prompts' — flag the drift so the user redrafts.
+  const promptsStale =
+    palette != null &&
+    (promptIsStale(palette.generatedAt, promptDrafts?.video?.generatedAt) ||
+      promptIsStale(palette.generatedAt, promptDrafts?.cardArt?.generatedAt));
 
   const del = async () => {
     if (!confirm(`Delete "${m.name || curatorId}"? The asset file is removed.`))
@@ -196,11 +198,23 @@ export function AlbumDetail() {
             {palette.insufficient && (
               <div className="banner banner--warn">
                 Palette looks monochrome
-                {palette.reason ? ` (${palette.reason})` : ""}. You may want to
-                hand-craft it. {/* editing lands in a later step */}
+                {palette.reason ? ` (${palette.reason})` : ""}. Hand-craft it
+                below, or re-extract from a different cover.
               </div>
             )}
-            <Swatches colors={palette.colors} />
+            {promptsStale && (
+              <div className="banner banner--warn">
+                You changed the palette after the prompts were drafted — the
+                video and card-art prompts below still reference the old colors.
+                Redraft them to match.
+              </div>
+            )}
+            <PaletteEditor
+              curatorId={curatorId}
+              asset={asset}
+              run={run}
+              busy={busy}
+            />
           </Section>
         ) : (
           <Section title="Palette">
@@ -283,12 +297,6 @@ export function AlbumDetail() {
             <TagWriteSection curatorId={curatorId} asset={asset} run={run} />
           </Section>
         )}
-
-        <Section title="Coming in later steps">
-          <p className="muted">
-            Palette editing arrives in a subsequent build step.
-          </p>
-        </Section>
       </main>
     </div>
   );

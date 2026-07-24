@@ -43,7 +43,12 @@ import {
   type RoadieState,
 } from "./albums/asset.js";
 import * as actions from "./albums/actions.js";
-import { NotFoundError, type ActionDeps } from "./albums/actions.js";
+import {
+  NotFoundError,
+  PaletteConflictError,
+  type ActionDeps,
+} from "./albums/actions.js";
+import type { PaletteEditColor } from "./albums/palette.js";
 import { GenerationJobs, FileJobStore } from "./jobs/manager.js";
 import { flipperNfcFile } from "./tags/flipper-nfc.js";
 import {
@@ -166,7 +171,7 @@ const actionError = (
     return reply.code(404).send({ error: err.message });
   if (err instanceof ValidationError)
     return reply.code(400).send({ error: err.message });
-  if (err instanceof TransitionError)
+  if (err instanceof TransitionError || err instanceof PaletteConflictError)
     return reply.code(409).send({ error: err.message });
   if (err instanceof VideoError || err instanceof ImageError)
     return reply.code(422).send({ error: err.message });
@@ -373,6 +378,7 @@ export function buildServer(opts: BuildOptions = {}) {
     store,
     prober,
     gemini,
+    generate: opts.generate,
     generateCardArt: genCardArt,
     generateVideo: genVideo,
   };
@@ -596,6 +602,50 @@ export function buildServer(opts: BuildOptions = {}) {
       ext === "png" ? "image/png" : "image/jpeg",
       `${curatorId}-card.${ext}`,
     );
+  });
+
+  // --- Palette actions (curator-spec §Palettes) ---
+  // Set a hand-edited palette (order is authoritative — first swatch is the dominant/primary).
+  app.put("/api/albums/:curatorId/palette", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const { colors } = (req.body ?? {}) as { colors?: unknown };
+    try {
+      const asset = actions.editPalette(
+        actionDeps,
+        curatorId,
+        colors as PaletteEditColor[],
+      );
+      return { palette: asset.palette };
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
+  });
+
+  // Drop the hand-edit flag without changing colors (a later generate/batch may then replace it).
+  app.post("/api/albums/:curatorId/palette/reset", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    try {
+      const asset = actions.resetPalette(actionDeps, curatorId);
+      return { palette: asset.palette };
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
+  });
+
+  // Re-run Palette Press from the cover art. Skips a hand-edited palette unless ?force=1 (→ 409).
+  app.post("/api/albums/:curatorId/palette/generate", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const force = (req.query as { force?: string }).force === "1";
+    try {
+      const asset = await actions.regeneratePalette(
+        actionDeps,
+        curatorId,
+        force,
+      );
+      return { palette: asset.palette, pattern: asset.pattern };
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
   });
 
   // --- Prompt actions (curator-spec §Prompts) ---
