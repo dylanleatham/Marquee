@@ -341,8 +341,9 @@ Save/exit, then make it executable:
 $ chmod +x ~/kiosk.sh
 ```
 
-> Add `?debug=1` to the end of the `file://...index.html` URL while testing — it shows a green/red
-> WebSocket dot in the bottom-right and the current video path in the bottom-left. Remove it for the
+> Add `?debug=1` to the end of the `file://...index.html` URL while testing — it shows a labelled
+> WebSocket indicator bottom-right (`ws online` / `ws connecting…` / `ws offline`) and the current
+> video path bottom-left. `ws online` is the one you want. Remove `?debug=1` for the
 > real thing so the screen stays clean.
 
 ### 11c. Auto-start the script with the desktop

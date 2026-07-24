@@ -237,7 +237,8 @@ Two video elements actually — `<video id="a">` and `<video id="b">` — for cr
 
 **Status indicators** (small, corner of screen, dev-only or toggleable):
 
-- Bottom-right corner: WebSocket connection dot (green/yellow/red)
+- Bottom-right corner: WebSocket connection indicator — a labelled pill (`ws online` / `ws
+  connecting…` / `ws offline`), colour-coded as a redundant cue so it's readable without colour vision
 - Bottom-left corner: current URI (small text, low opacity)
 - Center-bottom (only on error): "video not in library" or "video file missing" when a scan comes in for something Backdrop can't play
 

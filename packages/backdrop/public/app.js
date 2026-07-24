@@ -38,8 +38,13 @@
       toastTimer = setTimeout(() => (toast.hidden = true), durationMs);
   }
 
-  function setConn(cls) {
+  // Connection state is shown as a WORD, not just a colour — the dot alone is unreadable to a
+  // colour-blind viewer (and hard to judge on a dim TV). Colour stays as a redundant cue.
+  function setConn(state) {
+    const label = { open: "online", connecting: "connecting…", offline: "offline" }[state];
+    const cls = { open: "is-open", connecting: "is-connecting", offline: "" }[state];
     connDot.className = "conn " + cls;
+    connDot.textContent = "● ws " + label;
   }
 
   function play(filePath) {
@@ -128,10 +133,10 @@
   }
 
   function connect() {
-    setConn("is-connecting");
+    setConn("connecting");
     ws = new WebSocket(wsUrl());
     ws.addEventListener("open", () => {
-      setConn("is-open");
+      setConn("open");
       backoff = 500;
     });
     ws.addEventListener("message", (ev) => {
@@ -142,7 +147,7 @@
       }
     });
     ws.addEventListener("close", () => {
-      setConn("");
+      setConn("offline");
       setTimeout(connect, backoff);
       backoff = Math.min(backoff * 2, 10000); // cap reconnect backoff at 10s
     });
