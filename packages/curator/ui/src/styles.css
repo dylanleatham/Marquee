@@ -463,28 +463,97 @@ em {
   margin: 0 0 12px;
 }
 
-.swatches {
+/* Palette editor (curator-spec §album-detail). Order is authoritative — the top row is dominant. */
+.palette-editor {
   display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
+  flex-direction: column;
+  gap: 14px;
 }
-.swatch {
+
+.palette-editor__preview {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 12px;
 }
-.swatch__chip {
-  width: 72px;
-  height: 48px;
+.palette-editor__preview-bar {
+  height: 40px;
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.12);
 }
-.swatch__hex {
-  font-family: var(--mono);
+.palette-editor__preview-label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
-.swatch__role {
+
+.palette-editor__rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.palette-editor__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.palette-editor__chip {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  flex: none;
+}
+.palette-editor__picker {
+  width: 36px;
+  height: 32px;
+  padding: 0;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.palette-editor__hex {
+  width: 92px;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+.palette-editor__role {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+.palette-editor__pos {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--muted);
+  min-width: 62px;
+}
+.palette-editor__moves {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.palette-editor__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.palette-editor__hint {
+  font-size: 12px;
+  margin: 0;
 }
 
 .prompt__head {

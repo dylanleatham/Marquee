@@ -14,13 +14,15 @@ import type { AssetStore } from "../store/asset-store.js";
 import {
   transitionTo,
   deriveStatus,
+  isProcessingState,
   TransitionError,
   type AlbumAsset,
   type RoadieState,
   type CardArtCandidate,
   type VideoClip,
 } from "./asset.js";
-import { ValidationError } from "./add-manual.js";
+import { ValidationError, type PaletteGenerator } from "./add-manual.js";
+import { sanitizePaletteEdit, type PaletteEditColor } from "./palette.js";
 import {
   draftPrompts,
   type PromptType,
@@ -45,11 +47,25 @@ export class NotFoundError extends Error {
   }
 }
 
+/**
+ * The album's current state conflicts with a palette action: it's still being processed by Roadie, or
+ * a re-extract would clobber a hand-edited palette without `force`. Maps to 409 Conflict (curator-spec
+ * §Palettes — never overwrite a hand-edit without explicit user action).
+ */
+export class PaletteConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PaletteConflictError";
+  }
+}
+
 export interface ActionDeps {
   store: AssetStore;
   prober: VideoProber;
   /** Gemini client for on-demand AI actions (prompt regenerate, card-art/video generate); absent → 400. */
   gemini?: GeminiClient;
+  /** Palette generator (real Palette Press in prod; a fake in tests) for re-extraction; absent → 400. */
+  generate?: PaletteGenerator;
   /** Opt-in artifact generation (default off). Prompt drafting/regeneration is never gated by these. */
   generateCardArt?: boolean;
   generateVideo?: boolean;
@@ -182,6 +198,127 @@ export function markPromptCopied(
   else asset.status = deriveStatus(asset.roadie);
   deps.store.save(asset);
   return asset;
+}
+
+// --- palette (curator-spec §Palettes) ----------------------------------------------------------
+
+/** A palette can't be edited or re-extracted while Roadie is still processing that album (spec §Edge
+ * cases — Roadie holds a per-album lock). Single-threaded Roadie makes this a simple state check. */
+function assertNotProcessing(asset: AlbumAsset): void {
+  if (isProcessingState(asset.roadie.state))
+    throw new PaletteConflictError(
+      `album is still processing (${asset.roadie.state}) — wait for it to reach review`,
+    );
+}
+
+/**
+ * Set a hand-edited palette (curator-spec §Palettes). Replaces the colors with the validated set,
+ * marks `handEdited` so a later generate/batch won't clobber it, and bumps `generatedAt` so prompts
+ * drafted from the previous palette read as stale in the UI. Order is authoritative — the first swatch
+ * is the dominant/primary. Clears any monochrome-insufficient flag: a hand-crafted palette is whatever
+ * the human made it. Synchronous, so a plain load→save is race-safe (no await to interleave).
+ */
+export function editPalette(
+  deps: ActionDeps,
+  curatorId: string,
+  colors: PaletteEditColor[],
+): AlbumAsset {
+  const asset = load(deps.store, curatorId);
+  assertNotProcessing(asset);
+  if (!asset.palette)
+    throw new ValidationError("palette isn't generated yet — nothing to edit");
+  const clean = sanitizePaletteEdit(colors);
+  asset.palette = {
+    colors: clean,
+    generatedAt: clock(deps)(),
+    algorithm: asset.palette.algorithm,
+    handEdited: true,
+  };
+  asset.roadie.flags.palette_insufficient = false;
+  asset.status = deriveStatus(asset.roadie);
+  deps.store.save(asset);
+  return asset;
+}
+
+/**
+ * Drop the hand-edit flag (curator-spec §Palettes `/palette/reset`) without changing the colors, so a
+ * subsequent generate — or the batch regenerate — is free to replace the palette. To restore the
+ * algorithmic palette in one step instead, use `regeneratePalette(force)`.
+ */
+export function resetPalette(deps: ActionDeps, curatorId: string): AlbumAsset {
+  const asset = load(deps.store, curatorId);
+  assertNotProcessing(asset);
+  if (!asset.palette)
+    throw new ValidationError("palette isn't generated yet — nothing to reset");
+  asset.palette.handEdited = false;
+  deps.store.save(asset);
+  return asset;
+}
+
+/**
+ * Re-run Palette Press from the album's cover art (curator-spec §Palettes `/palette/generate`),
+ * replacing the palette + pattern with a fresh extraction. Refuses to overwrite a hand-edited palette
+ * unless `force` is set (409). Mirrors Roadie's `generating_palette` step, but leaves Roadie state
+ * untouched — the album stays in review. Async, so it re-reads under `store.update` after the slow
+ * decode so a concurrent write isn't clobbered (issue #38).
+ */
+export async function regeneratePalette(
+  deps: ActionDeps,
+  curatorId: string,
+  force = false,
+): Promise<AlbumAsset> {
+  if (!deps.generate)
+    throw new ValidationError("palette generator isn't available");
+  const asset = load(deps.store, curatorId);
+  assertNotProcessing(asset);
+  if (asset.palette?.handEdited && !force)
+    throw new PaletteConflictError(
+      "palette was hand-edited — re-extracting will discard your edits (pass force to proceed)",
+    );
+  const coverPath = deps.store.paths.artworkFile(curatorId);
+  if (!asset.artwork || !existsSync(coverPath))
+    throw new ValidationError(
+      "album has no cover art to extract a palette from",
+    );
+
+  const bytes = readFileSync(coverPath);
+  const payload = await deps.generate(bytes, {
+    curatorId,
+    name: asset.metadata.name,
+    artist: asset.metadata.artist,
+    year: asset.metadata.year,
+  });
+  const insufficient = Boolean(payload.palette.insufficient);
+  const now = clock(deps);
+
+  const saved = deps.store.update(curatorId, (a) => {
+    // Re-validate on the fresh copy: the album may have moved while `generate` ran (issue #38). The
+    // pre-await checks aren't enough on their own — the per-album lock has to hold at write time too.
+    assertNotProcessing(a);
+    if (a.palette?.handEdited && !force)
+      throw new PaletteConflictError(
+        "palette was hand-edited during re-extraction — discarding the edits needs force",
+      );
+    a.palette = {
+      colors: payload.palette.colors,
+      generatedAt: payload.meta?.generatedAt ?? now(),
+      algorithm: payload.meta?.generator ?? "palette-press",
+      handEdited: false,
+      ...(insufficient
+        ? { insufficient: true, reason: payload.palette.reason }
+        : {}),
+    };
+    a.pattern = {
+      type: payload.pattern.type,
+      params: payload.pattern.params,
+      handEdited: false,
+    };
+    a.roadie.flags.palette_insufficient = insufficient;
+    a.status = deriveStatus(a.roadie);
+  });
+  if (!saved)
+    throw new NotFoundError(`album ${curatorId} was deleted mid-regeneration`);
+  return saved;
 }
 
 // --- video -------------------------------------------------------------------------------------

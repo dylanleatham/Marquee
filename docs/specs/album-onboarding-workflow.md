@@ -142,7 +142,7 @@ Each state has a shape: what the album needs from you, what you do, how the UI s
 **What you do**:
 
 1. Land on album detail from the queue
-2. Look at the palette next to the album art. Feels right? Great. Something off? Edit the colors, adjust the pattern, or apply a template. Mark handEdited when you change.
+2. Look at the palette next to the album art. Feels right? Great. Something off? Edit the colors, reorder them (the top swatch is the dominant/primary), tweak roles, or re-extract from the cover ("Reset to auto"). Hand-edits set `handEdited`, which protects them from batch regenerates. If you change the palette _after_ the prompts were drafted, Curator flags those prompts as stale — their embedded colors are now out of date — so you can redraft them to match.
 3. Look at the drafted **video prompts** — five fixed-angle options in the default `narrative` style ([ADR 0022](../adrs/0022-video-prompt-parity-narrative-and-per-prompt.md)). Copy any of them to take to Google Flow (copying moves the album to Awaiting Video, no confirmation step), or hit a prompt's **Generate clip** to run just that one through Omni into the clip gallery below. Optionally regenerate with a different style template.
 4. Look at the drafted **card art prompts** — five fixed-angle options ([ADR 0021](../adrs/0021-card-art-five-option-prompt-strategy.md)). Copy any/all to take to Google Flow (or hit a prompt's **Generate art** to run just that one through Nano Banana), or defer if you're not making a card. Same template picker + Regenerate.
 
