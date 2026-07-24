@@ -1,0 +1,12 @@
+{
+  "name": "marquee-spike-sonos-spotify",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Throwaway viability spike: play a Spotify album over Sonos from the LAN. Not a workspace member.",
+  "scripts": {
+    "play": "node play-album.js"
+  },
+  "dependencies": {
+    "@svrooij/sonos": "^2.5.0"
+  }
+}

@@ -1,0 +1,131 @@
+/**
+ * Marquee spike — play a Spotify album over Sonos from code.
+ *
+ * Answers ONE viability question: can we, from a Node process on the LAN, make a
+ * Sonos speaker play an arbitrary `spotify:album:<id>` — the thing the official
+ * cloud Control API can't do (see docs/research/sonos-spotify-playback.md)?
+ *
+ * This is a throwaway spike, not a service. It lives outside the pnpm workspace
+ * on purpose. Run it on your home network (laptop or a Pi that can see the
+ * speakers) — it will NOT work from the cloud dev container, which has no Sonos
+ * on its LAN.
+ *
+ * Usage:
+ *   node play-album.js --speaker "Living Room" --album spotify:album:1DFixLWuPkv3KT3TnV35m3
+ *   node play-album.js --speaker 192.168.1.42  --album https://open.spotify.com/album/1DFixLWuPkv3KT3TnV35m3
+ *   node play-album.js --speaker "Living Room" --stop
+ *
+ * Options:
+ *   --speaker  Room name (e.g. "Living Room") OR the speaker's IP. Required.
+ *   --album    A `spotify:album:<id>` URI or an open.spotify.com/album/<id> URL.
+ *   --stop     Stop playback instead of starting.
+ *   --region   Sonos Spotify service region id. Default 3079 (US). EU is 2311.
+ *              (Wrong region is the usual cause of "it queues but won't play".)
+ */
+
+const { SonosManager, MetadataHelper } = require('@svrooij/sonos');
+
+// ---- tiny arg parser -------------------------------------------------------
+function parseArgs(argv) {
+  const args = { stop: false };
+  for (let i = 2; i < argv.length; i += 1) {
+    const a = argv[i];
+    if (a === '--stop') args.stop = true;
+    else if (a === '--speaker') args.speaker = argv[++i];
+    else if (a === '--album') args.album = argv[++i];
+    else if (a === '--region') args.region = argv[++i];
+    else throw new Error(`Unknown argument: ${a}`);
+  }
+  return args;
+}
+
+// ---- normalize a Spotify album reference to `spotify:album:<id>` ------------
+function toSpotifyAlbumUri(input) {
+  if (!input) throw new Error('--album is required unless --stop is used');
+  if (input.startsWith('spotify:album:')) return input;
+  // https://open.spotify.com/album/<id>?si=...  ->  spotify:album:<id>
+  const m = input.match(/open\.spotify\.com\/album\/([A-Za-z0-9]+)/);
+  if (m) return `spotify:album:${m[1]}`;
+  throw new Error(
+    `Could not parse "${input}" as a Spotify album. ` +
+      'Pass spotify:album:<id> or an open.spotify.com/album/<id> URL.',
+  );
+}
+
+const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/;
+
+// Bound the whole run so a lost speaker / bad network can't hang forever
+// (Marquee rule: anything that drives the network gets a cap).
+const OVERALL_TIMEOUT_MS = 30_000;
+
+async function main() {
+  const args = parseArgs(process.argv);
+  if (!args.speaker) throw new Error('--speaker is required (room name or IP)');
+
+  // MetadataHelper reads the region from this env var; default to US.
+  process.env.SONOS_REGION_SPOTIFY = args.region || process.env.SONOS_REGION_SPOTIFY || '3079';
+
+  const manager = new SonosManager();
+
+  // Static IP is the reliable path; discovery is the convenience path.
+  if (IPV4.test(args.speaker)) {
+    await manager.InitializeFromDevice(args.speaker);
+  } else {
+    await manager.InitializeWithDiscovery(10);
+  }
+
+  if (!manager.Devices.length) {
+    throw new Error('No Sonos devices found on this network. Are you on the same LAN?');
+  }
+
+  const device = IPV4.test(args.speaker)
+    ? manager.Devices.find((d) => d.Host === args.speaker) || manager.Devices[0]
+    : manager.Devices.find((d) => d.Name.toLowerCase() === args.speaker.toLowerCase());
+
+  if (!device) {
+    const names = manager.Devices.map((d) => `"${d.Name}"`).join(', ');
+    throw new Error(`No speaker named "${args.speaker}". Found: ${names}`);
+  }
+
+  console.log(`→ target: ${device.Name} (${device.Host})`);
+
+  if (args.stop) {
+    await device.Stop();
+    console.log('■ stopped');
+    return;
+  }
+
+  const uri = toSpotifyAlbumUri(args.album);
+  console.log(`→ album:  ${uri}  (region ${process.env.SONOS_REGION_SPOTIFY})`);
+
+  // Show the internal Sonos URI/metadata we generate — useful when debugging a
+  // "queues but won't play" region mismatch.
+  const guessed = MetadataHelper.GuessMetaDataAndTrackUri(uri, process.env.SONOS_REGION_SPOTIFY);
+  console.log(`→ sonos uri: ${guessed.trackUri}`);
+
+  // Fresh queue → add album → point playback at the queue → play.
+  await device.AVTransportService.RemoveAllTracksFromQueue({ InstanceID: 0 }).catch(() => {
+    /* empty queue / not supported — ignore, the add below still works */
+  });
+  await device.AddUriToQueue(uri);
+  await device.SwitchToQueue();
+  await device.Play();
+
+  // Confirm something is actually playing.
+  const track = await device.AVTransportService.GetPositionInfo({ InstanceID: 0 }).catch(() => null);
+  const title = track && track.TrackMetaData && track.TrackMetaData.Title;
+  console.log(`▶ playing on ${device.Name}${title ? ` — now: ${title}` : ''}`);
+}
+
+// Hard timeout wrapper.
+Promise.race([
+  main(),
+  new Promise((_, reject) =>
+    setTimeout(() => reject(new Error(`Timed out after ${OVERALL_TIMEOUT_MS}ms`)), OVERALL_TIMEOUT_MS),
+  ),
+])
+  .then(() => process.exit(0))
+  .catch((err) => {
+    console.error(`✖ ${err.message}`);
+    process.exit(1);
+  });
