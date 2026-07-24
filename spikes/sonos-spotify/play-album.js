@@ -15,16 +15,25 @@
  *   node play-album.js --speaker 192.168.1.42  --album https://open.spotify.com/album/1DFixLWuPkv3KT3TnV35m3
  *   node play-album.js --speaker "Living Room" --stop
  *
+ * How it plays a Spotify album by URI: it mimics a Sonos Spotify *favorite*.
+ * Modern Sonos hides the linked account (/status/accounts is empty, cloud auth),
+ * and @svrooij/sonos hardcodes the wrong service id / account serial (sid=9,
+ * sn=7). So this derives the household's real sid, sn and cdudn token from an
+ * existing Spotify favorite (FV:2) and builds the container URI + metadata to
+ * match. Keep at least one Spotify album in Sonos Favorites (♡).
+ *
  * Options:
- *   --speaker  Room name (e.g. "Living Room") OR the speaker's IP. Required.
- *   --album    A `spotify:album:<id>` URI or an open.spotify.com/album/<id> URL.
- *   --stop     Stop playback instead of starting.
- *   --region   Sonos Spotify service region id. Default 3079 (US). EU is 2311.
- *              (Wrong region is the usual cause of "it queues but won't play".)
+ *   --speaker    Room name (e.g. "Living Room") OR the speaker's IP. Required to play.
+ *   --album      A `spotify:album:<id>` URI or an open.spotify.com/album/<id> URL.
+ *   --stop       Stop playback instead of starting.
+ *   --list       List all Sonos devices with group/coordinator info, then exit.
+ *   --favorites  Dump Sonos Favorites (to read sid/sn/token), then exit.
+ *   --accounts   Dump raw /status/accounts, then exit.
+ *   --sid --sn --token   Supply the Spotify binding explicitly (skip derivation).
  */
 
 const http = require('http');
-const { SonosManager, MetaDataHelper } = require('@svrooij/sonos');
+const { SonosManager } = require('@svrooij/sonos');
 
 // Read the household's linked music-service accounts straight from a player's
 // built-in status page (http://<ip>:1400/status/accounts, no auth). This is the
@@ -44,21 +53,29 @@ function httpGet(url, timeoutMs = 5000) {
   });
 }
 
-// Sonos "Type" codes for the Spotify service (region-encoded). Matching these
-// identifies the Spotify account among all linked services.
-const SPOTIFY_TYPES = new Set(['2311', '3079', '9223', '12']);
-
-async function detectAccounts(host) {
-  const body = await httpGet(`http://${host}:1400/status/accounts`);
-  // Match both self-closing <Account .../> and paired <Account>...</Account>.
-  const blocks = body.match(/<Account\b[^>]*?(?:\/>|>[\s\S]*?<\/Account>)/g) || [];
-  const accounts = blocks.map((b) => ({
-    type: (b.match(/\bType="(\d+)"/) || [])[1],
-    serial: (b.match(/\bSerialNum="(\d+)"/) || [])[1],
-    // UN can be an attribute (UN="user") or an element (<UN>user</UN>).
-    user: (b.match(/\bUN="([^"]*)"/) || [])[1] || (b.match(/<UN>([^<]*)<\/UN>/) || [])[1] || '',
-  }));
-  return { accounts, raw: body };
+// Derive this household's Spotify binding by reading an existing Spotify favorite.
+// A favorite carries a KNOWN-GOOD container URI (with the account's real sid + sn)
+// and the cdudn token the metadata needs — the exact values @svrooij/sonos
+// hardcodes wrong (sid=9, sn=7). Returns { sid, sn, token } or null if no Spotify
+// favorite exists. The account-level sid/sn/token are reusable across any album.
+async function deriveSpotifyBinding(device) {
+  const res = await device.ContentDirectoryService.Browse({
+    ObjectID: 'FV:2',
+    BrowseFlag: 'BrowseDirectChildren',
+    Filter: '*',
+    StartingIndex: 0,
+    RequestedCount: 200,
+    SortCriteria: '',
+  });
+  const didl = (res && res.Result) || '';
+  // Locate the Spotify favorite's <res> container URI and pull sid + sn from it.
+  const resMatch = didl.match(/x-rincon-cpcontainer:1004206c[^"<]*?sid=(\d+)[^"<]*?sn=(\d+)/);
+  if (!resMatch) return null;
+  // The account cdudn token lives in that same item's resMD, just after the res.
+  const after = didl.slice(resMatch.index);
+  const token = (after.match(/SA_RINCON\d+_X_#Svc\d+-0-Token/) || [])[0];
+  if (!token) return null;
+  return { sid: resMatch[1], sn: resMatch[2], token };
 }
 
 // ---- tiny arg parser -------------------------------------------------------
@@ -76,9 +93,11 @@ function parseArgs(argv) {
     else if (a === '--list') args.list = true;
     else if (a === '--accounts') args.accounts = true;
     else if (a === '--favorites') args.favorites = true;
+    else if (a === '--sid') args.sid = argv[++i];
+    else if (a === '--sn') args.sn = argv[++i];
+    else if (a === '--token') args.token = argv[++i];
     else if (a === '--speaker') args.speaker = argv[++i];
     else if (a === '--album') args.album = argv[++i];
-    else if (a === '--region') args.region = argv[++i];
     else if (a.startsWith('--')) throw new Error(`Unknown argument: ${a}`);
     else positional.push(a);
   }
@@ -135,10 +154,6 @@ function printTopology(manager) {
 
 async function main() {
   const args = parseArgs(process.argv);
-
-  // MetadataHelper reads the region from this env var; default to US.
-  process.env.SONOS_REGION_SPOTIFY = args.region || process.env.SONOS_REGION_SPOTIFY || '3079';
-
   const manager = new SonosManager();
 
   // Static IP is the reliable path (loads full topology from that device);
@@ -213,47 +228,53 @@ async function main() {
     return;
   }
 
-  // Ground-truth the Spotify binding from the player itself, and align the
-  // region to the real account Type unless the user forced one with --region.
-  try {
-    const { accounts, raw } = await detectAccounts(coordinator.Host || device.Host);
-    const summary = accounts.length
-      ? accounts.map((a) => `Type=${a.type} sn=${a.serial || '?'} ${a.user}`.trim()).join(' | ')
-      : '(none linked)';
-    console.log(`→ accounts: ${summary}`);
-    const spotify = accounts.find((a) => SPOTIFY_TYPES.has(a.type)) || (accounts.length === 1 ? accounts[0] : undefined);
-    if (!accounts.length) {
-      console.log('  ⚠ no music-service accounts linked in Sonos. If you play Spotify via');
-      console.log('    Spotify Connect (casting from the Spotify app), that does NOT link an');
-      console.log('    account here — add Spotify in the Sonos app: Settings → Services → Add.');
-      console.log(`    raw /status/accounts (verify it is really empty):\n${raw.trim().slice(0, 600)}`);
-    } else if (spotify && spotify.type && !args.region) {
-      process.env.SONOS_REGION_SPOTIFY = spotify.type;
-      console.log(`→ using detected Spotify Type ${spotify.type} as region (account sn=${spotify.serial || '?'})`);
-    }
-  } catch (e) {
-    console.log(`→ accounts: (could not read /status/accounts: ${e.message})`);
-  }
-
   const uri = toSpotifyAlbumUri(args.album);
-  console.log(`→ album:  ${uri}  (region ${process.env.SONOS_REGION_SPOTIFY})`);
+  const albumId = uri.replace('spotify:album:', '');
 
-  // Show the internal Sonos URI we generate — useful when debugging a
-  // "queues but won't play" region mismatch. Best-effort: never let a
-  // diagnostic block the actual playback below.
-  try {
-    const guessed = MetaDataHelper.GuessMetaDataAndTrackUri(uri, process.env.SONOS_REGION_SPOTIFY);
-    console.log(`→ sonos uri: ${guessed.trackUri}`);
-  } catch (e) {
-    console.log(`→ sonos uri: (skipped diagnostic: ${e.message})`);
+  // The library's hardcoded sid=9/sn=7 don't match this household, and modern
+  // Sonos hides the account behind cloud auth (/status/accounts is empty). So
+  // derive the real sid/sn/cdudn-token from an existing Spotify favorite —
+  // unless the caller supplied them explicitly.
+  let binding = args.sid && args.sn && args.token ? { sid: args.sid, sn: args.sn, token: args.token } : null;
+  if (!binding) {
+    binding = await deriveSpotifyBinding(coordinator);
+    if (!binding) {
+      throw new Error(
+        'Could not derive the Spotify binding: no Spotify favorite found. Add one album to Sonos ' +
+          'Favorites (♡) and retry, or pass --sid --sn --token from `--favorites` output.',
+      );
+    }
   }
+  console.log(`→ album:  ${uri}`);
+  console.log(`→ binding: sid=${binding.sid} sn=${binding.sn} token=${binding.token}`);
 
-  // Fresh queue → add album → point playback at the queue → play.
+  // Build the container URI + DIDL metadata exactly as a Sonos Spotify favorite
+  // does, substituting the target album id and this household's real binding.
+  const enc = `spotify%3aalbum%3a${albumId}`;
+  const trackUri = `x-rincon-cpcontainer:1004206c${enc}?sid=${binding.sid}&flags=8300&sn=${binding.sn}`;
+  const metadata =
+    '<DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" ' +
+    'xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" ' +
+    'xmlns:r="urn:schemas-rinconnetworks-com:metadata-1-0/" ' +
+    'xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/">' +
+    `<item id="1004206c${enc}" parentID="1004206c${enc}" restricted="true">` +
+    '<dc:title>Marquee album</dc:title>' +
+    '<upnp:class>object.container.album.musicAlbum</upnp:class>' +
+    `<desc id="cdudn" nameSpace="urn:schemas-rinconnetworks-com:metadata-1-0/">${binding.token}</desc>` +
+    '</item></DIDL-Lite>';
+
+  // Fresh queue → add album (explicit URI + metadata) → switch to queue → play.
   // All queue/playback operations target the coordinator (see note above).
   await coordinator.AVTransportService.RemoveAllTracksFromQueue({ InstanceID: 0 }).catch(() => {
     /* empty queue / not supported — ignore, the add below still works */
   });
-  await coordinator.AddUriToQueue(uri);
+  await coordinator.AVTransportService.AddURIToQueue({
+    InstanceID: 0,
+    EnqueuedURI: trackUri,
+    EnqueuedURIMetaData: metadata,
+    DesiredFirstTrackNumberEnqueued: 0,
+    EnqueueAsNext: false,
+  });
   await coordinator.SwitchToQueue();
   await coordinator.Play();
 

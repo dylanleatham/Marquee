@@ -17,9 +17,23 @@ web**. Run it on your workstation or a Pi that shares the network with the speak
 ## Prerequisites
 
 - Node 20–22.
-- **Spotify already added** as a service in the Sonos app (Settings → Services → Add). Playback
-  control has historically needed **Spotify Premium**. The spike does not authenticate to Spotify —
-  it drives the account Sonos already knows about.
+- **Spotify added** as a service in the Sonos app, **Premium**, and **at least one Spotify album
+  saved as a Sonos Favorite (♡).** That favorite is how the spike learns your account's real Spotify
+  binding (see below). The spike never authenticates to Spotify — it drives the account Sonos knows.
+
+## How it actually plays an album (the hard part)
+
+`@svrooij/sonos`'s `AddUriToQueue('spotify:album:…')` builds a container URI with a **hardcoded**
+service id and account serial (`sid=9`, `sn=7`) — which don't match a real household, so Sonos
+rejects it with `UPnPError 800`. Modern Sonos also hides the linked account behind cloud auth, so
+`/status/accounts` comes back empty and can't tell us the right values.
+
+The spike solves this by **mimicking a Sonos Spotify favorite**: it browses your Favorites (`FV:2`),
+reads the real `sid`, `sn`, and `cdudn` token from an existing Spotify favorite, and builds the
+container URI + DIDL metadata for the target album using those. The binding is account-level, so any
+one Spotify favorite unlocks playing *any* album. (This reverse-engineering is exactly the fragility
+that makes Path B / the official Spotify Web API — see [`../spotify-connect`](../spotify-connect) —
+attractive for the real service.)
 
 ## Run
 
@@ -27,37 +41,36 @@ web**. Run it on your workstation or a Pi that shares the network with the speak
 cd spikes/sonos-spotify
 npm install
 
-# by room name (uses SSDP discovery)
-node play-album.js --speaker "Living Room" --album spotify:album:1DFixLWuPkv3KT3TnV35m3
+# 1) inspect (optional): topology, favorites (shows sid/sn), raw accounts
+node play-album.js --list
+node play-album.js --speaker "Living Room" --favorites
+node play-album.js --speaker "Living Room" --accounts
 
-# or by IP (more reliable on segmented/VLAN networks), with a share URL
-node play-album.js --speaker 192.168.1.42 \
-  --album https://open.spotify.com/album/1DFixLWuPkv3KT3TnV35m3
+# 2) play — derives sid/sn/token from your favorites automatically
+node play-album.js --speaker "Living Room" --album spotify:album:1DFixLWuPkv3KT3TnV35m3
 
 # stop
 node play-album.js --speaker "Living Room" --stop
+
+# override the binding instead of deriving (values from --favorites)
+node play-album.js --speaker "Living Room" --album spotify:album:… \
+  --sid 12 --sn 1 --token "SA_RINCON3079_X_#Svc3079-0-Token"
 ```
 
 > **Call `node play-album.js` directly, not `npm run play -- …`.** On Windows especially, npm eats
-> the `--speaker`/`--album` flags as its own config and forwards only the bare values. The script
-> now falls back to reading two positionals (`node play-album.js "Living Room" spotify:album:…`), so
-> either form works — but `node` directly is the clean path.
-
-### Region
-
-`--region` sets the Sonos Spotify service id. Default `3079` (US); EU is `2311`. **A wrong region is
-the usual reason an album queues but won't start** — if playback is silent, try the other one.
+> the flags as its own config and forwards only bare values. The script also reads two positionals
+> (`node play-album.js "Living Room" spotify:album:…`), so either form works — but `node` is cleanest.
 
 ## Reading the result
 
-- `▶ playing on <room> — now: <track>` → **viable.** We can trigger album playback by URI. Green-light
-  the "Amp" service design.
-- Errors to expect while dialing it in: `No Sonos devices found` (wrong LAN / firewall on SSDP),
-  `No speaker named …` (it prints the names it found — copy one), or it queues but stays silent
-  (region, or Spotify not linked / not Premium).
-- **Grouped / bonded speakers** (stereo pairs, rooms joined together) are handled automatically:
-  queue commands are routed to the group coordinator, so targeting a member no longer trips the
-  UPnP 800 "not a coordinator" error. The output shows `via coordinator <name>` when this happens.
+- `→ binding: sid=… sn=… token=…` then `▶ playing on <room>` → **viable.** Local UPnP can trigger an
+  album by URI. Green-light the "Amp" design (Path A).
+- `Could not derive the Spotify binding: no Spotify favorite found` → save one Spotify album to Sonos
+  Favorites and retry (or pass `--sid --sn --token`).
+- `UPnPError 800` still → the derived binding didn't match; re-run `--favorites` and pass the values
+  explicitly, or the album isn't available in your Spotify market.
+- **Grouped / bonded speakers** (stereo pairs, joined rooms) are handled automatically: queue
+  commands route to the group coordinator, shown as `via coordinator <name>`.
 
 ## What this spike does NOT decide
 
