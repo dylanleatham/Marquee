@@ -33,25 +33,28 @@
  *   --data-dir       Curator data dir (else MARQUEE_DATA_DIR, else ~/marquee).
  */
 
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
 
-const API = 'https://api.spotify.com/v1';
-const ACCOUNTS = 'https://accounts.spotify.com';
+const API = "https://api.spotify.com/v1";
+const ACCOUNTS = "https://accounts.spotify.com";
 const TIMEOUT_MS = 15_000;
 
 // Expand a leading ~ and resolve Curator's data dir (where settings.json and
 // spotify-tokens.json live). Mirrors Curator's default of ~/marquee.
 function resolveDataDir(args) {
-  let dir = args.dataDir || process.env.MARQUEE_DATA_DIR || path.join(os.homedir(), 'marquee');
-  if (dir.startsWith('~')) dir = path.join(os.homedir(), dir.slice(1));
+  let dir =
+    args.dataDir ||
+    process.env.MARQUEE_DATA_DIR ||
+    path.join(os.homedir(), "marquee");
+  if (dir.startsWith("~")) dir = path.join(os.homedir(), dir.slice(1));
   return dir;
 }
 
 function readJson(file) {
   try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
+    return JSON.parse(fs.readFileSync(file, "utf8"));
   } catch {
     return undefined;
   }
@@ -67,33 +70,45 @@ async function resolveToken(args) {
   if (direct) return direct;
 
   const dataDir = resolveDataDir(args);
-  const settings = readJson(path.join(dataDir, 'settings.json')) || {};
-  const clientId = args.clientId || process.env.SPOTIFY_CLIENT_ID || settings.spotify?.clientId;
-  const tokens = readJson(path.join(dataDir, 'spotify-tokens.json'));
+  const settings = readJson(path.join(dataDir, "settings.json")) || {};
+  const clientId =
+    args.clientId ||
+    process.env.SPOTIFY_CLIENT_ID ||
+    settings.spotify?.clientId;
+  const tokens = readJson(path.join(dataDir, "spotify-tokens.json"));
   const refreshToken = args.refreshToken || tokens?.refreshToken;
 
   if (!clientId || !refreshToken) {
     throw new Error(
-      'No access token, and could not mint one. Either pass --token / set SPOTIFY_TOKEN, or ' +
+      "No access token, and could not mint one. Either pass --token / set SPOTIFY_TOKEN, or " +
         `connect Spotify in Curator so ${dataDir}\\spotify-tokens.json + settings.json exist ` +
-        '(override with --client-id / --refresh-token / --data-dir).',
+        "(override with --client-id / --refresh-token / --data-dir).",
     );
   }
-  if (tokens?.scope && !tokens.scope.includes('user-modify-playback-state')) {
-    console.log('⚠ stored Spotify grant lacks user-modify-playback-state — reconnect in Curator.');
+  if (tokens?.scope && !tokens.scope.includes("user-modify-playback-state")) {
+    console.log(
+      "⚠ stored Spotify grant lacks user-modify-playback-state — reconnect in Curator.",
+    );
   }
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
     const res = await fetch(`${ACCOUNTS}/api/token`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken, client_id: clientId }),
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        client_id: clientId,
+      }),
       signal: ctrl.signal,
     });
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(`token refresh failed (${res.status}) — ${body.error_description || body.error || 'unknown'}`);
+    if (!res.ok)
+      throw new Error(
+        `token refresh failed (${res.status}) — ${body.error_description || body.error || "unknown"}`,
+      );
     console.log(`→ minted access token from Curator session (${dataDir})`);
     return body.access_token;
   } finally {
@@ -106,15 +121,15 @@ function parseArgs(argv) {
   const positional = [];
   for (let i = 2; i < argv.length; i += 1) {
     const a = argv[i];
-    if (a === '--devices') args.devices = true;
-    else if (a === '--stop') args.stop = true;
-    else if (a === '--speaker') args.speaker = argv[++i];
-    else if (a === '--album') args.album = argv[++i];
-    else if (a === '--token') args.token = argv[++i];
-    else if (a === '--client-id') args.clientId = argv[++i];
-    else if (a === '--refresh-token') args.refreshToken = argv[++i];
-    else if (a === '--data-dir') args.dataDir = argv[++i];
-    else if (a.startsWith('--')) throw new Error(`Unknown argument: ${a}`);
+    if (a === "--devices") args.devices = true;
+    else if (a === "--stop") args.stop = true;
+    else if (a === "--speaker") args.speaker = argv[++i];
+    else if (a === "--album") args.album = argv[++i];
+    else if (a === "--token") args.token = argv[++i];
+    else if (a === "--client-id") args.clientId = argv[++i];
+    else if (a === "--refresh-token") args.refreshToken = argv[++i];
+    else if (a === "--data-dir") args.dataDir = argv[++i];
+    else if (a.startsWith("--")) throw new Error(`Unknown argument: ${a}`);
     else positional.push(a);
   }
   if (!args.speaker && positional.length) args.speaker = positional.shift();
@@ -123,8 +138,8 @@ function parseArgs(argv) {
 }
 
 function toAlbumUri(input) {
-  if (!input) throw new Error('--album is required');
-  if (input.startsWith('spotify:album:')) return input;
+  if (!input) throw new Error("--album is required");
+  if (input.startsWith("spotify:album:")) return input;
   const m = input.match(/open\.spotify\.com\/album\/([A-Za-z0-9]+)/);
   if (m) return `spotify:album:${m[1]}`;
   throw new Error(`Could not parse "${input}" as a Spotify album.`);
@@ -139,7 +154,7 @@ async function api(token, method, path, body) {
       method,
       headers: {
         Authorization: `Bearer ${token}`,
-        ...(body ? { 'Content-Type': 'application/json' } : {}),
+        ...(body ? { "Content-Type": "application/json" } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
       signal: ctrl.signal,
@@ -152,7 +167,9 @@ async function api(token, method, path, body) {
       } catch {
         /* keep raw text */
       }
-      throw new Error(`${res.status} ${res.statusText}${msg ? ` — ${msg}` : ''}`);
+      throw new Error(
+        `${res.status} ${res.statusText}${msg ? ` — ${msg}` : ""}`,
+      );
     }
     return text ? JSON.parse(text) : {};
   } finally {
@@ -165,37 +182,49 @@ async function main() {
   const token = await resolveToken(args);
 
   if (args.stop) {
-    await api(token, 'PUT', '/me/player/pause');
-    console.log('■ paused');
+    await api(token, "PUT", "/me/player/pause");
+    console.log("■ paused");
     return;
   }
 
   // Show which account this token controls — devices only list for THIS account,
   // so a Sonos linked to a different Spotify account will never appear here.
-  const me = await api(token, 'GET', '/me').catch(() => null);
-  if (me) console.log(`→ token account: ${me.display_name || me.id} (${me.email || me.id}, ${me.product})`);
+  const me = await api(token, "GET", "/me").catch(() => null);
+  if (me)
+    console.log(
+      `→ token account: ${me.display_name || me.id} (${me.email || me.id}, ${me.product})`,
+    );
 
-  const { devices } = await api(token, 'GET', '/me/player/devices');
+  const { devices } = await api(token, "GET", "/me/player/devices");
   if (!devices || !devices.length) {
     throw new Error(
-      'No Connect devices visible. Open Spotify and cast to the Sonos speaker once so it appears, then retry.',
+      "No Connect devices visible. Open Spotify and cast to the Sonos speaker once so it appears, then retry.",
     );
   }
 
   if (args.devices) {
-    console.log('Connect devices:');
+    console.log("Connect devices:");
     for (const d of devices) {
-      console.log(`  ${d.name}  [${d.type}]  id=${d.id}  active=${d.is_active}`);
+      console.log(
+        `  ${d.name}  [${d.type}]  id=${d.id}  active=${d.is_active}`,
+      );
     }
     return;
   }
 
-  if (!args.speaker) throw new Error('--speaker is required (Connect device name). Try --devices first.');
+  if (!args.speaker)
+    throw new Error(
+      "--speaker is required (Connect device name). Try --devices first.",
+    );
 
-  const device = devices.find((d) => d.name.toLowerCase().includes(args.speaker.toLowerCase()));
+  const device = devices.find((d) =>
+    d.name.toLowerCase().includes(args.speaker.toLowerCase()),
+  );
   if (!device) {
-    const names = devices.map((d) => `"${d.name}"`).join(', ');
-    throw new Error(`No Connect device matching "${args.speaker}". Available: ${names}`);
+    const names = devices.map((d) => `"${d.name}"`).join(", ");
+    throw new Error(
+      `No Connect device matching "${args.speaker}". Available: ${names}`,
+    );
   }
 
   const uri = toAlbumUri(args.album);
@@ -203,22 +232,41 @@ async function main() {
   console.log(`→ album:  ${uri}`);
 
   // Target the device by id — this also transfers/wakes playback to it.
-  await api(token, 'PUT', `/me/player/play?device_id=${encodeURIComponent(device.id)}`, {
-    context_uri: uri,
-    offset: { position: 0 },
-    position_ms: 0,
-  });
+  await api(
+    token,
+    "PUT",
+    `/me/player/play?device_id=${encodeURIComponent(device.id)}`,
+    {
+      context_uri: uri,
+      offset: { position: 0 },
+      position_ms: 0,
+    },
+  );
 
   // Confirm.
-  const now = await api(token, 'GET', '/me/player/currently-playing').catch(() => null);
+  const now = await api(token, "GET", "/me/player/currently-playing").catch(
+    () => null,
+  );
   const title = now && now.item && now.item.name;
-  const artist = now && now.item && now.item.artists && now.item.artists[0] && now.item.artists[0].name;
-  console.log(`▶ playing on ${device.name}${title ? ` — ${artist ? `${artist} — ` : ''}${title}` : ''}`);
+  const artist =
+    now &&
+    now.item &&
+    now.item.artists &&
+    now.item.artists[0] &&
+    now.item.artists[0].name;
+  console.log(
+    `▶ playing on ${device.name}${title ? ` — ${artist ? `${artist} — ` : ""}${title}` : ""}`,
+  );
 }
 
 Promise.race([
   main(),
-  new Promise((_, reject) => setTimeout(() => reject(new Error(`Timed out after ${TIMEOUT_MS}ms`)), TIMEOUT_MS + 1000)),
+  new Promise((_, reject) =>
+    setTimeout(
+      () => reject(new Error(`Timed out after ${TIMEOUT_MS}ms`)),
+      TIMEOUT_MS + 1000,
+    ),
+  ),
 ])
   .then(() => process.exit(0))
   .catch((err) => {

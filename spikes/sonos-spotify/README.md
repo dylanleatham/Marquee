@@ -31,7 +31,7 @@ rejects it with `UPnPError 800`. Modern Sonos also hides the linked account behi
 The spike solves this by **mimicking a Sonos Spotify favorite**: it browses your Favorites (`FV:2`),
 reads the real `sid`, `sn`, and `cdudn` token from an existing Spotify favorite, and builds the
 container URI + DIDL metadata for the target album using those. The binding is account-level, so any
-one Spotify favorite unlocks playing *any* album. (This reverse-engineering is exactly the fragility
+one Spotify favorite unlocks playing _any_ album. (This reverse-engineering is exactly the fragility
 that makes Path B / the official Spotify Web API — see [`../spotify-connect`](../spotify-connect) —
 attractive for the real service.)
 

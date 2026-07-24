@@ -79,12 +79,12 @@ Then `AddURIToQueue` (not `SetAVTransportURI`) with the matching DIDL-Lite metad
 
 Libraries that implement this today:
 
-| Library | Lang | Notes |
-| --- | --- | --- |
-| [`@svrooij/sonos`](https://sonos.svrooij.io/) (sonos-ts) | TypeScript | Actively maintained, typed, has a Spotify share-link helper. **Best fit for our Node/TS monorepo.** |
-| [`node-sonos`](https://github.com/bencevans/node-sonos) | JS | Long-standing, lower-level. |
-| [`SoCo`](https://github.com/SoCo/SoCo) | Python | Mature; `sharelink` adds Spotify track/album/playlist to the queue. |
-| [`node-sonos-http-api`](https://github.com/jishi/node-sonos-http-api) | JS | HTTP bridge over the above; hostable on a Pi. `/<room>/spotify/now/spotify:album:<id>` and `/<room>/musicsearch/spotify/album/<query>`. |
+| Library                                                               | Lang       | Notes                                                                                                                                   |
+| --------------------------------------------------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| [`@svrooij/sonos`](https://sonos.svrooij.io/) (sonos-ts)              | TypeScript | Actively maintained, typed, has a Spotify share-link helper. **Best fit for our Node/TS monorepo.**                                     |
+| [`node-sonos`](https://github.com/bencevans/node-sonos)               | JS         | Long-standing, lower-level.                                                                                                             |
+| [`SoCo`](https://github.com/SoCo/SoCo)                                | Python     | Mature; `sharelink` adds Spotify track/album/playlist to the queue.                                                                     |
+| [`node-sonos-http-api`](https://github.com/jishi/node-sonos-http-api) | JS         | HTTP bridge over the above; hostable on a Pi. `/<room>/spotify/now/spotify:album:<id>` and `/<room>/musicsearch/spotify/album/<query>`. |
 
 ### 3. `node-sonos-http-api` (jishi) — the pragmatic bridge
 

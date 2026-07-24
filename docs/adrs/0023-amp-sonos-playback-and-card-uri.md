@@ -19,7 +19,7 @@ speculative:
   **cold, idle** speaker. It works, but the library hardcodes the wrong Spotify service id / account
   serial (`sid=9`, `sn=7`) and modern Sonos hides the linked account (empty `/status/accounts`,
   cloud-managed auth). The spike solved this by **deriving the real `sid`/`sn`/`cdudn` token from an
-  existing Sonos Spotify *favorite*** (`FV:2`) and building the container URI + metadata to match.
+  existing Sonos Spotify _favorite_** (`FV:2`) and building the container URI + metadata to match.
   Proven playing on the real system.
 - **Path B — Spotify Connect (official Web API)** authenticates cleanly (Curator already runs the
   Authorization Code + PKCE flow with playback scopes — ADR 0014) but **cannot start an idle Sonos**:
@@ -32,7 +32,7 @@ Two design questions fall out of "make this a service":
 1. **Which playback path** does the real service use?
 2. **How does the service know a scan is a card (stream) vs a sleeve (don't)?** The scan event does
    **not** distinguish them today: Stylus fires the same `curator:album:<id>` for both stickers, and
-   the sleeve/card split exists only as per-object *write status* in the asset store
+   the sleeve/card split exists only as per-object _write status_ in the asset store
    (`asset.tag.sleeve` / `asset.tag.card`, curator/src/albums/asset.ts). A card and a sleeve produce
    byte-identical `ScanEvent`s.
 
@@ -66,7 +66,7 @@ The Curator identifier scheme generalizes from `curator:album:<id>` to
 tagged `curator:card:<id>` (same 8-char curatorId — same album, different physical object).
 
 - **The discriminator rides on the shared scan event.** Every service already receives the event and
-  looks up what it needs; putting the kind *in the URI* keeps that fan-out pure and self-describing.
+  looks up what it needs; putting the kind _in the URI_ keeps that fan-out pure and self-describing.
   No optional bookkeeping (the `tag.*.tagUid` capture) has to be present and correct for the split to
   work — the sticker's own bytes decide.
 - **Conductor and Backdrop treat `card` identically to `album`** — a card lights up the room and
@@ -81,7 +81,7 @@ services parse identically (replacing the duplicated `curator:album:` regexes).
 
 **Alternative considered — match `tagUid`.** Amp could compare the scan's `tagUid` to
 `asset.tag.card.tagUid` / `asset.tag.sleeve.tagUid` and gate on that, changing no shared contract.
-Rejected: `tagUid` is *optional* bookkeeping today (curator/src/albums/asset.ts — "if the writer
+Rejected: `tagUid` is _optional_ bookkeeping today (curator/src/albums/asset.ts — "if the writer
 captured it"), so the gate would depend on data that's often absent, forcing an ambiguous default
 (stream-unless-known-sleeve vs ignore-unless-known-card) — precisely the guessing the distinct URI
 removes. The blast radius of the distinct URI (widen one regex in contracts + two service parsers +
@@ -93,12 +93,12 @@ Amp is a headless Fastify service, structured 1:1 with `packages/hue-conductor`:
 
 - `POST /api/scan` parses a `ScanEvent` (same parser shape), resolves against a **configured target**
   (a Sonos room/group name — scan carries no target), and:
-  - **start**, `kind==="album"** → `202 { action:"ignored", reason:"sleeve — vinyl plays" }`.
-  - **start**, `kind==="card"** → read the synced album asset; `metadata.spotifyUri` absent →
+  - **start**, `kind === "album"` → `202 { action:"ignored", reason:"sleeve — vinyl plays" }`.
+  - **start**, `kind === "card"` → read the synced album asset; `metadata.spotifyUri` absent →
     `202 { reason:"album not on spotify" }`; asset not synced → `202 { reason:"album not synced" }`;
     else `driver.play(target, spotifyUri)` → `202 { action:"playing" }`.
   - **stop** → `driver.stop(target)` → `202 { action:"stopped" }`.
-- **Graceful degradation → 202 "ignored"** for any *valid* scan Amp can't act on (no target, album
+- **Graceful degradation → 202 "ignored"** for any _valid_ scan Amp can't act on (no target, album
   not synced, not on Spotify, no Sonos binding, Sonos unreachable). Only a malformed body or a URI
   that isn't `curator:(album|card):<id>` is a 4xx (runtime-overview §9).
 - `X-Trigger-Secret` auth hook, config via TOML+env, a JSON `store` for the persisted target, an
