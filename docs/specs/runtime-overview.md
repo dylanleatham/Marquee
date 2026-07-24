@@ -14,6 +14,16 @@ Four services that together turn "you placed a record on the stand" into "the ro
 | 2   | **Hue Conductor**           | Drive Hue lights from palette + pattern payloads                             | Pi 5 near TV (sibling to Backdrop) | Node.js  |
 | 3   | **Stylus**                  | Read NFC tags, publish scan events                                           | Pi Zero 2 W in the album stand     | Python   |
 | 4   | **Backdrop (Video Player)** | Play visualizer videos on the display                                        | Pi 5 attached to TV                | Node.js  |
+| 5   | **Amp**                     | Play a **card**-scanned album's audio over Sonos (sleeves stay silent)       | Runtime Pi (sibling to Conductor)  | Node.js  |
+
+> **Amp added (2026-07-24, [ADR 0023](../adrs/0023-amp-sonos-playback-and-card-uri.md) /
+> [amp-spec.md](amp-spec.md)) — specified, not yet built.** The audio leg of the fan-out: a scan of a
+> **card** (`curator:card:<id>`) streams the album over the house Sonos via local UPnP; a **sleeve**
+> (`curator:album:<id>`) plays lights + video only — you drop the needle on the vinyl. So there are
+> now five services; the four-service prose and diagram below predate Amp (audio was originally out of
+> scope — §11) and are read as "the pre-Amp core." Viability was proven by the spikes under
+> [`spikes/`](../../spikes); Path B (Spotify Connect) was rejected because it can't start an idle
+> speaker (research doc + ADR 0023).
 
 Plus one internal agent, one library, and two data stores:
 
@@ -123,7 +133,7 @@ Everything at runtime is driven by one event shape, published by the Stylus:
 }
 ```
 
-The `uri` is Curator's internal identifier scheme (`curator:album:<curatorId>`), not a Spotify URI. This keeps the identifier stable regardless of whether an album is on Spotify — Curator can host records that don't exist on streaming services at all.
+The `uri` is Curator's internal identifier scheme, `curator:<kind>:<curatorId>`, not a Spotify URI. This keeps the identifier stable regardless of whether an album is on Spotify — Curator can host records that don't exist on streaming services at all. `kind` is `album` for a **sleeve** and `card` for a **card** ([ADR 0023](../adrs/0023-amp-sonos-playback-and-card-uri.md)): Conductor and Backdrop treat both identically (lights + video), while Amp streams the album only for `card` scans. (Before ADR 0023 the only kind was `album`.)
 
 Fired to both Conductor (`/api/scan`) and Backdrop (`/api/scan`) in parallel. Both services independently look up what they need (Conductor reads the album-assets store; Backdrop reads its library.json).
 
@@ -257,7 +267,8 @@ Steps 1–5 are backend-only and can happen in a coffee shop. Steps 6–9 need a
 
 Things deliberately left out of the current design, in case you're wondering:
 
-- **Audio identification of the record** (Shazam, mic input) — the tag is the identifier.
+- **Audio identification of the record** (Shazam, mic input) — the tag is the identifier. (Amp
+  _plays_ audio for card scans — ADR 0023 — but never _listens_; identification stays out.)
 - **Real-time audio-reactive effects** — patterns are pre-decided; no live audio feedback loop.
 - **Multi-track pattern changes** within an album — one palette per album, plays for the whole record.
 - **Multiple readers / multiple displays** — the field is there (`readerId`), the code isn't.

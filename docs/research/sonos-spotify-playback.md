@@ -1,7 +1,31 @@
 # Research — playing a Spotify album over Sonos
 
-_Status: research note, not a decision. Dated 2026-07-23. If we act on this, promote the chosen
-approach to an ADR + a service spec (see "Fit with Marquee" below)._
+_Status: **decided and specified** (updated 2026-07-24). Originally a research note dated 2026-07-23._
+_Outcome: **Path A (local UPnP) chosen**, built as the **Amp** service —
+[ADR 0023](../adrs/0023-amp-sonos-playback-and-card-uri.md), [amp-spec.md](../specs/amp-spec.md).
+Viability proven against real hardware by the two spikes under [`spikes/`](../../spikes). The original
+survey below stands; the "Proven — empirical results" section records what the spikes actually found._
+
+## Proven — empirical results (2026-07-24)
+
+Both paths were built as runnable spikes and tested on the real Sonos + Spotify household.
+
+- **Path A — local UPnP (`spikes/sonos-spotify`): WORKS, and is the choice.** Plays an arbitrary
+  `spotify:album:<id>` on a **cold, idle** speaker. Getting there surfaced the real-world friction:
+  `@svrooij/sonos` hardcodes `sid=9`/`sn=7` (wrong for a live account → UPnP 800), and modern Sonos
+  hides the linked account (empty `/status/accounts`, cloud auth). Solved by **deriving the real
+  `sid`/`sn`/`cdudn` token from an existing Sonos Spotify favorite** (`FV:2`) and building the
+  container URI to match; queue commands must target the group **coordinator** (else UPnP 800), and
+  the library's own metadata must be used (hand-rolled DIDL → UPnP 402).
+- **Path B — Spotify Connect (`spikes/spotify-connect`): auth solved, but rejected.** Curator already
+  runs the Authorization Code + PKCE flow with playback scopes (ADR 0014), so the spike mints a token
+  with zero setup. But a **Sonos only appears in `GET /me/player/devices` while already an active
+  Connect target**, and there is no API to wake an idle one — on the real system the phone/computer
+  showed as devices, the Sonos never did. Structurally unable to start an idle speaker from a card
+  scan. Kept as proven code for a possible future "resume on whatever's already casting" feature.
+
+**Decision:** build **Amp** on Path A. See ADR 0023 for the full rationale and the card-vs-sleeve
+(`curator:card:<id>`) design.
 
 **Question:** Does Sonos expose an API or SDK that would let Marquee play an album from Spotify over
 the Sonos speakers in the house?
