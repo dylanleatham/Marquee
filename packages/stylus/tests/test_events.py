@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 
-from stylus.events import is_album_uri, now_iso, start_event, stop_event
+from stylus.events import is_curator_uri, now_iso, start_event, stop_event
 
 _SCHEMA = json.loads(
     (
@@ -51,11 +51,13 @@ def test_now_iso_is_zulu_seconds_precision():
     "uri,ok",
     [
         ("curator:album:2k7bxq9m", True),
+        ("curator:card:2k7bxq9m", True),  # card kind — ADR 0023
         ("curator:album:ABC12345", False),  # uppercase not allowed by the pattern
         ("curator:album:short", False),
         ("spotify:album:2k7bxq9m", False),
+        ("curator:disc:2k7bxq9m", False),  # unknown kind
         ("curator:album:2k7bxq9m ", False),
     ],
 )
-def test_is_album_uri(uri, ok):
-    assert is_album_uri(uri) is ok
+def test_is_curator_uri(uri, ok):
+    assert is_curator_uri(uri) is ok

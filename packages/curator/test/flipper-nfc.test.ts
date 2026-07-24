@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   albumUri,
+  tagUri,
   ndefUriTlv,
   ntag213Pages,
   flipperNfcFile,
@@ -50,11 +51,30 @@ describe("albumUri", () => {
   });
 });
 
+describe("tagUri — sleeve vs card (ADR 0023)", () => {
+  it("builds the right URI per physical object", () => {
+    expect(tagUri(ID)).toBe(`curator:album:${ID}`); // default = sleeve
+    expect(tagUri(ID, "sleeve")).toBe(`curator:album:${ID}`);
+    expect(tagUri(ID, "card")).toBe(`curator:card:${ID}`);
+  });
+  it("validates the curatorId for either object", () => {
+    expect(() => tagUri("BAD", "card")).toThrow();
+    expect(() => tagUri("../etc")).toThrow();
+  });
+  it("a card tag's pages round-trip back to the curator:card URI", () => {
+    const pages = ntag213Pages(tagUri(ID, "card"));
+    const user = Buffer.from(pages.slice(4, 40).flat());
+    expect(decodeUri(user)).toBe(`curator:card:${ID}`);
+  });
+});
+
 describe("ndefUriTlv — the byte contract Stylus reads", () => {
   it("produces the exact well-known URI record TLV", () => {
     const hex = ndefUriTlv(URI).toString("hex").toUpperCase();
     // 03 1B | D1 01 17 55 00 | "curator:album:2k7bxq9m" (ascii) | FE
-    expect(hex).toBe("031BD10117550063757261746F723A616C62756D3A326B37627871396DFE");
+    expect(hex).toBe(
+      "031BD10117550063757261746F723A616C62756D3A326B37627871396DFE",
+    );
   });
 
   it("round-trips back to the URI (same decode Stylus does)", () => {
@@ -93,7 +113,9 @@ describe("ntag213Pages", () => {
 
   it("has a well-formed placeholder UID (valid BCC0)", () => {
     // BCC0 = CT(0x88) ^ UID0 ^ UID1 ^ UID2
-    expect(pages[0]![3]).toBe(0x88 ^ pages[0]![0]! ^ pages[0]![1]! ^ pages[0]![2]!);
+    expect(pages[0]![3]).toBe(
+      0x88 ^ pages[0]![0]! ^ pages[0]![1]! ^ pages[0]![2]!,
+    );
   });
 
   it("rejects a URI that won't fit NTAG213 user memory", () => {
@@ -131,6 +153,19 @@ describe("tag routes (issue #67)", () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers["content-disposition"]).toContain(`${ID}.nfc`);
     expect(res.body).toContain("Page 4: 03 1B D1 01");
+  });
+
+  it("GET /api/albums/:id/tag.nfc?object=card downloads the card .nfc", async () => {
+    const { app, store } = server();
+    store.save(makeAsset(ID, "Purple Rain", "Prince"));
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/albums/${ID}/tag.nfc?object=card`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-disposition"]).toContain(`${ID}-card.nfc`);
+    // card URI is one byte shorter than the album's, so the TLV length is 0x1A not 0x1B.
+    expect(res.body).toContain("Page 4: 03 1A D1 01");
   });
 
   it("404s the .nfc for an unknown album", async () => {

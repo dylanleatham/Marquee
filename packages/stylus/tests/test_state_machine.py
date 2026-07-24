@@ -2,7 +2,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from stylus.config import ReaderConfig
-from stylus.events import is_album_uri
+from stylus.events import is_curator_uri
 from stylus.state_machine import (
     BadTag,
     DetectionMachine,
@@ -101,7 +101,7 @@ def test_stop_then_reinsert_same_album_fires_again():
 
 # --- property test: replay arbitrary observation streams, invariants must always hold -----------
 _UIDS = ["A", "B", "C"]
-_URIS = [URI_A, URI_B, "curator:album:cccc3333", "spotify:bad", None]
+_URIS = [URI_A, URI_B, "curator:album:cccc3333", "curator:card:dddd4444", "spotify:bad", None]
 
 
 @st.composite
@@ -121,10 +121,10 @@ def test_invariants_hold_over_any_stream(seq):
         # State/field coherence.
         assert (m.state is State.PLAYING) == (m.current_uid is not None)
         if m.state is State.PLAYING:
-            assert is_album_uri(m.current_uri)
+            assert is_curator_uri(m.current_uri)
         # Actions are only ever emitted in states that make sense, always with a valid URI.
         if isinstance(action, (Start, Swap)):
-            assert is_album_uri(action.uri)
+            assert is_curator_uri(action.uri)
             assert m.state is State.PLAYING and m.current_uri == action.uri
         elif isinstance(action, Stop):
             assert m.state is State.IDLE and m.current_uid is None

@@ -659,6 +659,26 @@ describe("TagWriteSection (issue #55)", () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 
+  it("offers a distinct card URI + card .nfc download (ADR 0023)", () => {
+    render(
+      <TagWriteSection
+        curatorId="abcd1234"
+        asset={albumAt("awaiting_tag_write")}
+        run={vi.fn()}
+      />,
+    );
+    // Sleeve is curator:album, card is curator:card — different URIs on the two stickers.
+    expect(screen.getByText("curator:album:abcd1234")).toBeTruthy();
+    expect(screen.getByText("curator:card:abcd1234")).toBeTruthy();
+    // Each object has its own Flipper .nfc download; the card one carries ?object=card.
+    const cardDl = screen.getByText("Download card tag .nfc").closest("a")!;
+    expect(cardDl.getAttribute("href")).toBe(
+      "/api/albums/abcd1234/tag.nfc?object=card",
+    );
+    const sleeveDl = screen.getByText("Download sleeve tag .nfc").closest("a")!;
+    expect(sleeveDl.getAttribute("href")).toBe("/api/albums/abcd1234/tag.nfc");
+  });
+
   it("shows the sleeve as done and enables verify at awaiting_verify", () => {
     const run = vi.fn();
     render(

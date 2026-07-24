@@ -20,7 +20,9 @@
     "test:unit": {
       "dependsOn": ["^build"]
     },
-    "test:contracts": {},
+    "test:contracts": {
+      "dependsOn": ["^build"]
+    },
     "test:integration": {
       "dependsOn": ["^build"]
     }

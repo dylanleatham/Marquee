@@ -21,8 +21,12 @@ describe("curatorIdFromUri", () => {
   it("extracts the id from a curator album URI", () => {
     expect(curatorIdFromUri(`curator:album:${ID}`)).toBe(ID);
   });
+  it("extracts the id from a curator card URI (card == album for Conductor, ADR 0023)", () => {
+    expect(curatorIdFromUri(`curator:card:${ID}`)).toBe(ID);
+  });
   it("rejects non-curator / malformed URIs", () => {
     expect(curatorIdFromUri("spotify:album:abc")).toBeNull();
+    expect(curatorIdFromUri("curator:disc:2k7bxq9m")).toBeNull();
     expect(curatorIdFromUri("curator:album:TOOLONGGG")).toBeNull();
     expect(curatorIdFromUri("curator:album:UPPER123")).toBeNull();
     expect(curatorIdFromUri("")).toBeNull();
@@ -39,7 +43,9 @@ describe("FsAlbumAssetReader", () => {
   });
 
   it("returns null for an album that isn't synced", async () => {
-    expect(await new FsAlbumAssetReader(seededDir()).read("aaaa1111")).toBeNull();
+    expect(
+      await new FsAlbumAssetReader(seededDir()).read("aaaa1111"),
+    ).toBeNull();
   });
 
   it("returns null (not throw) on a corrupt file", async () => {

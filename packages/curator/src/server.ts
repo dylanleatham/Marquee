@@ -445,14 +445,16 @@ export function buildServer(opts: BuildOptions = {}) {
 
   app.get("/api/albums/:curatorId/tag.nfc", async (req, reply) => {
     const { curatorId } = req.params as { curatorId: string };
+    // `?object=card` writes a card tag (curator:card:<id>); default is the sleeve (curator:album:<id>).
+    const object =
+      (req.query as { object?: string }).object === "card" ? "card" : "sleeve";
     if (!store.read(curatorId))
       return reply.code(404).send({ error: "not found" });
-    reply.header(
-      "content-disposition",
-      `attachment; filename="${curatorId}.nfc"`,
-    );
+    const filename =
+      object === "card" ? `${curatorId}-card.nfc` : `${curatorId}.nfc`;
+    reply.header("content-disposition", `attachment; filename="${filename}"`);
     reply.type("application/octet-stream");
-    return flipperNfcFile(curatorId);
+    return flipperNfcFile(curatorId, object);
   });
 
   app.delete("/api/albums/:curatorId", async (req, reply) => {

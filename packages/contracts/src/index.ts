@@ -77,10 +77,15 @@ export interface PalettePayload {
 // (integration-contract §scan, stylus-spec §"Outbound events"). `stop` deliberately carries no
 // `uri` — downstream treats it as "return to idle" regardless of what was playing.
 
-/** A sleeve was placed on the stand. */
+/** A sleeve or card was placed on the stand. */
 export interface ScanStartEvent {
   event: "start";
-  /** Curator album URI, `curator:album:<curatorId>`. */
+  /**
+   * Curator URI, `curator:<kind>:<curatorId>` where kind is `album` (a record sleeve) or `card`
+   * (a printed card for a streaming-only album). Conductor and Backdrop treat both kinds identically
+   * (lights + video); only Amp acts on the difference — it streams over Sonos for `card`, stays
+   * silent for `album` (you drop the needle on the vinyl). See ADR 0023 / `parseCuratorUri`.
+   */
   uri: string;
   /**
    * Raw NFC tag UID, e.g. "04:A1:B2:C3:D4:E5:F6". Informational downstream, but a real `start`
@@ -101,6 +106,38 @@ export interface ScanStopEvent {
 }
 
 export type ScanEvent = ScanStartEvent | ScanStopEvent;
+
+/** The physical object a scan URI names: a record `sleeve` (`album`) or a `card` (ADR 0023). */
+export type CuratorUriKind = "album" | "card";
+
+export interface ParsedCuratorUri {
+  kind: CuratorUriKind;
+  curatorId: string;
+}
+
+// Matches both kinds; the curatorId is the same 8-char base32-ish id regardless of kind.
+const CURATOR_URI = /^curator:(album|card):([a-z0-9]{8})$/;
+
+/**
+ * Parse a Curator scan URI into its kind + id, or `null` if it isn't a well-formed
+ * `curator:(album|card):<id>`. The one place every service (Conductor, Backdrop, Amp) should decode
+ * a scan URI, so the accepted shape stays identical across the fan-out. `album` = sleeve, `card` =
+ * card; the id is shared (same album, different physical object). See ADR 0023.
+ */
+export function parseCuratorUri(uri: string): ParsedCuratorUri | null {
+  const m = CURATOR_URI.exec(uri);
+  if (!m) return null;
+  return { kind: m[1] as CuratorUriKind, curatorId: m[2] as string };
+}
+
+/**
+ * Build a Curator scan URI from its kind + id — the inverse of `parseCuratorUri`. Does not validate
+ * the id shape (callers that write tags, e.g. Curator's Flipper authoring, validate the curatorId
+ * first). `curatorUri("card", id)` is what a card sticker carries; `"album"` is a sleeve.
+ */
+export function curatorUri(kind: CuratorUriKind, curatorId: string): string {
+  return `curator:${kind}:${curatorId}`;
+}
 
 // --- Backdrop library entries (Curator → Backdrop) ---------------------------------------------
 // The map *value* in Backdrop's URI → video-file map (backdrop-spec §9): the `uri` is the map key,

@@ -60,3 +60,6 @@ packages/hue-conductor/data/
 
 # Backdrop local runtime store (library.json + synced visualizer files, populated on-device)
 packages/backdrop/data/
+
+# Amp local runtime store (amp.json — the target Sonos room) + synced album-assets
+packages/amp/data/

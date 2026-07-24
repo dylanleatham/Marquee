@@ -5,13 +5,29 @@
 // wrapper on top is a thin, isolated layer targeting a recent Flipper firmware schema; the page data
 // it carries is the tested part.
 import { Buffer } from "node:buffer";
+import { curatorUri } from "@marquee/contracts";
 import { isCuratorId } from "../ids.js";
 
-/** The album URI written to the tag. */
-export function albumUri(curatorId: string): string {
+/** The physical object a tag is stuck to: a record `sleeve` or a printed `card` (ADR 0023). */
+export type TagObject = "sleeve" | "card";
+
+/**
+ * The URI written to a tag for a given object. A **sleeve** carries `curator:album:<id>` (you drop the
+ * needle on the vinyl); a **card** carries `curator:card:<id>` (Amp streams it over Sonos). Both name
+ * the same album — only the kind differs, and only Amp acts on it.
+ */
+export function tagUri(
+  curatorId: string,
+  object: TagObject = "sleeve",
+): string {
   if (!isCuratorId(curatorId))
     throw new Error(`not a curatorId: ${JSON.stringify(curatorId)}`);
-  return `curator:album:${curatorId}`;
+  return curatorUri(object === "card" ? "card" : "album", curatorId);
+}
+
+/** The album (sleeve) URI written to the tag. Back-compat alias of `tagUri(id, "sleeve")`. */
+export function albumUri(curatorId: string): string {
+  return tagUri(curatorId, "sleeve");
 }
 
 /**
@@ -85,7 +101,8 @@ export function ntag213Pages(uri: string): number[][] {
   return pages;
 }
 
-const hex = (b: number): string => b.toString(16).padStart(2, "0").toUpperCase();
+const hex = (b: number): string =>
+  b.toString(16).padStart(2, "0").toUpperCase();
 const pageLine = (row: number[]): string => row.map(hex).join(" ");
 
 /**
@@ -95,8 +112,11 @@ const pageLine = (row: number[]): string => row.map(hex).join(" ");
  * validate it once on your device (write a tag, read it back), and if your firmware wants a different
  * schema this is the one place to adjust.
  */
-export function flipperNfcFile(curatorId: string): string {
-  const pages = ntag213Pages(albumUri(curatorId));
+export function flipperNfcFile(
+  curatorId: string,
+  object: TagObject = "sleeve",
+): string {
+  const pages = ntag213Pages(tagUri(curatorId, object));
   const uid = pages[0]!.slice(0, 3).concat(pages[1]!); // 7-byte UID for the header
   const header = [
     "Filetype: Flipper NFC device",
