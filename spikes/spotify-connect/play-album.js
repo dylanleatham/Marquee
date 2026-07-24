@@ -9,31 +9,97 @@
  *
  * Requirements:
  *   - Spotify PREMIUM (Connect playback control is Premium-only).
- *   - A user access token with scopes:
- *       user-read-playback-state  user-modify-playback-state
- *     Fastest way to get one for a spike: https://developer.spotify.com/documentation/web-api
- *     → "Get started" / the console's "Try it" gives a temporary token with scopes.
- *     (Tokens expire in ~1h — this is a spike, not the real auth. The real Amp
- *      service would use the Authorization Code + refresh flow.)
+ *   - A user access token with user-read-playback-state + user-modify-playback-state.
+ *     EASIEST: if you've connected Spotify in Curator, this mints one automatically
+ *     from Curator's stored PKCE refresh token (~/marquee/spotify-tokens.json) and
+ *     client id (~/marquee/settings.json) — that grant already has the scopes
+ *     (packages/curator DEFAULT_SCOPES). Otherwise pass --token / SPOTIFY_TOKEN.
  *   - The Sonos speaker must appear as a Connect device. It does once Spotify is
  *     linked to Sonos (you have this). Targeting it by id below also wakes it.
  *
  * Usage:
- *   set SPOTIFY_TOKEN=BQ...           (PowerShell: $env:SPOTIFY_TOKEN="BQ...")
+ *   node play-album.js --devices     # list Connect devices and exit
  *   node play-album.js --speaker "Living Room" --album spotify:album:1DFixLWuPkv3KT3TnV35m3
- *   node play-album.js --devices     # just list Connect devices and exit
  *   node play-album.js --stop        # pause playback
  *
  * Options:
- *   --speaker  Connect device name to match (case-insensitive substring). Required to play.
- *   --album    spotify:album:<id> or an open.spotify.com/album/<id> URL.
- *   --token    Access token (else read from SPOTIFY_TOKEN env).
- *   --devices  List available Connect devices and exit.
- *   --stop     Pause current playback.
+ *   --speaker        Connect device name to match (case-insensitive substring). Required to play.
+ *   --album          spotify:album:<id> or an open.spotify.com/album/<id> URL.
+ *   --devices        List available Connect devices and exit.
+ *   --stop           Pause current playback.
+ *   --token          Access token override (else SPOTIFY_TOKEN, else minted from Curator).
+ *   --client-id      Spotify client id override (else SPOTIFY_CLIENT_ID, else Curator settings.json).
+ *   --refresh-token  Refresh token override (else Curator spotify-tokens.json).
+ *   --data-dir       Curator data dir (else MARQUEE_DATA_DIR, else ~/marquee).
  */
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
 const API = 'https://api.spotify.com/v1';
+const ACCOUNTS = 'https://accounts.spotify.com';
 const TIMEOUT_MS = 15_000;
+
+// Expand a leading ~ and resolve Curator's data dir (where settings.json and
+// spotify-tokens.json live). Mirrors Curator's default of ~/marquee.
+function resolveDataDir(args) {
+  let dir = args.dataDir || process.env.MARQUEE_DATA_DIR || path.join(os.homedir(), 'marquee');
+  if (dir.startsWith('~')) dir = path.join(os.homedir(), dir.slice(1));
+  return dir;
+}
+
+function readJson(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return undefined;
+  }
+}
+
+// Resolve a usable Spotify ACCESS token. Priority:
+//   1. --token / SPOTIFY_TOKEN (a ready access token)
+//   2. Mint one from Curator's stored PKCE refresh token + client id (zero setup
+//      if you've connected Spotify in Curator — that grant already carries the
+//      user-modify-playback-state scope, per packages/curator DEFAULT_SCOPES).
+async function resolveToken(args) {
+  const direct = args.token || process.env.SPOTIFY_TOKEN;
+  if (direct) return direct;
+
+  const dataDir = resolveDataDir(args);
+  const settings = readJson(path.join(dataDir, 'settings.json')) || {};
+  const clientId = args.clientId || process.env.SPOTIFY_CLIENT_ID || settings.spotify?.clientId;
+  const tokens = readJson(path.join(dataDir, 'spotify-tokens.json'));
+  const refreshToken = args.refreshToken || tokens?.refreshToken;
+
+  if (!clientId || !refreshToken) {
+    throw new Error(
+      'No access token, and could not mint one. Either pass --token / set SPOTIFY_TOKEN, or ' +
+        `connect Spotify in Curator so ${dataDir}\\spotify-tokens.json + settings.json exist ` +
+        '(override with --client-id / --refresh-token / --data-dir).',
+    );
+  }
+  if (tokens?.scope && !tokens.scope.includes('user-modify-playback-state')) {
+    console.log('⚠ stored Spotify grant lacks user-modify-playback-state — reconnect in Curator.');
+  }
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(`${ACCOUNTS}/api/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken, client_id: clientId }),
+      signal: ctrl.signal,
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(`token refresh failed (${res.status}) — ${body.error_description || body.error || 'unknown'}`);
+    console.log(`→ minted access token from Curator session (${dataDir})`);
+    return body.access_token;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 function parseArgs(argv) {
   const args = {};
@@ -45,6 +111,9 @@ function parseArgs(argv) {
     else if (a === '--speaker') args.speaker = argv[++i];
     else if (a === '--album') args.album = argv[++i];
     else if (a === '--token') args.token = argv[++i];
+    else if (a === '--client-id') args.clientId = argv[++i];
+    else if (a === '--refresh-token') args.refreshToken = argv[++i];
+    else if (a === '--data-dir') args.dataDir = argv[++i];
     else if (a.startsWith('--')) throw new Error(`Unknown argument: ${a}`);
     else positional.push(a);
   }
@@ -93,8 +162,7 @@ async function api(token, method, path, body) {
 
 async function main() {
   const args = parseArgs(process.argv);
-  const token = args.token || process.env.SPOTIFY_TOKEN;
-  if (!token) throw new Error('No token. Set SPOTIFY_TOKEN or pass --token. See header for scopes.');
+  const token = await resolveToken(args);
 
   if (args.stop) {
     await api(token, 'PUT', '/me/player/pause');

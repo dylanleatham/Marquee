@@ -15,27 +15,30 @@ you'd run the Spotify app.
 ## Prerequisites
 
 - **Spotify Premium** — Connect playback control is Premium-only. (Free accounts get 403.)
-- A user **access token** with scopes `user-read-playback-state` and `user-modify-playback-state`.
-  For a spike, the quickest source is the token generator on the Spotify Web API docs
-  (<https://developer.spotify.com/documentation/web-api>) — request those two scopes. Tokens last
-  ~1 hour; that's fine for proving viability. The real Amp service would use the Authorization Code
-  + refresh-token flow (which Marquee's existing Spotify OAuth for Roadie can be extended to cover).
+- A user token with `user-read-playback-state` + `user-modify-playback-state`. **You almost certainly
+  already have this:** Marquee's Curator implements Authorization Code + PKCE with exactly these
+  scopes (ADR 0014). If you've connected Spotify in Curator, this spike **mints its own access token**
+  from Curator's stored refresh token (`~/marquee/spotify-tokens.json`) + client id
+  (`~/marquee/settings.json`) — nothing to paste. Otherwise pass `--token` / `SPOTIFY_TOKEN`.
 
 ## Run
 
 ```powershell
-# PowerShell
-$env:SPOTIFY_TOKEN = "BQ...your token..."
+# If you've connected Spotify in Curator, no token needed — it mints one:
 node play-album.js --devices                                   # list Connect devices
 node play-album.js --speaker "Living Room" --album spotify:album:1DFixLWuPkv3KT3TnV35m3
 node play-album.js --stop
+
+# Not using Curator? Supply a token instead:
+$env:SPOTIFY_TOKEN = "BQ...your token..."
+node play-album.js --speaker "Living Room" --album spotify:album:1DFixLWuPkv3KT3TnV35m3
+
+# Non-default Curator data dir:
+node play-album.js --data-dir "D:\marquee" --devices
 ```
 
-```bash
-# bash
-export SPOTIFY_TOKEN="BQ...your token..."
-node play-album.js --speaker "Living Room" --album spotify:album:1DFixLWuPkv3KT3TnV35m3
-```
+If Curator's data dir isn't `~/marquee`, point at it with `--data-dir` (or `MARQUEE_DATA_DIR`).
+Individual overrides: `--client-id`, `--refresh-token`.
 
 ## Reading the result
 
