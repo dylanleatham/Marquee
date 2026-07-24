@@ -170,6 +170,11 @@ async function main() {
     return;
   }
 
+  // Show which account this token controls — devices only list for THIS account,
+  // so a Sonos linked to a different Spotify account will never appear here.
+  const me = await api(token, 'GET', '/me').catch(() => null);
+  if (me) console.log(`→ token account: ${me.display_name || me.id} (${me.email || me.id}, ${me.product})`);
+
   const { devices } = await api(token, 'GET', '/me/player/devices');
   if (!devices || !devices.length) {
     throw new Error(
