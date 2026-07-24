@@ -78,18 +78,24 @@ body {
   color: rgba(255, 255, 255, 0.5);
 }
 
+/* Shows "● ws offline/connecting…/online". The word is the primary signal; colour is a redundant
+   cue only, so the indicator is usable without colour vision. */
 .conn {
   position: fixed;
   right: 10px;
   bottom: 8px;
-  font-size: 14px;
-  color: #c0392b; /* red until connected */
+  font: 12px/1 var(--mono, ui-monospace, monospace);
+  letter-spacing: 0.03em;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #ff8a80; /* offline */
 }
 .conn.is-connecting {
-  color: #f1c40f;
+  color: #ffd24d;
 }
 .conn.is-open {
-  color: #2ecc71;
+  color: #78e08f;
 }
 
 .uri {
