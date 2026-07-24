@@ -5,13 +5,7 @@
 import { SonosManager, MetaDataHelper } from "@svrooij/sonos";
 import type { SonosDevice } from "@svrooij/sonos";
 import { SonosUnavailableError, type SonosDriver } from "./driver.js";
-
-/** The household's Spotify binding, derived from a Sonos favorite (never hardcoded). */
-interface SpotifyBinding {
-  sid: string;
-  sn: string;
-  token: string;
-}
+import { parseFavoriteBinding, type SpotifyBinding } from "./binding.js";
 
 const DISCOVERY_TIMEOUT_MS = 12_000;
 const OP_TIMEOUT_MS = 15_000;
@@ -103,8 +97,16 @@ export class SvrooijSonosDriver implements SonosDriver {
   }
 
   private reset(): void {
+    const mgr = this.manager;
     this.manager = null;
     this.binding = null;
+    // Release the manager's zone-event subscriptions/SSDP sockets before dropping it, so repeated
+    // Sonos failures over a long uptime don't accumulate abandoned managers (runtime review).
+    try {
+      mgr?.CancelSubscription();
+    } catch {
+      /* best-effort cleanup */
+    }
   }
 
   private async ensureManager(): Promise<SonosManager> {
@@ -161,22 +163,12 @@ export class SvrooijSonosDriver implements SonosDriver {
       OP_TIMEOUT_MS,
       "Sonos favorites browse",
     );
-    const didl = String(res?.Result ?? "");
-    const m = didl.match(
-      /x-rincon-cpcontainer:1004206c[^"<]*?sid=(\d+)[^"<]*?sn=(\d+)/,
-    );
-    if (!m)
+    const binding = parseFavoriteBinding(String(res?.Result ?? ""));
+    if (!binding)
       throw new SonosUnavailableError(
         "no Spotify favorite found — add one album to Sonos Favorites so Amp can derive the account binding",
       );
-    const token = didl
-      .slice(m.index ?? 0)
-      .match(/SA_RINCON\d+_X_#Svc\d+-0-Token/)?.[0];
-    if (!token)
-      throw new SonosUnavailableError(
-        "could not read the Spotify account token from a favorite",
-      );
-    this.binding = { sid: m[1] as string, sn: m[2] as string, token };
+    this.binding = binding;
     return this.binding;
   }
 }

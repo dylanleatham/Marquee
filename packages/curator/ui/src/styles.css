@@ -727,10 +727,21 @@ em {
   color: var(--amber);
   word-break: break-all;
 }
+.tagwrite__uri {
+  color: var(--amber);
+  word-break: break-all;
+  font-size: 13px;
+}
 .tagwrite__objects {
   display: flex;
   flex-wrap: wrap;
   gap: 14px;
+}
+.tagwrite__obj {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
 }
 .tagwrite__done {
   color: var(--sage);

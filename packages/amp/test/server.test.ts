@@ -296,3 +296,88 @@ describe("Amp settings", () => {
     expect(res.json()).toEqual({ rooms: ["Living Room", "Kitchen"] });
   });
 });
+
+describe("Amp admin + status", () => {
+  it("POST /api/admin/play plays on the target", async () => {
+    const { app, driver } = build();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/admin/play",
+      headers: auth,
+      payload: { spotifyUri: SPOTIFY },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      ok: true,
+      target: "Living Room",
+      spotifyUri: SPOTIFY,
+    });
+    expect(driver.playCalls).toEqual([
+      { target: "Living Room", spotifyUri: SPOTIFY },
+    ]);
+  });
+
+  it("POST /api/admin/play rejects a non-spotify:album URI (400)", async () => {
+    const { app, driver } = build();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/admin/play",
+      headers: auth,
+      payload: { spotifyUri: "nope" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(driver.playCalls).toHaveLength(0);
+  });
+
+  it("POST /api/admin/play with no target configured is a 400", async () => {
+    const { app } = build({ target: null });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/admin/play",
+      headers: auth,
+      payload: { spotifyUri: SPOTIFY },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("POST /api/admin/stop stops the target", async () => {
+    const { app, driver } = build();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/admin/stop",
+      headers: auth,
+      payload: {},
+    });
+    expect(res.json()).toMatchObject({ ok: true, target: "Living Room" });
+    expect(driver.stopCalls).toEqual(["Living Room"]);
+  });
+
+  it("GET /api/status reports idle state and the target", async () => {
+    const { app } = build();
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/status",
+      headers: auth,
+    });
+    expect(res.json()).toMatchObject({ state: "idle", target: "Living Room" });
+  });
+
+  it("GET /api/status reflects a playing card", async () => {
+    const { app } = build();
+    await app.inject({
+      method: "POST",
+      url: "/api/scan",
+      headers: auth,
+      payload: startCard,
+    });
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/status",
+      headers: auth,
+    });
+    expect(res.json()).toMatchObject({
+      state: "playing",
+      playing: { curatorId: ID, spotifyUri: SPOTIFY },
+    });
+  });
+});
