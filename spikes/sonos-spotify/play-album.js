@@ -37,6 +37,7 @@ function parseArgs(argv) {
   for (let i = 2; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === '--stop') args.stop = true;
+    else if (a === '--list') args.list = true;
     else if (a === '--speaker') args.speaker = argv[++i];
     else if (a === '--album') args.album = argv[++i];
     else if (a === '--region') args.region = argv[++i];
@@ -68,17 +69,43 @@ const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/;
 // (Marquee rule: anything that drives the network gets a cap).
 const OVERALL_TIMEOUT_MS = 30_000;
 
+// Resolve the group coordinator for a target device. `.Coordinator` only works
+// if group topology linked the coordinator object; discovery-by-name sometimes
+// leaves it unset, so fall back to the device that shares this GroupId and
+// reports IsCoordinator. Last resort: the device itself.
+function resolveCoordinator(manager, device) {
+  const direct = device.Coordinator;
+  if (direct && direct.Uuid !== device.Uuid) return direct; // topology linked it
+  if (device.GroupId) {
+    const byGroup = manager.Devices.find((d) => d.GroupId === device.GroupId && d.IsCoordinator);
+    if (byGroup) return byGroup;
+  }
+  return direct || device;
+}
+
+function printTopology(manager) {
+  console.log(`Found ${manager.Devices.length} Sonos device(s):\n`);
+  for (const d of manager.Devices) {
+    const role = d.IsCoordinator ? 'COORDINATOR' : 'member';
+    const coord = d.Coordinator && d.Coordinator.Uuid !== d.Uuid ? ` → coord: ${d.Coordinator.Name}` : '';
+    console.log(
+      `  ${d.Name}  (${d.Host})  [${role}]  group=${d.GroupName || '?'}  groupId=${d.GroupId || '?'}${coord}`,
+    );
+  }
+  console.log('\nUse a COORDINATOR row as --speaker if a member keeps failing.');
+}
+
 async function main() {
   const args = parseArgs(process.argv);
-  if (!args.speaker) throw new Error('--speaker is required (room name or IP)');
 
   // MetadataHelper reads the region from this env var; default to US.
   process.env.SONOS_REGION_SPOTIFY = args.region || process.env.SONOS_REGION_SPOTIFY || '3079';
 
   const manager = new SonosManager();
 
-  // Static IP is the reliable path; discovery is the convenience path.
-  if (IPV4.test(args.speaker)) {
+  // Static IP is the reliable path (loads full topology from that device);
+  // discovery is the convenience path. --list without a speaker uses discovery.
+  if (args.speaker && IPV4.test(args.speaker)) {
     await manager.InitializeFromDevice(args.speaker);
   } else {
     await manager.InitializeWithDiscovery(10);
@@ -87,6 +114,13 @@ async function main() {
   if (!manager.Devices.length) {
     throw new Error('No Sonos devices found on this network. Are you on the same LAN?');
   }
+
+  if (args.list) {
+    printTopology(manager);
+    return;
+  }
+
+  if (!args.speaker) throw new Error('--speaker is required (room name or IP). Try --list first.');
 
   const device = IPV4.test(args.speaker)
     ? manager.Devices.find((d) => d.Host === args.speaker) || manager.Devices[0]
@@ -100,8 +134,7 @@ async function main() {
   // Queue commands must go to the group COORDINATOR. If the target is a grouped
   // or bonded speaker (e.g. a stereo pair, or joined to another room), sending
   // AddUriToQueue to the member fails with UPnP 800 "not a coordinator".
-  // `.Coordinator` returns the coordinator, or the device itself if standalone.
-  const coordinator = device.Coordinator;
+  const coordinator = resolveCoordinator(manager, device);
   const via = coordinator.Uuid === device.Uuid ? '' : ` via coordinator ${coordinator.Name}`;
   console.log(`→ target: ${device.Name} (${device.Host})${via}`);
 
