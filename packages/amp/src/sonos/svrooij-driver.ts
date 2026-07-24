@@ -9,6 +9,7 @@ import {
   parseFavoriteBinding,
   patchContainerUri,
   regionFromToken,
+  matchRoom,
   type SpotifyBinding,
 } from "./binding.js";
 
@@ -135,12 +136,7 @@ export class SvrooijSonosDriver implements SonosDriver {
    */
   private async resolveCoordinator(target: string): Promise<SonosDevice> {
     const manager = await this.ensureManager();
-    const t = target.toLowerCase();
-    const device =
-      manager.Devices.find((d) => d.Name.toLowerCase() === t) ??
-      manager.Devices.find((d) =>
-        (d.GroupName ?? "").toLowerCase().includes(t),
-      );
+    const device = matchRoom(manager.Devices, target);
     if (!device)
       throw new SonosUnavailableError(`no Sonos room named "${target}"`);
     return device.Coordinator ?? device;

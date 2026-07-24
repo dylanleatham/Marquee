@@ -101,7 +101,7 @@ def test_stop_then_reinsert_same_album_fires_again():
 
 # --- property test: replay arbitrary observation streams, invariants must always hold -----------
 _UIDS = ["A", "B", "C"]
-_URIS = [URI_A, URI_B, "curator:album:cccc3333", "spotify:bad", None]
+_URIS = [URI_A, URI_B, "curator:album:cccc3333", "curator:card:dddd4444", "spotify:bad", None]
 
 
 @st.composite

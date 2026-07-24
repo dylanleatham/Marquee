@@ -1,7 +1,6 @@
-// Pure parsing of the household's Spotify binding out of a Sonos Favorites (FV:2) DIDL. Kept separate
-// from svrooij-driver.ts (which imports the whole @svrooij/sonos library) so this firmware-coupled,
-// fragile bit is unit-tested against a real favorite's DIDL without any hardware or heavy import
-// (amp-spec §13 calls for exactly this regression test).
+// Pure, hardware-independent Sonos helpers extracted from svrooij-driver.ts (which imports the whole
+// @svrooij/sonos library) so the fragile, firmware-coupled bits — favorite-DIDL parsing, the sid/sn
+// URI patch, room matching — are unit-tested without any hardware or heavy import (amp-spec §13).
 
 /** The account-level Spotify values needed to build a playable container URI (never hardcoded). */
 export interface SpotifyBinding {
@@ -50,4 +49,26 @@ export function patchContainerUri(
   return guessedTrackUri
     .replace(/([?&])sid=\d+/, `$1sid=${binding.sid}`)
     .replace(/([?&])sn=\d+/, `$1sn=${binding.sn}`);
+}
+
+/** The subset of a Sonos device the room matcher needs (a SonosDevice is a structural superset). */
+export interface RoomLike {
+  Name: string;
+  GroupName?: string;
+}
+
+/**
+ * Find the device whose room the `target` names: an exact room-name match first, then a device in a
+ * group whose name contains the target (a joined group is named e.g. "Kitchen + 1"). Case-insensitive.
+ * The caller derefs the matched device's `.Coordinator` — that part needs the live object, this doesn't.
+ */
+export function matchRoom<T extends RoomLike>(
+  devices: readonly T[],
+  target: string,
+): T | undefined {
+  const t = target.toLowerCase();
+  return (
+    devices.find((d) => d.Name.toLowerCase() === t) ??
+    devices.find((d) => (d.GroupName ?? "").toLowerCase().includes(t))
+  );
 }

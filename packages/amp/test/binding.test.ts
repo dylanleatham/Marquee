@@ -3,6 +3,7 @@ import {
   parseFavoriteBinding,
   patchContainerUri,
   regionFromToken,
+  matchRoom,
 } from "../src/sonos/binding.js";
 
 // A real Sonos Favorites (FV:2) DIDL captured from the working spike: a Sonos Radio favorite (no
@@ -65,5 +66,25 @@ describe("patchContainerUri", () => {
     );
     expect(out).toContain("spotify:album:ABC");
     expect(out).toContain("flags=8300");
+  });
+});
+
+describe("matchRoom", () => {
+  const devices = [
+    { Name: "Living Room", GroupName: "Living Room" },
+    { Name: "Kitchen", GroupName: "Kitchen + 1" },
+    { Name: "Office", GroupName: "Kitchen + 1" }, // a member of the Kitchen group
+  ];
+  it("matches an exact room name (case-insensitive)", () => {
+    expect(matchRoom(devices, "living room")?.Name).toBe("Living Room");
+    expect(matchRoom(devices, "Kitchen")?.Name).toBe("Kitchen");
+  });
+  it("falls back to a group whose name contains the target", () => {
+    // No device is named "Office"? it is — but a target that only appears in a group name still hits:
+    expect(matchRoom(devices, "Kitchen +")?.Name).toBe("Kitchen");
+  });
+  it("returns undefined when nothing matches", () => {
+    expect(matchRoom(devices, "Bathroom")).toBeUndefined();
+    expect(matchRoom([], "Living Room")).toBeUndefined();
   });
 });
