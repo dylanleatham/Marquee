@@ -26,9 +26,10 @@ is both possible and racy.
 
 ## Decision
 
-`editPalette` and `regeneratePalette` reject with **409** (`PaletteConflictError`) while the album is
-in any processing state; the re-extract path re-checks the guard **inside** its `store.update` mutator
-so it also holds across its own slow Palette Press await (issue #38 pattern).
+All three palette actions — `editPalette`, `resetPalette`, and `regeneratePalette` — reject with
+**409** (`PaletteConflictError`) while the album is in any processing state; the re-extract path also
+re-checks the guard **inside** its `store.update` mutator so it holds across its own slow Palette
+Press await (issue #38 pattern).
 
 Rationale: fully honoring "human wins" during a sub-step would require the worker to merge a step's
 result under a re-read (or hold a real lock) — a broader, riskier change than a palette-editing

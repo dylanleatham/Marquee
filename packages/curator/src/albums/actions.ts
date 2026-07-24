@@ -247,6 +247,7 @@ export function editPalette(
  */
 export function resetPalette(deps: ActionDeps, curatorId: string): AlbumAsset {
   const asset = load(deps.store, curatorId);
+  assertNotProcessing(asset);
   if (!asset.palette)
     throw new ValidationError("palette isn't generated yet — nothing to reset");
   asset.palette.handEdited = false;

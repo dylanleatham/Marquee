@@ -164,6 +164,25 @@ describe("resetPalette", () => {
     expect(reset.palette!.handEdited).toBe(false);
     expect(reset.palette!.colors).toHaveLength(asset.palette!.colors.length);
   });
+
+  it("refuses to reset while the album is still processing (ADR 0025)", () => {
+    const store = tmpStore();
+    const asset = buildFreshAsset({
+      curatorId: "bbbb2222",
+      metadata: { name: "N", artist: "A", source: "manual" },
+      now: () => NOW,
+    });
+    asset.palette = {
+      colors: [{ hex: "#101010", role: "primary" }],
+      generatedAt: NOW,
+      algorithm: "palette-press",
+      handEdited: true,
+    };
+    store.save(asset); // still in a processing state
+    expect(() => resetPalette(deps(store), "bbbb2222")).toThrow(
+      PaletteConflictError,
+    );
+  });
 });
 
 describe("regeneratePalette", () => {
@@ -229,6 +248,15 @@ describe("regeneratePalette", () => {
     store.save(asset); // no artwork file written
     await expect(
       regeneratePalette(deps(store), "cccc3333", false),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("400s when no palette generator is configured", async () => {
+    const store = tmpStore();
+    seed(store);
+    const noGen: ActionDeps = { store, prober: fakeProber(), now: () => NOW };
+    await expect(
+      regeneratePalette(noGen, "aaaa1111", true),
     ).rejects.toBeInstanceOf(ValidationError);
   });
 });
