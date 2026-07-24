@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { parseFavoriteBinding } from "../src/sonos/binding.js";
+import {
+  parseFavoriteBinding,
+  patchContainerUri,
+  regionFromToken,
+} from "../src/sonos/binding.js";
 
 // A real Sonos Favorites (FV:2) DIDL captured from the working spike: a Sonos Radio favorite (no
 // Spotify binding) followed by a Spotify album favorite carrying sid=12, sn=1, and the SA_RINCON3079
@@ -28,5 +32,38 @@ describe("parseFavoriteBinding", () => {
   it("returns null when there is no Spotify album favorite", () => {
     expect(parseFavoriteBinding(NO_SPOTIFY_DIDL)).toBeNull();
     expect(parseFavoriteBinding("")).toBeNull();
+  });
+});
+
+describe("regionFromToken", () => {
+  it("reads the region number out of a cdudn token", () => {
+    expect(regionFromToken("SA_RINCON3079_X_#Svc3079-0-Token")).toBe("3079");
+    expect(regionFromToken("SA_RINCON2311_X_#Svc2311-0-Token")).toBe("2311");
+  });
+  it("falls back to US (3079) for an unrecognised token", () => {
+    expect(regionFromToken("garbage")).toBe("3079");
+  });
+});
+
+describe("patchContainerUri", () => {
+  const binding = {
+    sid: "12",
+    sn: "1",
+    token: "SA_RINCON3079_X_#Svc3079-0-Token",
+  };
+  it("replaces the library's hardcoded sid/sn with the real ones", () => {
+    const guessed =
+      "x-rincon-cpcontainer:1004206cspotify:album:1DFixLWuPkv3KT3TnV35m3?sid=9&flags=8300&sn=7";
+    expect(patchContainerUri(guessed, binding)).toBe(
+      "x-rincon-cpcontainer:1004206cspotify:album:1DFixLWuPkv3KT3TnV35m3?sid=12&flags=8300&sn=1",
+    );
+  });
+  it("leaves the container id and flags untouched", () => {
+    const out = patchContainerUri(
+      "x-rincon-cpcontainer:1004206cspotify:album:ABC?sid=9&flags=8300&sn=7",
+      binding,
+    );
+    expect(out).toContain("spotify:album:ABC");
+    expect(out).toContain("flags=8300");
   });
 });

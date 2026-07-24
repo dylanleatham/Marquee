@@ -32,3 +32,22 @@ export function parseFavoriteBinding(didl: string): SpotifyBinding | null {
   if (!token) return null;
   return { sid: res[1] as string, sn: res[2] as string, token };
 }
+
+/** The Sonos service region encoded in the cdudn token (e.g. "3079"), for MetaDataHelper. US default. */
+export function regionFromToken(token: string): string {
+  return token.match(/SA_RINCON(\d+)_/)?.[1] ?? "3079";
+}
+
+/**
+ * Patch the library's guessed container URI to carry this household's real `sid`/`sn`. `@svrooij/sonos`
+ * hardcodes `sid=9`/`sn=7`, which a live account rejects with UPnP 800 — the derived binding is right.
+ * Replaces only the query params, leaving the rest of the URI (the `spotify:album` container id) intact.
+ */
+export function patchContainerUri(
+  guessedTrackUri: string,
+  binding: SpotifyBinding,
+): string {
+  return guessedTrackUri
+    .replace(/([?&])sid=\d+/, `$1sid=${binding.sid}`)
+    .replace(/([?&])sn=\d+/, `$1sn=${binding.sn}`);
+}

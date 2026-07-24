@@ -5,7 +5,12 @@
 import { SonosManager, MetaDataHelper } from "@svrooij/sonos";
 import type { SonosDevice } from "@svrooij/sonos";
 import { SonosUnavailableError, type SonosDriver } from "./driver.js";
-import { parseFavoriteBinding, type SpotifyBinding } from "./binding.js";
+import {
+  parseFavoriteBinding,
+  patchContainerUri,
+  regionFromToken,
+  type SpotifyBinding,
+} from "./binding.js";
 
 const DISCOVERY_TIMEOUT_MS = 12_000;
 const OP_TIMEOUT_MS = 15_000;
@@ -35,17 +40,14 @@ export class SvrooijSonosDriver implements SonosDriver {
     try {
       const coordinator = await this.resolveCoordinator(target);
       const binding = await this.deriveBinding(coordinator);
-      const region = binding.token.match(/SA_RINCON(\d+)_/)?.[1] ?? "3079";
 
       // Let the library build the container URI + metadata (its serialization is UPnP-valid), then
       // patch in the household's real sid/sn. Hand-rolled metadata tripped UPnP 402 in the spike.
       const guessed = MetaDataHelper.GuessMetaDataAndTrackUri(
         spotifyUri,
-        region,
+        regionFromToken(binding.token),
       );
-      const trackUri = guessed.trackUri
-        .replace(/([?&])sid=\d+/, `$1sid=${binding.sid}`)
-        .replace(/([?&])sn=\d+/, `$1sn=${binding.sn}`);
+      const trackUri = patchContainerUri(guessed.trackUri, binding);
 
       await withTimeout(
         (async () => {
