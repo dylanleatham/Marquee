@@ -202,27 +202,56 @@ automatically.
 
 ## 9. Put a test video in place
 
-You need one real video to see anything. From **your laptop**, copy an H.264 `.mp4` onto the Pi
-(any short clip works for testing):
+You need one **H.264 `.mp4`** on the Pi to see anything. Chromium only decodes H.264 — a phone clip
+usually is; an H.265/HEVC or VP9 file will copy fine but then play as a black screen.
+
+**Option A — generate one on the Pi** (no file to find; a moving colour-bars test pattern):
 
 ```
-$ scp ~/Downloads/test.mp4 pi@backdrop.local:~/Marquee/packages/backdrop/data/media/visualizers/demo.mp4
+$ sudo apt install -y ffmpeg
+$ ffmpeg -f lavfi -i testsrc=size=1280x720:rate=30 -t 10 -c:v libx264 -pix_fmt yuv420p -y ~/Marquee/packages/backdrop/data/media/visualizers/demo.mp4
 ```
 
-Then, in an SSH session **on the Pi**, get its absolute path and register it in the library (again,
-replace `SECRET`):
+**Option B — copy one from your computer.** Run this in a terminal **on your computer** (not the Pi):
 
 ```
-$ realpath ~/Marquee/packages/backdrop/data/media/visualizers/demo.mp4
-/home/pi/Marquee/packages/backdrop/data/media/visualizers/demo.mp4
+# macOS / Linux
+$ scp ~/Downloads/test.mp4 pi@backdrop.local:/home/pi/Marquee/packages/backdrop/data/media/visualizers/demo.mp4
 
-$ curl -s -H "X-Trigger-Secret: SECRET" -H "content-type: application/json" \
-    -X POST http://localhost:4740/api/library/update \
-    -d '{"uri":"curator:album:demo","filePath":"/home/pi/Marquee/packages/backdrop/data/media/visualizers/demo.mp4","durationSec":10}'
+# Windows (PowerShell or Command Prompt) — quote the path; drag-and-drop the file to auto-fill it
+> scp "C:\Users\you\Downloads\test.mp4" pi@backdrop.local:/home/pi/Marquee/packages/backdrop/data/media/visualizers/demo.mp4
 ```
 
-(This won't work unless the backend from step 8 is running — either restart it by hand, or come back
-to this after step 10 when it auto-starts.)
+It'll ask for the Pi's password (the one you SSH with). Copy to a name ending in `.mp4`.
+
+> ⚠️ **Make sure nothing already exists at that path as a _directory_.** A stray `mkdir` or a
+> mangled earlier paste can leave a folder named `demo.mp4`, and then ffmpeg and the video player
+> both fail with _"Is a directory"_. Check with `ls -l …/visualizers/` — `demo.mp4` should be a file
+> with a KB/MB size, not a `d`-prefixed directory. Remove a bad one with
+> `rm -rf ~/Marquee/packages/backdrop/data/media/visualizers/demo.mp4` and redo.
+
+Confirm it landed and is really H.264 (the second command must print `h264`):
+
+```
+$ ls -l ~/Marquee/packages/backdrop/data/media/visualizers/demo.mp4
+$ ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 ~/Marquee/packages/backdrop/data/media/visualizers/demo.mp4
+```
+
+If that prints anything other than `h264` (e.g. `hevc`, `vp9`), re-encode it in place:
+
+```
+$ ffmpeg -i <the-copied-file> -c:v libx264 -pix_fmt yuv420p -y ~/Marquee/packages/backdrop/data/media/visualizers/demo.mp4
+```
+
+Now register it in Backdrop's library — `SECRET` is your `shared_secret` from `config.toml`. Run this
+**on the Pi**:
+
+```
+$ curl -s -H "X-Trigger-Secret: SECRET" -H "content-type: application/json" -X POST http://localhost:4740/api/library/update -d '{"uri":"curator:album:demo","filePath":"/home/pi/Marquee/packages/backdrop/data/media/visualizers/demo.mp4","durationSec":10}'
+```
+
+The backend from step 8 must be running for this — restart it by hand, or come back after step 10
+when it auto-starts. A `{"updated":"curator:album:demo"}` reply means it took.
 
 ## 10. Make the backend start on boot (systemd)
 
@@ -304,9 +333,10 @@ Choose **Finish**, but say **No** to rebooting yet — one more file to create.
 > it was opened. (This corrects [backdrop-spec §6](../../docs/specs/backdrop-spec.md), which shows an
 > `http://localhost` launch.)
 
-Create the script:
+Install `unclutter` (hides the mouse cursor) and create the script:
 
 ```
+$ sudo apt install -y unclutter
 $ nano ~/kiosk.sh
 ```
 
@@ -314,20 +344,22 @@ Paste:
 
 ```bash
 #!/bin/bash
-# No waiting for the backend here on purpose: the page is a local file:// and shows the idle
-# gradient even with the backend down, and its WebSocket auto-reconnects once the backend is up.
-# (An earlier version waited in a loop — a dead backend then meant "desktop, no browser, no error".)
+# Log to /tmp so an autostart failure is debuggable: if the kiosk doesn't appear on boot, an empty
+# or missing /tmp/kiosk.log means the script never ran; lines in it mean Chromium's own error.
+exec >> /tmp/kiosk.log 2>&1
+echo "=== kiosk.sh started $(date) DISPLAY=$DISPLAY ==="
 
-# Keep the screen awake (belt-and-braces with raspi-config's screen-blanking setting).
-xset s off
-xset -dpms
-xset s noblank
+sleep 3   # let the X session finish coming up before launching Chromium (else it can die on boot)
 
-# Launch Chromium full-screen with no chrome, no update nags, no "restore pages" bubble.
-# --password-store=basic stops Chromium touching the GNOME keyring — without it, first launch
-# demands you create a keyring password, and every boot after that blocks on unlocking it.
-chromium-browser \
-  --password-store=basic \
+# Keep the screen awake, and hide the mouse cursor.
+xset s off; xset -dpms; xset s noblank
+unclutter -idle 0 -root &
+
+# Launch Chromium. --password-store=basic stops it touching the GNOME keyring — without it, first
+# launch demands a keyring password and every boot after blocks on unlocking it. No backend wait:
+# the page is a local file:// that shows the idle gradient immediately and reconnects on its own.
+echo "=== launching chromium $(date) ==="
+chromium --password-store=basic \
   --kiosk --start-fullscreen --window-position=0,0 \
   --noerrdialogs --disable-infobars --disable-session-crashed-bubble \
   --check-for-update-interval=31536000 \
@@ -335,6 +367,7 @@ chromium-browser \
   --app="file:///home/pi/Marquee/packages/backdrop/public/index.html"
 ```
 
+(Bookworm's browser binary is `chromium`; if your image only has `chromium-browser`, use that name.)
 Save/exit, then make it executable:
 
 ```
@@ -343,27 +376,32 @@ $ chmod +x ~/kiosk.sh
 
 > Add `?debug=1` to the end of the `file://...index.html` URL while testing — it shows a labelled
 > WebSocket indicator bottom-right (`ws online` / `ws connecting…` / `ws offline`) and the current
-> video path bottom-left. `ws online` is the one you want. Remove `?debug=1` for the
-> real thing so the screen stays clean.
+> video path bottom-left. `ws online` is the one you want. Remove `?debug=1` for the real thing so
+> the screen stays clean.
 
-### 11c. Auto-start the script with the desktop
+### 11c. Auto-start the kiosk on boot (XDG autostart)
 
-Tell the X11 desktop to run the script when it starts:
-
-```
-$ mkdir -p ~/.config/lxsession/LXDE-pi
-$ nano ~/.config/lxsession/LXDE-pi/autostart
-```
-
-Paste these three lines:
+Register the script as a desktop-standard **autostart entry**. Don't use the older LXDE
+`lxsession` autostart file (`~/.config/lxsession/LXDE-pi/autostart`) — on Bookworm it silently
+skips custom entries more often than not. The `~/.config/autostart` XDG entry below is honoured
+across desktop sessions and fires at the right point in startup:
 
 ```
-@lxpanel --profile LXDE-pi
-@pcmanfm --desktop --profile LXDE-pi
-@/home/pi/kiosk.sh
+$ mkdir -p ~/.config/autostart
+$ nano ~/.config/autostart/backdrop-kiosk.desktop
 ```
 
-Save/exit.
+Paste:
+
+```
+[Desktop Entry]
+Type=Application
+Name=Backdrop Kiosk
+Exec=/home/pi/kiosk.sh
+X-GNOME-Autostart-enabled=true
+```
+
+Save/exit. That's the whole autostart — no lxsession file needed.
 
 ## 12. The moment of truth — reboot
 
@@ -415,11 +453,13 @@ router, or rely on the `backdrop.local` name (mDNS) if your network supports it.
 | SSH: `Permission denied` at the password prompt                                           | You're probably logging in as the wrong user — the prompt must say `pi@…` (or whatever username you set in Imager). Plain `ssh <ip>` silently uses your **laptop's** username. Also: nothing appears while typing a password (normal), and if you picked "public-key only" in Imager's SSH setting, all passwords are rejected — log in on the Pi directly and set `PasswordAuthentication yes` in `/etc/ssh/sshd_config`, then `sudo systemctl restart ssh`. |
 | `git clone` asks for a username, then fails: _"Password authentication is not supported"_ | The repo is private and GitHub doesn't accept account passwords for git. Do step 6's `gh auth login` browser flow, then clone with `gh repo clone dylanleatham/Marquee`.                                                                                                                                                                                                                                                                                      |
 | `gh repo clone` fails: _"Could not resolve to a Repository"_                              | You're authenticated as a GitHub account that can't see the private repo — the browser you approved the device code in was signed into the wrong account. `gh auth status` shows who the Pi is logged in as; if it's wrong, `gh auth logout`, sign into github.com as the repo owner on your laptop, and rerun `gh auth login`. If the account is right but it still fails, the token lacks the `repo` scope: `gh auth refresh -h github.com -s repo`.        |
-| Blank desktop, no Backdrop page                                                           | Kiosk script didn't run. Check `~/.config/lxsession/LXDE-pi/autostart` and that `~/kiosk.sh` is executable. Are you on the X11 desktop (step 11a)?                                                                                                                                                                                                                                                                                                            |
+| Boots to the **desktop**, no kiosk                                                        | The autostart didn't launch `kiosk.sh`. Check `/tmp/kiosk.log`: **missing/empty** = the autostart entry never ran the script — use the XDG entry `~/.config/autostart/backdrop-kiosk.desktop` (step 11c), _not_ the lxsession file, which skips entries on Bookworm; **has lines** = the script ran, so read the Chromium error it logged. Also confirm `~/kiosk.sh` is executable and you're on the X11 desktop (step 11a).                                     |
+| Kiosk shows but the **mouse cursor** is visible                                           | Install `unclutter` and add `unclutter -idle 0 -root &` to `kiosk.sh` before the Chromium line (step 11b).                                                                                                                                                                                                                                                                                                                                                    |
 | **Blank white screen** in the kiosk                                                       | The `.css`/`.js` didn't load, so the black background never applied. Almost always: your clone predates the relative-asset-path fix (`grep styles.css ~/Marquee/packages/backdrop/public/index.html` — `href="/styles.css"` with the leading slash is the broken version). Fix: `cd ~/Marquee && git pull`. Also confirm you launched the exact `file://…/public/index.html` path.                                                                                 |
 | Chromium asks to **create/unlock a keyring password**                                     | Chromium is trying to use the GNOME keyring, which auto-login never unlocks — on a headless boot this silently blocks the kiosk. Make sure `kiosk.sh` launches Chromium with `--password-store=basic` (step 11b).                                                                                                                                                                                                                                             |
-| Idle gradient shows, but a scan does nothing                                              | Open with `?debug=1`. Red dot = backend not reachable (`systemctl status backdrop`). A "video not in library" / "video file missing" toast = the URI isn't registered or the file isn't in `media_dir` — check `journalctl -u backdrop` for the matching warning.                                                                                                                                                                                             |
-| Video registered but won't play                                                           | The file must be **H.264 in an .mp4**. Re-encode if unsure: `ffmpeg -i in.mov -c:v libx264 -pix_fmt yuv420p out.mp4`.                                                                                                                                                                                                                                                                                                                                         |
+| Idle gradient shows, but a scan does nothing                                              | Objective check (no colour needed): `curl -s -o /dev/null -w '%{http_code}' localhost:4740/healthz` → `503` means no browser is connected. Or open `?debug=1` and read the `ws online/offline` label. A "video not in library" / "video file missing" toast = the URI isn't registered or the file isn't in `media_dir` — check `journalctl -u backdrop` for the matching warning.                                                                             |
+| Scan is accepted but the screen **stays black** (plays nothing)                           | `{"accepted":true}` only means the scan was received, not that a video played. Usual causes: the file isn't actually on disk, or it isn't **H.264** — `ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 <file>` must print `h264`; re-encode otherwise (`ffmpeg -i in.mp4 -c:v libx264 -pix_fmt yuv420p -y out.mp4`). `api/status` showing `"state":"playing"` confirms the backend found the file (so it's a codec/decode issue). |
+| ffmpeg / player says **"Is a directory"**                                                 | Something created a _folder_ where the `.mp4` should be. `rm -rf ~/Marquee/packages/backdrop/data/media/visualizers/demo.mp4` and recreate the file (step 9).                                                                                                                                                                                                                                                                                                 |
 | `401 unauthorized` from a `curl`                                                          | Shared secret mismatch — the `X-Trigger-Secret` header must equal `config.toml`'s `shared_secret`.                                                                                                                                                                                                                                                                                                                                                            |
 | Screen goes black after ~10 min                                                           | Screen blanking still on. Re-check step 11a (raspi-config) and the `xset` lines in `kiosk.sh`.                                                                                                                                                                                                                                                                                                                                                                |
 | Backend won't start                                                                       | `journalctl -u backdrop -e` shows the error. Common: wrong path/username in the service file, or you never ran the build in step 6.                                                                                                                                                                                                                                                                                                                           |
