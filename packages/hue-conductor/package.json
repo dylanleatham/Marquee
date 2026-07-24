@@ -9,6 +9,7 @@
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
     "pair": "tsx src/pair.ts",
+    "preview:stream": "tsx src/stream/preview.ts",
     "build": "tsc -b",
     "type-check": "tsc --noEmit",
     "test": "vitest run",

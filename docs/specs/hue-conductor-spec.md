@@ -25,7 +25,7 @@ If yes, the concept is viable and every future upstream (album analyzer, live au
 
 ### Out of scope (but designed around)
 
-- Entertainment API streaming (25 Hz updates for beat-sync / visualizers) — the architecture should not preclude adding it
+- Entertainment API streaming — **in progress ([ADR 0023](../adrs/0023-entertainment-streaming-effect-engine.md)).** The pure effect engine (aurora/shimmer/wave renderers + a 25 Hz `StreamEngine` over a `StreamTransport` port) is built and tested (§9 "Streaming patterns"); the real DTLS transport, `clientkey` capture, entertainment-area config, and scan wiring are the hardware follow-up
 - Multi-bridge support
 - Cloud/remote control via Hue Remote API
 - Persistent scheduling, scenes, or automations
@@ -38,7 +38,7 @@ Optimized for Windows dev, Node ecosystem you already know, and Claude Code comp
 
 - **Runtime**: Node.js 20 LTS, TypeScript
 - **Server framework**: Fastify (lower ceremony than Express, great TS support, built-in JSON schema validation which we'll use for the integration contract)
-- **Hue library**: `node-hue-api`. Mature, well-documented, TypeScript-friendly, and has first-class Entertainment API support — matters here because streaming visualizers via Entertainment (25 Hz updates per light) is on the roadmap even if not in the initial scope. Handles bridge discovery, pairing, CLIP v2, and the Entertainment DTLS handshake.
+- **Hue library**: `node-hue-api` (v4) for discovery, pairing, and CLIP v2 flat color. Streaming visualizers via Entertainment (25 Hz per light) are now **in progress** ([ADR 0023](../adrs/0023-entertainment-streaming-effect-engine.md)): the pure effect engine is built and tested, and the DTLS transport is the hardware follow-up. Whether v4's Entertainment support carries the DTLS handshake or a dedicated DTLS library (and/or the v5 migration) is needed is a PR-B decision made on hardware, behind the `StreamTransport` port — not settled here.
 
   > **Implemented on v4, not v5 (2026-07-11; see [ADR 0002](../adrs/0002-hue-conductor-v4-and-dev-auth.md)).** v5 is still beta; the stable v4.0.x line covers everything step 1 needs (discovery, pairing, rooms/lights, flat color). Entertainment streaming is out of scope until the streaming-visualizer work, and the thin `BridgeAdapter`/`HueDriver` port is the seam to migrate to v5 (and CLIP v2 proper) then. Also per ADR 0002: the `X-Trigger-Secret` check is enforced whenever a shared secret is configured, but the service boots with auth **disabled + a warning** when none is set, as a dev-only affordance (the Pi always sets one).
 
@@ -218,6 +218,30 @@ Quick preview:
 
 That's the set the engine renders. _Which_ of these an album uses is chosen upstream by Palette Press, which is now **energy-aware** — a vivid palette gets `rotate`/`pulse` instead of always `crossfade`, read from the palette itself with no audio data required ([ADR 0022](../adrs/0022-palette-derived-motion-energy.md)). What still needs upstream data is live **beat**-sync (real-time audio-reactive effects at streaming rates), which remains a future extension gated on an audio input and the Entertainment API (§9 rate limiting).
 
+### Streaming patterns (Entertainment API)
+
+The four patterns above are all the CLIP path can do (~10 cmd/s/light, bridge-driven fades). Continuous
+motion — a flowing aurora, a candlelight shimmer, a colour wave that physically sweeps the room — needs
+the **Entertainment API**: a DTLS/UDP stream where Conductor pushes ~25 Hz frames to every light at
+once. This is being built in two parts ([ADR 0023](../adrs/0023-entertainment-streaming-effect-engine.md)):
+
+- **Built (the effect engine, `src/stream/`).** Pure, deterministic, bridge-free and unit-tested:
+  - `aurora` — a 2D-noise flow field drifts each light's position along the palette gradient; colours
+    bleed and morph, never quite repeating. Params `{ speed?, scale?, brightness? }`.
+  - `shimmer` — the palette held across the lights with a per-light brightness twinkle. Params
+    `{ speed?, intensity? }`.
+  - `wave` — the palette sweeps across the lights' real **positions** in the room. Params
+    `{ speed?, angleDeg? }`. This is the effect that needs per-light geometry.
+  - A `StreamEngine` samples a renderer at a fps-capped rate (default 25) and pushes each frame to a
+    `StreamTransport` **port**; timers/clock are injected for deterministic tests (as the CLIP engine
+    does). `pnpm preview:stream` renders the effects to a self-contained HTML page to watch them
+    without hardware.
+- **Deferred to hardware (the transport).** The real DTLS transport implementing `StreamTransport`,
+  `clientkey` capture at pairing, entertainment-area discovery/config (the source of light positions),
+  wiring streaming into `/api/scan` under the same idle-timeout safety net, and adding these pattern
+  types to the shared `PalettePayload` contract + Palette Press selection. Until then the streaming
+  effects are **not** reachable from a scan — they exist as the tested, previewable engine only.
+
 ### Palette transitions within a session
 
 A "session" begins when Conductor transitions from idle to playing (typically a scan event on a sleeve going onto the empty stand). It ends when a stop event arrives or the idle timeout fires. Within a session, multiple palettes may play in sequence — swapping sleeves, or showing several albums in a row when a visitor is over.
@@ -256,7 +280,7 @@ Hue's local API accepts roughly:
 
 The playback engine must throttle. Use a simple token bucket per light. When a pattern would exceed the rate, drop the interpolation steps rather than queue them (queuing causes drift and lag).
 
-For anything faster than ~10 Hz total (e.g. future beat-sync or audio visualization), you need the **Entertainment API**, which uses DTLS UDP streaming at up to ~25 Hz per light. Explicitly out of initial scope, but the Bridge Adapter abstraction stays thin enough that swapping the transport later doesn't require rewriting the Playback Engine.
+For anything faster than ~10 Hz total (the streaming effects, or future beat-sync), you need the **Entertainment API**, which uses DTLS UDP streaming at up to ~25 Hz per light — a different transport that bypasses this CLIP rate limit entirely. The effect engine that drives it is built (§9 "Streaming patterns"); the DTLS transport that carries the frames is the hardware follow-up ([ADR 0023](../adrs/0023-entertainment-streaming-effect-engine.md)). The `StreamTransport` port keeps that swap from touching the effect renderers.
 
 ### Session snapshot and restoration
 
