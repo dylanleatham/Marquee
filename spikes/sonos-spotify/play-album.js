@@ -23,7 +23,7 @@
  *              (Wrong region is the usual cause of "it queues but won't play".)
  */
 
-const { SonosManager, MetadataHelper } = require('@svrooij/sonos');
+const { SonosManager, MetaDataHelper } = require('@svrooij/sonos');
 
 // ---- tiny arg parser -------------------------------------------------------
 // Accepts named flags (--speaker "Living Room") AND bare positionals
@@ -108,10 +108,15 @@ async function main() {
   const uri = toSpotifyAlbumUri(args.album);
   console.log(`→ album:  ${uri}  (region ${process.env.SONOS_REGION_SPOTIFY})`);
 
-  // Show the internal Sonos URI/metadata we generate — useful when debugging a
-  // "queues but won't play" region mismatch.
-  const guessed = MetadataHelper.GuessMetaDataAndTrackUri(uri, process.env.SONOS_REGION_SPOTIFY);
-  console.log(`→ sonos uri: ${guessed.trackUri}`);
+  // Show the internal Sonos URI we generate — useful when debugging a
+  // "queues but won't play" region mismatch. Best-effort: never let a
+  // diagnostic block the actual playback below.
+  try {
+    const guessed = MetaDataHelper.GuessMetaDataAndTrackUri(uri, process.env.SONOS_REGION_SPOTIFY);
+    console.log(`→ sonos uri: ${guessed.trackUri}`);
+  } catch (e) {
+    console.log(`→ sonos uri: (skipped diagnostic: ${e.message})`);
+  }
 
   // Fresh queue → add album → point playback at the queue → play.
   await device.AVTransportService.RemoveAllTracksFromQueue({ InstanceID: 0 }).catch(() => {
