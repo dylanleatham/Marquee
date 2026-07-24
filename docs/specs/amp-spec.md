@@ -3,10 +3,15 @@
 _Plays a card-scanned album's audio over the house Sonos. The audio leg of the fan-out, alongside
 Conductor (lights) and Backdrop (video)._
 
-> **Status (2026-07-24): specified, not yet built.** Decision recorded in
-> [ADR 0023](../adrs/0023-amp-sonos-playback-and-card-uri.md); viability proven by the spikes under
+> **Status (2026-07-24): core built + tested; real Sonos driver pending LAN verification.** Decision
+> in [ADR 0023](../adrs/0023-amp-sonos-playback-and-card-uri.md); viability proven by the spikes under
 > [`spikes/sonos-spotify`](../../spikes/sonos-spotify) (Path A, chosen) and
-> [`spikes/spotify-connect`](../../spikes/spotify-connect) (Path B, rejected for cold-start). Research:
+> [`spikes/spotify-connect`](../../spikes/spotify-connect) (Path B, rejected for cold-start).
+> **Built** (`packages/amp`, milestones 1–4, 6–7): the `curator:card` contract change +
+> `parseCuratorUri`; Conductor/Backdrop accepting `card`; the Fastify service with the card-gated
+> `/api/scan`, settings, idle timeout, and a `FakeSonosDriver` (24 amp tests, all green); Stylus
+> forwarding `card` URIs. **Milestone 5** — the real `SvrooijSonosDriver` — is written behind the
+> port but can't run in CI (no Sonos); verify it on the LAN with `POST /api/admin/play`. Research:
 > [sonos-spotify-playback.md](../research/sonos-spotify-playback.md).
 
 ## 1. Purpose
@@ -20,7 +25,7 @@ record, you drop the needle. Amp knows how to talk to Sonos; it knows nothing ab
 
 **Place a card on the stand → the album starts playing on the configured Sonos target within ~2s,
 from a cold/idle speaker. Lift it (or place a different card) → audio stops or swaps. Place a
-*sleeve* → Amp does nothing.** If yes, the audio leg is viable and Marquee is no longer silent for
+_sleeve_ → Amp does nothing.** If yes, the audio leg is viable and Marquee is no longer silent for
 streaming-only records.
 
 ## 3. Scope
@@ -44,7 +49,7 @@ streaming-only records.
 - Spotify Connect ("resume on an already-casting device") — proven but rejected as the trigger path
   (ADR 0023); the seam stays thin enough to add later
 - Its own UI — headless; the target is configured in Curator and pushed via `PUT /api/settings`
-- Choosing *what* plays (that's the card) or track-level control — one album, plays through
+- Choosing _what_ plays (that's the card) or track-level control — one album, plays through
 
 ## 4. Requirements on the environment
 
@@ -55,7 +60,7 @@ These are properties of the **Sonos household**, not the code, and each degrades
 - **At least one Spotify item saved as a Sonos Favorite** — Amp reads it to derive the account's real
   `sid`, `sn`, and `cdudn` token (modern Sonos hides these behind cloud auth; the favorite is the
   authoritative local source — see ADR 0023 and the spike). Any one Spotify favorite unlocks playing
-  *any* album.
+  _any_ album.
 - The Amp host, the Sonos speakers, and the workstation share a LAN.
 
 ## 5. Recommended tech stack
@@ -106,8 +111,8 @@ type Settings = {
 
 // Runtime (in-memory)
 type SpotifyBinding = {
-  sid: string;   // service id from a favorite, e.g. "12"
-  sn: string;    // account serial from a favorite, e.g. "1"
+  sid: string; // service id from a favorite, e.g. "12"
+  sn: string; // account serial from a favorite, e.g. "1"
   token: string; // cdudn token, e.g. "SA_RINCON3079_X_#Svc3079-0-Token"
   derivedAt: number;
 };
@@ -115,8 +120,8 @@ type SpotifyBinding = {
 type ActivePlayback = {
   curatorId: string;
   spotifyUri: string; // spotify:album:<id>
-  target: string;     // resolved coordinator name
-  startedAt: number;  // performance.now()
+  target: string; // resolved coordinator name
+  startedAt: number; // performance.now()
   idleTimer: NodeJS.Timeout;
 };
 ```
@@ -128,26 +133,26 @@ next to Conductor 4737 and Backdrop 4740).
 
 ### Scan events (from Stylus)
 
-| Method | Path | Body | Behavior |
-| --- | --- | --- | --- |
-| POST | `/api/scan` | `{ event:"start", uri, tagUid, readerId?, at }` or `{ event:"stop", readerId?, at }` | See §9. Auth via `X-Trigger-Secret`. Always `202` on a well-formed scan; `4xx` only for a malformed body or a non-`curator:(album\|card):<id>` URI. |
+| Method | Path        | Body                                                                                 | Behavior                                                                                                                                            |
+| ------ | ----------- | ------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/api/scan` | `{ event:"start", uri, tagUid, readerId?, at }` or `{ event:"stop", readerId?, at }` | See §9. Auth via `X-Trigger-Secret`. Always `202` on a well-formed scan; `4xx` only for a malformed body or a non-`curator:(album\|card):<id>` URI. |
 
 ### Settings (pushed from Curator)
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| GET | `/api/settings` | Current settings (target room, binding-derived?, Sonos reachable?). |
-| PUT | `/api/settings` | `{ targetRoom }`. Curator pushes the chosen Sonos room/group. Persisted; the default target for scans. |
+| Method | Path            | Purpose                                                                                                |
+| ------ | --------------- | ------------------------------------------------------------------------------------------------------ |
+| GET    | `/api/settings` | Current settings (target room, binding-derived?, Sonos reachable?).                                    |
+| PUT    | `/api/settings` | `{ targetRoom }`. Curator pushes the chosen Sonos room/group. Persisted; the default target for scans. |
 
 ### Local operations / debugging
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| GET | `/healthz` | 200 if the service is up. Not behind auth. |
-| GET | `/api/status` | State, current album, target, whether the Spotify binding is derived. |
-| GET | `/api/sonos/rooms` | Discovered Sonos rooms/groups (for Curator to populate the target picker). |
-| POST | `/api/admin/play` | `{ spotifyUri, targetRoom? }`. Manual override for dev/smoke tests. |
-| POST | `/api/admin/stop` | Force to idle. |
+| Method | Path               | Purpose                                                                    |
+| ------ | ------------------ | -------------------------------------------------------------------------- |
+| GET    | `/healthz`         | 200 if the service is up. Not behind auth.                                 |
+| GET    | `/api/status`      | State, current album, target, whether the Spotify binding is derived.      |
+| GET    | `/api/sonos/rooms` | Discovered Sonos rooms/groups (for Curator to populate the target picker). |
+| POST   | `/api/admin/play`  | `{ spotifyUri, targetRoom? }`. Manual override for dev/smoke tests.        |
+| POST   | `/api/admin/stop`  | Force to idle.                                                             |
 
 ## 9. Scan handling (the exact flow)
 
@@ -202,14 +207,14 @@ Distilled from the working spike (`spikes/sonos-spotify/play-album.js`):
 TOML at `$AMP_CONFIG` / `config.toml`, env fallbacks, `override` for tests — Conductor's `loadConfig`
 shape:
 
-| Field | Source | Default |
-| --- | --- | --- |
-| `port` / `host` | `[server]` / `AMP_PORT` | `4741` / `0.0.0.0` |
-| `sharedSecret` | `[auth].shared_secret` / `TRIGGER_SHARED_SECRET` | `null` (auth off + boot warning, dev-only) |
-| `dataDir` | `[storage].data_dir` / `MARQUEE_DATA_DIR` | `~/marquee` |
-| `albumAssetsDir` | `[storage].album_assets_dir` / `ALBUM_ASSETS_DIR` | `{dataDir}/album-assets` |
-| `idleTimeoutMinutes` | `[runtime].idle_timeout_minutes` | `90` |
-| `defaultTargetRoom` | `[sonos].target_room` / `AMP_TARGET_ROOM` | `null` (else set via `PUT /api/settings`) |
+| Field                | Source                                            | Default                                    |
+| -------------------- | ------------------------------------------------- | ------------------------------------------ |
+| `port` / `host`      | `[server]` / `AMP_PORT`                           | `4741` / `0.0.0.0`                         |
+| `sharedSecret`       | `[auth].shared_secret` / `TRIGGER_SHARED_SECRET`  | `null` (auth off + boot warning, dev-only) |
+| `dataDir`            | `[storage].data_dir` / `MARQUEE_DATA_DIR`         | `~/marquee`                                |
+| `albumAssetsDir`     | `[storage].album_assets_dir` / `ALBUM_ASSETS_DIR` | `{dataDir}/album-assets`                   |
+| `idleTimeoutMinutes` | `[runtime].idle_timeout_minutes`                  | `90`                                       |
+| `defaultTargetRoom`  | `[sonos].target_room` / `AMP_TARGET_ROOM`         | `null` (else set via `PUT /api/settings`)  |
 
 ## 13. Testing
 
@@ -259,7 +264,7 @@ Each ends demoable.
 - **Grouped speakers.** Always resolve the coordinator before queueing (UPnP 800 otherwise).
 - **Album not in the account's market** → `AddURIToQueue` can fail; treat as a play error → degrade,
   don't crash.
-- **Two audio sources.** If someone scans a card *and* drops a matching vinyl, Amp and the turntable
+- **Two audio sources.** If someone scans a card _and_ drops a matching vinyl, Amp and the turntable
   both play. That's a user choice, not a bug — but it's why `album` (sleeve) scans deliberately never
   stream.
 
