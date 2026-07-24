@@ -50,11 +50,13 @@ const SPOTIFY_TYPES = new Set(['2311', '3079', '9223', '12']);
 
 async function detectAccounts(host) {
   const body = await httpGet(`http://${host}:1400/status/accounts`);
-  const blocks = body.match(/<Account\b[\s\S]*?<\/Account>/g) || [];
+  // Match both self-closing <Account .../> and paired <Account>...</Account>.
+  const blocks = body.match(/<Account\b[^>]*?(?:\/>|>[\s\S]*?<\/Account>)/g) || [];
   const accounts = blocks.map((b) => ({
-    type: (b.match(/Type="(\d+)"/) || [])[1],
-    serial: (b.match(/SerialNum="(\d+)"/) || [])[1],
-    user: (b.match(/<UN>([^<]*)<\/UN>/) || [])[1] || '',
+    type: (b.match(/\bType="(\d+)"/) || [])[1],
+    serial: (b.match(/\bSerialNum="(\d+)"/) || [])[1],
+    // UN can be an attribute (UN="user") or an element (<UN>user</UN>).
+    user: (b.match(/\bUN="([^"]*)"/) || [])[1] || (b.match(/<UN>([^<]*)<\/UN>/) || [])[1] || '',
   }));
   return { accounts, raw: body };
 }
@@ -72,6 +74,7 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a === '--stop') args.stop = true;
     else if (a === '--list') args.list = true;
+    else if (a === '--accounts') args.accounts = true;
     else if (a === '--speaker') args.speaker = argv[++i];
     else if (a === '--album') args.album = argv[++i];
     else if (a === '--region') args.region = argv[++i];
@@ -171,6 +174,14 @@ async function main() {
   const coordinator = resolveCoordinator(manager, device);
   const via = coordinator.Uuid === device.Uuid ? '' : ` via coordinator ${coordinator.Name}`;
   console.log(`→ target: ${device.Name} (${device.Host})${via}`);
+
+  // Raw diagnostic: dump the household's /status/accounts verbatim so we can see
+  // the real Spotify service Type and SerialNum (the sn to use).
+  if (args.accounts) {
+    const raw = await httpGet(`http://${coordinator.Host || device.Host}:1400/status/accounts`);
+    console.log(`\n--- raw /status/accounts (${coordinator.Host || device.Host}) ---\n${raw.trim()}`);
+    return;
+  }
 
   if (args.stop) {
     await coordinator.Stop();
