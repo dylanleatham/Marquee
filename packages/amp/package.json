@@ -1,0 +1,29 @@
+{
+  "name": "@marquee/amp",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Plays a card-scanned album's audio over Sonos. Headless runtime service (ADR 0023).",
+  "main": "./dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "build": "tsc -b",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "lint": "echo \"(no linter configured yet)\""
+  },
+  "dependencies": {
+    "@marquee/contracts": "workspace:*",
+    "@svrooij/sonos": "^2.5.0",
+    "fastify": "^5.1.0",
+    "smol-toml": "^1.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2",
+    "vitest": "^2.1.3"
+  }
+}
