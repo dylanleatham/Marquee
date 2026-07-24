@@ -66,7 +66,7 @@ class StylusApp:
         elif isinstance(action, Stop):
             self._publish(stop_event(self._reader_id, at=self._now()))
         elif isinstance(action, BadTag):
-            log.warning("tag %s carried no valid curator:album URI — ignoring", action.uid)
+            log.warning("tag %s carried no valid curator:(album|card) URI — ignoring", action.uid)
             self._led.set(Pattern.ERROR)
 
     def _ack_start(self) -> None:

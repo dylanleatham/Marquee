@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from .config import ReaderConfig
-from .events import is_album_uri
+from .events import is_curator_uri
 
 
 class State(Enum):
@@ -52,7 +52,7 @@ class Stop:
 
 @dataclass(frozen=True)
 class BadTag:
-    """A stable tag whose URI didn't parse to a ``curator:album`` URI — flag it (LED/log), don't fire."""
+    """A stable tag whose URI didn't parse to a ``curator:(album|card)`` URI — flag it (LED/log), don't fire."""
 
     uid: str
 
@@ -89,7 +89,7 @@ class DetectionMachine:
         # (count > threshold) neither re-fire nor re-flag.
         if self._cand_count != self._cfg.insertion_debounce_polls:
             return None
-        if tag.uri is not None and is_album_uri(tag.uri):
+        if tag.uri is not None and is_curator_uri(tag.uri):
             self._enter_playing(tag.uid, tag.uri)
             return Start(uid=tag.uid, uri=tag.uri)
         if self._flagged_bad != tag.uid:
@@ -117,7 +117,7 @@ class DetectionMachine:
         self._bump_candidate(tag.uid)
         if self._cand_count < self._cfg.swap_debounce_polls:
             return None
-        if tag.uri is not None and is_album_uri(tag.uri):
+        if tag.uri is not None and is_curator_uri(tag.uri):
             self._reset_candidate()
             self.current_uid = tag.uid
             self.current_uri = tag.uri
