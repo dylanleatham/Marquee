@@ -550,6 +550,42 @@ describe("hue-conductor HTTP API", () => {
       expect(ss.stop).toHaveBeenCalled();
     });
 
+    it("routes a streaming effect submitted to /api/playback (Demo Room / manual curl)", async () => {
+      const ss = fakeStream();
+      const { app } = build(ss, { area: true });
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/playback",
+        headers: AUTH,
+        payload: {
+          roomId: "1",
+          palette: {
+            version: 1,
+            source: { type: "album" },
+            palette: {
+              colors: [
+                { hex: "#7867A0", role: "primary" },
+                { hex: "#D98D40", role: "accent" },
+              ],
+            },
+            pattern: { type: "aurora", params: {} },
+          },
+        },
+      });
+      expect(res.json()).toMatchObject({
+        streaming: true,
+        effect: "aurora",
+        areaId: AREA_ID,
+      });
+      expect(ss.start).toHaveBeenCalledWith(
+        "1",
+        AREA_ID,
+        "aurora",
+        ["#7867A0", "#D98D40"],
+        {},
+      );
+    });
+
     it("GET /api/entertainment/areas 409s when the bridge isn't paired", async () => {
       const store = new Store(mkdtempSync(join(tmpdir(), "conductor-np-ent-")));
       const { app } = buildServer({

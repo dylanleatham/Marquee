@@ -54,6 +54,9 @@ gotten. Opt-in keeps the automatic path honest; the contract still carries the t
 - New runtime dependency (`node-dtls-client`) on the Conductor. Pure-JS, so no build/deploy change.
 - New settings key `entertainmentAreaId` (pushed from Curator like `listeningRoomId`) and a
   `GET /api/entertainment/areas` discovery endpoint.
+- `/api/scan` and `/api/playback` share one routing helper, so streaming is reachable from a tagged
+  scan _and_ from Curator's Demo Room / a manual `curl` — the helper also handles the CLIP↔streaming
+  handoff in both directions (each holds the lights exclusively while active).
 - The DTLS handshake and on-bulb rendering are verified **on hardware** (see `docs/runbook.md` §
   Entertainment streaming); everything else — encoder, CLIP v2 client, transport framing, session
   orchestration, scan routing/fallback — is unit-tested.

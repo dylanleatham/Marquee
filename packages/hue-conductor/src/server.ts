@@ -208,6 +208,57 @@ export function buildServer(opts: BuildOptions = {}) {
   const resolveRoom = (roomId?: string): string | null =>
     roomId ?? store.settings.listeningRoomId ?? null;
 
+  type ApplyResult =
+    | { kind: "streaming"; areaId: string; effect: string }
+    | { kind: "playing"; playbackId: string };
+
+  /**
+   * Drive a room from a fully-built payload — shared by `/api/playback` (admin/Demo Room) and
+   * `/api/scan` (runtime). A streaming effect goes over the Entertainment API when an area is
+   * configured; otherwise, or on a failed handshake, it falls back to a lively CLIP pattern. Handles
+   * the CLIP↔streaming handoff in both directions so the two paths never fight over the lights.
+   */
+  const applyPayload = async (
+    roomId: string,
+    payload: PalettePayload,
+    log: { warn(msg: string): void; error(msg: string): void },
+    ctx = "",
+  ): Promise<ApplyResult> => {
+    const type = payload.pattern.type;
+    if (isStreamEffect(type)) {
+      const areaId = store.settings.entertainmentAreaId;
+      const sess = streaming();
+      if (areaId && sess) {
+        try {
+          await engine.stop(roomId); // CLIP → streaming handoff, from the true pre-session state
+          await sess.start(
+            roomId,
+            areaId,
+            type,
+            payload.palette.colors.map((c) => c.hex),
+            (payload.pattern.params ?? {}) as Record<string, number>,
+          );
+          return { kind: "streaming", areaId, effect: type };
+        } catch (err) {
+          log.error(
+            `streaming ${type}${ctx} failed (${(err as Error).message}) — CLIP fallback`,
+          );
+        }
+      } else {
+        log.warn(
+          `streaming ${type}${ctx} needs an entertainment area + clientkey — CLIP fallback`,
+        );
+      }
+      payload = clipFallback(payload);
+    }
+    // A CLIP payload arriving while a stream is active must release the lights first (the reverse
+    // handoff) — the entertainment session holds them exclusively.
+    const sess = streaming();
+    if (sess?.isStreaming()) await sess.stop();
+    const { playbackId } = await engine.start(roomId, payload);
+    return { kind: "playing", playbackId };
+  };
+
   // Start (or crossfade to) a palette+pattern on a room (conductor-spec §8/§9). The playback engine
   // snapshots the room on the first start and restores it on stop.
   app.post("/api/playback", async (req, reply) => {
@@ -226,7 +277,17 @@ export function buildServer(opts: BuildOptions = {}) {
       return reply
         .code(400)
         .send({ error: "palette with at least one color is required" });
-    return engine.start(roomId, payload);
+    // Streaming effects route to the Entertainment API too (ADR 0024), so Curator's Demo Room and a
+    // manual `curl` can drive aurora/shimmer/wave, not just a tagged scan.
+    const result = await applyPayload(roomId, payload, req.log);
+    return result.kind === "streaming"
+      ? {
+          streaming: true,
+          roomId,
+          areaId: result.areaId,
+          effect: result.effect,
+        }
+      : { playbackId: result.playbackId };
   });
 
   // Stop a room's playback and fade the lights back to their pre-session snapshot.
@@ -329,48 +390,32 @@ export function buildServer(opts: BuildOptions = {}) {
       throw err;
     }
 
-    // Streaming effects (aurora/shimmer/wave) go over the Entertainment API when an area is configured
-    // (ADR 0024). If streaming isn't available or the handshake fails, fall back to a lively CLIP
-    // pattern rather than degrading to a flat color — a scan must still do *something* visible.
-    if (isStreamEffect(payload.pattern.type)) {
-      const areaId = store.settings.entertainmentAreaId;
-      const sess = streaming();
-      if (areaId && sess) {
-        try {
-          await engine.stop(roomId); // hand off from CLIP → streaming from the true pre-session state
-          await sess.start(
-            roomId,
-            areaId,
-            payload.pattern.type,
-            payload.palette.colors.map((c) => c.hex),
-            (payload.pattern.params ?? {}) as Record<string, number>,
-          );
-          return reply.code(202).send({
+    // Streaming effects route over the Entertainment API when an area is configured, else a lively
+    // CLIP fallback (ADR 0024). Bridge failures bubble to the error handler (409 not paired / 502).
+    const result = await applyPayload(
+      roomId,
+      payload,
+      req.log,
+      ` (scan ${scan.uri})`,
+    );
+    return reply.code(202).send(
+      result.kind === "streaming"
+        ? {
             ok: true,
             action: "streaming",
             roomId,
             curatorId,
-            areaId,
-            effect: payload.pattern.type,
-          });
-        } catch (err) {
-          req.log.error(
-            `scan ${scan.uri}: streaming ${payload.pattern.type} failed (${(err as Error).message}) — CLIP fallback`,
-          );
-        }
-      } else {
-        req.log.warn(
-          `scan ${scan.uri}: ${payload.pattern.type} needs an entertainment area + clientkey — CLIP fallback`,
-        );
-      }
-      payload = clipFallback(payload);
-    }
-
-    // Bridge failures bubble to the error handler (409 not paired / 502) like /api/playback does.
-    const { playbackId } = await engine.start(roomId, payload);
-    return reply
-      .code(202)
-      .send({ ok: true, action: "playing", roomId, curatorId, playbackId });
+            areaId: result.areaId,
+            effect: result.effect,
+          }
+        : {
+            ok: true,
+            action: "playing",
+            roomId,
+            curatorId,
+            playbackId: result.playbackId,
+          },
+    );
   });
 
   app.setErrorHandler((err, req, reply) => {

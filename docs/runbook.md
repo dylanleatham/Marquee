@@ -108,11 +108,22 @@ Three one-time steps, all on the Pi / in the Hue app:
 3. **Point Conductor at the area.** `GET /api/entertainment/areas` to find its id, then
    `PUT /api/settings { "entertainmentAreaId": "<id>" }` (or set it from Curator).
 
-**Verify on the bulbs:** attach a streaming effect to an album (Curator per-album pattern override →
+**Quick smoke test (one curl, no album needed):** `POST /api/playback` accepts a streaming effect
+directly (ADR 0024) —
+
+```sh
+curl -s -X POST -H "X-Trigger-Secret: $SEC" -H 'content-type: application/json' \
+  -d '{"roomId":"<roomId>","palette":{"version":1,"source":{"type":"test"},
+       "palette":{"colors":[{"hex":"#7867A0","role":"primary"},{"hex":"#D98D40","role":"accent"}]},
+       "pattern":{"type":"aurora","params":{}}}}' "$PI/api/playback" | jq
+#   → {"streaming":true,"effect":"aurora",...}; stop with POST /api/playback/stop
+```
+
+**Verify the real path:** attach a streaming effect to an album (Curator per-album pattern override →
 `aurora` / `shimmer` / `wave`), sync, and scan the sleeve. The room should stream continuously —
 colours drifting (aurora), twinkling (shimmer), or a band sweeping across the lights (wave). Lift the
 sleeve → it stops and the room restores. If the handshake fails, Conductor logs it and falls back to
-`rotate`; check `journalctl -u marquee-conductor` for `streaming … failed`.
+a CLIP pattern; check `journalctl -u marquee-conductor` for `streaming … failed`.
 
 > **Notes.** Starting an Entertainment session takes exclusive control of the area's lights, so
 > Conductor snapshots over CLIP first and restores on stop (as with normal playback). Preview the
