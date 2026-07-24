@@ -251,6 +251,25 @@ describe("regeneratePalette", () => {
     ).rejects.toBeInstanceOf(ValidationError);
   });
 
+  it("refuses to re-extract while the album is still processing (ADR 0025)", async () => {
+    const store = tmpStore();
+    const asset = buildFreshAsset({
+      curatorId: "dddd4444",
+      metadata: { name: "N", artist: "A", source: "manual" },
+      now: () => NOW,
+    });
+    asset.palette = {
+      colors: [{ hex: "#101010", role: "primary" }],
+      generatedAt: NOW,
+      algorithm: "palette-press",
+      handEdited: false,
+    };
+    store.save(asset); // still in generating_palette (a processing state)
+    await expect(
+      regeneratePalette(deps(store), "dddd4444", false),
+    ).rejects.toBeInstanceOf(PaletteConflictError);
+  });
+
   it("400s when no palette generator is configured", async () => {
     const store = tmpStore();
     seed(store);
