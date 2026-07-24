@@ -1,7 +1,34 @@
+import { request as httpsRequest } from "node:https";
 import hue from "node-hue-api";
-import type { HueApi, LightState } from "node-hue-api";
+import type { HueApi, HueGroup, LightState } from "node-hue-api";
 import { hexToRgb } from "../color.js";
 import type { Store, BridgeRecord } from "../store.js";
+
+/**
+ * Map the raw CLIP v1 `/groups` response (a `{ [id]: group }` object) to the group shape `getRooms`
+ * needs, leniently. Used as a fallback when node-hue-api's validating `getAll()` throws on a group
+ * class it doesn't know — notably a "Free" entertainment area (ADR 0024). Entries without a string
+ * `name` (e.g. an error array the bridge returns on failure) are skipped. Pure, for testing.
+ */
+export function mapV1Groups(json: unknown): HueGroup[] {
+  if (!json || typeof json !== "object") return [];
+  return Object.entries(json as Record<string, unknown>)
+    .filter(
+      (entry): entry is [string, Record<string, unknown>] =>
+        !!entry[1] &&
+        typeof entry[1] === "object" &&
+        !Array.isArray(entry[1]) &&
+        typeof (entry[1] as { name?: unknown }).name === "string",
+    )
+    .map(([id, g]) => ({
+      id,
+      name: g.name as string,
+      type: String(g.type ?? ""),
+      lights: Array.isArray(g.lights)
+        ? (g.lights as unknown[]).map(String)
+        : [],
+    }));
+}
 
 export interface DiscoveredBridge {
   id: string | null;
@@ -177,7 +204,15 @@ export class BridgeAdapter {
 
   async getRooms(): Promise<RoomInfo[]> {
     const api = await this.api();
-    const groups = await api.groups.getAll();
+    let groups: HueGroup[];
+    try {
+      groups = await api.groups.getAll();
+    } catch {
+      // node-hue-api v4 rejects the whole batch on a group class it doesn't know — notably a "Free"
+      // entertainment area, which the streaming setup asks you to create (ADR 0024). Fall back to the
+      // raw CLIP v1 groups endpoint, parsed leniently, so room listing survives it.
+      groups = await this.getGroupsRawV1();
+    }
     return groups
       .filter((g) => g.type === "Room" || g.type === "Zone")
       .map((g) => ({
@@ -187,6 +222,39 @@ export class BridgeAdapter {
         lightIds: (g.lights ?? []).map(String),
         colorCapable: true,
       }));
+  }
+
+  /** Raw CLIP v1 groups fetch — the fallback for `getRooms` (see there). Hardware-only path. */
+  private getGroupsRawV1(): Promise<HueGroup[]> {
+    const b = this.store.bridge;
+    if (!b) throw new NotPairedError();
+    return new Promise<HueGroup[]>((resolve, reject) => {
+      const req = httpsRequest(
+        {
+          host: b.ip,
+          path: `/api/${b.applicationKey}/groups`,
+          method: "GET",
+          rejectUnauthorized: false, // LAN bridge, self-signed cert (conductor-spec §11)
+          timeout: 5000,
+        },
+        (res) => {
+          let data = "";
+          res.on("data", (c) => (data += c));
+          res.on("end", () => {
+            try {
+              resolve(mapV1Groups(JSON.parse(data)));
+            } catch (e) {
+              reject(e as Error);
+            }
+          });
+        },
+      );
+      req.on("timeout", () =>
+        req.destroy(new Error("groups request timed out")),
+      );
+      req.on("error", reject);
+      req.end();
+    });
   }
 
   async getLights(): Promise<LightInfo[]> {

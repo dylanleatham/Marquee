@@ -6,7 +6,7 @@ go from bare Pis to a tagged sleeve driving the lights + video.
 
 **How to use it:** work top-to-bottom. Every phase ends with a **GATE** — a check that must pass before
 you move on. If a gate fails, **stop there**; the fix is in that phase or in the linked debug-matrix
-row, not further down. The point of gating is that a failure tells you *which layer* broke while you
+row, not further down. The point of gating is that a failure tells you _which layer_ broke while you
 still have only one suspect.
 
 Fill in the box below **first** — these are the values you'd otherwise retype (and mistype) at every
@@ -16,15 +16,15 @@ step. Keep this file open on your phone/laptop while you work.
 
 ## The values (fill in once)
 
-| Thing | Value | Set in |
-| --- | --- | --- |
-| Shared secret (`X-Trigger-Secret`) | `________________` | Conductor `[auth]`, Backdrop, Curator, Stylus |
-| Pi 5 hostname | `marquee-pi5` (or `____`) | — |
-| Pi Zero 2 W hostname | `marquee-pizero` (or `____`) | — |
-| Hue bridge on LAN? | ☐ confirmed same subnet | — |
-| Listening room id | `________________` | `PUT /api/settings` (A2.4) |
-| Test album `curatorId` | `________________` | Curator album detail |
-| → `URI=curator:album:<id>` | `________________` | used in every smoke test |
+| Thing                              | Value                        | Set in                                        |
+| ---------------------------------- | ---------------------------- | --------------------------------------------- |
+| Shared secret (`X-Trigger-Secret`) | `________________`           | Conductor `[auth]`, Backdrop, Curator, Stylus |
+| Pi 5 hostname                      | `marquee-pi5` (or `____`)    | —                                             |
+| Pi Zero 2 W hostname               | `marquee-pizero` (or `____`) | —                                             |
+| Hue bridge on LAN?                 | ☐ confirmed same subnet      | —                                             |
+| Listening room id                  | `________________`           | `PUT /api/settings` (A2.4)                    |
+| Test album `curatorId`             | `________________`           | Curator album detail                          |
+| → `URI=curator:album:<id>`         | `________________`           | used in every smoke test                      |
 
 Two shell exports make the smoke tests copy-paste (run on the Pi 5 or workstation):
 
@@ -46,19 +46,19 @@ export PI5=marquee-pi5
 
 ---
 
-## Phase 1 — Pi 5 base image  ·  runbook A1
+## Phase 1 — Pi 5 base image · runbook A1
 
 - [ ] Raspberry Pi OS (64-bit) flashed; hostname/SSH/Wi-Fi pre-set in Imager
 - [ ] Node 22 + pnpm + git + chromium installed
-- [ ] Repo cloned to `/home/pi/marquee`; `pnpm install` clean
+- [ ] Repo cloned to `/home/pi/Marquee`; `pnpm install` clean
 - [ ] `pnpm --filter @marquee/hue-conductor build` and `… @marquee/backdrop build` both succeed
 
-**GATE 1:** `node /home/pi/marquee/packages/hue-conductor/dist/server.js` starts and logs a port
+**GATE 1:** `node /home/pi/Marquee/packages/hue-conductor/dist/server.js` starts and logs a port
 (then `Ctrl-C` — systemd runs it for real below).
 
 ---
 
-## Phase 2 — Conductor / the lights  ·  runbook A2
+## Phase 2 — Conductor / the lights · runbook A2
 
 - [ ] `config.toml` written: `[auth].shared_secret`, `[storage].album_assets_dir`,
       `[runtime].idle_timeout_minutes = 90`
@@ -69,15 +69,17 @@ export PI5=marquee-pi5
 **GATE 2a:** `curl -s http://$PI5:4737/healthz` → `{"ok":true,"paired":true}`.
 
 **GATE 2b (proves the bridge path):**
+
 ```sh
 curl -s -XPOST http://$PI5:4737/api/test/color -H "X-Trigger-Secret: $SECRET" \
   -H 'content-type: application/json' -d '{"roomId":"<listening-room-id>","hex":"#4B0082"}'
 ```
-→ the room turns **purple**. If not → debug matrix: *"`/api/test/color` does nothing"*.
+
+→ the room turns **purple**. If not → debug matrix: _"`/api/test/color` does nothing"_.
 
 ---
 
-## Phase 3 — Backdrop / the video  ·  runbook A3
+## Phase 3 — Backdrop / the video · runbook A3
 
 - [ ] Config: shared secret + media dir (`/home/pi/marquee-data/media/visualizers`)
 - [ ] `marquee-backdrop.service` up (`systemctl enable --now`)
@@ -88,7 +90,7 @@ shows Backdrop's idle gradient. (The video-plays check comes after A4's sync, in
 
 ---
 
-## Phase 4 — Curator + sync  ·  runbook A4
+## Phase 4 — Curator + sync · runbook A4
 
 - [ ] Curator `config.toml`: `[conductor]` + `[backdrop]` urls, shared secret, Backdrop `media_dir` (the path **on the Pi**)
 - [ ] One album prepared to **at least `awaiting_review`** (has palette + pattern) — else scans give `202 album not ready`
@@ -101,7 +103,7 @@ shows Backdrop's idle gradient. (The video-plays check comes after A4's sync, in
 
 ---
 
-## Phase 5 — Smoke-test the chain *before the stand*  ·  runbook A5
+## Phase 5 — Smoke-test the chain _before the stand_ · runbook A5
 
 This is the most important gate: it separates **"the software chain works"** from **"the NFC/mount is
 tuned."** No NFC involved yet.
@@ -128,7 +130,7 @@ everything past here is antenna/mount, and you want the software ruled out first
 
 ---
 
-## Phase 6 — Stylus on the Pi Zero  ·  runbook A6
+## Phase 6 — Stylus on the Pi Zero · runbook A6
 
 **Power off the Pi Zero before wiring.** PN532 must be in **I²C mode** (DIP/jumper per the board's silkscreen).
 
@@ -140,15 +142,17 @@ everything past here is antenna/mount, and you want the software ruled out first
 - [ ] `marquee-stylus.service` up
 
 **GATE 6a (bus sees the reader):** `i2cdetect -y 1` shows a device at **0x24**. Empty grid → re-check the
-4 wires and the I²C DIP/jumper *before* anything else.
+4 wires and the I²C DIP/jumper _before_ anything else.
 
-**GATE 6b (Stylus fan-out wiring — proves config/URLs/secret, *not* the PN532):** run Stylus with the
+**GATE 6b (Stylus fan-out wiring — proves config/URLs/secret, _not_ the PN532):** run Stylus with the
 **fake** reader — `python -m stylus --simulate` — because `/simulate` is disabled under the real reader
 (it returns `409` otherwise). Then inject a read:
+
 ```sh
 curl -XPOST http://marquee-pizero:4741/simulate -d "{\"uid\":\"04:A1:B2\",\"uri\":\"$URI\"}"
 curl -XPOST http://marquee-pizero:4741/simulate -d '{"clear":true}'   # = sleeve lifted
 ```
+
 → same start/stop as GATE 5, now driven through Stylus's publish path. This confirms the Conductor/Backdrop
 URLs + secret in Stylus's config are right. It does **not** exercise the antenna — that's GATE 7, which
 needs a written tag.
@@ -157,7 +161,7 @@ Then restart Stylus with the **real** reader (`python -m stylus`, the systemd de
 
 ---
 
-## Phase 7 — Tag the sleeve + the real scan  ·  runbook A7
+## Phase 7 — Tag the sleeve + the real scan · runbook A7
 
 - [ ] Wrote `curator:album:<curatorId>` to an **NTAG213** (phone / Flipper / Curator `.nfc` — see A7)
 - [ ] **Did NOT** touch lock/CC/password pages
@@ -169,7 +173,7 @@ Then restart Stylus with the **real** reader (`python -m stylus`, the systemd de
 lift it → **both fade back**. That's issue #52 done.
 
 If the sleeve does nothing but GATE 5/6 passed, it's isolated to NFC read/mount or Stylus→Pi5
-reachability — debug matrix: *"Sleeve on stand does nothing, but A5/A6 worked."*
+reachability — debug matrix: _"Sleeve on stand does nothing, but A5/A6 worked."_
 
 ---
 

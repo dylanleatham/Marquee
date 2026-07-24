@@ -82,6 +82,29 @@ describe("BridgeAdapter", () => {
     expect(rooms[0].lightIds).toEqual(["11", "12"]);
   });
 
+  it("mapV1Groups parses the raw CLIP v1 groups map and skips non-groups", async () => {
+    const { mapV1Groups } = await import("../src/bridge/adapter.js");
+    const groups = mapV1Groups({
+      "1": {
+        name: "Living",
+        type: "Room",
+        lights: [11, 12],
+        class: "Living Room",
+      },
+      "3": {
+        name: "Cinema",
+        type: "Entertainment",
+        lights: [11],
+        class: "Free",
+      }, // the class that breaks getAll
+      "0": [{ error: { description: "unauthorized user" } }], // bridge error array — skipped
+    });
+    expect(groups).toEqual([
+      { id: "1", name: "Living", type: "Room", lights: ["11", "12"] },
+      { id: "3", name: "Cinema", type: "Entertainment", lights: ["11"] },
+    ]);
+  });
+
   it("throws NotPairedError before any bridge is paired", async () => {
     const { driver } = makeFakeDriver();
     await expect(

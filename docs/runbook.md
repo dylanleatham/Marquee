@@ -43,14 +43,14 @@ Work top-to-bottom; each step ends with a **Check** so a failure tells you which
    sudo apt-get install -y nodejs git chromium-browser
    sudo corepack enable            # provides pnpm
    ```
-3. Clone + build the two services (use one repo path, e.g. `/home/pi/marquee`):
+3. Clone + build the two services (use one repo path, e.g. `/home/pi/Marquee`):
    ```sh
-   git clone <repo-url> /home/pi/marquee && cd /home/pi/marquee
+   git clone <repo-url> /home/pi/Marquee && cd /home/pi/Marquee
    pnpm install
    pnpm --filter @marquee/hue-conductor build
    pnpm --filter @marquee/backdrop build
    ```
-   - **Check:** `node /home/pi/marquee/packages/hue-conductor/dist/server.js` starts and logs a port.
+   - **Check:** `node /home/pi/Marquee/packages/hue-conductor/dist/server.js` starts and logs a port.
      `Ctrl-C` — we'll run it under systemd below.
 
 ### A2. Conductor on the Pi 5 (the lights half)
@@ -75,7 +75,7 @@ Work top-to-bottom; each step ends with a **Check** so a failure tells you which
    Wants=network-online.target
    After=network-online.target
    [Service]
-   WorkingDirectory=/home/pi/marquee/packages/hue-conductor
+   WorkingDirectory=/home/pi/Marquee/packages/hue-conductor
    ExecStart=/usr/bin/node dist/server.js
    Restart=on-failure
    User=pi
@@ -141,7 +141,7 @@ a CLIP pattern; check `journalctl -u marquee-conductor` for `streaming … faile
    ```sh
    chromium-browser --kiosk --start-fullscreen --window-position=0,0 \
      --autoplay-policy=no-user-gesture-required \
-     --app=file:///home/pi/marquee/packages/backdrop/public/index.html?debug=0
+     --app=file:///home/pi/Marquee/packages/backdrop/public/index.html?debug=0
    ```
    - **Check:** `GET /api/status` shows it up with a browser connected. With a library entry synced
      (A4), `POST /api/admin/simulate-scan { "uri": "curator:album:<id>" }` plays that video on the TV;
