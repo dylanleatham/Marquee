@@ -55,12 +55,7 @@ const baseAsset = (patch: Partial<AlbumAsset> = {}): AlbumAsset => ({
 });
 
 const editor = (patch?: Partial<AlbumAsset>) => (
-  <PaletteEditor
-    curatorId="aaaa1111"
-    asset={baseAsset(patch)}
-    run={run}
-    busy={false}
-  />
+  <PaletteEditor curatorId="aaaa1111" asset={baseAsset(patch)} run={run} />
 );
 
 describe("PaletteEditor", () => {
@@ -128,5 +123,44 @@ describe("PaletteEditor", () => {
     render(editor());
     fireEvent.change(input("Color 1 hex"), { target: { value: "#000000" } });
     expect(button("Reset to auto").disabled).toBe(true);
+  });
+
+  it("adopts a server-side palette change (poll after re-extract) when the draft is clean", () => {
+    const { rerender } = render(editor());
+    expect(input("Color 1 hex").value).toBe("#4B0082");
+    rerender(
+      <PaletteEditor
+        curatorId="aaaa1111"
+        run={run}
+        asset={baseAsset({
+          palette: {
+            colors: [{ hex: "#00FF00", role: "primary" }],
+            generatedAt: "2026-07-12T00:00:00Z",
+            handEdited: false,
+          },
+        })}
+      />,
+    );
+    expect(input("Color 1 hex").value).toBe("#00FF00");
+  });
+
+  it("preserves in-progress edits when a server-side change arrives while dirty", () => {
+    const { rerender } = render(editor());
+    fireEvent.change(input("Color 1 hex"), { target: { value: "#123456" } });
+    // A poll lands a different server palette; the unsaved local edit must not be clobbered.
+    rerender(
+      <PaletteEditor
+        curatorId="aaaa1111"
+        run={run}
+        asset={baseAsset({
+          palette: {
+            colors: [{ hex: "#00FF00", role: "primary" }],
+            generatedAt: "2026-07-12T00:00:00Z",
+            handEdited: false,
+          },
+        })}
+      />,
+    );
+    expect(input("Color 1 hex").value).toBe("#123456");
   });
 });

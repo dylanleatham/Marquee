@@ -1,7 +1,13 @@
 import { useCallback, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, type AlbumAsset } from "../api";
-import { STATE_LABEL, STEPPER, stepperIndex, isProcessing } from "../format";
+import {
+  STATE_LABEL,
+  STEPPER,
+  stepperIndex,
+  isProcessing,
+  promptIsStale,
+} from "../format";
 import { usePoll } from "../hooks";
 import { Cover, StateBadge, Spinner } from "../components/common";
 import { PaletteEditor } from "../components/PaletteEditor";
@@ -13,16 +19,6 @@ import {
   TagWriteSection,
   type Run,
 } from "../components/workflow";
-
-/** True when the palette was (re)generated or hand-edited after a prompt was drafted, so the prompt's
- * embedded hex colors are stale. Both timestamps are ISO-8601 UTC, so a string compare is chronological. */
-const promptIsStale = (
-  paletteGeneratedAt: string | undefined,
-  promptGeneratedAt: string | undefined,
-): boolean =>
-  paletteGeneratedAt != null &&
-  promptGeneratedAt != null &&
-  promptGeneratedAt < paletteGeneratedAt;
 
 /** Horizontal stepper of the human-driven milestones, current step highlighted (spec §10). */
 function Stepper({ asset }: { asset: AlbumAsset }) {
@@ -209,12 +205,7 @@ export function AlbumDetail() {
                 Redraft them to match.
               </div>
             )}
-            <PaletteEditor
-              curatorId={curatorId}
-              asset={asset}
-              run={run}
-              busy={busy}
-            />
+            <PaletteEditor curatorId={curatorId} asset={asset} run={run} />
           </Section>
         ) : (
           <Section title="Palette">

@@ -7,6 +7,7 @@ import {
   type PaletteRole,
 } from "../api";
 import type { Run } from "./workflow";
+import { AsyncButton } from "./common";
 
 const ROLES: PaletteRole[] = ["primary", "secondary", "accent"];
 const MAX_COLORS = 8;
@@ -47,12 +48,10 @@ export function PaletteEditor({
   curatorId,
   asset,
   run,
-  busy,
 }: {
   curatorId: string;
   asset: AlbumAsset;
   run: Run;
-  busy: boolean;
 }) {
   const palette = asset.palette;
   const serverColors = palette?.colors ?? [];
@@ -217,24 +216,25 @@ export function PaletteEditor({
         >
           + Color
         </button>
-        <button
+        <AsyncButton
           className="btn btn--sm btn--primary"
           onClick={save}
-          disabled={!dirty || busy}
+          disabled={!dirty}
+          pendingLabel="Saving…"
         >
-          {busy ? "Saving…" : "Save palette"}
-        </button>
+          Save palette
+        </AsyncButton>
         <button
           className="btn btn--sm btn--ghost"
           onClick={discard}
-          disabled={!dirty || busy}
+          disabled={!dirty}
         >
           Discard
         </button>
-        <button
+        <AsyncButton
           className="btn btn--sm btn--ghost"
           onClick={reExtract}
-          disabled={dirty || busy}
+          disabled={dirty}
           title={
             dirty
               ? "Save or discard your edits first"
@@ -242,7 +242,7 @@ export function PaletteEditor({
           }
         >
           Reset to auto
-        </button>
+        </AsyncButton>
       </div>
       {dirty && (
         <p className="palette-editor__hint muted">

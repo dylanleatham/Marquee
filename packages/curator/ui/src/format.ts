@@ -71,6 +71,19 @@ export function relativeTime(iso: string, now: number = Date.now()): string {
   return `${days}d ago`;
 }
 
+/**
+ * True when the palette was (re)generated or hand-edited *after* a prompt was drafted, so the
+ * prompt's embedded hex colors are now out of date. Both timestamps are ISO-8601 UTC, so a lexical
+ * string compare is chronological. Absent timestamps → not stale (nothing to compare).
+ */
+export const promptIsStale = (
+  paletteGeneratedAt: string | undefined,
+  promptGeneratedAt: string | undefined,
+): boolean =>
+  paletteGeneratedAt != null &&
+  promptGeneratedAt != null &&
+  promptGeneratedAt < paletteGeneratedAt;
+
 /** The next action label for an album parked in a human/terminal state (mirrors the API's status). */
 export const NEXT_ACTION: Partial<Record<RoadieState, string>> = {
   awaiting_review: "Review palette",
