@@ -55,6 +55,9 @@ the usual reason an album queues but won't start** — if playback is silent, tr
 - Errors to expect while dialing it in: `No Sonos devices found` (wrong LAN / firewall on SSDP),
   `No speaker named …` (it prints the names it found — copy one), or it queues but stays silent
   (region, or Spotify not linked / not Premium).
+- **Grouped / bonded speakers** (stereo pairs, rooms joined together) are handled automatically:
+  queue commands are routed to the group coordinator, so targeting a member no longer trips the
+  UPnP 800 "not a coordinator" error. The output shows `via coordinator <name>` when this happens.
 
 ## What this spike does NOT decide
 

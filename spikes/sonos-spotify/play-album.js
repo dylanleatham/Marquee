@@ -97,10 +97,16 @@ async function main() {
     throw new Error(`No speaker named "${args.speaker}". Found: ${names}`);
   }
 
-  console.log(`→ target: ${device.Name} (${device.Host})`);
+  // Queue commands must go to the group COORDINATOR. If the target is a grouped
+  // or bonded speaker (e.g. a stereo pair, or joined to another room), sending
+  // AddUriToQueue to the member fails with UPnP 800 "not a coordinator".
+  // `.Coordinator` returns the coordinator, or the device itself if standalone.
+  const coordinator = device.Coordinator;
+  const via = coordinator.Uuid === device.Uuid ? '' : ` via coordinator ${coordinator.Name}`;
+  console.log(`→ target: ${device.Name} (${device.Host})${via}`);
 
   if (args.stop) {
-    await device.Stop();
+    await coordinator.Stop();
     console.log('■ stopped');
     return;
   }
@@ -119,15 +125,18 @@ async function main() {
   }
 
   // Fresh queue → add album → point playback at the queue → play.
-  await device.AVTransportService.RemoveAllTracksFromQueue({ InstanceID: 0 }).catch(() => {
+  // All queue/playback operations target the coordinator (see note above).
+  await coordinator.AVTransportService.RemoveAllTracksFromQueue({ InstanceID: 0 }).catch(() => {
     /* empty queue / not supported — ignore, the add below still works */
   });
-  await device.AddUriToQueue(uri);
-  await device.SwitchToQueue();
-  await device.Play();
+  await coordinator.AddUriToQueue(uri);
+  await coordinator.SwitchToQueue();
+  await coordinator.Play();
 
   // Confirm something is actually playing.
-  const track = await device.AVTransportService.GetPositionInfo({ InstanceID: 0 }).catch(() => null);
+  const track = await coordinator.AVTransportService.GetPositionInfo({ InstanceID: 0 }).catch(
+    () => null,
+  );
   const title = track && track.TrackMetaData && track.TrackMetaData.Title;
   console.log(`▶ playing on ${device.Name}${title ? ` — now: ${title}` : ''}`);
 }
