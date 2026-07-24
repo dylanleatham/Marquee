@@ -28,7 +28,7 @@ cd spikes/sonos-spotify
 npm install
 
 # by room name (uses SSDP discovery)
-npm run play -- --speaker "Living Room" --album spotify:album:1DFixLWuPkv3KT3TnV35m3
+node play-album.js --speaker "Living Room" --album spotify:album:1DFixLWuPkv3KT3TnV35m3
 
 # or by IP (more reliable on segmented/VLAN networks), with a share URL
 node play-album.js --speaker 192.168.1.42 \
@@ -37,6 +37,11 @@ node play-album.js --speaker 192.168.1.42 \
 # stop
 node play-album.js --speaker "Living Room" --stop
 ```
+
+> **Call `node play-album.js` directly, not `npm run play -- …`.** On Windows especially, npm eats
+> the `--speaker`/`--album` flags as its own config and forwards only the bare values. The script
+> now falls back to reading two positionals (`node play-album.js "Living Room" spotify:album:…`), so
+> either form works — but `node` directly is the clean path.
 
 ### Region
 

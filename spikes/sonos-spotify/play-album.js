@@ -26,16 +26,26 @@
 const { SonosManager, MetadataHelper } = require('@svrooij/sonos');
 
 // ---- tiny arg parser -------------------------------------------------------
+// Accepts named flags (--speaker "Living Room") AND bare positionals
+// (speaker, then album). The positional fallback matters because on Windows,
+// `npm run play -- --speaker X` has npm eat the --flags as its own config and
+// forward only the values — so the script receives `Living Room spotify:...`
+// with no flags at all. Call `node play-album.js ...` to avoid that entirely.
 function parseArgs(argv) {
   const args = { stop: false };
+  const positional = [];
   for (let i = 2; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === '--stop') args.stop = true;
     else if (a === '--speaker') args.speaker = argv[++i];
     else if (a === '--album') args.album = argv[++i];
     else if (a === '--region') args.region = argv[++i];
-    else throw new Error(`Unknown argument: ${a}`);
+    else if (a.startsWith('--')) throw new Error(`Unknown argument: ${a}`);
+    else positional.push(a);
   }
+  // Fill unset fields from positionals, in order: speaker, then album.
+  if (!args.speaker && positional.length) args.speaker = positional.shift();
+  if (!args.album && positional.length) args.album = positional.shift();
   return args;
 }
 
