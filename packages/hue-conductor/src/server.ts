@@ -290,6 +290,14 @@ export function buildServer(opts: BuildOptions = {}) {
       : { playbackId: result.playbackId };
   });
 
+  // Stop whichever path holds the room — the streaming session or the CLIP engine (both no-op if
+  // idle). Shared by /api/playback/stop and the scan-stop so neither leaves a stream running.
+  const stopRoom = async (targetRoom: string): Promise<void> => {
+    const sess = streaming();
+    if (sess?.isStreaming()) await sess.stop();
+    await engine.stop(targetRoom);
+  };
+
   // Stop a room's playback and fade the lights back to their pre-session snapshot.
   app.post("/api/playback/stop", async (req, reply) => {
     const { roomId } = (req.body ?? {}) as { roomId?: string };
@@ -298,7 +306,7 @@ export function buildServer(opts: BuildOptions = {}) {
       return reply.code(400).send({
         error: "no room specified and no listening room configured",
       });
-    await engine.stop(target);
+    await stopRoom(target);
     return { stopped: true, roomId: target };
   });
 
@@ -339,10 +347,7 @@ export function buildServer(opts: BuildOptions = {}) {
         return reply
           .code(202)
           .send({ ok: true, action: "ignored", reason: "no listening room" });
-      // Stop whichever path is active — streaming or CLIP (both no-op if idle).
-      const sess = streaming();
-      if (sess?.isStreaming()) await sess.stop();
-      await engine.stop(roomId);
+      await stopRoom(roomId); // streaming session or CLIP — both no-op if idle
       return reply.code(202).send({ ok: true, action: "stopped", roomId });
     }
 

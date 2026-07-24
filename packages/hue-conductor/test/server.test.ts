@@ -550,6 +550,20 @@ describe("hue-conductor HTTP API", () => {
       expect(ss.stop).toHaveBeenCalled();
     });
 
+    it("/api/playback/stop halts an active stream session (not just CLIP)", async () => {
+      const ss = fakeStream();
+      ss.isStreaming.mockReturnValue(true);
+      const { app } = build(ss, { area: true });
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/playback/stop",
+        headers: AUTH,
+        payload: { roomId: "1" },
+      });
+      expect(res.json()).toMatchObject({ stopped: true });
+      expect(ss.stop).toHaveBeenCalled();
+    });
+
     it("routes a streaming effect submitted to /api/playback (Demo Room / manual curl)", async () => {
       const ss = fakeStream();
       const { app } = build(ss, { area: true });
