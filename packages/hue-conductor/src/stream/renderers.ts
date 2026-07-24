@@ -129,3 +129,25 @@ export function wave(
 /** The effect names this module renders — the "streaming pattern" set (hue-conductor-spec §9). */
 export const STREAM_EFFECTS = ["aurora", "shimmer", "wave"] as const;
 export type StreamEffect = (typeof STREAM_EFFECTS)[number];
+
+/** True if a pattern type names a streaming effect (vs. a CLIP pattern). */
+export function isStreamEffect(type: string): type is StreamEffect {
+  return (STREAM_EFFECTS as readonly string[]).includes(type);
+}
+
+/** Build the renderer for a streaming effect over a set of positioned lights and a palette. */
+export function buildStreamRenderer(
+  effect: StreamEffect,
+  lights: StreamLight[],
+  hexes: string[],
+  params: AuroraParams & ShimmerParams & WaveParams = {},
+): StreamRenderer {
+  switch (effect) {
+    case "aurora":
+      return aurora(lights, hexes, params);
+    case "shimmer":
+      return shimmer(lights, hexes, params);
+    case "wave":
+      return wave(lights, hexes, params);
+  }
+}

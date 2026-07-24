@@ -5,11 +5,23 @@ export interface BridgeRecord {
   id: string;
   ip: string;
   applicationKey: string; // Hue's term for the API key — a secret
+  /**
+   * The DTLS pre-shared key for the Entertainment API (streaming effects, ADR 0024). The bridge
+   * returns it alongside the application key at pairing; `undefined` on records paired before we
+   * captured it — re-run `pnpm pair` on the Pi to populate it.
+   */
+  clientkey?: string;
   pairedAt: string;
 }
 
 export interface Settings {
   listeningRoomId: string | null;
+  /**
+   * The Hue *entertainment area* id used for streaming effects (ADR 0024) — a separate concept from
+   * `listeningRoomId` (a Room), carrying per-light positions. `null` until configured; streaming
+   * effects fall back to the CLIP path when unset.
+   */
+  entertainmentAreaId: string | null;
   updatedAt: string;
 }
 
@@ -20,7 +32,11 @@ interface StoreData {
 
 const empty = (): StoreData => ({
   bridge: null,
-  settings: { listeningRoomId: null, updatedAt: new Date(0).toISOString() },
+  settings: {
+    listeningRoomId: null,
+    entertainmentAreaId: null,
+    updatedAt: new Date(0).toISOString(),
+  },
 });
 
 /**
@@ -64,7 +80,18 @@ export class Store {
 
   setListeningRoom(id: string | null): Settings {
     this.data.settings = {
+      ...this.data.settings,
       listeningRoomId: id,
+      updatedAt: new Date().toISOString(),
+    };
+    this.persist();
+    return this.data.settings;
+  }
+
+  setEntertainmentArea(id: string | null): Settings {
+    this.data.settings = {
+      ...this.data.settings,
+      entertainmentAreaId: id,
       updatedAt: new Date().toISOString(),
     };
     this.persist();

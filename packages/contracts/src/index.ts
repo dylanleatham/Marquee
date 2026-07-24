@@ -25,7 +25,16 @@ export type PatternParams =
   | Record<string, never> // static
   | { intervalMs: number; direction: "forward" | "reverse" } // rotate
   | { periodMs: number; minBrightness: number; maxBrightness: number } // pulse
-  | { transitionMs: number; holdMs: number }; // crossfade
+  | { transitionMs: number; holdMs: number } // crossfade
+  | { speed?: number; scale?: number; brightness?: number } // aurora (streaming)
+  | { speed?: number; intensity?: number } // shimmer (streaming)
+  | { speed?: number; angleDeg?: number }; // wave (streaming)
+
+/**
+ * Streaming effects rendered over the Entertainment API (ADR 0023/0024) rather than CLIP. A Conductor
+ * without a configured entertainment area falls back to a CLIP pattern, so these are safe to send.
+ */
+export type StreamPatternType = "aurora" | "shimmer" | "wave";
 
 /**
  * Optional per-album audio descriptors (integration-contract §1 `meta.audioFeatures`). Present only
@@ -53,7 +62,7 @@ export interface PalettePayload {
   };
   palette: { colors: PaletteColor[] };
   pattern: {
-    type: "static" | "rotate" | "pulse" | "crossfade";
+    type: "static" | "rotate" | "pulse" | "crossfade" | StreamPatternType;
     params: PatternParams;
   };
   meta?: {
@@ -142,6 +151,9 @@ const PATTERN_TYPES: PalettePayload["pattern"]["type"][] = [
   "rotate",
   "pulse",
   "crossfade",
+  "aurora",
+  "shimmer",
+  "wave",
 ];
 
 /**

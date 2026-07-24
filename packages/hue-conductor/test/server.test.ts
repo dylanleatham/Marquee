@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -367,7 +367,10 @@ describe("hue-conductor HTTP API", () => {
         payload: scanStart,
       });
       expect(res.statusCode).toBe(202);
-      expect(res.json()).toMatchObject({ action: "ignored", reason: "album not synced" });
+      expect(res.json()).toMatchObject({
+        action: "ignored",
+        reason: "album not synced",
+      });
       expect(fake.setCalls).toHaveLength(0);
     });
 
@@ -385,7 +388,10 @@ describe("hue-conductor HTTP API", () => {
         payload: scanStart,
       });
       expect(res.statusCode).toBe(202);
-      expect(res.json()).toMatchObject({ action: "ignored", reason: "album not ready" });
+      expect(res.json()).toMatchObject({
+        action: "ignored",
+        reason: "album not ready",
+      });
     });
 
     it("400s a non-curator album URI", async () => {
@@ -396,7 +402,12 @@ describe("hue-conductor HTTP API", () => {
         method: "POST",
         url: "/api/scan",
         headers: AUTH,
-        payload: { event: "start", uri: "spotify:album:abc", tagUid: "x", at: "t" },
+        payload: {
+          event: "start",
+          uri: "spotify:album:abc",
+          tagUid: "x",
+          at: "t",
+        },
       });
       expect(res.statusCode).toBe(400);
     });
@@ -409,7 +420,12 @@ describe("hue-conductor HTTP API", () => {
         method: "POST",
         url: "/api/scan",
         headers: AUTH,
-        payload: { event: "start", uri: "spotify:album:abc", tagUid: "x", at: "t" },
+        payload: {
+          event: "start",
+          uri: "spotify:album:abc",
+          tagUid: "x",
+          at: "t",
+        },
       });
       expect(res.statusCode).toBe(400);
     });
@@ -433,6 +449,193 @@ describe("hue-conductor HTTP API", () => {
         payload: scanStart,
       });
       expect(res.statusCode).toBe(401);
+    });
+  });
+
+  describe("streaming effects (ADR 0024)", () => {
+    const AREA_ID = "12345678-1234-1234-1234-1234567890ab";
+    const STREAM_ALBUM = {
+      metadata: { name: "Vivid", artist: "X", year: 2020 },
+      palette: {
+        colors: [
+          { hex: "#7867A0", role: "primary" },
+          { hex: "#D98D40", role: "accent" },
+        ],
+      },
+      pattern: { type: "aurora", params: {} },
+    };
+    const scanStart = {
+      event: "start",
+      uri: "curator:album:2k7bxq9m",
+      tagUid: "x",
+      at: "t",
+    };
+    const fakeStream = () => ({
+      start: vi.fn(async () => {}),
+      stop: vi.fn(async () => {}),
+      isStreaming: vi.fn(() => false),
+    });
+    const build = (
+      streamSession: ReturnType<typeof fakeStream>,
+      { area }: { area: boolean },
+    ) => {
+      const store = seededStore();
+      store.setListeningRoom("1");
+      if (area) store.setEntertainmentArea(AREA_ID);
+      const fake = livingRoom();
+      const { app } = buildServer({
+        config: { sharedSecret: SECRET },
+        store,
+        driver: fake.driver,
+        timers: new FakeTimers(),
+        assets: { read: async () => STREAM_ALBUM as never },
+        streamSession,
+      });
+      return { app, fake };
+    };
+    const scan = (app: ReturnType<typeof buildServer>["app"]) =>
+      app.inject({
+        method: "POST",
+        url: "/api/scan",
+        headers: AUTH,
+        payload: scanStart,
+      });
+
+    it("routes a streaming effect to the stream session when an area is configured", async () => {
+      const ss = fakeStream();
+      const { app } = build(ss, { area: true });
+      const res = await scan(app);
+      expect(res.json()).toMatchObject({
+        action: "streaming",
+        effect: "aurora",
+        areaId: AREA_ID,
+      });
+      expect(ss.start).toHaveBeenCalledWith(
+        "1",
+        AREA_ID,
+        "aurora",
+        ["#7867A0", "#D98D40"],
+        {},
+      );
+    });
+
+    it("falls back to a lively CLIP pattern when no area is configured", async () => {
+      const ss = fakeStream();
+      const { app, fake } = build(ss, { area: false });
+      const res = await scan(app);
+      expect(res.json()).toMatchObject({ action: "playing" });
+      expect(ss.start).not.toHaveBeenCalled();
+      expect(fake.setCalls.length).toBeGreaterThan(0); // CLIP still lit the room
+    });
+
+    it("falls back to CLIP when the stream session throws (e.g. handshake fails)", async () => {
+      const ss = fakeStream();
+      ss.start.mockRejectedValueOnce(new Error("handshake timeout"));
+      const { app, fake } = build(ss, { area: true });
+      const res = await scan(app);
+      expect(res.json()).toMatchObject({ action: "playing" });
+      expect(fake.setCalls.length).toBeGreaterThan(0);
+    });
+
+    it("a stop scan halts an active stream session", async () => {
+      const ss = fakeStream();
+      ss.isStreaming.mockReturnValue(true);
+      const { app } = build(ss, { area: true });
+      await app.inject({
+        method: "POST",
+        url: "/api/scan",
+        headers: AUTH,
+        payload: { event: "stop", at: "t" },
+      });
+      expect(ss.stop).toHaveBeenCalled();
+    });
+
+    it("routes a streaming effect submitted to /api/playback (Demo Room / manual curl)", async () => {
+      const ss = fakeStream();
+      const { app } = build(ss, { area: true });
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/playback",
+        headers: AUTH,
+        payload: {
+          roomId: "1",
+          palette: {
+            version: 1,
+            source: { type: "album" },
+            palette: {
+              colors: [
+                { hex: "#7867A0", role: "primary" },
+                { hex: "#D98D40", role: "accent" },
+              ],
+            },
+            pattern: { type: "aurora", params: {} },
+          },
+        },
+      });
+      expect(res.json()).toMatchObject({
+        streaming: true,
+        effect: "aurora",
+        areaId: AREA_ID,
+      });
+      expect(ss.start).toHaveBeenCalledWith(
+        "1",
+        AREA_ID,
+        "aurora",
+        ["#7867A0", "#D98D40"],
+        {},
+      );
+    });
+
+    it("GET /api/entertainment/areas 409s when the bridge isn't paired", async () => {
+      const store = new Store(mkdtempSync(join(tmpdir(), "conductor-np-ent-")));
+      const { app } = buildServer({
+        config: { sharedSecret: SECRET },
+        store,
+        driver: livingRoom().driver,
+      });
+      const res = await app.inject({
+        method: "GET",
+        url: "/api/entertainment/areas",
+        headers: AUTH,
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error).toMatch(/not paired/);
+    });
+
+    it("GET /api/entertainment/areas 409s (re-pair) when the clientkey is missing", async () => {
+      // seededStore() pairs without a clientkey (pre-DTLS record).
+      const { app } = buildServer({
+        config: { sharedSecret: SECRET },
+        store: seededStore(),
+        driver: livingRoom().driver,
+      });
+      const res = await app.inject({
+        method: "GET",
+        url: "/api/entertainment/areas",
+        headers: AUTH,
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error).toMatch(/re-run `pnpm pair`/);
+    });
+
+    it("PUT /api/settings changes only the key sent (partial update)", async () => {
+      const { app } = buildServer({
+        config: { sharedSecret: SECRET },
+        store: seededStore(),
+        driver: livingRoom().driver,
+      });
+      const put = (body: unknown) =>
+        app.inject({
+          method: "PUT",
+          url: "/api/settings",
+          headers: AUTH,
+          payload: body,
+        });
+      await put({ listeningRoomId: "1" });
+      const res = await put({ entertainmentAreaId: "area-9" });
+      const settings = res.json();
+      expect(settings.entertainmentAreaId).toBe("area-9");
+      expect(settings.listeningRoomId).toBe("1"); // untouched by the partial PUT
     });
   });
 
@@ -464,7 +667,8 @@ describe("hue-conductor HTTP API", () => {
     const post = (
       app: ReturnType<typeof buildServer>["app"],
       payload: unknown,
-    ) => app.inject({ method: "POST", url: "/api/scan", headers: AUTH, payload });
+    ) =>
+      app.inject({ method: "POST", url: "/api/scan", headers: AUTH, payload });
 
     it("current is empty when idle", async () => {
       const { app } = build({});

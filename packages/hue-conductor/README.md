@@ -67,11 +67,11 @@ curl -s -X POST localhost:4737/api/playback/stop \
 
 ## Notes
 
-- Uses `node-hue-api` **v4** (stable) for CLIP v2 flat color. The Entertainment API (25 Hz
-  streaming) is **in progress** (ADR 0023): the pure effect engine — aurora/shimmer/wave over a
-  `StreamEngine` — lives in `src/stream/` and is tested; run `pnpm preview:stream` to watch it.
-  The DTLS transport that carries frames to the bridge is the hardware follow-up, behind the
-  `StreamTransport` port.
+- Uses `node-hue-api` **v4** (stable) for CLIP flat color, and the **Entertainment API** for the
+  streaming effects (aurora/shimmer/wave, 25 Hz) — engine in `src/stream/` (ADR 0023), DTLS
+  transport via `node-dtls-client` + a HueStream v2 encoder + a tiny CLIP v2 client (ADR 0024).
+  `pnpm preview:stream` renders the effects to an HTML page to watch without hardware; the DTLS
+  handshake itself is verified on the Pi (see `docs/runbook.md`).
 - Colors are sent as RGB and converted to the light's gamut by the library (spec §9,
   option 1). If deep purples land as blue on your bulbs, that's the gamut-clamping case to
   revisit with explicit xy conversion.

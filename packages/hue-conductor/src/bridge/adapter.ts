@@ -125,6 +125,9 @@ export class BridgeAdapter {
           id: cfg.bridgeid ?? "unknown",
           ip,
           applicationKey: created.username,
+          // The DTLS PSK for Entertainment streaming (ADR 0024). The bridge only hands this out at
+          // user-creation time, so pairing is the one chance to capture it.
+          ...(created.clientkey ? { clientkey: created.clientkey } : {}),
           pairedAt: new Date().toISOString(),
         };
         this.store.saveBridge(record);

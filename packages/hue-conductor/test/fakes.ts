@@ -131,7 +131,7 @@ export function makeFakeDriver(opts: FakeOptions = {}) {
           err.getHueErrorType = () => 101;
           throw err;
         }
-        return { username: "app-key-123" };
+        return { username: "app-key-123", clientkey: "DEADBEEF00" };
       },
     },
     configuration: {
