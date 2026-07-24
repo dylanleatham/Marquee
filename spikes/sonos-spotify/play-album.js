@@ -51,11 +51,12 @@ const SPOTIFY_TYPES = new Set(['2311', '3079', '9223', '12']);
 async function detectAccounts(host) {
   const body = await httpGet(`http://${host}:1400/status/accounts`);
   const blocks = body.match(/<Account\b[\s\S]*?<\/Account>/g) || [];
-  return blocks.map((b) => ({
+  const accounts = blocks.map((b) => ({
     type: (b.match(/Type="(\d+)"/) || [])[1],
     serial: (b.match(/SerialNum="(\d+)"/) || [])[1],
     user: (b.match(/<UN>([^<]*)<\/UN>/) || [])[1] || '',
   }));
+  return { accounts, raw: body };
 }
 
 // ---- tiny arg parser -------------------------------------------------------
@@ -180,14 +181,17 @@ async function main() {
   // Ground-truth the Spotify binding from the player itself, and align the
   // region to the real account Type unless the user forced one with --region.
   try {
-    const accounts = await detectAccounts(coordinator.Host || device.Host);
+    const { accounts, raw } = await detectAccounts(coordinator.Host || device.Host);
     const summary = accounts.length
       ? accounts.map((a) => `Type=${a.type} sn=${a.serial || '?'} ${a.user}`.trim()).join(' | ')
       : '(none linked)';
     console.log(`→ accounts: ${summary}`);
     const spotify = accounts.find((a) => SPOTIFY_TYPES.has(a.type)) || (accounts.length === 1 ? accounts[0] : undefined);
     if (!accounts.length) {
-      console.log('  ⚠ no music-service accounts linked — add Spotify in the Sonos app first.');
+      console.log('  ⚠ no music-service accounts linked in Sonos. If you play Spotify via');
+      console.log('    Spotify Connect (casting from the Spotify app), that does NOT link an');
+      console.log('    account here — add Spotify in the Sonos app: Settings → Services → Add.');
+      console.log(`    raw /status/accounts (verify it is really empty):\n${raw.trim().slice(0, 600)}`);
     } else if (spotify && spotify.type && !args.region) {
       process.env.SONOS_REGION_SPOTIFY = spotify.type;
       console.log(`→ using detected Spotify Type ${spotify.type} as region (account sn=${spotify.serial || '?'})`);
