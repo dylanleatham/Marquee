@@ -152,7 +152,8 @@ export class DiscogsClient {
   constructor(private readonly opts: DiscogsClientOptions) {
     this.fetch = opts.fetch ?? (globalThis.fetch as FetchLike);
     this.apiBase = opts.apiBase ?? "https://api.discogs.com";
-    this.userAgent = opts.userAgent ?? "Marquee/1.0 +https://github.com/marquee";
+    this.userAgent =
+      opts.userAgent ?? "Marquee/1.0 +https://github.com/marquee";
     this.timeoutMs = opts.timeoutMs ?? 10_000;
     if (!opts.token && !opts.authHeader)
       throw new Error("DiscogsClient needs a token or an authHeader provider");
@@ -201,7 +202,10 @@ export class DiscogsClient {
     const res = await this.fetchT(`${this.apiBase}${path}`);
     if (res.status === 404) throw new DiscogsError(`Not found: ${path}`, 404);
     if (!res.ok)
-      throw new DiscogsError(`Discogs API ${res.status} on ${path}`, res.status);
+      throw new DiscogsError(
+        `Discogs API ${res.status} on ${path}`,
+        res.status,
+      );
     return (await res.json()) as T;
   }
 

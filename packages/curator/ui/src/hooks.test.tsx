@@ -156,9 +156,7 @@ describe("useGenerationJob", () => {
     vi.spyOn(api, "job").mockResolvedValue(job({ status: "done" }));
     const onDone = vi.fn();
 
-    renderHook(() =>
-      useGenerationJob("abcd1234", "video", vi.fn(), onDone),
-    );
+    renderHook(() => useGenerationJob("abcd1234", "video", vi.fn(), onDone));
     // No start() call — the mount re-attach adopts the running job and polls it to completion.
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
   });

@@ -275,6 +275,17 @@ export interface DemoRoomInfo {
   lightIds: string[];
 }
 
+/**
+ * One service's result from a room rehearsal (ADR 0028). `ok:false` with a `reason` covers both
+ * "didn't run" (unconfigured, opted out) and "ran and failed" — the UI shows the reason either way,
+ * because a rehearsal degrades rather than fails.
+ */
+export interface RehearsalLeg {
+  service: "conductor" | "backdrop" | "amp";
+  ok: boolean;
+  reason?: string;
+}
+
 /** Aggregate Conductor health for the Demo Room header (GET /api/demo/status). */
 export interface DemoStatus {
   reachable: boolean;
@@ -378,8 +389,31 @@ export const api = {
     }),
   demoStop: () =>
     req<{ stopped?: boolean }>("/api/demo/stop", { method: "POST" }),
+  /** Audio leg of a rehearsal (ADR 0028). Amp-unconfigured comes back as `played:false` + a reason. */
+  demoAudio: (curatorId: string) =>
+    req<{ played: boolean; reason?: string }>("/api/demo/audio", {
+      method: "POST",
+      body: JSON.stringify({ curatorId }),
+    }),
+
+  // --- room rehearsal (ADR 0028): the real runtime path minus the physical tag ---
+  simulateScan: (id: string, audio = true) =>
+    req<{ services: RehearsalLeg[] }>(`/api/albums/${id}/simulate-scan`, {
+      method: "POST",
+      body: JSON.stringify({ audio }),
+    }),
+  simulateScanStop: (id: string) =>
+    req<{ services: RehearsalLeg[] }>(`/api/albums/${id}/simulate-scan/stop`, {
+      method: "POST",
+    }),
 
   // --- onboarding actions (step 7) ---
+  /** Draft a prompt type on request (ADR 0027) — onboarding no longer pre-computes it. */
+  draftPrompt: (id: string, type: PromptType) =>
+    req<{ promptDrafts: AlbumAsset["promptDrafts"] }>(
+      `/api/albums/${id}/prompts/${type}/draft`,
+      { method: "POST" },
+    ),
   redraftPrompt: (id: string, type: PromptType, template: string) =>
     req<{ promptDrafts: AlbumAsset["promptDrafts"] }>(
       `/api/albums/${id}/prompts/${type}/redraft`,

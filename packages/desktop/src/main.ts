@@ -1,7 +1,7 @@
 // Marquee desktop shell: on launch, start Curator + Conductor as child processes, wait for both to
 // report healthy, then show Curator's web UI in a native window. Quitting tears the services down.
 // The services are unchanged — this is a launcher/supervisor, not a rewrite (ADR 0008).
-import { app, BrowserWindow, dialog, shell } from "electron";
+import { app, BrowserWindow, Menu, dialog, shell } from "electron";
 import { fork, type ChildProcess } from "node:child_process";
 import { join, resolve } from "node:path";
 import { existsSync } from "node:fs";
@@ -117,6 +117,69 @@ async function boot(): Promise<void> {
   await Promise.all(specs.map((s) => waitForHealth(s.healthUrl)));
 }
 
+/**
+ * A real application menu (curator-ui-ux §9.2). `autoHideMenuBar` with no menu defined left the app
+ * with no discoverable command surface and no standard accelerators — the shell looked native but
+ * behaved like a page in a frame. The accelerators here mirror the in-app shortcuts so the two
+ * agree; the menu is the discoverable half of the keyboard path.
+ */
+function buildMenu(): void {
+  // Navigate by loading the path: Curator serves an SPA fallback for any non-/api GET, so this
+  // lands on the right route. `webContents.send` would need a preload to be heard — the window runs
+  // with contextIsolation and no bridge, and a menu item is not worth opening one.
+  const go = (path: string) => () =>
+    void mainWindow?.loadURL(`http://localhost:${CURATOR_PORT}${path}`);
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      {
+        label: "File",
+        submenu: [
+          {
+            label: "Add album…",
+            accelerator: "CmdOrCtrl+N",
+            click: go("/add"),
+          },
+          { type: "separator" },
+          { role: "quit" },
+        ],
+      },
+      {
+        label: "View",
+        submenu: [
+          { label: "Queue", accelerator: "CmdOrCtrl+1", click: go("/") },
+          {
+            label: "Settings",
+            accelerator: "CmdOrCtrl+,",
+            click: go("/settings"),
+          },
+          { type: "separator" },
+          { role: "reload" },
+          { role: "forceReload" },
+          { role: "toggleDevTools" },
+          { type: "separator" },
+          { role: "resetZoom" },
+          { role: "zoomIn" },
+          { role: "zoomOut" },
+          { type: "separator" },
+          { role: "togglefullscreen" },
+        ],
+      },
+      {
+        label: "Help",
+        submenu: [
+          {
+            label: "Marquee docs on GitHub",
+            click: () =>
+              void shell.openExternal(
+                "https://github.com/dylanleatham/Marquee/tree/main/docs",
+              ),
+          },
+        ],
+      },
+    ]),
+  );
+}
+
 function createWindow(): void {
   // Dev-run taskbar/window icon (packaged builds get the exe icon from electron-builder). The PNG
   // lives in the build resources, absent from the packaged asar — pass it only when present.
@@ -143,6 +206,7 @@ function createWindow(): void {
     void shell.openExternal(url);
     return { action: "deny" };
   });
+  buildMenu();
   void mainWindow.loadURL(`http://localhost:${CURATOR_PORT}`);
 }
 

@@ -369,10 +369,16 @@ em {
 }
 
 /* --- album detail --- */
+/* The workbench uses the window (curator-ui-ux §9.3). `.page` caps at 920px — a reading measure
+   borrowed from the web — which left roughly a third of the 1360px default window empty. The rail
+   layout is what spends it; long-form text inside a bench still constrains its own measure. */
+.page--wide {
+  max-width: 1320px;
+}
+
 .detail {
-  max-width: 1040px;
   display: grid;
-  grid-template-columns: 300px 1fr;
+  grid-template-columns: 300px minmax(0, 1fr);
   gap: 32px;
   align-items: start;
 }
@@ -1224,4 +1230,292 @@ em {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ================================================================================================
+   The workbench rail (ADR 0026 / curator-ui-ux §5). Five workstations, always reachable. The
+   readiness chip reports what a bench holds; it never decides whether you can open it.
+   ============================================================================================== */
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 6px 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.rail__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border-left: 3px solid transparent;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+.rail__item:hover {
+  background: var(--panel-2);
+}
+.rail__item.is-active {
+  background: var(--panel-2);
+  border-left-color: var(--amber);
+}
+.rail__label {
+  font-weight: 600;
+  margin-right: auto;
+}
+.rail__item.is-active .rail__label {
+  color: var(--amber);
+}
+/* Readiness is a dot *plus a word* — never colour alone (curator-ui-ux §3.4). Backdrop already
+   shipped a colour-only indicator that was unreadable without colour vision (PR #85). */
+.rail__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.rail__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--line);
+  border: 1px solid var(--muted);
+}
+.rail__state--ready .rail__dot {
+  background: var(--amber-soft);
+  border-color: var(--amber);
+}
+.rail__state--attached .rail__dot {
+  background: var(--sage);
+  border-color: var(--sage);
+}
+.rail__state--blocked .rail__dot {
+  background: var(--alert);
+  border-color: var(--alert);
+}
+.rail__state--blocked {
+  color: var(--alert);
+}
+
+.bench__head {
+  margin-bottom: 18px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.bench__head h2 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+}
+.bench__head p {
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+
+/* --- room-arm switch: the safety posture, always visible while it's on (§6.3) --- */
+.room-arm {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+}
+.room-arm__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--line);
+  border: 1px solid var(--muted);
+}
+.room-arm--live {
+  color: var(--amber);
+  border-color: var(--amber);
+}
+.room-arm--live .room-arm__dot {
+  background: var(--amber);
+  border-color: var(--amber);
+  animation: bulb 1.6s ease-in-out infinite;
+}
+
+/* --- bench/room mode picker --- */
+.modes {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.modes__tab {
+  font: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  padding: 9px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+}
+.modes__tab em {
+  font-size: 11px;
+  font-weight: 400;
+}
+.modes__tab.is-active {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+.modes__tab:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* --- per-service rehearsal report --- */
+.legs {
+  list-style: none;
+  padding: 0;
+  margin: 14px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+.legs__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.legs__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--line);
+}
+.legs__item--ok .legs__dot {
+  background: var(--sage);
+}
+.legs__item--off .legs__dot {
+  background: var(--muted);
+}
+
+/* --- preview bench: the sleeve sits alongside the light show and the video --- */
+.preview__sleeve {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 200px;
+}
+.preview__sleeve-cap {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+}
+.preview__video--empty {
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+}
+.preview__note {
+  font-size: 12px;
+  margin-top: 10px;
+}
+
+/* --- prompt slot: drafting is on request (ADR 0027), so an undrafted section says so --- */
+.prompt-slot--empty {
+  padding: 18px;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+/* A control that spends money must not look like one that doesn't (curator-ui-ux §7 rule 3). */
+.btn--spend {
+  border-color: var(--amber-soft);
+}
+.btn--spend::before {
+  content: "◈";
+  margin-right: 7px;
+  color: var(--amber);
+}
+
+/* --- the needs-you count, in the header where it can actually be read (§8) --- */
+.needs-you {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-weight: 700;
+  color: var(--amber);
+  border: 1px solid var(--amber-soft);
+  border-radius: 999px;
+  padding: 3px 12px;
+  font-size: 13px;
+}
+.needs-you em {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+/* The count takes the auto margin when present, so the nav link only claims it when absent. */
+.needs-you + .app__nav {
+  margin-left: 14px;
+}
+
+/* --- in-app confirm, replacing window.confirm (§2) --- */
+.modal-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(3px);
+}
+.modal {
+  width: min(460px, calc(100vw - 48px));
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 22px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+.modal__title {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+.modal__body {
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* Keyboard selection in the queue (curator-ui-ux §9.1). Distinct from :hover — the mouse and the
+   keyboard can point at different rows, and the keyboard's row is the one Enter opens. */
+.row--selected {
+  border-color: var(--amber);
+  background: var(--panel-2);
 }

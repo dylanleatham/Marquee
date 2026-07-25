@@ -271,6 +271,80 @@ export function PromptBlock({
 }
 
 /**
+ * A prompt slot: the drafted prompts, or the button that asks for them (ADR 0027).
+ *
+ * Drafting is no longer pre-computed during onboarding, because two Gemini calls per album were
+ * being spent on prompts that were often never opened. So the slot has three shapes, in priority
+ * order:
+ *
+ *  1. **Artifact already attached** — lead with that fact and demote drafting to a secondary action.
+ *     This is the case ADR 0027 exists for: you already have the video, so don't pay for prompts.
+ *  2. **Prompts drafted** — show them.
+ *  3. **Neither** — a single Draft button, labelled with what it will cost.
+ */
+export function PromptSlot({
+  curatorId,
+  type,
+  prompt,
+  hasArtifact,
+  run,
+  canGenerate = false,
+  refresh = () => {},
+}: {
+  curatorId: string;
+  type: PromptType;
+  prompt?: DraftedPrompt;
+  /** Whether the artifact this prompt would produce already exists (visualizer / card art). */
+  hasArtifact: boolean;
+  run: Run;
+  canGenerate?: boolean;
+  refresh?: () => void;
+}) {
+  const noun = type === "cardArt" ? "card-art" : "video";
+
+  // Once prompts exist, PromptBlock owns regeneration (template redraft + regenerate-with-AI), so
+  // this slot only supplies the very first draft. No second, competing "redraft" button.
+  if (prompt) {
+    return (
+      <>
+        {hasArtifact && (
+          <p className="muted">
+            You already have the {noun === "video" ? "visualizer" : "card art"};
+            these prompts are here if you want to make another.
+          </p>
+        )}
+        <PromptBlock
+          curatorId={curatorId}
+          type={type}
+          prompt={prompt}
+          run={run}
+          canGenerate={canGenerate}
+          refresh={refresh}
+        />
+      </>
+    );
+  }
+
+  return (
+    <div className="prompt-slot prompt-slot--empty">
+      <p className="muted">
+        {hasArtifact
+          ? `No ${noun} prompts drafted — you already have the artifact, so nothing has been spent on them.`
+          : `No ${noun} prompts yet. Drafting is on request, so adding an album never spends API calls on prompts you might not read.`}
+      </p>
+      <AsyncButton
+        className={`btn ${hasArtifact ? "btn--ghost btn--sm" : "btn--primary"} btn--spend`}
+        onClick={() => run(() => api.draftPrompt(curatorId, type))}
+        pendingLabel="Drafting…"
+        title={`Ask Gemini for five ${noun} prompts grounded in this album. Costs API calls; falls back to templates without a key.`}
+      >
+        Draft {noun} prompts
+      </AsyncButton>
+    </div>
+  );
+}
+
+/**
  * Splice the generated clips into one loop in-app (issue #29): reorder (↑/↓), deselect (✕, re-add
  * from "Excluded"), then "Splice … into loop" concatenates the chosen clips and attaches the result
  * as the visualizer. Downloading a clip to edit externally + manual upload remain available.
