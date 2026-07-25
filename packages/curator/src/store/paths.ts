@@ -38,6 +38,18 @@ export class Paths {
     return join(this.artwork, `${curatorId}.jpg`);
   }
 
+  /**
+   * A user-supplied cover that takes precedence over the fetched one (curator-spec §3, milestone 15).
+   * Extension varies (jpg/png) because we keep the upload's own format rather than transcoding, and
+   * it is stored on the asset — read the active cover through `resolvedArtworkFile`, never this.
+   */
+  artworkOverrideFile(curatorId: string, ext: string): string {
+    return join(
+      this.artworkOverrides,
+      `${curatorId}.${ext.replace(/^\./, "")}`,
+    );
+  }
+
   /** Attached visualizer video (H.264/MP4), keyed on fileId (usually the curatorId). */
   visualizerFile(fileId: string): string {
     return join(this.visualizers, `${fileId}.mp4`);

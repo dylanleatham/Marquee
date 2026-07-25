@@ -23,6 +23,7 @@ import {
 } from "./asset.js";
 import { ValidationError, type PaletteGenerator } from "./add-manual.js";
 import { sanitizePaletteEdit, type PaletteEditColor } from "./palette.js";
+import { resolvedArtworkFile } from "./artwork.js";
 import {
   draftPrompts,
   type PromptType,
@@ -332,7 +333,7 @@ export async function regeneratePalette(
     throw new PaletteConflictError(
       "palette was hand-edited — re-extracting will discard your edits (pass force to proceed)",
     );
-  const coverPath = deps.store.paths.artworkFile(curatorId);
+  const coverPath = resolvedArtworkFile(deps.store, asset);
   if (!asset.artwork || !existsSync(coverPath))
     throw new ValidationError(
       "album has no cover art to extract a palette from",
@@ -628,7 +629,7 @@ function ensureVideoGenerable(
     throw new ValidationError(
       "no video prompt drafted yet — nothing to generate from",
     );
-  const coverPath = deps.store.paths.artworkFile(curatorId);
+  const coverPath = resolvedArtworkFile(deps.store, asset);
   if (!asset.artwork || !existsSync(coverPath))
     throw new ValidationError(
       "album has no cover art to animate — add art first",

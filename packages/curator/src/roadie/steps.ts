@@ -18,6 +18,7 @@ import type {
 import { parseAlbumId } from "../albums/add-spotify.js";
 import { bestSpotifyMatch } from "../albums/spotify-match.js";
 import { draftPrompts } from "./prompts.js";
+import { resolvedArtworkFile } from "../albums/artwork.js";
 import { draftPromptsWithGemini } from "../gemini/draft.js";
 import type { GeminiClient } from "../gemini/client.js";
 import { TransientError, PermanentError, ConfigError } from "./errors.js";
@@ -284,7 +285,8 @@ const downloadArt: Step = async (asset, deps) =>
  * and card art the user already had. It is now invoked from the workstation that uses it.
  */
 const generatePaletteStep: Step = async (asset, deps) => {
-  const abs = deps.store.paths.artworkFile(asset.curatorId);
+  // The *active* cover: an uploaded override wins over the fetched art (issue #100).
+  const abs = resolvedArtworkFile(deps.store, asset);
   let bytes: Buffer;
   try {
     bytes = readFileSync(abs);

@@ -11,6 +11,7 @@ import {
 import { usePoll } from "../hooks";
 import { Cover, StateBadge, Spinner } from "../components/common";
 import { PaletteEditor } from "../components/PaletteEditor";
+import { ArtworkSection } from "../components/ArtworkSection";
 import { useConfirm } from "../components/Confirm";
 import { PreviewWorkstation } from "../components/PreviewWorkstation";
 import {
@@ -247,6 +248,10 @@ export function AlbumDetail() {
                 <code>{JSON.stringify(pattern.params)}</code>
               </div>
             )}
+            {/* The cover the palette is derived from — replacing a bad scan is a colour decision
+                before it is a metadata one, so it lives here rather than in a settings screen. */}
+            <h3 className="group-head">Artwork</h3>
+            <ArtworkSection curatorId={curatorId} asset={asset} run={run} />
           </>
         )}
 
