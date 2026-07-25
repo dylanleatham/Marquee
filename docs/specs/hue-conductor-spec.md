@@ -133,11 +133,12 @@ All JSON. Runs on `http://localhost:4737` (arbitrary; pick something memorable).
 
 The pairing endpoints are called by a one-time CLI script (`pnpm run pair` in the conductor package on the Pi), not by any UI. The script discovers bridges, prompts the operator to press the link button, polls until pairing succeeds, and stores the application key. After that, ongoing operation is fully headless.
 
-| Method | Path                   | Purpose                                                                                                                                  |
-| ------ | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/bridge/discover` | Uses mDNS + `discovery.meethue.com` fallback. Returns candidate bridges. Called by the pairing script.                                   |
-| POST   | `/api/bridge/pair`     | Body: `{ bridgeId }`. Polls the bridge for up to 60s waiting for the link button. Returns application key. Called by the pairing script. |
-| GET    | `/api/bridge/status`   | Returns paired state, bridge IP, last-seen. Called by Curator to show bridge health.                                                     |
+| Method   | Path                   | Purpose                                                                                                                                                                                                                                                                                                                                                                                            |
+| -------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET      | `/api/bridge/discover` | Uses mDNS + `discovery.meethue.com` fallback. Returns candidate bridges. Called by the pairing script.                                                                                                                                                                                                                                                                                             |
+| ~~POST~~ | ~~`/api/bridge/pair`~~ | **Never implemented — pairing is a CLI, not a route (corrected 2026-07-25).** `pnpm pair` (`src/pair.ts`) polls the bridge for the link-button press and writes the application key (and DTLS clientkey) directly. That is the better design: pairing needs someone physically at the bridge, so it belongs to an operator command run on the Pi, not to an HTTP surface any LAN client could hit. |
+| GET      | `/api/bridge/status`   | Returns paired state, bridge IP, last-seen. Called by Curator to show bridge health.                                                                                                                                                                                                                                                                                                               |
+| GET      | `/healthz`             | 200 once the service is up; unauthenticated. Polled by the desktop shell and by Curator's connection test.                                                                                                                                                                                                                                                                                         |
 
 ### Discovery
 
@@ -186,10 +187,10 @@ The pairing endpoints are called by a one-time CLI script (`pnpm run pair` in th
 
 ### Testing utilities
 
-| Method | Path                | Purpose                                                                                                              |
-| ------ | ------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| POST   | `/api/test/color`   | Body: `{ roomId, hex }`. Sets a single flat color. Used by Curator's admin operations and by curl for smoke testing. |
-| POST   | `/api/test/restore` | Restores whatever state was captured before the last playback started.                                               |
+| Method   | Path                    | Purpose                                                                                                                                                                                                                                                                        |
+| -------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| POST     | `/api/test/color`       | Body: `{ roomId, hex }`. Sets a single flat color. Used by Curator's admin operations and by curl for smoke testing.                                                                                                                                                           |
+| ~~POST~~ | ~~`/api/test/restore`~~ | **Never implemented (noted 2026-07-25).** Restoring the pre-playback snapshot is what `POST /api/playback/stop` already does on the real path, so a separate test route earns little. Raise an issue if a snapshot-restore without an active playback is ever actually needed. |
 
 ## 8. Palette payload (integration contract)
 
@@ -316,7 +317,7 @@ Not a substitute for reliable event delivery. Just insurance. Configurable via t
 
 Each milestone should end in a demoable state — verify before proceeding.
 
-1. **Bridge pairing works.** Scaffold Fastify + TS project. Implement `/api/bridge/discover` and `/api/bridge/pair`. Wire the CLI script (`pnpm run pair`). Success: run `pnpm run pair` on the Pi; press link button; get an application key saved to SQLite.
+1. **Bridge pairing works.** Scaffold Fastify + TS project. Implement `/api/bridge/discover` and the `pnpm run pair` CLI (which talks to the bridge directly — see §8). Success: run `pnpm run pair` on the Pi; press link button; get an application key saved to SQLite.
 2. **Read the world.** Implement `/api/rooms` and `/api/lights`. Success: `curl` returns your actual room names in JSON.
 3. **Write to the world.** Implement `/api/test/color`. Success: POST a hex color, see the lights change.
 4. **Static palettes.** Implement the `PalettePayload` schema + validator + `static` pattern in the playback engine. Success: POST the "Purple Rain" test payload, see the room take on the palette.

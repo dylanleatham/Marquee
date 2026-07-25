@@ -108,7 +108,7 @@ Optimized for Windows dev, Node ecosystem, and Claude Code compatibility.
 - **Palette generation**: Palette Press as an internal npm package (or monorepo workspace package)
 - **Spotify Web API**: any thin client library, or bare `fetch` calls. Reuse OAuth credentials from your existing Conflicted Lineup app if convenient.
 - **Video validation + thumbnails**: `fluent-ffmpeg` wrapper + system `ffmpeg` binary
-- **File watching**: `chokidar` for the `/incoming/` folder
+- ~~**File watching**: `chokidar` for the `/incoming/` folder~~ — _never adopted; there is no watcher (2026-07-25, §9)_
 - **UI**: React + Vite. TanStack Query for data fetching (invalidation semantics matter here). Multi-screen: queue, add-album, album-detail, preview, incoming.
 - **Storage**: JSON files on disk for the asset store; SQLite optional for a lookup index if collection grows beyond ~1000 albums
 - **Short ID generation**: `nanoid` with a base32 alphabet, 8 characters, for curatorIds
@@ -288,6 +288,9 @@ Notes on the shape:
 
 Runs on `http://localhost:4739` locally.
 
+`GET /healthz` is unauthenticated and returns 200 once the server is up — the desktop shell polls it
+to know when Curator is ready to show ([ADR 0008](../adrs/0008-desktop-app-supervises-services.md)).
+
 ### Inventory (adding and removing albums)
 
 > **Implemented shape (build step 3, 2026-07-11):** manual add uses **`multipart/form-data`**
@@ -330,6 +333,20 @@ Runs on `http://localhost:4739` locally.
 | GET    | `/api/albums/:curatorId` | Full asset file + derived status.                                                                                                                                   |
 | DELETE | `/api/albums/:curatorId` | Remove from Curator. Query params: `?deleteMedia=1` also removes associated video and art files. Does NOT untag; that's a physical action you have to do yourself.  |
 
+### Discogs (collection browse + auth)
+
+> Documented in prose above ([ADR 0017](../adrs/0017-discogs-personal-token-and-direct-images.md) / issues #24, #59);
+> tabled here 2026-07-25 so the routes are findable. All **503** when neither a personal token nor a
+> connected OAuth session is configured.
+
+| Method | Path                           | Purpose                                                                                       |
+| ------ | ------------------------------ | --------------------------------------------------------------------------------------------- |
+| GET    | `/api/discogs/collection`      | The user's Discogs collection, paginated (`?page=&perPage=`). Backs the Add screen's browser. |
+| GET    | `/api/discogs/auth/login`      | Start the 3-legged OAuth 1.0a login. Returns `{ authorizeUrl }`.                              |
+| GET    | `/api/discogs/auth/callback`   | Browser-facing callback; exchanges the verifier and persists the session. Responds with HTML. |
+| GET    | `/api/discogs/auth/status`     | `{ connected, username? }`.                                                                   |
+| POST   | `/api/discogs/auth/disconnect` | Forget the session.                                                                           |
+
 ### Spotify search (for the Add screen)
 
 | Method | Path                            | Purpose                                                                  |
@@ -369,13 +386,13 @@ Runs on `http://localhost:4739` locally.
 
 ### Palettes
 
-| Method | Path                                      | Purpose                                                            |
-| ------ | ----------------------------------------- | ------------------------------------------------------------------ |
-| POST   | `/api/albums/:curatorId/palette/generate` | Runs Palette Press. Skips if hand-edited unless `?force=1`.        |
-| PUT    | `/api/albums/:curatorId/palette`          | Sets a hand-edited palette. Marks `handEdited: true`.              |
-| POST   | `/api/albums/:curatorId/palette/reset`    | Drops the hand-edit; next generate will replace it.                |
-| POST   | `/api/albums/:curatorId/pattern`          | Update pattern type and params.                                    |
-| POST   | `/api/batch/regenerate-palettes`          | Regenerate all non-hand-edited palettes. Streams progress via SSE. |
+| Method   | Path                                      | Purpose                                                                                                                                                                                                                                                                                                                             |
+| -------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST     | `/api/albums/:curatorId/palette/generate` | Runs Palette Press. Skips if hand-edited unless `?force=1`.                                                                                                                                                                                                                                                                         |
+| PUT      | `/api/albums/:curatorId/palette`          | Sets a hand-edited palette. Marks `handEdited: true`.                                                                                                                                                                                                                                                                               |
+| POST     | `/api/albums/:curatorId/palette/reset`    | Drops the hand-edit; next generate will replace it.                                                                                                                                                                                                                                                                                 |
+| ~~POST~~ | ~~`/api/albums/:curatorId/pattern`~~      | **Never implemented; superseded 2026-07-25.** Pattern is derived, not hand-set — from palette energy ([ADR 0022](../adrs/0022-palette-derived-motion-energy.md)) and, in future, additional signals ([issue #105](https://github.com/dylanleatham/Marquee/issues/105)). Whether a manual override is still wanted is decided there. |
+| POST     | `/api/batch/regenerate-palettes`          | Regenerate all non-hand-edited palettes. Streams progress via SSE.                                                                                                                                                                                                                                                                  |
 
 ### Artwork
 
@@ -387,12 +404,15 @@ Runs on `http://localhost:4739` locally.
 
 ### Prompts
 
-| Method | Path                                           | Purpose                                                                                                                                                                                                                          |
-| ------ | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| POST   | `/api/albums/:curatorId/prompts/:type/redraft` | Regenerate a prompt. `type` is `video` or `cardArt`. Body: `{ template?: string }`.                                                                                                                                              |
-| POST   | `/api/albums/:curatorId/prompts/:type/copied`  | Marks a prompt as copied — sent by the UI's Copy Prompt button itself (ADR 0005). For `video`, transitions from `awaiting_review` toward `awaiting_video`. For `cardArt`, marks the card side as "prompt ready to generate art." |
-| GET    | `/api/prompt-templates/:type`                  | List of style templates for the given type.                                                                                                                                                                                      |
-| POST   | `/api/prompt-templates/:type`                  | Save a new template. Body: `{ name, preamble, body }`.                                                                                                                                                                           |
+| Method   | Path                                                 | Purpose                                                                                                                                                                                                                                                                                                                                       |
+| -------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST     | `/api/albums/:curatorId/prompts/:type/draft`         | **Draft this prompt type on request** — the lazy replacement for Roadie's old `drafting_prompts` step ([ADR 0027](../adrs/0027-generation-is-invoked-not-pipelined.md)). Prefers the grounded Gemini path, silently falls back to templates, so it cannot fail on a missing key. Drafts **only** the requested type. `400` if no palette yet. |
+| POST     | `/api/albums/:curatorId/prompts/:type/select`        | Choose which of the five drafted variants is active (the one Copy hands off and generation uses). Body: `{ index }`.                                                                                                                                                                                                                          |
+| POST     | `/api/albums/:curatorId/prompts/:type/regenerate-ai` | Redraft as a fresh grounded LLM variant set. Unlike `draft` there is **no template fallback** — a failure surfaces and the existing draft is left untouched. `400` without a Gemini key.                                                                                                                                                      |
+| POST     | `/api/albums/:curatorId/prompts/:type/redraft`       | Regenerate a prompt. `type` is `video` or `cardArt`. Body: `{ template?: string }`.                                                                                                                                                                                                                                                           |
+| POST     | `/api/albums/:curatorId/prompts/:type/copied`        | Marks a prompt as copied — sent by the UI's Copy Prompt button itself (ADR 0005). For `video`, transitions from `awaiting_review` toward `awaiting_video`. For `cardArt`, marks the card side as "prompt ready to generate art."                                                                                                              |
+| ~~GET~~  | ~~`/api/prompt-templates/:type`~~                    | **Never implemented; superseded 2026-07-25.** A user-authored template registry was overtaken by the five fixed metaprompt angles ([ADRs 0021](../adrs/0021-card-art-five-option-prompt-strategy.md) / [0022](../adrs/0022-video-prompt-parity-narrative-and-per-prompt.md)). The remaining style templates are a fixed client-side list.     |
+| ~~POST~~ | ~~`/api/prompt-templates/:type`~~                    | **Never implemented; superseded 2026-07-25.** See above.                                                                                                                                                                                                                                                                                      |
 
 ### Videos
 
@@ -416,7 +436,6 @@ Runs on `http://localhost:4739` locally.
 | Method | Path                                                 | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ------ | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | POST   | `/api/videos/upload`                                 | Multipart upload. Body includes optional `curatorId` to attach immediately. Stores in `/incoming/` if no curatorId. Over the upload ceiling → `413` (§9).                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| GET    | `/api/incoming`                                      | Lists files in `/incoming/` with thumbnails and inferred metadata.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | POST   | `/api/albums/:curatorId/attach-video`                | Body: `{ fileId }` — either an ID of a file already in `visualizers/`, or the filename of a file in `/incoming/` (moves it).                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | POST   | `/api/albums/:curatorId/detach-video`                | Removes the visualizer reference. File stays on disk unless `?delete=1`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | POST   | `/api/albums/:curatorId/video/generate`              | Start a clip-set generation — one image-to-video clip per drafted video prompt variant, off the cover (Omni Flash). Runs as a **background job** (issue #30 / [ADR 0018](../adrs/0018-generation-runs-as-background-jobs.md)): returns `202 { id, status, progress, … }`; poll `GET /api/jobs/:id`. On success stores `videoClips`. `400` (immediate precheck) if no Gemini key, generation off (opt-in, ADR 0012), no video prompt, or no cover art; whole-batch upstream failure → the **job** ends `failed` (partial success kept). Long-running (ADRs 0011/0013).                               |
@@ -424,6 +443,8 @@ Runs on `http://localhost:4739` locally.
 | GET    | `/api/jobs/:id`                                      | Poll a generation job — `{ id, kind, curatorId, status: running\|done\|failed\|cancelled, progress: {done,total}, result?, error? }`. `404` once unknown/expired (ADR 0018). Jobs persist across a restart; one left running when the process died is restored as `failed` "interrupted" (issue #57).                                                                                                                                                                                                                                                                                               |
 | POST   | `/api/jobs/:id/cancel`                               | Cancel an in-flight generation job — aborts the runner (stopping the Gemini fetch) and marks it `cancelled`. Idempotent: a terminal job returns unchanged, unknown → `404` (issue #57).                                                                                                                                                                                                                                                                                                                                                                                                             |
 | GET    | `/api/albums/:curatorId/jobs`                        | An album's active + recent generation jobs (optional `?kind=video\|cardArt`) — lets the UI re-attach to a running job after a reload (ADR 0018).                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| GET    | `/api/albums/:curatorId/video`                       | Serves the attached visualizer (`video/mp4`). Backs the preview player. `404` until one is attached.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| GET    | `/api/albums/:curatorId/thumbnail`                   | Serves the visualizer's poster frame (jpg), used as the player poster.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | GET    | `/api/albums/:curatorId/video/clip/:index`           | Serves a generated clip (`?download=1` for a named download).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | GET    | `/api/albums/:curatorId/video/clip/:index/thumbnail` | Serves the clip's poster frame.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | POST   | `/api/albums/:curatorId/video/splice`                | Splice the generated clips into one looping MP4 in-app (issue #29 / [ADR 0011 addendum](../adrs/0011-auto-generate-visualizer-clips.md)) and attach it as the visualizer. Body: `{ order?: number[], crossfadeSec?: number }` — clip indices to join, in order (default: all); a positive bounded `crossfadeSec` blends the seams with `xfade` instead of a hard cut (issue #56, default plain concat). Mismatched clip dimensions are normalized to a common frame. ffmpeg-concats (re-encoded H.264), ingests via the normal path, advances to `awaiting_preview`. `400` if no clips / bad order. |
@@ -462,12 +483,13 @@ Runs on `http://localhost:4739` locally.
 
 ### Preview and verification
 
-| Method | Path                                     | Purpose                                                                                                                                                                                                                                                                                                                                                                 |
-| ------ | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/albums/:curatorId/preview`         | Serves the preview view — palette animating alongside the video, browser-rendered, no hardware.                                                                                                                                                                                                                                                                         |
-| POST   | `/api/albums/:curatorId/preview/approve` | Marks preview as approved. Transitions state to `awaiting_tag_write`.                                                                                                                                                                                                                                                                                                   |
-| POST   | `/api/albums/:curatorId/simulate-scan`   | Fires a simulated scan to Conductor, Backdrop **and Amp** for this album — the complete room rehearsal, i.e. the real runtime path minus the physical tag ([ADR 0028](../adrs/0028-preview-bench-and-room-modes.md); Amp added 2026-07-25). Backs Preview's room mode, so it is gated on the room-arm switch.                                                           |
-| POST   | `/api/albums/:curatorId/verify-physical` | Marks the album physically verified: records `verification.physicallyVerifiedAt` and transitions `awaiting_verify → verified` (issue #55). Fires the ★verify Backdrop reconcile (roadie-spec §6 / [ADR 0015](../adrs/0015-backdrop-sync-triggered-at-projection-changes.md)); Backdrop drift surfaces as `syncIssues`, non-blocking. `4xx` if not in `awaiting_verify`. |
+| Method | Path                                        | Purpose                                                                                                                                                                                                                                                                                                                                                                 |
+| ------ | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/api/albums/:curatorId/preview/reject`     | "Something's off" — steps the album back. Body: `{ to: "awaiting_review" \| "awaiting_video" }`.                                                                                                                                                                                                                                                                        |
+| POST   | `/api/albums/:curatorId/preview/approve`    | Marks preview as approved. Transitions state to `awaiting_tag_write`.                                                                                                                                                                                                                                                                                                   |
+| POST   | `/api/albums/:curatorId/simulate-scan`      | Fires a simulated scan to Conductor, Backdrop **and Amp** for this album — the complete room rehearsal, i.e. the real runtime path minus the physical tag ([ADR 0028](../adrs/0028-preview-bench-and-room-modes.md); Amp added 2026-07-25). Backs Preview's room mode, so it is gated on the room-arm switch.                                                           |
+| POST   | `/api/albums/:curatorId/simulate-scan/stop` | Ends the rehearsal: a `stop` scan event to Conductor and Backdrop, plus Amp stop. Same per-leg reporting — a leg that is unconfigured or unreachable is reported, never fatal.                                                                                                                                                                                          |
+| POST   | `/api/albums/:curatorId/verify-physical`    | Marks the album physically verified: records `verification.physicallyVerifiedAt` and transitions `awaiting_verify → verified` (issue #55). Fires the ★verify Backdrop reconcile (roadie-spec §6 / [ADR 0015](../adrs/0015-backdrop-sync-triggered-at-projection-changes.md)); Backdrop drift surfaces as `syncIssues`, non-blocking. `4xx` if not in `awaiting_verify`. |
 
 ### Tag writing
 
@@ -573,7 +595,17 @@ Two entry points depending on how you like to work:
 
 **A. Drag-and-drop in the UI.** From the album detail's video section, drag a video file. It uploads, gets a thumbnail generated, and is attached to that album.
 
-**B. Bulk drop into `/incoming/`.** SFTP, network share, or file explorer drag. The watched folder picks up new files, generates thumbnails, and shows them in the Incoming screen. Click an unclaimed video, search the album it belongs to, click "attach." Handles the "I generated a batch of ten and don't remember which is which" case.
+**B. Staging in `/incoming/`, then attach by filename.** An upload that names no `curatorId` lands in
+`/incoming/` and is claimed later by `POST /api/albums/:curatorId/attach-video` (or `attach-card-art`)
+with the filename as `fileId`.
+
+> **Corrected 2026-07-25.** This previously described a **watched folder** that "picks up new files,
+> generates thumbnails, and shows them in the Incoming screen." None of that exists: there is no file
+> watcher (`chokidar` was recommended in §5 and never added), and the Incoming screen was never built
+> (§10). What is real is the staging directory and attach-by-filename — reachable over the API, but
+> with no UI, so the "I generated a batch of ten and don't remember which is which" case it was
+> written for is **not currently solved**. Reviving it means a watcher and a browser, not a doc edit;
+> raise an issue if that case bites in practice.
 
 **Video processing on ingest:**
 
@@ -759,13 +791,26 @@ two-layer crossfade on swap) while driving the **real Hue lights** through Condu
 Curator proxies Conductor under `/api/demo/*` so the shared secret stays server-side and there's no
 browser CORS (ADR 0007). This is also the reference implementation for Backdrop's eventual SPA.
 
-### Incoming
+### ~~Incoming~~ — removed 2026-07-25
 
-List of files in `/incoming/` with thumbnails, filenames, durations. Search-then-attach flow. Delete for junk.
+> This screen ("list of files in `/incoming/` with thumbnails, filenames, durations; search-then-attach;
+> delete for junk") was specced and **never built**, and the `GET /api/incoming` route that backed it
+> had no caller. Both are removed rather than finished — the drag-and-drop path on the Video and Card
+> workstations covers how videos and card art actually arrive.
+>
+> The `/incoming/` **directory** stays: an upload that names no album still lands there, and
+> `attach-video` / `attach-card-art` still claim from it by filename (§9). That is an API-level path
+> with no UI, which is a deliberate narrowing, not an oversight.
 
 ### Batch progress
 
-Slide-over panel when a batch operation runs. SSE-backed progress. Cancelable.
+Slide-over panel when a batch operation runs. Progress + cancel.
+
+> **Not built as of 2026-07-25** — no batch endpoints exist yet. Tracked in
+> [issue #104](https://github.com/dylanleatham/Marquee/issues/104), which also settles whether this
+> rides the existing generation-job machinery ([ADR 0018](../adrs/0018-generation-runs-as-background-jobs.md):
+> poll + cancel) rather than the separate SSE stream this section originally assumed. One progress
+> mechanism beats two.
 
 ### Settings
 
