@@ -1232,8 +1232,7 @@ em {
   white-space: nowrap;
 }
 
-/* ================================================================================================
-   The workbench rail (ADR 0026 / curator-ui-ux §5). Five workstations, always reachable. The
+/* =========================================================================================   The workbench rail (ADR 0026 / curator-ui-ux §5). Five workstations, always reachable. The
    readiness chip reports what a bench holds; it never decides whether you can open it.
    ============================================================================================== */
 .rail {
@@ -1575,4 +1574,12 @@ em {
 .tagwrite__qr-error {
   font-size: 12px;
   color: var(--muted);
+}
+/* Service reachability rows (issue #101) — reuse the rehearsal leg list, plus the probed URL. */
+.health__url {
+  font-size: 12px;
+  color: var(--muted);
+}
+.legs__item--bad .legs__dot {
+  background: var(--alert);
 }

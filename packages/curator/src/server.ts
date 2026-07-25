@@ -1515,6 +1515,67 @@ export function buildServer(opts: BuildOptions = {}) {
     return { services };
   });
 
+  /**
+   * "Is the thing I configured actually reachable?" for the Settings screen (issue #101).
+   *
+   * One route rather than three test-connection buttons hitting three shapes: each service reports
+   * the same `{ configured, reachable, detail? }`, so the UI renders one list and an unconfigured
+   * service reads differently from a dead one. Probes run in parallel and are bounded like every
+   * other outbound call — a wedged service must not hold the request open.
+   */
+  app.get("/api/settings/service-health", async () => {
+    const probe = async (
+      name: string,
+      url: string | undefined,
+      path: string,
+      secret?: string,
+    ) => {
+      if (!url) return { service: name, configured: false, reachable: false };
+      try {
+        const headers: Record<string, string> = {};
+        if (secret) headers["x-trigger-secret"] = secret;
+        const res = await fetch(`${url}${path}`, {
+          headers,
+          signal: AbortSignal.timeout(5000),
+        });
+        return {
+          service: name,
+          configured: true,
+          reachable: res.ok,
+          url,
+          ...(res.ok ? {} : { detail: `HTTP ${res.status}` }),
+        };
+      } catch (err) {
+        return {
+          service: name,
+          configured: true,
+          reachable: false,
+          url,
+          detail: (err as Error).message,
+        };
+      }
+    };
+
+    const services = await Promise.all([
+      // Conductor's bridge status doubles as its health check — it says whether the Hue bridge is
+      // paired, which is the thing that actually stops lights working.
+      probe(
+        "conductor",
+        config.conductor.url,
+        "/api/bridge/status",
+        config.conductor.sharedSecret,
+      ),
+      probe(
+        "backdrop",
+        config.backdrop?.url,
+        "/healthz",
+        config.backdrop?.sharedSecret,
+      ),
+      probe("amp", config.amp?.url, "/api/status", config.amp?.sharedSecret),
+    ]);
+    return { services };
+  });
+
   // --- Backdrop sync (step 9, roadie-spec §6) — push Curator's library projection to Backdrop ---
   // Video attach/detach already sync automatically; these are the manual full-reconcile + verify
   // controls (curator-spec §9 "run sync from Curator" recovery, and the ★verify check).
