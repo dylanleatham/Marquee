@@ -28,7 +28,7 @@ Four services that together turn "you placed a record on the stand" into "the ro
 
 Plus one internal agent, one library, and two data stores:
 
-- **Roadie** — a background agent inside Curator that automates every album-onboarding step it can (metadata fetch, art download, palette generation, prompt drafting). Not a separate service; a component within Curator.
+- **Roadie** — a background agent inside Curator that automates every album-onboarding step it can (metadata fetch, art download, palette generation). Not a separate service; a component within Curator. _(Prompt drafting was in this list until 2026-07-25; it is now invoked by the human rather than pipelined, because it costs Gemini calls on albums that may never need prompts — [ADR 0027](../adrs/0027-generation-is-invoked-not-pipelined.md).)_
 - **Palette Press** — a library (not a service) used by Roadie to generate palettes from album art.
 - **Album-assets store** — JSON files, one per album, produced by Curator. Contains the palette, pattern, video reference, metadata, tag payload, and Roadie state.
 - **Media store** — video files on the Backdrop Pi's SD card, populated by Curator + rsync.
@@ -147,11 +147,11 @@ Fired to both Conductor (`/api/scan`) and Backdrop (`/api/scan`) in parallel. Bo
 **Setup phase** (once, when adding an album):
 
 1. You add an album via Curator's Add screen (Spotify search, paste URI, or manual entry). Curator assigns a curatorId.
-2. Roadie picks it up automatically: fetches Spotify metadata, downloads art, runs Palette Press, drafts a video generation prompt. Sets album state to `awaiting_review`.
+2. Roadie picks it up automatically: fetches Spotify metadata, downloads art, runs Palette Press. Sets album state to `awaiting_review`.
 3. You open Curator's queue view when you have time. Album appears under "Needs you right now → Awaiting review."
-4. You review the palette (adjust if needed), copy the drafted prompt, launch your video tool.
+4. You review the palette (adjust if needed). If you need a video prompt, you ask for one — drafting is invoked, not pre-computed ([ADR 0027](../adrs/0027-generation-is-invoked-not-pipelined.md)) — then copy it and launch your video tool. If you already have the video, skip straight to attaching it; nothing is gated by state ([ADR 0026](../adrs/0026-album-detail-is-a-workbench.md)).
 5. You generate a video externally, come back to Curator, attach the file.
-6. You preview palette + video together in Curator (no hardware needed). Approve.
+6. You bench-preview sleeve + palette + video together in Curator (no hardware touched). Approve. Optionally arm the room and run a full rehearsal against the real lights, display and Sonos ([ADR 0028](../adrs/0028-preview-bench-and-room-modes.md)).
 7. You use NFC Tools on your phone to write `curator:album:<curatorId>` to an NTAG213 sticker; stick on the sleeve; mark as written in Curator.
 8. You physically verify: place sleeve on stand, watch runtime react. Mark verified.
 

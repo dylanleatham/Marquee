@@ -10,7 +10,13 @@ The album identifier used throughout the system is **`curator:album:<curatorId>`
 
 ## 2. Success criteria
 
-**Add 10 albums via the Add screen. Walk away. Come back to a queue of albums in "awaiting your review" state, each with palette, art, video prompt, and card art prompt ready. Work through each one in a session (per the album onboarding workflow). End with 10 fully-configured, playable albums.**
+**Add 10 albums via the Add screen. Walk away. Come back to a queue of albums in "awaiting your review" state, each with art and palette ready. Work through each one in a session (per the album onboarding workflow) — drafting prompts for the ones that need them, and going straight to attaching for the ones whose artifacts you already have. End with 10 fully-configured, playable albums.**
+
+> **2026-07-25 ([ADR 0027](../adrs/0027-generation-is-invoked-not-pipelined.md)):** this previously
+> promised prompts ready on arrival too. Drafting is now invoked rather than pipelined — it costs two
+> Gemini calls per album and was being spent on every album, including ones whose video and card art
+> the user already had. The walk-away property is unchanged for art and palette; prompts are one
+> click away in the workstation that uses them.
 
 The queue-first workflow — Roadie does everything it can, humans work through what's left — is what makes 500 albums a realistic target instead of a fantasy.
 
@@ -27,11 +33,11 @@ The queue-first workflow — Roadie does everything it can, humans work through 
 - Album-assets store on disk (JSON, human-readable, git-friendly)
 - Media store on disk for video files, artwork, thumbnails (out of git)
 - Queue-view UI as the primary screen
-- Album detail UI (session-shaped, per the onboarding workflow)
+- Album detail UI (a **workbench** — five workstations behind a rail, nothing gated by state; [ADR 0026](../adrs/0026-album-detail-is-a-workbench.md))
 - Add album UI (search, paste, manual)
-- In-app preview (palette animating alongside video; no hardware needed)
+- In-app **bench preview** (sleeve + palette animating alongside video; no hardware touched — [ADR 0028](../adrs/0028-preview-bench-and-room-modes.md))
 - Tag payload UI (URI + QR + mark-as-written)
-- Simulate scan against runtime services for pre-physical verification
+- **Room rehearsal** against the real runtime services (Conductor + Backdrop + Amp), behind an explicit room-arm switch ([ADR 0028](../adrs/0028-preview-bench-and-room-modes.md))
 - Backdrop sync (library metadata push + media rsync trigger)
 - Override art support (upload your own JPG when Spotify's isn't right)
 - Application settings management (listening room, service URLs) with push-on-change to Conductor and Backdrop
@@ -359,7 +365,7 @@ Runs on `http://localhost:4739` locally.
 | Method | Path                      | Purpose                                                                                                                                                                                                                                                                                                                                       |
 | ------ | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | GET    | `/api/agent/queue`        | Returns albums grouped by human-facing state. Shape: `{ awaiting_review: [], awaiting_video: [], awaiting_preview: [], awaiting_tag_write: [], awaiting_verify: [], processing: [], errored: [], needs_manual: [], done_recently: [] }`. Each entry: minimal album summary (curatorId, art thumbnail, title/artist, entered-state timestamp). |
-| GET    | `/api/agent/queue/counts` | Per-bucket counts + the "needs you right now" total. For the tab-title indicator.                                                                                                                                                                                                                                                             |
+| GET    | `/api/agent/queue/counts` | Per-bucket counts + the "needs you right now" total. Backs the header count (and optionally the taskbar/dock badge) — not a tab title; there is no tab.                                                                                                                                                                                       |
 
 ### Palettes
 
@@ -460,7 +466,7 @@ Runs on `http://localhost:4739` locally.
 | ------ | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | GET    | `/api/albums/:curatorId/preview`         | Serves the preview view — palette animating alongside the video, browser-rendered, no hardware.                                                                                                                                                                                                                                                                         |
 | POST   | `/api/albums/:curatorId/preview/approve` | Marks preview as approved. Transitions state to `awaiting_tag_write`.                                                                                                                                                                                                                                                                                                   |
-| POST   | `/api/albums/:curatorId/simulate-scan`   | Fires simulated scan to both Conductor and Backdrop for this album. Useful for pre-physical verification.                                                                                                                                                                                                                                                               |
+| POST   | `/api/albums/:curatorId/simulate-scan`   | Fires a simulated scan to Conductor, Backdrop **and Amp** for this album — the complete room rehearsal, i.e. the real runtime path minus the physical tag ([ADR 0028](../adrs/0028-preview-bench-and-room-modes.md); Amp added 2026-07-25). Backs Preview's room mode, so it is gated on the room-arm switch.                                                           |
 | POST   | `/api/albums/:curatorId/verify-physical` | Marks the album physically verified: records `verification.physicallyVerifiedAt` and transitions `awaiting_verify → verified` (issue #55). Fires the ★verify Backdrop reconcile (roadie-spec §6 / [ADR 0015](../adrs/0015-backdrop-sync-triggered-at-projection-changes.md)); Backdrop drift surfaces as `syncIssues`, non-blocking. `4xx` if not in `awaiting_verify`. |
 
 ### Tag writing
@@ -487,13 +493,14 @@ Proxies to Conductor so the browser never holds the shared secret (ADR 0007). Co
 live in Curator's config (`[conductor] url`, `shared_secret`, or env `CONDUCTOR_URL` /
 `TRIGGER_SHARED_SECRET`).
 
-| Method | Path               | Purpose                                                                                             |
-| ------ | ------------------ | --------------------------------------------------------------------------------------------------- |
-| POST   | `/api/demo/play`   | Body `{ curatorId }` → build the album's palette payload, `POST` it to Conductor's `/api/playback`. |
-| POST   | `/api/demo/stop`   | Stop playback; Conductor restores the pre-demo lighting.                                            |
-| GET    | `/api/demo/rooms`  | Proxy Conductor's `/api/rooms` for the first-run room picker.                                       |
-| PUT    | `/api/demo/room`   | Body `{ roomId }` → set Conductor's listening room.                                                 |
-| GET    | `/api/demo/status` | `{ reachable, paired, listeningRoomId }` — Conductor-down is reported, not an error.                |
+| Method | Path               | Purpose                                                                                                                                                                                                                                                                                |
+| ------ | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/api/demo/play`   | Body `{ curatorId }` → build the album's palette payload, `POST` it to Conductor's `/api/playback`.                                                                                                                                                                                    |
+| POST   | `/api/demo/stop`   | Stop playback; Conductor restores the pre-demo lighting.                                                                                                                                                                                                                               |
+| GET    | `/api/demo/rooms`  | Proxy Conductor's `/api/rooms` for the first-run room picker.                                                                                                                                                                                                                          |
+| PUT    | `/api/demo/room`   | Body `{ roomId }` → set Conductor's listening room.                                                                                                                                                                                                                                    |
+| GET    | `/api/demo/status` | `{ reachable, paired, listeningRoomId }` — Conductor-down is reported, not an error.                                                                                                                                                                                                   |
+| POST   | `/api/demo/audio`  | Body `{ curatorId }` → proxy the album's `spotifyUri` to Amp's `POST /api/admin/play`, so a room rehearsal has sound ([ADR 0028](../adrs/0028-preview-bench-and-room-modes.md)). Same secret-stays-server-side rationale as the rows above; Amp-unreachable is reported, not an error. |
 
 ### Backdrop sync
 
@@ -592,6 +599,14 @@ not a memory-safety knob, and can be raised as far as disk allows without riskin
 
 ## 10. UI screens
 
+> **2026-07-25 — this section now covers _which screens exist_ only.** How Curator looks and behaves
+> — design language, the workbench model, the rail, preview modes, keyboard and desktop affordances —
+> is specified in **[curator-ui-ux.md](curator-ui-ux.md)**, which wins wherever the two disagree.
+> Three decisions from that document rewrote parts of this section:
+> [ADR 0026](../adrs/0026-album-detail-is-a-workbench.md) (workbench, not session),
+> [ADR 0027](../adrs/0027-generation-is-invoked-not-pipelined.md) (generation is invoked),
+> [ADR 0028](../adrs/0028-preview-bench-and-room-modes.md) (bench vs. room preview).
+
 The primary UI is queue-shaped, per the album onboarding workflow's "you never feel behind" property.
 
 ### Queue view (default screen)
@@ -616,7 +631,14 @@ Each row: cover art thumbnail, title/artist, timestamp of state entry, one big n
 
 Filters at top; search by title/artist. Batch actions in a menu.
 
-The browser tab title carries the count of "needs you right now" — the number that answers "should I sit down now?"
+The count of "needs you right now" — the number that answers "should I sit down now?" — is shown in
+the **app header**, where it is visible while you work.
+
+> **2026-07-25:** this originally said "the browser tab title." Curator ships as a single-window
+> Electron app ([ADR 0008](../adrs/0008-desktop-app-supervises-services.md)) — there is no tab, so
+> `document.title` puts the count in the OS title bar, invisible while the window is focused. The
+> header is its real home; the taskbar/dock badge may optionally mirror it for when the window is not
+> focused. See [curator-ui-ux.md](curator-ui-ux.md) §8.
 
 ### Add album
 
@@ -628,42 +650,91 @@ _Paste URI_ — textarea accepting one URI per line. Add-multiple button that su
 
 _Manual entry_ — form with title, artist, year, optional genres, and required art upload. Creates an album with `metadata.source = "manual"`. No Spotify data.
 
-### Album detail (session-shaped, per onboarding workflow)
+### Album detail (a workbench — [ADR 0026](../adrs/0026-album-detail-is-a-workbench.md))
 
-Two columns:
+> **Rewritten 2026-07-25.** This section previously specified a session shape — _"Completed sections
+> collapse to one-line summary. Current section expanded"_ — with sections revealed in workflow
+> order. That premise was wrong: artifacts routinely arrive out of order (a visualizer already
+> rendered, card art already commissioned), and a state-ordered UI makes handing one over impossible
+> without first performing steps you don't need. See ADR 0026; the layout rationale is in
+> [curator-ui-ux.md](curator-ui-ux.md) §4–5.
 
-_Left, fixed_ — art (large), metadata, state stepper, session actions (pause, delete, jump back to previous step).
+_Left, fixed_ — art (large), metadata, state badge, album actions (Demo Room, delete), curatorId.
 
-_Right, scrolling_ — sections in the order of the workflow:
+_Below it, the **rail**_ — five workstations. The selected one gets the full canvas; each is
+independently routable (`/albums/:curatorId/video`) and **always reachable**:
 
-- **Palette** — swatches + editor + role dropdowns + template dropdown + "reset to auto"
-- **Pattern** — type + params
-- **Video prompt** — the five prompts (default `narrative` style, [ADR 0022](../adrs/0022-video-prompt-parity-narrative-and-per-prompt.md)), each shown in full with its own **Copy** and, when API generation is on, its own **Generate clip** button (one Omni clip from that prompt, into the clip gallery + splice below) + Regenerate + template selector. Copying any prompt records the copy itself (moving the album to `awaiting_video` at review); there is no separate "mark as copied" button ([ADR 0005](../adrs/0005-video-attach-does-not-require-copying-the-prompt.md)).
-- **Video** — drop zone or attached preview + Detach + Replace. The drop zone is live from `awaiting_review` onward, so a video you already have can be attached without touching the prompt (ADR 0005).
-- **Card art prompt** — the five fixed-angle prompts ([ADR 0021](../adrs/0021-card-art-five-option-prompt-strategy.md)), each shown in full with its own **Copy** (to take to Google Flow / Midjourney) and, when API generation is enabled, its own **Generate art** button (one Nano Banana image from that prompt) + Regenerate + template selector (independent from video prompt template)
-- **Card art** — drop zone or attached preview + Detach + Replace + "Download print version" button
-- **Preview** — combined palette + video (see below)
-- **Tag** — URI + QR + placement guide + Mark as written (with separate sleeve/card toggles)
-- **Verify** — Simulate scan + Verify physical
+| #   | Workstation | Contains                                                                                                               |
+| --- | ----------- | ---------------------------------------------------------------------------------------------------------------------- |
+| 1   | **Look**    | Palette (swatches, editor, role dropdowns, reorder, "reset to auto") · pattern · artwork override                      |
+| 2   | **Video**   | The five video prompts · clip gallery · splice · drop zone / attached preview · Detach · Replace                       |
+| 3   | **Card**    | The five card-art prompts · candidate set · drop zone / attached preview · Detach · Replace · "Download print version" |
+| 4   | **Preview** | Bench preview and room rehearsal ([ADR 0028](../adrs/0028-preview-bench-and-room-modes.md))                            |
+| 5   | **Ship**    | Tag URI + QR + placement guide · `.nfc` download · Mark as written (separate sleeve/card toggles) · Verify physical    |
 
-Completed sections collapse to one-line summary. Current section expanded. Auto-save on edit. Card art sections stay accessible even after `verified` since a card can be added at any time.
+- **Video prompts** — five, default `narrative` style ([ADR 0022](../adrs/0022-video-prompt-parity-narrative-and-per-prompt.md)),
+  each shown in full with its own **Copy** and, when API generation is on, its own **Generate clip**
+  button (one Omni clip from that prompt, into the clip gallery + splice) + Regenerate + template
+  selector. Copying any prompt records the copy itself (moving the album to `awaiting_video` at
+  review); there is no separate "mark as copied" button ([ADR 0005](../adrs/0005-video-attach-does-not-require-copying-the-prompt.md)).
+- **Card-art prompts** — the five fixed angles ([ADR 0021](../adrs/0021-card-art-five-option-prompt-strategy.md)),
+  each with its own **Copy** (to take to Google Flow / Midjourney) and, when API generation is
+  enabled, its own **Generate art** button (one Nano Banana image) + Regenerate + template selector
+  (independent from the video prompt template).
+- **Prompts are drafted on request, not on arrival** ([ADR 0027](../adrs/0027-generation-is-invoked-not-pipelined.md)).
+  An undrafted section shows a **Draft prompts** button; a section whose artifact is already attached
+  leads with the artifact and never auto-drafts.
+
+**Nothing is gated by `roadie.state`.** Drop zones, palette edits and prompt copies are live whenever
+their inputs exist — including while Roadie is still processing the album. Actions with real API
+preconditions (e.g. `verify-physical` outside `awaiting_verify`) render **disabled with the reason
+shown**, never hidden. State drives which workstation is selected by default, and the readiness
+indicator on each rail item (_empty · ready · attached · blocked_, always a dot **plus** a word) —
+nothing more. Auto-save on edit.
 
 ### Preview
 
-The confidence checkpoint. Full-screen (or modal from album detail):
+The confidence checkpoint, in **two modes** ([ADR 0028](../adrs/0028-preview-bench-and-room-modes.md)).
+The split exists because the listening room may have other people in it — taking over their lights
+and audio is a side effect on humans, not a rendering choice.
 
-- Video plays in center at moderate size
-- Around/beside it, palette animates as CSS driven by the same pattern the runtime will use
-- Big **Looks good** button (transitions to next state)
-- **Something's off** button (jump back to palette or video edit without leaving)
+**Bench preview (default, touches no hardware):**
 
-No hardware required. Catches most "this doesn't feel like the album" issues before you touch a sleeve.
+- The **sleeve** — album art at size, as it sits on the stand
+- The **video** loop, at moderate size, with Backdrop-accurate crossfade timing
+- The **palette** animating as CSS, driven by the same pattern the runtime will use
+- **Audio** — a track from the album, played at the workstation (route unresolved; ships silent —
+  see [curator-ui-ux.md](curator-ui-ux.md) §11)
+- Big **Looks good** button (transitions to next state) · **Something's off** (jump back to Look or
+  Video without leaving)
+
+Always available. Catches most "this doesn't feel like the album" issues before you touch a sleeve,
+and is the mode for preparing albums while away from the room, or while the room is occupied.
+
+**Room rehearsal (armed):** the real runtime path minus the physical tag — lights → Conductor,
+video → Backdrop, audio → Amp, via `simulate-scan`. Requires the room-arm switch (below). This is
+what you run before you go writing stickers.
+
+### Room-arm switch
+
+A control in the persistent bottom status bar, beside the Roadie strip. Persisted across launches,
+**defaulting to bench**. While set to _bench only_, every hardware-touching control in the app is
+disabled with the reason shown — room rehearsal, Demo Room, verify-physical. While _room live_, the
+bar says so continuously. One deliberate act at the start of a session, rather than a decision
+re-made at every button.
 
 ### Demo Room (runtime preview)
 
 > **Added 2026-07-17 ([ADR 0007](../adrs/0007-demo-room-drives-conductor-via-curator-proxy.md)).**
 > An expansion of the Preview idea into a full runtime rehearsal, so you can experience "the room
 > becomes the record" from the workstation before the Backdrop/Stylus Pis exist.
+>
+> **2026-07-25 ([ADR 0028](../adrs/0028-preview-bench-and-room-modes.md)):** the Demo Room is now the
+> **full-viewport presentation of Preview's room mode**, not a separate feature — same fan-out, same
+> proxy pattern, plus Amp for audio. Everything below stands; two things change. It is **gated on the
+> room-arm switch** (it currently sits one click from the album detail and will change the lights in
+> an occupied room with no warning), and audio joins lights and video via
+> `POST /api/demo/audio` → Amp's `POST /api/admin/play`.
 
 A full-viewport screen (`/demo/:curatorId`, opened from the album detail's **Demo Room** button) that
 plays the visualizer fullscreen with Backdrop-accurate transitions (dim idle overlay → play, a
@@ -718,11 +789,11 @@ Each ends in a demoable state.
 6. **Wire Roadie to Palette Press and Spotify.** Success: add a real album, Roadie completes to `awaiting_review` with real palette and metadata.
 7. **Prompt drafting.** Template system + prompt generation. Success: `awaiting_review` state includes a generated prompt visible in the UI.
 8. **Queue view UI.** The primary screen. Success: add 10 albums, watch them flow through the queue view as Roadie processes them.
-9. **Album detail — session shape.** The right-column workflow view. Success: click into an album from the queue, see current state highlighted, complete steps in order.
-10. **Preview view.** Palette + video combined preview. Success: attach a video to a Roadie-completed album, see the preview render correctly.
+9. **Album detail — the workbench.** The five-workstation rail ([ADR 0026](../adrs/0026-album-detail-is-a-workbench.md)). Success: click into an album from the queue, land on the workstation matching its state, and be able to reach every other one — including handing over a video for an album Roadie is still processing.
+10. **Bench preview.** Sleeve + palette + video combined, no hardware touched. Success: attach a video to a Roadie-completed album, see the preview render correctly with the room untouched.
 11. **Video upload + attachment.** Drag-and-drop + validation + thumbnails. Success: attach a video, see it in the detail view.
 12. **Tag payload UI + write flow.** URI, QR, mark-written. Success: write your first NFC sticker end-to-end.
-13. **Simulate scan endpoint.** Fires to Conductor and Backdrop. Success: click "Simulate scan," lights change in the other room.
+13. **Room rehearsal.** `simulate-scan` fires to Conductor, Backdrop and Amp, behind the room-arm switch. Success: arm the room, run the rehearsal, and the lights, display and Sonos all come up in the other room — then set it back to bench and confirm the same button is disabled with a reason.
 14. **Backdrop sync (library + rsync trigger).** Automatic on save + manual buttons. Success: an album completed in Curator plays through the runtime.
 15. **Override art support.** Upload replaces Spotify art, palette regenerates. Success: replace an ugly Spotify cover with a better scan, palette updates.
 16. **Roadie retry + failure classes.** Graceful degradation, retry UI. Success: add a bogus URI, land at `needs_manual` with clear reason and retry button.
@@ -738,6 +809,6 @@ Each ends in a demoable state.
 - **Filesystem paths on Windows.** Store paths as POSIX in JSON; convert at read time. Same guidance as previous spec.
 - **Videos in git.** Don't put `/media/` in git. `/album-assets/` yes.
 - **The `handEdited` semantics.** Hand-edited palette + Palette Press version bump. If you want to retry the algorithm on this album, "reset to auto" is explicit. Never overwrite a hand-edit without user action.
-- **Roadie state races.** If a human edits a palette while Roadie is processing that album, Roadie should hold a per-album lock. Single-threaded Roadie makes this easy: only one album has an active lock at a time. _(2026-07-24: palette editing/re-extract are rejected with 409 while an album is in a processing state — the human retries once it reaches `awaiting_review`; see [ADR 0025](../adrs/0025-palette-edit-rejected-during-processing.md).)_
+- **Roadie state races.** If a human edits a palette while Roadie is processing that album, Roadie should hold a per-album lock. Single-threaded Roadie makes this easy: only one album has an active lock at a time. _(2026-07-24: palette editing/re-extract are rejected with 409 while an album is in a processing state — the human retries once it reaches `awaiting_review`; see [ADR 0025](../adrs/0025-palette-edit-rejected-during-processing.md). **2026-07-25:** with `drafting_prompts` out of the pipeline ([ADR 0027](../adrs/0027-generation-is-invoked-not-pipelined.md)) no processing state holds a palette, so this 409 window closes — the guard stays as defence in depth.)_
 - **The `tag.payload` value drift.** If a user renames a curatorId (they shouldn't, but if the code ever grows a rename feature), the physical NFC sticker still says the old ID. Prevent renames. If ever needed, "rename" is really "delete + re-add with new ID" and the sticker must be rewritten physically.
 - **Manual entries and Backdrop's library.** Manual albums have no Spotify art URL. Backdrop's library entry uses the local artwork path, which Backdrop needs synced to its SD card. Include `media/artwork/` in the rsync targets, not just `visualizers/`.

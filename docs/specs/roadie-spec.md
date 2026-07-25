@@ -158,15 +158,27 @@ Two important properties:
 
 - Input: album art bytes
 - Action: call Palette Press library synchronously; apply post-processing
-- Success: save palette to asset file, transition to `drafting_prompts`
+- Success: save palette to asset file, transition to `awaiting_review` _(2026-07-25, [ADR 0027](../adrs/0027-generation-is-invoked-not-pipelined.md): this previously transitioned to `drafting_prompts`, which is no longer a pipeline state — prompts are drafted on request)_
 - Special case: post-processor returns fewer than 2 usable colors (monochrome art, etc.) → save whatever was extracted, transition to `awaiting_review` with a flag `palette_insufficient: true`. Human decides — either accept or hand-craft a palette. Not an error; a real album can genuinely be monochrome.
 
 ### drafting_prompts
 
+> **No longer a pipeline state (2026-07-25, [ADR 0027](../adrs/0027-generation-is-invoked-not-pipelined.md)).**
+> Roadie transitions `generating_palette → awaiting_review` directly. Prompt drafting is **invoked by
+> the human** from the Video or Card workstation, because it costs two Gemini calls per album and was
+> being spent unconditionally — including on albums whose visualizer and card art the user already
+> had, where the ten drafted prompts are never opened.
+>
+> The state value is retained for `history` entries on albums that already passed through it, and as
+> the label for the on-demand action. Everything below describes that action; only its **trigger**
+> moved. `awaiting_review` now means "palette ready; prompts available on request" rather than
+> "palette and prompts ready."
+
 - Input: album metadata (title, artist, year, genres) + generated palette; a Gemini key if the LLM path is configured
-- Action: run the prompt-drafting logic (see §7) for both `video` and `cardArt` prompt types, save both to `promptDrafts` in the asset file
-- Success: transition to `awaiting_review`
-- Failure modes: the step **cannot fail** (ADR 0009). The LLM path is attempted first; on a missing key or any Gemini error it falls back to the deterministic templates (logging the fallback), so the album always reaches `awaiting_review` with prompts drafted. Only an unexpected bug in the fallback itself would `errored` — log verbosely if so.
+- Trigger: the user opens the Video or Card workstation and presses **Draft prompts**. Never fired automatically, and never offered as the primary action for a section whose artifact is already attached (ADR 0027)
+- Action: run the prompt-drafting logic (see §7) for the requested prompt type, save to `promptDrafts` in the asset file
+- Success: prompts available in the workstation. No state transition (the album is already at `awaiting_review` or beyond)
+- Failure modes: the drafting itself **cannot fail** (ADR 0009). The LLM path is attempted first; on a missing key or any Gemini error it falls back to the deterministic templates (logging the fallback), so the request always returns prompts. Only an unexpected bug in the fallback itself would surface an error — log verbosely if so. Because this is now a foreground user action rather than a pipeline step, a failure is reported in place rather than moving the album to `errored`.
 
 ### Backdrop sync triggers
 
@@ -221,8 +233,9 @@ Sync failures never move albums backward through the state machine. They're reco
 
 Roadie drafts two prompts per album: one for the visualizer video that plays on Backdrop, and one for the business-card art that gets printed and stuck onto the physical card. Both use the same inputs — album metadata + palette — but have different templates suited to their output medium.
 
-**LLM path (default, ADR 0009).** When a Gemini key is configured, the `drafting_prompts` step runs
-the grounded two-pass drafter: pass 1 researches the album's real visual identity (cover subjects,
+**LLM path (default, ADR 0009).** When a Gemini key is configured, drafting runs
+the grounded two-pass drafter (invoked on request rather than in the pipeline since
+[ADR 0027](../adrs/0027-generation-is-invoked-not-pipelined.md) — the mechanism below is unchanged): pass 1 researches the album's real visual identity (cover subjects,
 booklet/music-video motifs, era aesthetic) with Google Search grounding; pass 2 turns that research
 plus the matching metaprompt (`docs/prompts/`, bundled at `gemini/metaprompts.ts`) into
 `PROMPT_VARIANTS` (5) variants, surfaced individually (each copyable). For **card art** these are the
@@ -402,7 +415,7 @@ Each row: cover art thumbnail, title/artist, timestamp of when it entered this s
 
 Filters and search at the top: filter by state, search title/artist. Batch actions: retry all errored, pause Roadie, etc.
 
-The number in the browser tab title should be **the count of "needs you right now"** — because that's the number that tells you how much work is waiting.
+The number in the app header should be **the count of "needs you right now"** — because that's the number that tells you how much work is waiting. _(2026-07-25: was "the browser tab title"; Curator is a single-window Electron app with no tab — see [curator-ui-ux.md](curator-ui-ux.md) §8.)_
 
 ## 12. Observability
 
@@ -479,7 +492,7 @@ Roadie should be built after Curator's baseline exists (add-album, asset store, 
 
 - **Idempotency is table stakes.** Every sub-step must be safe to re-run. Palette Press is idempotent (same input, same output). Spotify metadata is idempotent as long as you overwrite. Art download must handle "file already exists" gracefully. If you skip this discipline for one sub-step, restarts will produce duplicates, corrupted files, or worse.
 - **Retry storms.** A misconfigured backoff or a stuck retry loop can hammer Spotify. Cap total retry attempts _and_ time-in-retry-state. If an album has been retrying for more than 15 minutes, it's stuck for a reason humans need to see; transition to `errored`.
-- **Concurrent Curator writes.** If a human edits an album's palette while Roadie is drafting a prompt, whose changes win? Roadie holds a per-album lock while working. If the lock is contested, human wins (Roadie retries later). Single-threaded Roadie keeps this simple — one album at a time. _(2026-07-24: "human wins" is implemented at step boundaries — the worker re-reads between sub-steps. Within the one racy sub-step (`drafting_prompts`), palette **editing** is instead rejected with 409 and the human retries at `awaiting_review`; see [ADR 0025](../adrs/0025-palette-edit-rejected-during-processing.md).)_
+- **Concurrent Curator writes.** If a human edits an album's palette while Roadie is drafting a prompt, whose changes win? Roadie holds a per-album lock while working. If the lock is contested, human wins (Roadie retries later). Single-threaded Roadie keeps this simple — one album at a time. _(2026-07-24: "human wins" is implemented at step boundaries — the worker re-reads between sub-steps. Within the one racy sub-step (`drafting_prompts`), palette **editing** is instead rejected with 409 and the human retries at `awaiting_review`; see [ADR 0025](../adrs/0025-palette-edit-rejected-during-processing.md). **2026-07-25:** [ADR 0027](../adrs/0027-generation-is-invoked-not-pipelined.md) takes `drafting_prompts` out of the pipeline, so no processing state holds a palette and that 409 window closes — the guard is retained as defence in depth, not as a live path.)_
 - **Spotify caching.** Spotify's API responses are cacheable but Roadie doesn't cache today. If you add many albums by the same artist in quick succession, the artist endpoint gets hit repeatedly. Fine at personal-collection scale (dozens of albums per session); worth adding caching if usage patterns change.
 - **What "queued" means.** Adding an album puts it in the queue but doesn't immediately guarantee Roadie will pick it up (it's processing another one). The UI should distinguish "queued but not started" from "actively processing." Users have watched Roadie do nothing for 30 seconds and assumed it's broken more than once — the "waiting my turn" indicator is worth the small UI investment.
 - **Prompt template drift.** If you change a style template's wording, past albums' saved prompts don't retroactively update. That's the right behavior (you don't want to invalidate a video you already generated), but the UI should make it clear when a saved prompt was drafted with a template version that's since changed.
