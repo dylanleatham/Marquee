@@ -1519,3 +1519,12 @@ em {
   border-color: var(--amber);
   background: var(--panel-2);
 }
+
+/* Service reachability rows (issue #101) — reuse the rehearsal leg list, plus the probed URL. */
+.health__url {
+  font-size: 12px;
+  color: var(--muted);
+}
+.legs__item--bad .legs__dot {
+  background: var(--alert);
+}

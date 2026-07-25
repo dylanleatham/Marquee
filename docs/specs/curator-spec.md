@@ -563,21 +563,21 @@ Curator holds application-level settings. Some affect the runtime services and a
 change (e.g. the listening room → Conductor); others are Curator-local and never leave the machine
 (e.g. Spotify credentials, which only Curator uses).
 
-| Method | Path                            | Purpose                                                                                                                                                                                                                                           |
-| ------ | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/settings`                 | Returns current Curator settings.                                                                                                                                                                                                                 |
-| PUT    | `/api/settings`                 | Updates one or more settings. Any setting change that affects Conductor or Backdrop is automatically pushed to that service (e.g., listening-room changes push to Conductor's `PUT /api/settings`).                                               |
-| GET    | `/api/settings/available-rooms` | Proxies to Conductor's `/api/rooms` and returns the Hue rooms available to choose from as the listening room.                                                                                                                                     |
-| GET    | `/api/settings/spotify`         | Spotify credential status: `{ configured, clientId }`. The client secret is write-only and never returned.                                                                                                                                        |
-| PUT    | `/api/settings/spotify`         | Body `{ clientId, clientSecret }`. Persists to `settings.json` in the data dir; returns `{ ok, restartRequired: true }` (the Spotify client + Roadie are built at boot). Needed by the packaged desktop app, which has no repo `.env` (ADR 0008). |
-| GET    | `/api/settings/gemini`          | Gemini status + opt-in generation flags: `{ configured, generateCardArt, generateVideo }`. The API key is write-only and never returned ([ADR 0012](../adrs/0012-artifact-generation-is-opt-in.md)).                                              |
-| PUT    | `/api/settings/gemini`          | Body `{ apiKey?, generateCardArt?, generateVideo? }` — any provided field is merged (others preserved), so you can toggle generation without re-entering the key. `400` if empty. Returns `{ ok, restartRequired: true }`.                        |
+| Method  | Path                                | Purpose                                                                                                                                                                                                                                                                                                                                                        |
+| ------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET     | `/api/settings`                     | Returns current Curator settings.                                                                                                                                                                                                                                                                                                                              |
+| PUT     | `/api/settings`                     | Updates one or more settings. Any setting change that affects Conductor or Backdrop is automatically pushed to that service (e.g., listening-room changes push to Conductor's `PUT /api/settings`).                                                                                                                                                            |
+| ~~GET~~ | ~~`/api/settings/available-rooms`~~ | **Never implemented; superseded 2026-07-25 (issue #101).** The room list and the listening-room push go through the existing Conductor proxy — `GET /api/demo/rooms` and `PUT /api/demo/room` — which Settings and the Demo Room both use. A second route doing the same proxying would be two things to keep correct.                                         |
+| GET     | `/api/settings/service-health`      | `{ services: [{ service, configured, reachable, url?, detail? }] }` for conductor, backdrop and amp. Backs Settings' **Test connections**. `configured:false` and `reachable:false` are deliberately distinct — never set up and currently down are different problems. Each probe is bounded (5s) and independent, so one dead service never fails the check. |
+| GET     | `/api/settings/spotify`             | Spotify credential status: `{ configured, clientId }`. The client secret is write-only and never returned.                                                                                                                                                                                                                                                     |
+| PUT     | `/api/settings/spotify`             | Body `{ clientId, clientSecret }`. Persists to `settings.json` in the data dir; returns `{ ok, restartRequired: true }` (the Spotify client + Roadie are built at boot). Needed by the packaged desktop app, which has no repo `.env` (ADR 0008).                                                                                                              |
+| GET     | `/api/settings/gemini`              | Gemini status + opt-in generation flags: `{ configured, generateCardArt, generateVideo }`. The API key is write-only and never returned ([ADR 0012](../adrs/0012-artifact-generation-is-opt-in.md)).                                                                                                                                                           |
+| PUT     | `/api/settings/gemini`              | Body `{ apiKey?, generateCardArt?, generateVideo? }` — any provided field is merged (others preserved), so you can toggle generation without re-entering the key. `400` if empty. Returns `{ ok, restartRequired: true }`.                                                                                                                                     |
 
 Settings that live here:
 
-- `listeningRoomId` — the Hue room Conductor drives when scan events arrive. Pushed to Conductor on change.
-- Conductor URL + shared secret (mirror of what's in the TOML config; exposed for UI editing convenience)
-- Backdrop URL + shared secret (same)
+- `listeningRoomId` — the Hue room Conductor drives when scan events arrive. **Owned by Conductor, not Curator**: Curator reads and writes it through the `/api/demo/*` proxy (issue #101) rather than storing a copy, so there is no second value to drift. Settings and the Demo Room's first-run picker are two views of the same setting.
+- ~~Conductor URL + shared secret (exposed for UI editing convenience)~~ / ~~Backdrop URL + shared secret~~ — **not editable in the UI (2026-07-25, issue #101).** These live in `config.toml`/env; Settings only reports whether each service answers. Amp's URL joined them ([ADR 0028](../adrs/0028-preview-bench-and-room-modes.md)).
 - Spotify credentials (`clientId` + write-only `clientSecret`) — **Curator-local, not pushed anywhere**.
   Stored in `settings.json` in the data dir so the packaged desktop app can be configured without a
   repo `.env` (ADR 0008); applied at boot. Layered under `config.toml`/env, so dev is unchanged.
@@ -816,8 +816,26 @@ Slide-over panel when a batch operation runs. Progress + cancel.
 
 Simple form-based screen accessible from a header link or a corner menu. Sections:
 
-- **Listening room** — dropdown of Hue rooms (fetched from `/api/settings/available-rooms`, which proxies to Conductor). Changing the selection pushes to Conductor via `PUT /api/settings`. Shows current selection prominently — this is the setting most likely to change.
-- **Service URLs** — Conductor URL, Backdrop URL, plus their shared secrets. Editable; changes update the TOML config on disk. Test-connection buttons for each service that fire a lightweight probe (`GET /api/bridge/status` on Conductor, `/healthz` on Backdrop) and report success/failure.
+- **Listening room** — dropdown of Hue rooms (fetched via `GET /api/demo/rooms`, which proxies
+  Conductor). Changing the selection pushes to Conductor via `PUT /api/demo/room`. First in the
+  screen, because it is the setting most likely to change. _(Built 2026-07-25, issue #101 — it was
+  previously reachable **only** from the Demo Room's first-run picker, so once set there was no way
+  to change it short of editing Conductor's settings by hand.)_
+
+  The push is optimistic but **rolled back on failure**: a rejected push restores the previous
+  selection and shows the error, rather than leaving the dropdown displaying a room that never
+  saved. Conductor being unreachable is reported in place, not an empty dropdown.
+
+- **Services** — reachability of Conductor, Backdrop and **Amp**, via one **Test connections** button
+  (`GET /api/settings/service-health`). Each is probed on its own health path — Conductor's
+  `/api/bridge/status` (which also reports Hue pairing, the thing that actually stops lights
+  working), Backdrop's `/healthz`, Amp's `/api/status`.
+
+  > **Narrowed 2026-07-25 (issue #101).** This originally promised the URLs and shared secrets were
+  > **editable in the UI**, writing back to `config.toml`. They are not, deliberately: they change
+  > rarely, and a web form is the wrong home for a shared secret. They stay in `config.toml`/env.
+  > The genuinely useful half — _is the thing I configured actually answering?_ — is what shipped.
+
 - **Tag placement guide** — a text field for the placement reminder shown during tag write ("back cover, upper-right corner, 25mm round"). Just a string; whatever helps you stay consistent.
 - **Spotify** — Client ID + write-only Client Secret (needed for search/add), plus a **"Connect Spotify" / "Disconnect"** control (issue #23 / [ADR 0014](../adrs/0014-spotify-user-oauth-pkce.md)). Connect opens the Spotify authorize page in the system browser (Authorization Code + PKCE); once the loopback callback returns, the screen reflects the logged-in state. Login is optional — it routes calls through the user session (personalized search now, Connect playback later); without it Curator uses app-only catalog access. The connect button is disabled until credentials are saved.
 - **Gemini** — write-only API key + the opt-in artifact-generation toggles ([ADR 0012](../adrs/0012-artifact-generation-is-opt-in.md)).
