@@ -17,6 +17,8 @@ import { TagHelp } from "./pages/TagHelp";
 import { RoadieStrip } from "./components/RoadieStrip";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ConfirmProvider } from "./components/Confirm";
+import { BatchProgress } from "./components/BatchProgress";
+import { attachRunningBatch } from "./batchJob";
 
 /**
  * The "needs you right now" count. This used to be written into `document.title` — an affordance
@@ -70,6 +72,11 @@ function useGlobalKeys() {
 
 export function App() {
   useGlobalKeys();
+  // Reattach to a library sweep that was already running (issue #104). Without this, reloading the
+  // window during a regeneration leaves it running invisibly with no progress and no way to stop it.
+  useEffect(() => {
+    void attachRunningBatch();
+  }, []);
   // Per-route boundary keyed on the path: a page that throws mid-render is contained to the body
   // (header + RoadieStrip survive), and navigating to another route clears the error (issue #63).
   const { pathname } = useLocation();
@@ -113,6 +120,7 @@ export function App() {
           </ErrorBoundary>
         </div>
         <RoadieStrip />
+        <BatchProgress />
       </div>
     </ConfirmProvider>
   );

@@ -325,7 +325,7 @@ The primary flow above is the common case. A few variants worth naming:
 
 **Refresh palette** — Palette Press v2 shipped. From album detail, click "Reset to auto" on the palette. Palette regenerates. If the album's verified, no state change downstream (palette change doesn't invalidate video or tag). If you want to re-preview to be safe, click the preview button voluntarily.
 
-**Batch refresh palette after algorithm upgrade** — bulk operation, not a session. Curator's batch tools handle this via `POST /api/batch/regenerate-palettes`. Hand-edited palettes are skipped by default.
+**Batch refresh palette after algorithm upgrade** — bulk operation, not a session. Curator's batch tools handle this via `POST /api/batch/regenerate-palettes`, reached from **Settings → Library**. Hand-edited palettes are skipped by default, along with albums Roadie is still processing and any without cover art; all three are reported rather than silently passed over. It runs as a cancellable background job with a progress panel ([ADR 0029](../adrs/0029-batch-work-runs-as-a-library-job.md)) — palettes regenerated before a cancel stay regenerated.
 
 **Override art** — you have a better scan of the album cover than Spotify's version. Upload via album detail's Artwork section. Palette auto-regenerates (with confirm dialog if palette was hand-edited). Everything downstream re-runs as needed.
 

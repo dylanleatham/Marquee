@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api";
 import { usePoll } from "../hooks";
 import { RoomAndServices } from "../components/RoomAndServices";
+import { LibraryMaintenance } from "../components/LibraryMaintenance";
 
 /**
  * App settings. Today: Spotify credentials — needed for search + add-by-URL, and the only thing the
@@ -200,6 +201,10 @@ export function Settings() {
           here that affects the runtime rather than Curator's own integrations. */}
       <section className="detail-section">
         <RoomAndServices />
+      </section>
+
+      <section className="detail-section">
+        <LibraryMaintenance />
       </section>
 
       <section className="detail-section">

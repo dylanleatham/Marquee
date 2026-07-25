@@ -144,14 +144,15 @@ export interface CardArtCandidate {
 
 export type PromptType = "video" | "cardArt";
 
-export type JobKind = "video" | "cardArt";
+export type JobKind = "video" | "cardArt" | "paletteBatch";
 export type JobStatus = "running" | "done" | "failed" | "cancelled";
 
 /** A background generation job (issue #30 / ADR 0018). Mirrors GenerationJob on the server. */
 export interface GenerationJob {
   id: string;
   kind: JobKind;
-  curatorId: string;
+  /** Absent on a library-scoped job — a batch sweep belongs to no one album (ADR 0029). */
+  curatorId?: string;
   status: JobStatus;
   /** The prompt-variant index for a per-prompt generation; absent on a whole-set job. */
   index?: number;
@@ -159,7 +160,54 @@ export interface GenerationJob {
   createdAt: string;
   updatedAt: string;
   error?: string;
-  result?: { videoClips?: VideoClip[]; cardArtCandidates?: CardArtCandidate[] };
+  result?: {
+    videoClips?: VideoClip[];
+    cardArtCandidates?: CardArtCandidate[];
+    paletteBatch?: BatchPaletteReport;
+  };
+}
+
+// --- batch operations (curator-spec §8/§10, issue #104) ------------------------------------------
+
+export type BatchAddStatus = "added" | "duplicate" | "invalid" | "failed";
+
+export interface BatchAddOutcome {
+  index: number;
+  input: string;
+  status: BatchAddStatus;
+  curatorId?: string;
+  error?: string;
+}
+
+export interface BatchAddReport {
+  added: number;
+  duplicate: number;
+  invalid: number;
+  failed: number;
+  curatorIds: string[];
+  items: BatchAddOutcome[];
+}
+
+export type BatchPaletteStatus =
+  | "regenerated"
+  | "skipped_hand_edited"
+  | "skipped_processing"
+  | "skipped_no_art"
+  | "failed";
+
+export interface BatchPaletteOutcome {
+  curatorId: string;
+  label: string;
+  status: BatchPaletteStatus;
+  error?: string;
+}
+
+export interface BatchPaletteReport {
+  total: number;
+  regenerated: number;
+  skipped: number;
+  failed: number;
+  items: BatchPaletteOutcome[];
 }
 
 export interface AlbumAsset {
@@ -543,6 +591,15 @@ export const api = {
     req<{ jobs: GenerationJob[] }>(
       `/api/albums/${id}/jobs${kind ? `?kind=${kind}` : ""}`,
     ),
+  /** Library-scoped jobs — how the batch panel reattaches to a sweep after a reload (ADR 0029). */
+  libraryJobs: (kind: "paletteBatch") =>
+    req<{ jobs: GenerationJob[] }>(`/api/jobs?kind=${kind}`),
+  /** Re-derive every algorithmic palette. `force` includes hand-edited ones, which are otherwise skipped. */
+  regeneratePalettes: (force = false) =>
+    req<{ job: GenerationJob }>(
+      `/api/batch/regenerate-palettes${force ? "?force=1" : ""}`,
+      { method: "POST" },
+    ),
   selectCardArt: (id: string, index: number) =>
     req<{ cardArt: CardArt }>(`/api/albums/${id}/card-art/select`, {
       method: "POST",
@@ -601,6 +658,15 @@ export const api = {
     req<{ curatorId: string; state: RoadieState }>("/api/albums", {
       method: "POST",
       body: JSON.stringify({ spotifyUri }),
+    }),
+  /**
+   * Add a pasted list in one request. Answers 200 with a per-item report even when some lines fail —
+   * partial success is the normal outcome, so read `report.items`, not the status code.
+   */
+  addAlbumsBatch: (items: string[]) =>
+    req<BatchAddReport>("/api/albums/batch", {
+      method: "POST",
+      body: JSON.stringify({ items }),
     }),
   addManual: (form: FormData) =>
     req<{ curatorId: string; state: RoadieState }>("/api/albums", {

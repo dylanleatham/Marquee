@@ -12,20 +12,27 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { VideoClip, CardArtCandidate } from "../albums/asset.js";
+import type { BatchPaletteReport } from "../albums/batch.js";
 
-export type JobKind = "video" | "cardArt";
+export type JobKind = "video" | "cardArt" | "paletteBatch";
 export type JobStatus = "running" | "done" | "failed" | "cancelled";
 
 /** What a finished job produced — the same payloads the synchronous routes used to return. */
 export interface JobResult {
   videoClips?: VideoClip[];
   cardArtCandidates?: CardArtCandidate[];
+  paletteBatch?: BatchPaletteReport;
 }
 
 export interface GenerationJob {
   id: string;
   kind: JobKind;
-  curatorId: string;
+  /**
+   * The album this job works on. **Absent for a library-scoped job** — a batch palette regeneration
+   * sweeps the whole collection and belongs to no one album (ADR 0029). Encoding that as a sentinel
+   * id would leak a fake album into every filter; absence says it plainly.
+   */
+  curatorId?: string;
   status: JobStatus;
   /**
    * The prompt-variant index this job generates, for a *per-prompt* generation (ADR 0021/0022); a
@@ -146,7 +153,11 @@ export class GenerationJobs {
     return j ? snapshot(j) : undefined;
   }
 
-  /** Active + recent jobs for an album, newest first — lets the UI re-attach after a reload. */
+  /**
+   * Active + recent jobs for an album, newest first — lets the UI re-attach after a reload. A
+   * library-scoped job never matches (its `curatorId` is undefined), which is right: a collection-wide
+   * sweep is not any one album's job.
+   */
   forAlbum(curatorId: string, kind?: JobKind): GenerationJob[] {
     this.gc();
     return [...this.jobs.values()]
@@ -155,8 +166,20 @@ export class GenerationJobs {
       .map(snapshot);
   }
 
+  /**
+   * Active + recent **library-scoped** jobs of a kind, newest first (ADR 0029). The batch panel calls
+   * this on mount to reattach to a sweep that was already running when the window reloaded.
+   */
+  library(kind: JobKind): GenerationJob[] {
+    this.gc();
+    return [...this.jobs.values()]
+      .filter((j) => j.curatorId === undefined && j.kind === kind)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map(snapshot);
+  }
+
   private running(
-    curatorId: string,
+    curatorId: string | undefined,
     kind: JobKind,
     index?: number,
   ): GenerationJob | undefined {
@@ -175,10 +198,14 @@ export class GenerationJobs {
    * no-op, and a reload re-attaches to the live job rather than starting a second). A per-prompt job
    * (`index` set) is keyed separately from the whole-set job and from other indices, so they don't
    * shadow each other. Returns immediately; the runner drives in the background.
+   *
+   * Pass `undefined` for `curatorId` to start a library-scoped job (ADR 0029). The same dedup rule
+   * then means at most one sweep of that kind runs at a time — pressing the button twice reattaches
+   * instead of walking the collection twice.
    */
   start(
     kind: JobKind,
-    curatorId: string,
+    curatorId: string | undefined,
     run: JobRunner,
     index?: number,
   ): GenerationJob {
@@ -189,7 +216,7 @@ export class GenerationJobs {
     const job: GenerationJob = {
       id: randomUUID(),
       kind,
-      curatorId,
+      ...(curatorId !== undefined ? { curatorId } : {}),
       status: "running",
       ...(index !== undefined ? { index } : {}),
       progress: { done: 0, total: 0 },
