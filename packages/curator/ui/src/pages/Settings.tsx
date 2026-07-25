@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api";
 import { usePoll } from "../hooks";
+import { RoomAndServices } from "../components/RoomAndServices";
 
 /**
  * App settings. Today: Spotify credentials — needed for search + add-by-URL, and the only thing the
@@ -194,6 +195,12 @@ export function Settings() {
         </button>
         <h1>Settings</h1>
       </div>
+
+      {/* First, because it's the setting most likely to change (curator-spec §10) and the only one
+          here that affects the runtime rather than Curator's own integrations. */}
+      <section className="detail-section">
+        <RoomAndServices />
+      </section>
 
       <section className="detail-section">
         <h2>Spotify</h2>

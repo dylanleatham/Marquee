@@ -286,6 +286,19 @@ export interface RehearsalLeg {
   reason?: string;
 }
 
+/**
+ * One sibling service's reachability (GET /api/settings/service-health). `configured:false` and
+ * `reachable:false` are deliberately distinct — "you never set this up" and "it's down" are
+ * different problems with different fixes.
+ */
+export interface ServiceHealth {
+  service: "conductor" | "backdrop" | "amp";
+  configured: boolean;
+  reachable: boolean;
+  url?: string;
+  detail?: string;
+}
+
 /** Aggregate Conductor health for the Demo Room header (GET /api/demo/status). */
 export interface DemoStatus {
   reachable: boolean;
@@ -389,6 +402,10 @@ export const api = {
     }),
   demoStop: () =>
     req<{ stopped?: boolean }>("/api/demo/stop", { method: "POST" }),
+  /** Reachability of each sibling service, for the Settings screen (issue #101). */
+  serviceHealth: () =>
+    req<{ services: ServiceHealth[] }>("/api/settings/service-health"),
+
   /** Audio leg of a rehearsal (ADR 0028). Amp-unconfigured comes back as `played:false` + a reason. */
   demoAudio: (curatorId: string) =>
     req<{ played: boolean; reason?: string }>("/api/demo/audio", {
