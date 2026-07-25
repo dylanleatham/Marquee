@@ -248,7 +248,9 @@ function DiscogsCollection({ onAdded }: { onAdded: (id: string) => void }) {
           onClick={() => loadPage(page + 1)}
           disabled={state === "loading"}
         >
-          {state === "loading" ? "Loading…" : `Load more (page ${page + 1} of ${pages})`}
+          {state === "loading"
+            ? "Loading…"
+            : `Load more (page ${page + 1} of ${pages})`}
         </button>
       )}
     </div>

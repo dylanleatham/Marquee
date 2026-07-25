@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import {
   api,
   type QueueEntry,
@@ -11,9 +11,28 @@ import { usePoll } from "../hooks";
 import { AlbumThumb, Spinner } from "../components/common";
 
 /** One album row: thumbnail, title/artist, how long it's waited, and its next-action link. */
-function Row({ entry, action }: { entry: QueueEntry; action?: string }) {
+function Row({
+  entry,
+  action,
+  selected = false,
+}: {
+  entry: QueueEntry;
+  action?: string;
+  selected?: boolean;
+}) {
+  const ref = useRef<HTMLAnchorElement>(null);
+  useEffect(() => {
+    // Optional-call the method too, not just the ref: scrolling the selection into view is a nicety,
+    // and an environment without it (jsdom, older embedders) must not take the whole queue down.
+    if (selected) ref.current?.scrollIntoView?.({ block: "nearest" });
+  }, [selected]);
   return (
-    <Link to={`/albums/${entry.curatorId}`} className="row">
+    <Link
+      ref={ref}
+      to={`/albums/${entry.curatorId}`}
+      className={`row ${selected ? "row--selected" : ""}`}
+      aria-current={selected ? "true" : undefined}
+    >
       <AlbumThumb
         curatorId={entry.curatorId}
         title={entry.title || "?"}
@@ -38,10 +57,13 @@ function Section({
   label,
   entries,
   action,
+  selectedId,
 }: {
   label: string;
   entries: QueueEntry[];
   action?: string;
+  /** curatorId of the keyboard-selected row, if it lives in this section. */
+  selectedId?: string | null;
 }) {
   if (!entries.length) return null;
   return (
@@ -50,7 +72,12 @@ function Section({
         {label} <span className="count">{entries.length}</span>
       </h2>
       {entries.map((e) => (
-        <Row key={e.curatorId} entry={e} action={action} />
+        <Row
+          key={e.curatorId}
+          entry={e}
+          action={action}
+          selected={e.curatorId === selectedId}
+        />
       ))}
     </section>
   );
@@ -59,6 +86,9 @@ function Section({
 export function QueueView() {
   const { data, error, loading } = usePoll<QueueGroups>(api.queue, 2000);
   const [query, setQuery] = useState("");
+  const [cursor, setCursor] = useState(0);
+  const navigate = useNavigate();
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const filtered = useMemo(() => {
     if (!data) return null;
@@ -70,6 +100,54 @@ export function QueueView() {
       Object.entries(data).map(([k, v]) => [k, v.filter(match)]),
     ) as QueueGroups;
   }, [data, query]);
+
+  // Flattened in the order the page reads, so j/k walks it the way your eye does.
+  const ordered = useMemo<QueueEntry[]>(() => {
+    if (!filtered) return [];
+    return [
+      ...QUEUE_SECTIONS.flatMap((s) => filtered[s.bucket]),
+      ...filtered.processing,
+      ...filtered.errored,
+      ...filtered.needs_manual,
+      ...filtered.done_recently,
+    ];
+  }, [filtered]);
+  const selected = ordered.length
+    ? (ordered[Math.min(cursor, ordered.length - 1)] ?? null)
+    : null;
+
+  // Queue keyboard path (curator-ui-ux §9.1). Every one of these is also a click.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      const typing =
+        t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.tagName === "SELECT" ||
+          t.isContentEditable);
+      if (e.key === "Escape" && typing) {
+        (t as HTMLElement).blur();
+        return;
+      }
+      if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "j" || e.key === "ArrowDown") {
+        e.preventDefault();
+        setCursor((c) => Math.min(c + 1, Math.max(ordered.length - 1, 0)));
+      } else if (e.key === "k" || e.key === "ArrowUp") {
+        e.preventDefault();
+        setCursor((c) => Math.max(c - 1, 0));
+      } else if (e.key === "Enter" && selected) {
+        e.preventDefault();
+        navigate(`/albums/${selected.curatorId}`);
+      } else if (e.key === "/") {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [ordered.length, selected, navigate]);
 
   if (error)
     return (
@@ -98,8 +176,9 @@ export function QueueView() {
       <div className="page__head">
         <h1>Queue</h1>
         <input
+          ref={searchRef}
           className="search"
-          placeholder="Search title or artist…"
+          placeholder="Search title or artist… ( / )"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -124,24 +203,35 @@ export function QueueView() {
           label={s.label}
           entries={filtered[s.bucket]}
           action={NEXT_ACTION[s.bucket as RoadieState]}
+          selectedId={selected?.curatorId}
         />
       ))}
 
       {filtered.processing.length > 0 && (
         <>
           <h3 className="group-head">Roadie is on it</h3>
-          <Section label="Processing" entries={filtered.processing} />
+          <Section
+            label="Processing"
+            entries={filtered.processing}
+            selectedId={selected?.curatorId}
+          />
         </>
       )}
 
       {(filtered.errored.length > 0 || filtered.needs_manual.length > 0) && (
         <>
           <h3 className="group-head">Needs your attention</h3>
-          <Section label="Errored" entries={filtered.errored} action="Retry" />
+          <Section
+            label="Errored"
+            entries={filtered.errored}
+            action="Retry"
+            selectedId={selected?.curatorId}
+          />
           <Section
             label="Needs manual"
             entries={filtered.needs_manual}
             action="Resolve"
+            selectedId={selected?.curatorId}
           />
         </>
       )}
@@ -149,7 +239,11 @@ export function QueueView() {
       {filtered.done_recently.length > 0 && (
         <>
           <h3 className="group-head">Done</h3>
-          <Section label="Verified" entries={filtered.done_recently} />
+          <Section
+            label="Verified"
+            entries={filtered.done_recently}
+            selectedId={selected?.curatorId}
+          />
         </>
       )}
     </div>

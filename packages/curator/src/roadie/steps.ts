@@ -275,9 +275,13 @@ const downloadArt: Step = async (asset, deps) =>
     : downloadSpotifyArt(asset, deps);
 
 /**
- * generating_palette → drafting_prompts (or awaiting_review if the art is monochrome). Reads the
- * saved cover, runs Palette Press. Insufficient palettes are not a failure — a real album can be
- * monochrome; we save what we found, flag it, and let the human decide (roadie-spec §6/§8).
+ * generating_palette → awaiting_review. Reads the saved cover, runs Palette Press. Insufficient
+ * palettes are not a failure — a real album can be monochrome; we save what we found, flag it, and
+ * let the human decide (roadie-spec §6/§8).
+ *
+ * This used to hand off to `drafting_prompts`. Prompt drafting left the pipeline in ADR 0027: it
+ * costs two Gemini calls per album and was spent unconditionally, including on albums whose video
+ * and card art the user already had. It is now invoked from the workstation that uses it.
  */
 const generatePaletteStep: Step = async (asset, deps) => {
   const abs = deps.store.paths.artworkFile(asset.curatorId);
@@ -311,18 +315,20 @@ const generatePaletteStep: Step = async (asset, deps) => {
     handEdited: false,
   };
 
-  if (insufficient) {
-    asset.roadie.flags.palette_insufficient = true;
-    return "awaiting_review";
-  }
-  return "drafting_prompts";
+  if (insufficient) asset.roadie.flags.palette_insufficient = true;
+  return "awaiting_review";
 };
 
 /**
  * drafting_prompts → awaiting_review. Drafts the video + card-art prompts. Prefers grounded,
  * LLM-authored variant sets (Gemini); falls back to the deterministic templates when no Gemini key
- * is configured or the LLM call fails. The fallback is why this step still "cannot fail" (roadie-spec
- * §6): the album always reaches review with prompts, LLM-authored or templated.
+ * is configured or the LLM call fails. The fallback is why this step "cannot fail" (roadie-spec §6):
+ * the album always reaches review with prompts, LLM-authored or templated.
+ *
+ * **No longer entered by the pipeline** (ADR 0027) — `generating_palette` now goes straight to
+ * `awaiting_review`. This handler is retained purely so an album persisted in `drafting_prompts` by
+ * a pre-ADR-0027 build still completes on the next worker tick instead of wedging on an unknown
+ * state. Drafting for new albums goes through `actions.draftPrompt`.
  */
 const draftPromptsStep: Step = async (asset, deps) => {
   const colors = (asset.palette?.colors ?? []).map((c) => ({
@@ -350,7 +356,12 @@ const draftPromptsStep: Step = async (asset, deps) => {
   return "awaiting_review";
 };
 
-/** The step for each Roadie-driven state. `fresh` routes to the source's first real step. */
+/**
+ * The step for each Roadie-driven state. `fresh` routes to the source's first real step.
+ *
+ * `drafting_prompts` is a **legacy entry only** (ADR 0027): nothing transitions into it any more, but
+ * an album persisted in that state by an older build must still be able to finish.
+ */
 export const STEPS: Record<string, Step> = {
   fresh: async (asset) =>
     asset.metadata.source === "manual"

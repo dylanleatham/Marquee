@@ -8,6 +8,7 @@ import {
 } from "../api";
 import type { Run } from "./workflow";
 import { AsyncButton } from "./common";
+import { useConfirm } from "./Confirm";
 
 const ROLES: PaletteRole[] = ["primary", "secondary", "accent"];
 const MAX_COLORS = 8;
@@ -53,6 +54,7 @@ export function PaletteEditor({
   asset: AlbumAsset;
   run: Run;
 }) {
+  const confirm = useConfirm();
   const palette = asset.palette;
   const serverColors = palette?.colors ?? [];
 
@@ -124,9 +126,12 @@ export function PaletteEditor({
       const force = palette.handEdited === true;
       if (
         force &&
-        !confirm(
-          "Re-extract from the cover art? This discards the hand-edited palette.",
-        )
+        !(await confirm({
+          title: "Re-extract from the cover art?",
+          body: "This discards the hand-edited palette and replaces it with a fresh Palette Press extraction.",
+          confirmLabel: "Re-extract",
+          destructive: true,
+        }))
       )
         return;
       await api.regeneratePalette(curatorId, force);

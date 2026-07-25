@@ -163,7 +163,9 @@ export function run(
       clearTimeout(timer);
       if (timedOut)
         return reject(
-          new VideoError(`${bin} timed out after ${timeoutMs}ms and was killed`),
+          new VideoError(
+            `${bin} timed out after ${timeoutMs}ms and was killed`,
+          ),
         );
       code === 0
         ? resolve(out)
@@ -332,9 +334,16 @@ export const ffmpegProber: VideoProber = {
     // clip needs neither, so it skips the probe and takes the plain path.
     const build =
       files.length > 1
-        ? resolveConcatBuild(await Promise.all(files.map((f) => this.probe(f))), opts)
+        ? resolveConcatBuild(
+            await Promise.all(files.map((f) => this.probe(f))),
+            opts,
+          )
         : {};
-    await run(FFMPEG, buildConcatArgs(files, outPath, build), CONCAT_TIMEOUT_MS);
+    await run(
+      FFMPEG,
+      buildConcatArgs(files, outPath, build),
+      CONCAT_TIMEOUT_MS,
+    );
   },
 };
 

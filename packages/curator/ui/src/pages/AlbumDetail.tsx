@@ -1,60 +1,36 @@
-import { useCallback, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useCallback, useEffect, useState } from "react";
+import { useNavigate, useParams, Link } from "react-router-dom";
 import { api, type AlbumAsset } from "../api";
+import { STATE_LABEL, isProcessing, promptIsStale } from "../format";
 import {
-  STATE_LABEL,
-  STEPPER,
-  stepperIndex,
-  isProcessing,
-  promptIsStale,
-} from "../format";
+  WORKSTATIONS,
+  READINESS_LABEL,
+  readiness,
+  workstationFromSegment,
+} from "../rail";
 import { usePoll } from "../hooks";
 import { Cover, StateBadge, Spinner } from "../components/common";
 import { PaletteEditor } from "../components/PaletteEditor";
+import { useConfirm } from "../components/Confirm";
+import { PreviewWorkstation } from "../components/PreviewWorkstation";
 import {
-  PromptBlock,
+  PromptSlot,
   VideoSection,
   CardArtSection,
-  PreviewSection,
   TagWriteSection,
   type Run,
 } from "../components/workflow";
 
-/** Horizontal stepper of the human-driven milestones, current step highlighted (spec §10). */
-function Stepper({ asset }: { asset: AlbumAsset }) {
-  const idx = stepperIndex(asset.roadie.state);
-  return (
-    <ol className="stepper">
-      {STEPPER.map((s, i) => {
-        const cls = i < idx ? "done" : i === idx ? "current" : "pending";
-        return (
-          <li key={s} className={`stepper__step stepper__step--${cls}`}>
-            {STATE_LABEL[s]}
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-
-function Section({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="detail-section">
-      <h2>{title}</h2>
-      {children}
-    </section>
-  );
-}
-
+/**
+ * The album detail is a **workbench, not a guided session** (ADR 0026). Artifacts arrive out of
+ * order — a visualizer already rendered, card art already commissioned — so nothing here is gated by
+ * `roadie.state`. Every workstation is always reachable; state only picks which one opens by default
+ * and what each rail chip reports.
+ */
 export function AlbumDetail() {
-  const { curatorId = "" } = useParams();
+  const { curatorId = "", section } = useParams();
   const navigate = useNavigate();
+  const confirm = useConfirm();
   const {
     data: asset,
     error,
@@ -62,8 +38,38 @@ export function AlbumDetail() {
   } = usePoll<AlbumAsset>(() => api.album(curatorId), 3000);
   // Whether API artifact generation is enabled (opt-in; default off — see Settings). Polled slowly.
   const { data: gemini } = usePoll(api.geminiSettings, 30000);
-  const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  // Keyboard path (curator-ui-ux §9.1): 1–5 jump benches, Esc returns to the queue. Ten albums ×
+  // mousing to every control is what turns a session into a chore. Everything here is also
+  // reachable by mouse — the keyboard is an accelerator, never the only way.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (
+        t &&
+        (t.tagName === "INPUT" ||
+          t.tagName === "TEXTAREA" ||
+          t.tagName === "SELECT" ||
+          t.isContentEditable)
+      )
+        return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        navigate("/");
+        return;
+      }
+      const n = Number(e.key);
+      if (Number.isInteger(n) && n >= 1 && n <= WORKSTATIONS.length) {
+        e.preventDefault();
+        navigate(`/albums/${curatorId}/${WORKSTATIONS[n - 1]!.segment}`);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [navigate, curatorId]);
 
   // Shared action runner: clear any error, await the action, re-poll, and surface failures.
   const run = useCallback<Run>(
@@ -101,9 +107,7 @@ export function AlbumDetail() {
   const { metadata: m, roadie, palette, pattern, promptDrafts } = asset;
   const canRetry =
     roadie.state === "errored" || roadie.state === "needs_manual";
-  const processing = isProcessing(roadie.state);
-  // Once Roadie has drafted prompts (awaiting_review onward), the workflow sections are relevant.
-  const inWorkflow = !processing && palette != null;
+  const active = workstationFromSegment(section, roadie.state);
   // Editing the palette bumps its generatedAt past the prompts' — flag the drift so the user redrafts.
   const promptsStale =
     palette != null &&
@@ -111,8 +115,13 @@ export function AlbumDetail() {
       promptIsStale(palette.generatedAt, promptDrafts?.cardArt?.generatedAt));
 
   const del = async () => {
-    if (!confirm(`Delete "${m.name || curatorId}"? The asset file is removed.`))
-      return;
+    const ok = await confirm({
+      title: `Delete "${m.name || curatorId}"?`,
+      body: "The asset file is removed. Media files stay on disk. This can't be undone.",
+      confirmLabel: "Delete album",
+      destructive: true,
+    });
+    if (!ok) return;
     setActionError(null);
     try {
       await api.deleteAlbum(curatorId);
@@ -122,8 +131,10 @@ export function AlbumDetail() {
     }
   };
 
+  const bench = WORKSTATIONS.find((w) => w.id === active)!;
+
   return (
-    <div className="page detail">
+    <div className="page page--wide detail">
       <aside className="detail__left">
         <button className="btn btn--ghost" onClick={() => navigate("/")}>
           ← Queue
@@ -157,6 +168,28 @@ export function AlbumDetail() {
             {roadie.lastError.message}
           </div>
         )}
+
+        {/* The rail. Every station is always reachable — readiness reports, it never permits. */}
+        <nav className="rail" aria-label="Workstations">
+          {WORKSTATIONS.map((w) => {
+            const r = readiness(w.id, asset);
+            return (
+              <Link
+                key={w.id}
+                to={`/albums/${curatorId}/${w.segment}`}
+                className={`rail__item ${active === w.id ? "is-active" : ""}`}
+                aria-current={active === w.id ? "page" : undefined}
+              >
+                <span className="rail__label">{w.label}</span>
+                <span className={`rail__state rail__state--${r}`}>
+                  <span aria-hidden="true" className="rail__dot" />
+                  {READINESS_LABEL[r]}
+                </span>
+              </Link>
+            );
+          })}
+        </nav>
+
         <div className="detail__actions">
           {canRetry && (
             <button
@@ -165,15 +198,6 @@ export function AlbumDetail() {
               disabled={busy}
             >
               {busy ? "Working…" : "Retry"}
-            </button>
-          )}
-          {palette && (
-            <button
-              className="btn"
-              onClick={() => navigate(`/demo/${curatorId}`)}
-              title="Preview the runtime experience: video + your real Hue lights"
-            >
-              ▶ Demo Room
             </button>
           )}
           <button className="btn btn--danger" onClick={del}>
@@ -187,11 +211,14 @@ export function AlbumDetail() {
       </aside>
 
       <main className="detail__right">
-        <Stepper asset={asset} />
+        <header className="bench__head">
+          <h2>{bench.label}</h2>
+          <p className="muted">{bench.blurb}</p>
+        </header>
 
-        {palette ? (
-          <Section title="Palette">
-            {palette.insufficient && (
+        {active === "look" && (
+          <>
+            {palette?.insufficient && (
               <div className="banner banner--warn">
                 Palette looks monochrome
                 {palette.reason ? ` (${palette.reason})` : ""}. Hand-craft it
@@ -201,52 +228,41 @@ export function AlbumDetail() {
             {promptsStale && (
               <div className="banner banner--warn">
                 You changed the palette after the prompts were drafted — the
-                video and card-art prompts below still reference the old colors.
+                video and card-art prompts still reference the old colors.
                 Redraft them to match.
               </div>
             )}
-            <PaletteEditor curatorId={curatorId} asset={asset} run={run} />
-          </Section>
-        ) : (
-          <Section title="Palette">
-            <p className="muted">
-              Not generated yet — {STATE_LABEL[roadie.state]}.
-            </p>
-          </Section>
+            {palette ? (
+              <PaletteEditor curatorId={curatorId} asset={asset} run={run} />
+            ) : (
+              <p className="muted">
+                Not generated yet — {STATE_LABEL[roadie.state]}.
+                {isProcessing(roadie.state) &&
+                  " The other workstations still accept anything you already have."}
+              </p>
+            )}
+            {pattern && (
+              <div className="kv">
+                <span className="tag">{pattern.type}</span>
+                <code>{JSON.stringify(pattern.params)}</code>
+              </div>
+            )}
+          </>
         )}
 
-        {pattern && (
-          <Section title="Pattern">
-            <div className="kv">
-              <span className="tag">{pattern.type}</span>
-              <code>{JSON.stringify(pattern.params)}</code>
-            </div>
-          </Section>
-        )}
-
-        {roadie.state === "awaiting_preview" && (
-          <Section title="Preview">
-            <PreviewSection curatorId={curatorId} asset={asset} run={run} />
-          </Section>
-        )}
-
-        {inWorkflow && promptDrafts?.video && (
-          <Section title="Video prompt">
-            <PromptBlock
+        {active === "video" && (
+          <>
+            <PromptSlot
               curatorId={curatorId}
               type="video"
-              prompt={promptDrafts.video}
+              prompt={promptDrafts?.video}
+              hasArtifact={Boolean(asset.visualizer)}
               run={run}
               canGenerate={
                 (gemini?.generateVideo ?? false) && asset.artwork != null
               }
               refresh={refresh}
             />
-          </Section>
-        )}
-
-        {inWorkflow && (
-          <Section title="Video">
             <VideoSection
               curatorId={curatorId}
               asset={asset}
@@ -254,23 +270,19 @@ export function AlbumDetail() {
               refresh={refresh}
               canGenerate={gemini?.generateVideo ?? false}
             />
-          </Section>
+          </>
         )}
 
-        {inWorkflow && promptDrafts?.cardArt && (
-          <Section title="Card art prompt">
-            <PromptBlock
+        {active === "card" && (
+          <>
+            <PromptSlot
               curatorId={curatorId}
               type="cardArt"
-              prompt={promptDrafts.cardArt}
+              prompt={promptDrafts?.cardArt}
+              hasArtifact={Boolean(asset.cardArt)}
               run={run}
               canGenerate={gemini?.generateCardArt ?? false}
             />
-          </Section>
-        )}
-
-        {inWorkflow && (
-          <Section title="Card art">
             <CardArtSection
               curatorId={curatorId}
               asset={asset}
@@ -278,15 +290,15 @@ export function AlbumDetail() {
               refresh={refresh}
               canGenerate={gemini?.generateCardArt ?? false}
             />
-          </Section>
+          </>
         )}
 
-        {(roadie.state === "awaiting_tag_write" ||
-          roadie.state === "awaiting_verify" ||
-          roadie.state === "verified") && (
-          <Section title="Tag & verify">
-            <TagWriteSection curatorId={curatorId} asset={asset} run={run} />
-          </Section>
+        {active === "preview" && (
+          <PreviewWorkstation curatorId={curatorId} asset={asset} run={run} />
+        )}
+
+        {active === "ship" && (
+          <TagWriteSection curatorId={curatorId} asset={asset} run={run} />
         )}
       </main>
     </div>

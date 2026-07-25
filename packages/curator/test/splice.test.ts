@@ -62,7 +62,10 @@ function recordingProber(): VideoProber & {
   };
 }
 
-const deps = (s: AssetStore, prober: VideoProber = fakeProber()): ActionDeps => ({
+const deps = (
+  s: AssetStore,
+  prober: VideoProber = fakeProber(),
+): ActionDeps => ({
   store: s,
   prober,
   now,
@@ -161,7 +164,9 @@ describe("spliceVisualizer", () => {
     expect(asset.roadie.state).toBe("awaiting_preview");
     expect(existsSync(s.paths.visualizerFile(id))).toBe(true);
     // The temp splice file is cleaned up (not left in /incoming/).
-    expect(existsSync(s.paths.incoming) ? readdirSync(s.paths.incoming) : []).toEqual([]);
+    expect(
+      existsSync(s.paths.incoming) ? readdirSync(s.paths.incoming) : [],
+    ).toEqual([]);
   });
 
   it("respects a reordered/deselected subset", async () => {
@@ -205,17 +210,17 @@ describe("spliceVisualizer", () => {
   it("rejects an order referencing a nonexistent clip", async () => {
     const s = store();
     const id = seedClips(s, "dddd4444", 2);
-    await expect(
-      actions.spliceVisualizer(deps(s), id, [0, 9]),
-    ).rejects.toThrow(/clip 9 does not exist/);
+    await expect(actions.spliceVisualizer(deps(s), id, [0, 9])).rejects.toThrow(
+      /clip 9 does not exist/,
+    );
   });
 
   it("rejects a duplicate clip in the order", async () => {
     const s = store();
     const id = seedClips(s, "eeee5555", 2);
-    await expect(
-      actions.spliceVisualizer(deps(s), id, [0, 0]),
-    ).rejects.toThrow(/listed twice/);
+    await expect(actions.spliceVisualizer(deps(s), id, [0, 0])).rejects.toThrow(
+      /listed twice/,
+    );
   });
 
   it("won't splice once the album is past the attachable window", async () => {
@@ -224,8 +229,8 @@ describe("spliceVisualizer", () => {
     const asset = s.read(id)!;
     asset.roadie.state = "verified";
     s.save(asset);
-    await expect(
-      actions.spliceVisualizer(deps(s), id),
-    ).rejects.toBeInstanceOf(TransitionError);
+    await expect(actions.spliceVisualizer(deps(s), id)).rejects.toBeInstanceOf(
+      TransitionError,
+    );
   });
 });

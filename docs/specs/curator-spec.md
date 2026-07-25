@@ -527,6 +527,12 @@ Backdrop URL and shared secret live in Curator's config:
 url = "http://backdrop.local:4740"
 shared_secret = "..."
 push_on_save = true
+
+# Amp — the room rehearsal's audio leg (ADR 0028). Absent → a rehearsal still drives lights and
+# video and reports audio as "not configured" rather than failing. Env: AMP_URL.
+[amp]
+url = "http://runtime-pi.local:4741"
+shared_secret = "..."
 ```
 
 ### Application settings

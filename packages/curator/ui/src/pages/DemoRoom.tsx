@@ -12,12 +12,16 @@ import {
   type DemoRoomInfo,
   type DemoStatus,
 } from "../api";
+import { useRoomGate } from "../roomArm";
 
 type Phase = "idle" | "playing";
 
 export function DemoRoom() {
   const { curatorId = "" } = useParams();
   const navigate = useNavigate();
+  // The Demo Room is the full-viewport presentation of Preview's room mode (ADR 0028), so it obeys
+  // the same arm switch. Bench-only means nothing here reaches the lights.
+  const { armed, reason: armReason } = useRoomGate();
 
   const [currentId, setCurrentId] = useState(curatorId);
   const [album, setAlbum] = useState<AlbumAsset | null>(null);
@@ -242,8 +246,16 @@ export function DemoRoom() {
             ◀
           </button>
         )}
+        {/* The Demo Room drives the real lights, and is reachable by direct URL — so the arm gate
+            lives here, not only on the link that got you here (ADR 0028). Disabled, never hidden:
+            the reason is shown rather than the control vanishing (curator-ui-ux §4). */}
         {phase === "idle" ? (
-          <button className="btn btn--primary btn--lg" onClick={placeSleeve}>
+          <button
+            className="btn btn--primary btn--lg"
+            onClick={placeSleeve}
+            disabled={!armed}
+            title={armReason ?? undefined}
+          >
             Place sleeve ▸
           </button>
         ) : (

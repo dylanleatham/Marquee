@@ -275,37 +275,52 @@ sit down now?"
 ### 9.1 Keyboard
 
 The success criterion is working through ten albums in one session. Ten albums × mousing to every
-control is what turns a session into a chore. There are currently **zero** key handlers in the app.
+control is what turns a session into a chore.
 
-| Context | Key            | Action                                    |
-| ------- | -------------- | ----------------------------------------- |
-| Global  | `Ctrl/⌘ K`     | Jump to album (fuzzy over title/artist)   |
-| Global  | `Ctrl/⌘ ,`     | Settings                                  |
-| Queue   | `j` / `k`      | Move selection                            |
-| Queue   | `Enter`        | Open selected album                       |
-| Queue   | `/`            | Focus search                              |
-| Queue   | `n`            | Add album                                 |
-| Detail  | `1`–`5`        | Jump to rail workstation                  |
-| Detail  | `[` / `]`      | Previous / next album at the same state   |
-| Detail  | `Esc`          | Back to queue                             |
-| Detail  | `Ctrl/⌘ Enter` | Primary action of the current workstation |
+| Context | Key                      | Action                                    | Status   |
+| ------- | ------------------------ | ----------------------------------------- | -------- |
+| Global  | `Ctrl/⌘ ,`               | Settings                                  | built    |
+| Global  | `n`                      | Add album                                 | built    |
+| Queue   | `j` / `k` (or `↓` / `↑`) | Move selection                            | built    |
+| Queue   | `Enter`                  | Open selected album                       | built    |
+| Queue   | `/`                      | Focus search                              | built    |
+| Queue   | `Esc` (in search)        | Leave the search field                    | built    |
+| Detail  | `1`–`5`                  | Jump to rail workstation                  | built    |
+| Detail  | `Esc`                    | Back to queue                             | built    |
+| Global  | `Ctrl/⌘ K`               | Jump to album (fuzzy over title/artist)   | deferred |
+| Detail  | `[` / `]`                | Previous / next album at the same state   | deferred |
+| Detail  | `Ctrl/⌘ Enter`           | Primary action of the current workstation | deferred |
 
-`[` / `]` implement the onboarding workflow's "next album at this state is a first-class affordance,"
-which is currently specified but not built — you have to return to the queue and find your place.
+> **Status added 2026-07-25** when the keyboard path was implemented. The three deferred rows are
+> not abandoned, but each is a feature rather than a binding: `Ctrl/⌘ K` needs a command-palette
+> surface, `[`/`]` needs the queue's ordering available inside the detail page, and `Ctrl/⌘ Enter`
+> needs each workstation to declare which of its controls is primary. They are tracked here rather
+> than silently dropped.
+
+`[` / `]` would implement the onboarding workflow's "next album at this state is a first-class
+affordance," which remains specified but unbuilt — you still return to the queue and find your place.
 
 Every shortcut must also be reachable by mouse. The keyboard is an accelerator, never the only path.
+No shortcut fires while focus is in a text field, so a search query never triggers navigation.
 
 ### 9.2 App menu
 
 `autoHideMenuBar: true` with no menu defined means the app has no discoverable command surface and no
-standard accelerators. Define a real menu — File (Add album), View (workstations, reload), Room (the
-arm switch), Help (logs, docs) — so shortcuts are discoverable and the OS integration is honest.
+standard accelerators. A real menu — File (Add album, Quit), View (Queue, Settings, reload, zoom,
+fullscreen), Help (docs) — makes the shortcuts discoverable and the OS integration honest.
+
+> **Built 2026-07-25.** Menu navigation loads the route rather than messaging the renderer: the
+> window runs with `contextIsolation` and no preload, and Curator already serves an SPA fallback for
+> any non-`/api` GET, so a menu item costs no new IPC surface. The **room-arm switch deliberately
+> stayed out of the menu** — it belongs in the status bar where its state is continuously visible
+> (§6.3); a menu item would hide the one thing that must never be forgotten.
 
 ### 9.3 Window
 
-`.page` caps at `920px` inside a `1360px` window, leaving roughly a third of the default window
-unused. The rail layout (§5) is what spends it. Long-form text inside a workstation — a prompt body —
-may still constrain its own measure; that is a text-column decision, not a page-width one.
+`.page` capped at `920px` inside a `1360px` window, leaving roughly a third of the default window
+unused. The rail layout (§5) is what spends it — the detail page now uses a `1320px` measure while
+every other screen keeps the narrower reading width. Long-form text inside a workstation — a prompt
+body — may still constrain its own measure; that is a text-column decision, not a page-width one.
 
 ## 10. States every screen owes
 

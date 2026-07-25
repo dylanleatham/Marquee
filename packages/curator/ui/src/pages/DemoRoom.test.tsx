@@ -25,6 +25,7 @@ vi.mock("../api", () => ({
 
 import { api } from "../api";
 import { DemoRoom } from "./DemoRoom";
+import { setRoomArm, resetRoomArmCache, BENCH_REASON } from "../roomArm";
 
 const albumWithVideo: AlbumAsset = {
   curatorId: "abcd1234",
@@ -61,6 +62,11 @@ const renderDemo = () =>
   );
 
 beforeEach(() => {
+  // The Demo Room drives the real lights, so it obeys the room-arm switch (ADR 0028). Most of
+  // these cases are about what it does once armed; the gate itself has its own test below.
+  localStorage.clear();
+  resetRoomArmCache();
+  setRoomArm("live");
   vi.mocked(api.album).mockResolvedValue(albumWithVideo);
   vi.mocked(api.albums).mockResolvedValue({ albums: [] });
   vi.mocked(api.demoStatus).mockResolvedValue({
@@ -79,6 +85,21 @@ afterEach(() => {
 });
 
 describe("DemoRoom", () => {
+  // The hazard ADR 0028 removes: this screen was one click from the album detail and would change
+  // the lights in an occupied room with no warning. Disabled, not hidden — the reason is shown.
+  it("refuses to touch the lights while the room is disarmed", async () => {
+    setRoomArm("bench");
+    renderDemo();
+    await waitFor(() => screen.getByText("Purple Rain"));
+
+    const place = screen.getByText(/Place sleeve/).closest("button")!;
+    expect(place.hasAttribute("disabled")).toBe(true);
+    expect(place.getAttribute("title")).toBe(BENCH_REASON);
+
+    fireEvent.click(place);
+    expect(api.demoPlay).not.toHaveBeenCalled();
+  });
+
   it("place sleeve → plays the album's lights; lift sleeve → stops them", async () => {
     renderDemo();
     // Album title loads.

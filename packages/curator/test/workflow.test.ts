@@ -88,6 +88,13 @@ describe("onboarding workflow", () => {
     const { app, store, curatorId } = await serverWithReviewedAlbum();
     expect(store.read(curatorId)!.roadie.state).toBe("awaiting_review");
 
+    // Draft the video prompt on request (ADR 0027) — onboarding no longer pre-computes it.
+    const drafted = await post(
+      app,
+      `/api/albums/${curatorId}/prompts/video/draft`,
+    );
+    expect(drafted.statusCode).toBe(200);
+
     // Copy the video prompt → awaiting_video.
     const copied = await post(
       app,
