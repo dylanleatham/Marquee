@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdtempSync, existsSync, readdirSync } from "node:fs";
+import { mkdtempSync, existsSync, readdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { request } from "node:http";
@@ -13,33 +13,21 @@ import {
   makeAsset,
   buildMultipart,
 } from "./helpers.js";
-import type { VideoProber, VideoInfo } from "../src/media/video.js";
 
-// Regression guard for issue #16: an upload must stream to disk, not buffer the whole file in
-// memory. The observable proxy is memory pressure at ffprobe time: the prober only runs once the
-// file has fully landed on disk, so at that moment a *buffered* upload is still holding the entire
-// file as a live Buffer (counted in `arrayBuffers`), while a *streamed* one has already flushed the
-// bytes and holds nothing proportional to the file. We upload over a real socket (not app.inject,
-// which itself buffers the whole payload) and send the body as a stream so the client stays flat
-// too — the only place a file-sized allocation can appear is the server's own read path.
-
-// A prober that samples process memory the instant probe() is called, then returns valid H.264 info.
-function samplingProber(sample: () => void): VideoProber {
-  const info: VideoInfo = {
-    durationSec: 180,
-    width: 1920,
-    height: 1080,
-    codec: "h264",
-    container: "mov,mp4,m4a,3gp",
-  };
-  return {
-    probe: async () => {
-      sample();
-      return info;
-    },
-    thumbnail: async () => {},
-  };
-}
+// Regression guard for issue #16 / ADR 0006: an upload must stream to disk, not buffer the whole
+// file in memory.
+//
+// The observable is **the temp file growing on disk while the body is still arriving**. A streamed
+// upload pipes each chunk straight to `incoming/.upload-<uuid>`, so a partial file is visible almost
+// immediately; a buffered one (`part.toBuffer()`) writes nothing until the entire part has been read,
+// so no partial file ever exists. We upload over a real socket — not `app.inject`, which buffers the
+// whole payload itself — and stream the body so the client never holds the file either.
+//
+// This replaced a `process.memoryUsage().arrayBuffers` probe (issue #107). That reading is
+// process-wide, and the test's own HTTP client lives in the same process as the server: under load
+// the client's outgoing socket queues chunks, which counted against the server's budget and failed
+// the assertion. Disk state has the opposite failure profile — a slower run widens the window in
+// which a partial file is observable, so load makes this *more* reliable, not less.
 
 // A multipart body streamed as: curatorId field, then a `sizeBytes` file part built from one reused
 // 1 MB chunk (so the *client* never holds the whole file), then the closing boundary.
@@ -89,16 +77,10 @@ describe("upload streaming (issue #16)", () => {
     const curatorId = "strm0001";
     store.save(makeAsset(curatorId)); // awaiting_review → video attaches directly (ADR 0005)
 
-    let arrayBuffersAtProbe = 0;
-    const prober = samplingProber(() => {
-      (globalThis as { gc?: () => void }).gc?.(); // drop already-flushed chunks if gc is exposed
-      arrayBuffersAtProbe = process.memoryUsage().arrayBuffers;
-    });
-
     const { app } = buildServer({
       store,
       roadie: fakeRoadie(store),
-      prober,
+      prober: fakeProber(),
       config: { maxUploadBytes: 1024 * 1024 * 1024 }, // 1 GB — well above the test file
     });
     await app.listen({ port: 0, host: "127.0.0.1" });
@@ -106,39 +88,67 @@ describe("upload streaming (issue #16)", () => {
     const { port } = app.server.address() as AddressInfo;
 
     const FILE_BYTES = 150 * 1024 * 1024; // 150 MB
-    (globalThis as { gc?: () => void }).gc?.();
-    const baseline = process.memoryUsage().arrayBuffers;
+
+    /** Size of the in-flight temp file, or -1 when none exists yet. */
+    const partialSize = (): number => {
+      if (!existsSync(store.paths.incoming)) return -1;
+      const name = readdirSync(store.paths.incoming).find((n) =>
+        n.startsWith(".upload-"),
+      );
+      if (!name) return -1;
+      try {
+        return statSync(store.paths.incomingFile(name)).size;
+      } catch {
+        return -1; // claimed/renamed between readdir and stat
+      }
+    };
+
+    const partials: number[] = [];
+    const poll = setInterval(() => {
+      const size = partialSize();
+      if (size > 0) partials.push(size);
+    }, 10);
 
     const upload = streamedVideoUpload(curatorId, FILE_BYTES);
-    const status = await new Promise<number>((resolve, reject) => {
-      const req = request(
-        {
-          host: "127.0.0.1",
-          port,
-          method: "POST",
-          path: "/api/videos/upload",
-          headers: {
-            "content-type": upload.contentType,
-            "content-length": upload.contentLength,
+    let status = 0;
+    try {
+      status = await new Promise<number>((resolve, reject) => {
+        const req = request(
+          {
+            host: "127.0.0.1",
+            port,
+            method: "POST",
+            path: "/api/videos/upload",
+            headers: {
+              "content-type": upload.contentType,
+              "content-length": upload.contentLength,
+            },
           },
-        },
-        (res) => {
-          res.resume(); // drain
-          res.on("end", () => resolve(res.statusCode ?? 0));
-        },
-      );
-      req.on("error", reject);
-      upload.body.pipe(req);
-    });
+          (res) => {
+            res.resume(); // drain
+            res.on("end", () => resolve(res.statusCode ?? 0));
+          },
+        );
+        req.on("error", reject);
+        upload.body.pipe(req);
+      });
+    } finally {
+      clearInterval(poll);
+    }
 
     expect(status).toBe(201);
     expect(store.read(curatorId)!.visualizer).toBeTruthy();
 
-    // Buffering keeps the whole 150 MB live at probe time; streaming holds only in-flight chunks.
-    // A generous half-file threshold cleanly separates the two without being flaky.
-    const grewBytes = arrayBuffersAtProbe - baseline;
-    expect(grewBytes).toBeLessThan(FILE_BYTES / 2);
-  });
+    // The discriminating observation: bytes reached disk *before* the whole part had been read.
+    // Buffering produces no partial file at all, so `partials` would be empty.
+    expect(
+      partials.length,
+      "no partial temp file was ever visible — the upload buffered the whole part before writing",
+    ).toBeGreaterThan(0);
+    expect(Math.min(...partials)).toBeLessThan(FILE_BYTES);
+    // A generous ceiling: buffering 150 MB is also much slower, so a regression that somehow still
+    // produced a partial file would trip the clock instead of passing quietly.
+  }, 30_000);
 
   // The streamed temp file belongs to the route, which must clean it up on *every* exit — including
   // when the attach is rejected (bad codec → 422) after the file has already landed. Streaming made
