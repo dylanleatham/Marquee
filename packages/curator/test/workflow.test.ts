@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AssetStore } from "../src/store/asset-store.js";
@@ -317,10 +317,10 @@ describe("incoming claim flow", () => {
     expect(up.statusCode).toBe(201);
     const name = up.json().incoming;
 
-    const list = await app.inject({ method: "GET", url: "/api/incoming" });
-    expect(list.json().files.map((f: { name: string }) => f.name)).toContain(
-      name,
-    );
+    // Asserted against the directory itself rather than a browse route: `GET /api/incoming` went
+    // with the never-built Incoming screen (2026-07-25 spec reconcile). The staging behaviour it
+    // was proving is unchanged, so the coverage moves rather than disappearing.
+    expect(readdirSync(store.paths.incoming)).toContain(name);
 
     const attach = await post(app, `/api/albums/${curatorId}/attach-video`, {
       fileId: name,
@@ -328,8 +328,7 @@ describe("incoming claim flow", () => {
     expect(attach.json().state).toBe("awaiting_preview");
     expect(store.read(curatorId)!.visualizer).toBeTruthy();
     // The claimed file was moved out of /incoming/.
-    const after = await app.inject({ method: "GET", url: "/api/incoming" });
-    expect(after.json().files).toHaveLength(0);
+    expect(readdirSync(store.paths.incoming)).toHaveLength(0);
   });
 
   it("stashes card art in /incoming/, attaches it by fileId, then detaches", async () => {

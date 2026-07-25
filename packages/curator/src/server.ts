@@ -7,8 +7,6 @@ import {
   createWriteStream,
   mkdirSync,
   rmSync,
-  readdirSync,
-  statSync,
 } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { randomUUID } from "node:crypto";
@@ -798,17 +796,10 @@ export function buildServer(opts: BuildOptions = {}) {
     }
   });
 
-  app.get("/api/incoming", async () => {
-    if (!existsSync(store.paths.incoming)) return { files: [] };
-    const files = readdirSync(store.paths.incoming)
-      .filter((n) => !n.startsWith(".")) // skip in-flight upload temp files
-      .map((name) => ({
-        name,
-        sizeBytes: statSync(store.paths.incomingFile(name)).size,
-      }));
-    return { files };
-  });
-
+  // `GET /api/incoming` used to list the staging dir for an "Incoming" browser screen. That screen
+  // was specced but never built, and the route had no caller — so it went with the spec section
+  // (2026-07-25 spec reconcile). `/incoming/` itself stays: an upload that names no album still
+  // lands there, and attach-by-filename still claims from it.
   app.post("/api/albums/:curatorId/attach-video", async (req, reply) => {
     const { curatorId } = req.params as { curatorId: string };
     const { fileId } = (req.body ?? {}) as { fileId?: string };
