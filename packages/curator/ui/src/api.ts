@@ -178,6 +178,8 @@ export interface AlbumAsset {
   artwork?: {
     resolvedPath: string;
     contentHash: string;
+    /** True when a user-uploaded cover is in force instead of the fetched one (issue #100). */
+    overrideActive?: boolean;
     source?: "spotify" | "discogs";
   };
   palette?: {
@@ -408,6 +410,37 @@ export const api = {
     }),
 
   // --- onboarding actions (step 7) ---
+  // --- artwork override (issue #100): your own cover when the fetched one is a bad scan ---
+  /**
+   * Upload an override. `regeneratePalette` is the user's answer to the hand-edit question — omit it
+   * and the server keeps a hand-edited palette, per curator-spec §12.
+   */
+  uploadArtworkOverride: (
+    id: string,
+    file: File,
+    regeneratePalette?: boolean,
+  ) => {
+    const form = new FormData();
+    form.append("file", file);
+    if (regeneratePalette !== undefined)
+      form.append("regeneratePalette", String(regeneratePalette));
+    return req<{ artwork: AlbumAsset["artwork"]; paletteRegenerated: boolean }>(
+      `/api/albums/${id}/artwork/override`,
+      { method: "POST", body: form },
+    );
+  },
+  removeArtworkOverride: (id: string) =>
+    req<{ artwork: AlbumAsset["artwork"]; paletteRegenerated: boolean }>(
+      `/api/albums/${id}/artwork/override`,
+      { method: "DELETE" },
+    ),
+
+  /** The exact string to burn into a sticker, plus a QR of it (issue #102). */
+  tagPayload: (id: string, object: "sleeve" | "card") =>
+    req<{ object: string; payload: string; qrDataUrl: string }>(
+      `/api/albums/${id}/tag-payload?object=${object}`,
+    ),
+
   /** Draft a prompt type on request (ADR 0027) — onboarding no longer pre-computes it. */
   draftPrompt: (id: string, type: PromptType) =>
     req<{ promptDrafts: AlbumAsset["promptDrafts"] }>(

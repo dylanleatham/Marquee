@@ -49,6 +49,8 @@ import {
 import type { PaletteEditColor } from "./albums/palette.js";
 import { GenerationJobs, FileJobStore } from "./jobs/manager.js";
 import { flipperNfcFile } from "./tags/flipper-nfc.js";
+import { tagQrDataUrl } from "./tags/qr.js";
+import { curatorUri } from "@marquee/contracts";
 import {
   ffmpegProber,
   ffmpegAvailable,
@@ -56,6 +58,8 @@ import {
   type VideoProber,
 } from "./media/video.js";
 import { ImageError } from "./media/images.js";
+import * as artwork from "./albums/artwork.js";
+import { resolvedArtworkFile } from "./albums/artwork.js";
 import { buildPalettePayload, DemoNotReadyError } from "./demo/payload.js";
 import type { PromptType } from "./roadie/prompts.js";
 import { BackdropClient } from "./backdrop/client.js";
@@ -476,6 +480,33 @@ export function buildServer(opts: BuildOptions = {}) {
     return flipperNfcFile(curatorId, object);
   });
 
+  /**
+   * The exact string to burn into a sticker, plus a QR of it (issue #102). Both tag-writing paths
+   * are first class: the Flipper takes the `.nfc` above, and a phone points at this QR to land the
+   * URI in NFC Tools without anyone retyping an 8-character base32 id — a mistake that fails
+   * *silently*, since the tag writes fine and simply never resolves at scan time.
+   *
+   * Composed server-side so there is one source of truth for the string; the UI no longer builds it.
+   */
+  app.get("/api/albums/:curatorId/tag-payload", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const object =
+      (req.query as { object?: string }).object === "card" ? "card" : "sleeve";
+    const asset = store.read(curatorId);
+    if (!asset) return reply.code(404).send({ error: "not found" });
+    // A sleeve keeps any payload already recorded on the asset, so a tag written before this route
+    // existed still round-trips; a card is always derived (ADR 0023).
+    const payload =
+      object === "card"
+        ? curatorUri("card", curatorId)
+        : (asset.tag?.payload ?? curatorUri("album", curatorId));
+    return {
+      object,
+      payload,
+      qrDataUrl: await tagQrDataUrl(payload),
+    };
+  });
+
   app.delete("/api/albums/:curatorId", async (req, reply) => {
     const { curatorId } = req.params as { curatorId: string };
     if (!store.delete(curatorId))
@@ -492,13 +523,104 @@ export function buildServer(opts: BuildOptions = {}) {
     const { curatorId } = req.params as { curatorId: string };
     if (!isCuratorId(curatorId))
       return reply.code(404).send({ error: "not found" });
-    const file = store.paths.artworkFile(curatorId);
+    const asset = store.read(curatorId);
+    // The *active* cover: an uploaded override wins over the fetched art (issue #100).
+    const file = asset
+      ? resolvedArtworkFile(store, asset)
+      : store.paths.artworkFile(curatorId);
     if (!existsSync(file))
       return reply.code(404).send({ error: "artwork not available yet" });
     return reply
-      .header("content-type", "image/jpeg")
+      .header(
+        "content-type",
+        file.endsWith(".png") ? "image/png" : "image/jpeg",
+      )
       .header("cache-control", "no-cache")
       .send(createReadStream(file));
+  });
+
+  /**
+   * Upload a cover that takes precedence over the fetched one (issue #100, milestone 15).
+   *
+   * `regeneratePalette` decides what happens to the palette. It defaults to **true**, except when the
+   * palette was hand-edited — there the default is to keep the edit, because curator-spec §12 is
+   * explicit that a hand-edit is never discarded without user action. The UI asks first and sends the
+   * answer, so the confirm happens before the upload rather than as a failed round-trip.
+   */
+  app.post("/api/albums/:curatorId/artwork/override", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    if (!req.isMultipart())
+      return reply.code(400).send({ error: "expected multipart/form-data" });
+    try {
+      const existing = store.read(curatorId);
+      if (!existing) return reply.code(404).send({ error: "not found" });
+      const { fields, file } = await readUpload(req, store);
+      try {
+        if (!file || file.size === 0)
+          return reply.code(400).send({ error: "an image file is required" });
+        const asset = artwork.applyArtworkOverride(
+          store,
+          curatorId,
+          readFileSync(file.path),
+        );
+        const handEdited = existing.palette?.handEdited === true;
+        const wants =
+          fields.regeneratePalette === undefined
+            ? !handEdited
+            : fields.regeneratePalette !== "false";
+        if (!wants)
+          return reply
+            .code(201)
+            .send({ artwork: asset.artwork, paletteRegenerated: false });
+        const regenerated = await actions.regeneratePalette(
+          actionDeps,
+          curatorId,
+          true,
+        );
+        return reply.code(201).send({
+          artwork: regenerated.artwork,
+          palette: regenerated.palette,
+          paletteRegenerated: true,
+        });
+      } finally {
+        if (file) rmSync(file.path, { force: true });
+      }
+    } catch (err) {
+      return actionError(err, reply, req, config.maxUploadBytes);
+    }
+  });
+
+  /** Drop the override and fall back to the fetched cover, re-deriving the palette from it. */
+  app.delete("/api/albums/:curatorId/artwork/override", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const { regeneratePalette } = (req.query ?? {}) as {
+      regeneratePalette?: string;
+    };
+    try {
+      const asset = artwork.removeArtworkOverride(store, curatorId);
+      if (!asset)
+        return reply
+          .code(404)
+          .send({ error: "this album has no artwork override" });
+      // Same hand-edit protection as the upload path, expressed as a query param.
+      if (regeneratePalette === "false" || !asset.artwork)
+        return reply.send({
+          artwork: asset.artwork,
+          paletteRegenerated: false,
+        });
+      const regenerated = await actions.regeneratePalette(
+        actionDeps,
+        curatorId,
+        true,
+      );
+      return reply.send({
+        artwork: regenerated.artwork,
+        palette: regenerated.palette,
+        paletteRegenerated: true,
+      });
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
   });
 
   // Stream a media file by absolute path, or 404. `download` sets a Content-Disposition attachment.

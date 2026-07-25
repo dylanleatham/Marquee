@@ -13,6 +13,15 @@ vi.mock("../api", () => ({
     deleteAlbum: vi.fn(),
     retry: vi.fn(),
     draftPrompt: vi.fn(),
+    // Ship fetches the tag payload + QR on mount (issue #102), so any case that lands there —
+    // `verified` defaults to Ship — needs this stubbed or the bench renders nothing.
+    tagPayload: vi.fn().mockResolvedValue({
+      object: "sleeve",
+      payload: "curator:album:abcd1234",
+      qrDataUrl: "data:image/svg+xml;base64,x",
+    }),
+    uploadArtworkOverride: vi.fn(),
+    removeArtworkOverride: vi.fn(),
   },
   artworkUrl: (id: string) => `/api/albums/${id}/artwork`,
   videoUrl: (id: string) => `/api/albums/${id}/video`,

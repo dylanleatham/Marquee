@@ -150,13 +150,13 @@ rendered in full, the page became a document to scroll rather than a bench to wo
 workstations is the right unit because it matches how the work actually arrives: _I have the card
 art, let me go do card things._
 
-| #   | Rail item   | Contains                                                                                   |
-| --- | ----------- | ------------------------------------------------------------------------------------------ |
-| 1   | **Look**    | Palette (swatches, roles, reorder, reset-to-auto), pattern, artwork override               |
-| 2   | **Video**   | Five video prompts · clip gallery · splice · attach / detach / replace                     |
-| 3   | **Card**    | Five card-art prompts · candidate set · attach / detach / replace · download print version |
-| 4   | **Preview** | Bench preview and room rehearsal (§6)                                                      |
-| 5   | **Ship**    | Tag payload + QR · `.nfc` download · mark written (sleeve / card) · verify physical        |
+| #   | Rail item   | Contains                                                                                                      |
+| --- | ----------- | ------------------------------------------------------------------------------------------------------------- |
+| 1   | **Look**    | Palette (swatches, roles, reorder, reset-to-auto), pattern, artwork override _(built 2026-07-25, issue #100)_ |
+| 2   | **Video**   | Five video prompts · clip gallery · splice · attach / detach / replace                                        |
+| 3   | **Card**    | Five card-art prompts · candidate set · attach / detach / replace · download print version                    |
+| 4   | **Preview** | Bench preview and room rehearsal (§6)                                                                         |
+| 5   | **Ship**    | Tag payload + QR · `.nfc` download · mark written (sleeve / card) · verify physical                           |
 
 Notes on the grouping:
 

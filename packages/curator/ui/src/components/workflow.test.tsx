@@ -710,3 +710,68 @@ describe("TagWriteSection (issue #55)", () => {
     expect(screen.queryByText("Mark physically verified")).toBeNull();
   });
 });
+
+/**
+ * The tag payload + QR (issue #102). Fetched, never composed here: this string is burned onto a
+ * physical sticker, and a mistyped curatorId fails silently — the tag writes fine and simply never
+ * resolves at scan time.
+ */
+describe("TagWriteSection — payload + QR", () => {
+  const tagged = (over: Partial<AlbumAsset> = {}): AlbumAsset =>
+    ({
+      curatorId: "abcd1234",
+      metadata: { name: "Purple Rain", artist: "Prince", source: "manual" },
+      roadie: { state: "awaiting_tag_write", flags: {} },
+      ...over,
+    }) as AlbumAsset;
+
+  const renderTag = (over: Partial<AlbumAsset> = {}) =>
+    render(
+      <TagWriteSection
+        curatorId="abcd1234"
+        asset={tagged(over)}
+        run={async (fn) => {
+          await fn();
+        }}
+      />,
+    );
+
+  it("shows a QR and the server's payload for each object", async () => {
+    vi.spyOn(api, "tagPayload").mockImplementation(async (_id, object) => ({
+      object,
+      payload:
+        object === "card" ? "curator:card:abcd1234" : "curator:album:abcd1234",
+      qrDataUrl: `data:image/svg+xml;base64,${object}`,
+    }));
+
+    renderTag();
+
+    // Both objects are fetched independently — a sleeve and a card carry different URIs (ADR 0023).
+    await waitFor(() => expect(api.tagPayload).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText("curator:album:abcd1234")).toBeTruthy();
+    expect(screen.getByText("curator:card:abcd1234")).toBeTruthy();
+    expect(document.querySelectorAll("img.tagwrite__qr")).toHaveLength(2);
+  });
+
+  it("labels the QR for screen readers with the payload it encodes", async () => {
+    vi.spyOn(api, "tagPayload").mockResolvedValue({
+      object: "sleeve",
+      payload: "curator:album:abcd1234",
+      qrDataUrl: "data:image/svg+xml;base64,x",
+    });
+    renderTag();
+    expect(
+      await screen.findAllByAltText(/QR code for curator:album:abcd1234/),
+    ).not.toHaveLength(0);
+  });
+
+  // A failed QR fetch must not block tag writing — the Flipper .nfc download beside it still works.
+  it("falls back to the derivable URI when the payload fetch fails", async () => {
+    vi.spyOn(api, "tagPayload").mockRejectedValue(new Error("offline"));
+    renderTag();
+
+    expect(await screen.findByText("curator:album:abcd1234")).toBeTruthy();
+    expect(screen.getByText("curator:card:abcd1234")).toBeTruthy();
+    expect(screen.getAllByText("QR unavailable").length).toBeGreaterThan(0);
+  });
+});

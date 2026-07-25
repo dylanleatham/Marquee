@@ -897,6 +897,62 @@ export function PreviewSection({
  * album physically verified. Writing the sleeve (scanned on the stand) advances the album to
  * awaiting_verify; the card is independent bookkeeping. Verifying finishes onboarding.
  */
+
+/**
+ * The exact string to burn into a sticker, and a QR of it (issue #102). Fetched rather than composed
+ * here: this string ends up physically on a tag, so it has one source of truth — and retyping an
+ * 8-character base32 id is the one step a human can get wrong, silently (the tag writes fine and
+ * simply never resolves at scan time).
+ */
+function TagPayload({
+  curatorId,
+  object,
+}: {
+  curatorId: string;
+  object: "sleeve" | "card";
+}) {
+  const [data, setData] = useState<{
+    payload: string;
+    qrDataUrl: string;
+  } | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    api
+      .tagPayload(curatorId, object)
+      .then((d) => live && setData(d))
+      .catch(() => live && setFailed(true));
+    return () => {
+      live = false;
+    };
+  }, [curatorId, object]);
+
+  // Degrade to the derivable URI rather than showing nothing: the Flipper .nfc download beside this
+  // still works, so a failed QR fetch must not block the whole tag-write flow.
+  const fallback =
+    object === "card"
+      ? `curator:card:${curatorId}`
+      : `curator:album:${curatorId}`;
+
+  return (
+    <div className="tagwrite__payload-block">
+      {data ? (
+        <img
+          className="tagwrite__qr"
+          src={data.qrDataUrl}
+          alt={`QR code for ${data.payload}`}
+          title="Scan with your phone to write this tag in NFC Tools"
+        />
+      ) : (
+        <div className="tagwrite__qr tagwrite__qr--empty" aria-hidden="true" />
+      )}
+      <code className="tagwrite__uri">{data?.payload ?? fallback}</code>
+      {failed && <em className="tagwrite__qr-error">QR unavailable</em>}
+    </div>
+  );
+}
+
 export function TagWriteSection({
   curatorId,
   asset,
@@ -916,14 +972,10 @@ export function TagWriteSection({
   // .nfc download for that object.
   const writeRow = (object: "sleeve" | "card", label: string) => {
     const written = tag?.[object]?.written ?? false;
-    const uri =
-      object === "card"
-        ? `curator:card:${curatorId}`
-        : (tag?.payload ?? `curator:album:${curatorId}`);
     const nfcHref = `/api/albums/${curatorId}/tag.nfc${object === "card" ? "?object=card" : ""}`;
     return (
       <div className="tagwrite__obj">
-        <code className="tagwrite__uri">{uri}</code>
+        <TagPayload curatorId={curatorId} object={object} />
         <a className="btn btn--sm" href={nfcHref} download>
           Download {label} .nfc
         </a>
