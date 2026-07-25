@@ -48,7 +48,7 @@ Curator                                           ● 4 need you
 
 Two properties matter here:
 
-**The number in the tab title is "needs you right now"** — nothing else. Not total albums, not errors, not queue depth. That number answers "should I sit down now?" and if it's zero, you close the tab guilt-free.
+**The number in the app header is "needs you right now"** — nothing else. Not total albums, not errors, not queue depth. That number answers "should I sit down now?" and if it's zero, you close the app guilt-free. _(2026-07-25: was "the tab title" — Curator is a single-window Electron app.)_
 
 **Every row has a single next-action button** — "Review," "Attach," "Write," etc. — matched to that album's current state. Click, land on the album detail, do that one thing. No "what's supposed to happen here?" moments.
 
@@ -58,7 +58,7 @@ Sessions are shorter and more varied than the earlier "album-at-a-time from scra
 
 **The 30-second session.** Coffee, phone open. Two albums in "awaiting review." Approve one palette, copy the prompt (which auto-launches your video tool in another tab or copies to clipboard), done. Come back in 10 minutes when the video's ready.
 
-**The video-generation-loop session.** You open Curator, see three albums in awaiting-video. Their prompts are already generated (Roadie did it earlier). Copy prompt A, paste in video tool, start rendering. While A renders (~5 min), copy prompt B, start B rendering elsewhere. When A finishes, attach to Curator, do preview. Cycle. This is the productive-hour shape — actively driving parallel work.
+**The video-generation-loop session.** You open Curator, see three albums in awaiting-video. Their prompts were drafted when you opened each album's Video workstation and asked for them ([ADR 0027](../adrs/0027-generation-is-invoked-not-pipelined.md)). Copy prompt A, paste in video tool, start rendering. While A renders (~5 min), copy prompt B, start B rendering elsewhere. When A finishes, attach to Curator, do preview. Cycle. This is the productive-hour shape — actively driving parallel work.
 
 **The tag-writing session.** Sit down with 8 albums in awaiting-tag-write, a stack of stickers, your phone with NFC Tools open. Pull up album 1, scan QR to phone, tap sticker on sleeve, mark done, auto-advance to album 2. Repeat. UI supports this via "next album at this state" affordance.
 
@@ -189,9 +189,10 @@ confirm to advance to Awaiting Preview.
 
 **What you do**:
 
-1. Click into album detail, jump to preview
-2. Watch the video play alongside the palette animation
-3. Decide: **Looks good** (advance) or **Something's off** (jump back to palette or video)
+1. Click into album detail, jump to the Preview workstation
+2. Watch the video play alongside the sleeve and the palette animation (bench preview — nothing leaves the window)
+3. Optionally arm the room and run the **room rehearsal** — the real lights, display and Sonos
+4. Decide: **Looks good** (advance) or **Something's off** (jump back to Look or Video)
 
 **Multi-item flow**: less common. Preview is subjective; usually done one at a time. But the queue supports "next album in awaiting preview" if you're in a flow.
 
@@ -234,7 +235,9 @@ confirm to advance to Awaiting Preview.
 
 **Time per album**: 30 seconds to a couple minutes, depending on how much you want to listen.
 
-**A shortcut for the desk**: the **Simulate scan** button on album detail fires a fake scan event to Conductor and Backdrop. Useful for verifying the runtime accepts the album's URI without walking to the listening room. Doesn't replace physical verification (you still want to make sure the sticker's readable at the right position), but catches a lot of "does this play at all" issues without moving.
+**A shortcut for the desk**: the **room rehearsal** in Preview fires a fake scan event to Conductor, Backdrop and Amp. Useful for verifying the runtime accepts the album's URI without walking to the listening room. Doesn't replace physical verification (you still want to make sure the sticker's readable at the right position), but catches a lot of "does this play at all" issues without moving.
+
+> **2026-07-25 ([ADR 0028](../adrs/0028-preview-bench-and-room-modes.md)):** this was a **Simulate scan** button filed under Verify, firing at two services. It is now Preview's room mode, fans out to three (Amp joins for audio), and requires the room-arm switch — because it changes the lights and starts music in a room that may have other people in it. Bench preview is the always-safe default.
 
 ## 8. The card art track (optional, parallel)
 
@@ -274,7 +277,7 @@ Not really a session shape, but worth naming. Four modes on the Add screen:
 
 **Paste URI** — for the "I have a list of URIs ready" case. One per line, submit all at once. Fastest bulk-add path when your albums are all on Spotify.
 
-**Discogs collection** — for the "I already catalog my records on Discogs" case. Browse your Discogs collection (art, title, artist, year), click "Send to Roadie" per album. The album carries `metadata.source: "discogs"`; Roadie fetches the release detail + cover image off the request path, then goes to palette + prompt generation like any other source ([ADR 0017](../adrs/0017-discogs-personal-token-and-direct-images.md)).
+**Discogs collection** — for the "I already catalog my records on Discogs" case. Browse your Discogs collection (art, title, artist, year), click "Send to Roadie" per album. The album carries `metadata.source: "discogs"`; Roadie fetches the release detail + cover image off the request path, then goes to palette generation like any other source ([ADR 0017](../adrs/0017-discogs-personal-token-and-direct-images.md)).
 
 **Manual entry** — for the "this isn't on Spotify" case. Fill out title, artist, year, upload art. Roadie skips the metadata/art steps and goes straight to palette + prompt generation. The album carries `metadata.source: "manual"` forever, but downstream everything works the same.
 
@@ -330,7 +333,9 @@ The primary flow above is the common case. A few variants worth naming:
 
 Several design principles fall out of the queue-pull model:
 
-**Album detail is a stateful view, not a form.** The section for the album's current state is prominent; other sections are collapsed or hidden depending on what makes sense. No "fill everything out then submit" mental model.
+**Album detail is a workbench, not a form and not a wizard.** The workstation matching the album's current state is selected by default; every other one stays a click away. No "fill everything out then submit" mental model — and equally, no step order you have to satisfy before the UI will take an artifact you already have.
+
+> **2026-07-25 ([ADR 0026](../adrs/0026-album-detail-is-a-workbench.md)):** this previously read _"other sections are collapsed or hidden depending on what makes sense."_ Hiding turned out never to make sense — artifacts arrive out of order, and a hidden section is indistinguishable from one that doesn't exist. Availability is now never a function of `roadie.state`; see [curator-ui-ux.md](curator-ui-ux.md) §4. This also settles a disagreement inside this very document, whose §5 already said each state is independent (below).
 
 **Next-action buttons everywhere.** Every album, in every queue section, has an obvious button that says what to do next. Never make the user figure out what step they're on.
 
@@ -338,7 +343,9 @@ Several design principles fall out of the queue-pull model:
 
 **Sessions are user-controlled, not system-controlled.** Curator never asks "are you sure you're done for now?" or "would you like to complete this album?" You do what you do; the state persists on disk; you leave.
 
-**The tab-title number is the honest single metric.** "Needs you right now" tells you if there's work. If Curator ever starts putting other numbers in the tab title (queue depth, total albums, errors), the signal gets muddy.
+**The needs-you number is the honest single metric.** "Needs you right now" tells you if there's work. If Curator ever starts showing other numbers beside it (queue depth, total albums, errors), the signal gets muddy.
+
+> **2026-07-25:** this said "tab-title number." Curator is a single-window Electron app — there is no tab. The count lives in the app header; see [curator-ui-ux.md](curator-ui-ux.md) §8. The principle is unchanged: one number, and only that one.
 
 **Empty queue is a valid, positive state.** When no albums need you right now, the queue view should feel accomplished, not empty. Something like "🎵 All caught up. Roadie is idle." Not a "get to work" prompt.
 
@@ -374,5 +381,5 @@ Ambient log-based analysis is enough. No dashboards yet.
 - **When multiple people use one Curator instance** (partner adds records too). Do queue items get assigned? Probably fine to be shared with "who did this last?" audit info in the roadie history. Not currently scoped.
 - **Snooze/postpone.** Sometimes you don't want to deal with an album right now but don't want to leave it in the queue either. Not supported currently; either you do it or you don't. A "not now, remind me next week" flag is a natural add if the queue starts accumulating stale items.
 - **The preview approval is subjective and can drift.** Palette-that-you-approved-in-March might feel wrong in July. Is that a "re-review" state, or do we just live with it? Current design lives with the drift. If it matters later, add a "re-review palette" action.
-- **Physical verification lag.** Album is `awaiting_verify` for weeks because you haven't been in the listening room. Should the tab-title number include it? Probably yes — you should feel that lag. Alternatively, exclude verification-only items from the tab count as "low urgency." Current design includes them.
+- **Physical verification lag.** Album is `awaiting_verify` for weeks because you haven't been in the listening room. Should the header number include it? Probably yes — you should feel that lag. Alternatively, exclude verification-only items from the count as "low urgency." Current design includes them.
 - **Onboarding the first 50 albums vs steady-state.** The first burst has a different rhythm than ongoing additions. Is there a "setup mode" that changes UI? Currently: no; the queue view handles both. Revisit if the first-run experience feels wrong in practice.
