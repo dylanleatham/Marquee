@@ -5,7 +5,6 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AssetStore } from "../src/store/asset-store.js";
 import { addManualAlbum, ValidationError } from "../src/albums/add-manual.js";
-import { activePromptText } from "../src/roadie/prompts.js";
 import { fakeGenerate, fakePayload, fakeRoadie } from "./helpers.js";
 
 const store = () => new AssetStore(mkdtempSync(join(tmpdir(), "curator-add-")));
@@ -15,7 +14,7 @@ const hexToRgb = (hex: string): [number, number, number] => {
 };
 
 describe("addManualAlbum", () => {
-  it("saves art + a fresh asset up front, then Roadie fills palette + prompts", async () => {
+  it("saves art + a fresh asset up front, then Roadie fills the palette", async () => {
     const s = store();
     const roadie = fakeRoadie(s);
     const { curatorId, asset } = await addManualAlbum(
@@ -47,10 +46,9 @@ describe("addManualAlbum", () => {
     expect(done.metadata.genres).toEqual(["funk", "rock"]);
     expect(done.palette!.colors[0]!.hex).toBe("#4B0082");
     expect(done.pattern!.type).toBe("crossfade");
-    expect(activePromptText(done.promptDrafts!.video!)).toContain(
-      "Purple Rain",
-    );
-    expect(done.promptDrafts!.cardArt!.template).toBe("iconic_emblem");
+    // ADR 0027: onboarding stops at the palette. Prompts are drafted from the workstation that
+    // uses them, so adding an album never spends a Gemini call on prompts you may not read.
+    expect(done.promptDrafts).toBeUndefined();
     expect(done.roadie.state).toBe("awaiting_review");
     expect(done.artwork!.resolvedPath).toBe(`media/artwork/${curatorId}.jpg`);
     expect(done.artwork!.contentHash).toMatch(/^sha256:[0-9a-f]{64}$/);
@@ -95,7 +93,7 @@ describe("addManualAlbum", () => {
     expect(asset.roadie.flags.palette_insufficient).toBe(true);
     expect(asset.palette!.insufficient).toBe(true);
     expect(asset.palette!.reason).toBe("monochrome");
-    // Insufficient palette short-circuits before prompt drafting — the human decides first.
+    // Prompts are never drafted during onboarding (ADR 0027) — the human asks for them.
     expect(asset.promptDrafts).toBeUndefined();
   });
 

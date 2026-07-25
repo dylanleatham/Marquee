@@ -95,7 +95,7 @@ const roadieFor = (
   });
 
 describe("Roadie state machine", () => {
-  it("drives a manual album generating_palette → drafting_prompts → awaiting_review", async () => {
+  it("drives a manual album generating_palette → awaiting_review", async () => {
     const s = store();
     const id = seedManual(s);
     const roadie = roadieFor(s);
@@ -107,54 +107,58 @@ describe("Roadie state machine", () => {
     expect(asset.roadie.subState).toBeNull();
     expect(asset.roadie.history.map((h) => h.state)).toEqual([
       "generating_palette",
-      "drafting_prompts",
       "awaiting_review",
     ]);
-    expect(asset.promptDrafts!.video!.template).toBe("abstract_flow");
   });
 
-  it("drafts grounded LLM variant sets when a Gemini client is configured", async () => {
+  // ADR 0027: drafting left the pipeline because it spent two Gemini calls on every album,
+  // including ones whose artifacts the user already had. Adding an album must now cost nothing.
+  it("drafts no prompts and spends no Gemini calls during onboarding", async () => {
     const s = store();
     const id = seedManual(s);
-    const variants = Array.from({ length: 5 }, (_, i) => ({
-      text: `Variant ${i} grounded in the cover art`,
-      nudge: `angle ${i}`,
-    }));
     const fg = createFakeGemini({
       research: "cover facts",
-      json: { variants },
+      json: { variants: [{ text: "v", nudge: "n" }] },
     });
     const gemini = new GeminiClient({ apiKey: "k", fetch: fg.fetch });
     const roadie = roadieFor(s, { gemini });
     roadie.enqueue(id);
     await roadie.drain();
 
-    const drafts = s.read(id)!.promptDrafts!;
-    expect(drafts.video!.generator).toBe("gemini");
-    expect(drafts.video!.variants).toHaveLength(5);
-    expect(drafts.cardArt!.generator).toBe("gemini");
-    // One grounded research call + two structured drafting calls (video + card art).
-    expect(fg.calls().filter((c) => c.grounded)).toHaveLength(1);
-    expect(fg.calls().filter((c) => c.structured)).toHaveLength(2);
+    const asset = s.read(id)!;
+    expect(asset.roadie.state).toBe("awaiting_review");
+    expect(asset.promptDrafts).toBeUndefined();
+    expect(asset.roadie.history.map((h) => h.state)).not.toContain(
+      "drafting_prompts",
+    );
+    expect(fg.calls()).toHaveLength(0);
   });
 
-  it("falls back to the deterministic templates when the Gemini call fails", async () => {
+  // An album persisted mid-pipeline by a pre-ADR-0027 build must still be able to finish rather
+  // than wedge on a state nothing transitions into any more.
+  it("still completes an album left parked in drafting_prompts by an older build", async () => {
     const s = store();
     const id = seedManual(s);
-    const fg = createFakeGemini({ failStatus: 500 });
-    const gemini = new GeminiClient({ apiKey: "k", fetch: fg.fetch });
-    const roadie = roadieFor(s, { gemini });
+    const parked = s.read(id)!;
+    parked.palette = {
+      colors: [{ hex: "#112233", role: "primary" }],
+      generatedAt: "2026-07-11T00:00:00.000Z",
+      algorithm: "palette-press",
+      handEdited: false,
+    };
+    parked.roadie.state = "drafting_prompts";
+    s.save(parked);
+
+    const roadie = roadieFor(s);
     roadie.enqueue(id);
     await roadie.drain();
 
-    // A dead key must not strand the album: it still reaches review, on templates.
     const asset = s.read(id)!;
     expect(asset.roadie.state).toBe("awaiting_review");
-    expect(asset.promptDrafts!.video!.generator).toBe("template");
-    expect(asset.promptDrafts!.video!.template).toBe("abstract_flow");
+    expect(asset.promptDrafts!.video).toBeDefined();
   });
 
-  it("drives a Spotify album through fetch → download → palette → prompts", async () => {
+  it("drives a Spotify album through fetch → download → palette", async () => {
     const s = store();
     const asset = buildFreshAsset({
       curatorId: "bbbb2222",
@@ -178,7 +182,6 @@ describe("Roadie state machine", () => {
       "fetching_metadata",
       "downloading_art",
       "generating_palette",
-      "drafting_prompts",
       "awaiting_review",
     ]);
   });

@@ -115,6 +115,63 @@ export function redraftPrompt(
   return asset;
 }
 
+/**
+ * Draft one prompt type on demand — the lazy replacement for Roadie's old `drafting_prompts`
+ * pipeline step (ADR 0027). Prefers the grounded LLM path and silently falls back to the
+ * deterministic templates, so like the pipeline step it *cannot fail*: the caller always gets
+ * prompts, LLM-authored or templated.
+ *
+ * Distinct from its two neighbours on purpose:
+ *  - `redraftPrompt` is templates-only with an explicit template choice ("try a different style").
+ *  - `regeneratePromptWithAI` requires Gemini and never falls back ("I specifically want AI").
+ *  - this one is "I have no prompts yet, get me the best available" — the first-visit action.
+ *
+ * Idempotent by intent, not by guard: drafting again simply replaces that type's draft.
+ */
+export async function draftPrompt(
+  deps: ActionDeps,
+  curatorId: string,
+  type: PromptType,
+): Promise<AlbumAsset> {
+  if (!PROMPT_TYPES.includes(type))
+    throw new ValidationError(`unknown prompt type ${type}`);
+  const asset = load(deps.store, curatorId);
+  if (!asset.palette)
+    throw new ValidationError(
+      "palette isn't generated yet — nothing to draft from",
+    );
+
+  const colors = asset.palette.colors.map((c) => ({
+    hex: c.hex,
+    role: c.role,
+  }));
+
+  let drafted: DraftedPrompt | undefined;
+  if (deps.gemini) {
+    try {
+      drafted = await draftOnePromptWithGemini(
+        deps.gemini,
+        type,
+        asset.metadata,
+        colors,
+        { now: clock(deps) },
+      );
+    } catch {
+      // Fall through to templates — the whole point of the fallback is that drafting can't fail.
+      drafted = undefined;
+    }
+  }
+  drafted ??= draftPrompts(asset.metadata, colors, { now: clock(deps) })[type];
+
+  // Re-read + save synchronously so a slow LLM draft can't clobber a concurrent write (#38).
+  const saved = deps.store.update(curatorId, (a) => {
+    a.promptDrafts = { ...a.promptDrafts, [type]: drafted };
+  });
+  if (!saved)
+    throw new NotFoundError(`album ${curatorId} was deleted mid-draft`);
+  return saved;
+}
+
 /** Choose which variant of a drafted prompt is active (the one Copy hands off / generation uses). */
 export function selectPromptVariant(
   deps: ActionDeps,

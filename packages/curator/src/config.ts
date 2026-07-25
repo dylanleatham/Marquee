@@ -69,6 +69,12 @@ export interface Config {
     mediaDir: string;
     syncMediaLocally: boolean;
   };
+  /**
+   * How Curator reaches Amp for the room rehearsal's audio leg (ADR 0028). Absent → the rehearsal
+   * still drives lights and video, and reports audio as unconfigured rather than failing. Same
+   * `X-Trigger-Secret` as the other services.
+   */
+  amp?: { url: string; sharedSecret?: string };
 }
 
 // Upload ceiling. A compiled-in 500 MB cap rejected real 1 GB visualizer videos (issue #12), so
@@ -97,6 +103,7 @@ export function loadConfig(override: Partial<Config> = {}): Config {
   const geminiFile = file.gemini ?? {};
   const conductorFile = file.conductor ?? {};
   const backdropFile = file.backdrop ?? {};
+  const ampFile = file.amp ?? {};
 
   // Resolve the data dir first: it holds settings.json, the user-writable credential store the
   // packaged app relies on (it has no repo `.env`). config.toml/env still win, so dev is unchanged.
@@ -212,6 +219,13 @@ export function loadConfig(override: Partial<Config> = {}): Config {
     backdropFile.sync_media_locally ?? process.env.BACKDROP_SYNC_MEDIA_LOCALLY,
   );
 
+  // Amp (ADR 0028) — the room rehearsal's audio leg. Configured only when a URL is present; absent
+  // → the rehearsal reports audio as unconfigured rather than failing (lights + video still run).
+  const ampUrl = (ampFile.url as string | undefined) ?? process.env.AMP_URL;
+  const ampSecret =
+    (ampFile.shared_secret as string | undefined) ??
+    process.env.TRIGGER_SHARED_SECRET;
+
   // The OAuth callback the Spotify authorize redirect lands on. Defaults to the loopback address +
   // Curator's port (Spotify allows a 127.0.0.1 loopback with an explicit port); overridable so a
   // non-default host/port or a registered URI can be pinned. Must be registered on the Spotify app.
@@ -252,6 +266,14 @@ export function loadConfig(override: Partial<Config> = {}): Config {
             mediaDir: backdropMediaDir,
             syncMediaLocally: backdropSyncLocal,
             ...(backdropSecret ? { sharedSecret: backdropSecret } : {}),
+          },
+        }
+      : {}),
+    ...(ampUrl
+      ? {
+          amp: {
+            url: ampUrl,
+            ...(ampSecret ? { sharedSecret: ampSecret } : {}),
           },
         }
       : {}),

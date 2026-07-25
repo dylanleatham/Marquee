@@ -67,6 +67,7 @@ import {
   localCopyTransfer,
   type BackdropSyncLike,
 } from "./backdrop/sync.js";
+import { AmpClient } from "./amp/client.js";
 
 export interface BuildOptions {
   config?: Partial<Config>;
@@ -94,6 +95,8 @@ export interface BuildOptions {
   backdrop?: BackdropSyncLike;
   /** Injected generation-job manager (tests may pass one with a fake clock); prod builds its own. */
   jobs?: GenerationJobs;
+  /** Injected Amp client (tests pass one with a fake fetch); prod builds one from config.amp. */
+  amp?: AmpClient;
 }
 
 const summary = (a: AlbumAsset) => ({
@@ -414,6 +417,18 @@ export function buildServer(opts: BuildOptions = {}) {
           },
         })
       : disabledBackdropSync);
+  // Amp — the room rehearsal's audio leg (ADR 0028). Absent unless an Amp URL is configured; the
+  // rehearsal then reports audio as unconfigured rather than failing (lights + video still run).
+  const amp: AmpClient | undefined =
+    opts.amp ??
+    (config.amp
+      ? new AmpClient({
+          url: config.amp.url,
+          ...(config.amp.sharedSecret
+            ? { sharedSecret: config.amp.sharedSecret }
+            : {}),
+        })
+      : undefined);
   // Upload ceiling comes from config (default 2 GB) — visualizer videos are the large uploads;
   // cover/card art are tiny. Over-ceiling uploads surface as a 413 via actionError (issue #12).
   app.register(multipart, { limits: { fileSize: config.maxUploadBytes } });
@@ -711,6 +726,21 @@ export function buildServer(opts: BuildOptions = {}) {
       }
     },
   );
+
+  // Draft a prompt type on demand — the lazy replacement for Roadie's old `drafting_prompts` step
+  // (ADR 0027). Prefers Gemini, falls back to templates, so it can't fail on a missing key.
+  app.post("/api/albums/:curatorId/prompts/:type/draft", async (req, reply) => {
+    const { curatorId, type } = req.params as {
+      curatorId: string;
+      type: PromptType;
+    };
+    try {
+      const asset = await actions.draftPrompt(actionDeps, curatorId, type);
+      return { promptDrafts: asset.promptDrafts };
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
+  });
 
   // Regenerate one prompt as a fresh grounded LLM variant set (on-demand "Regenerate with AI").
   app.post(
@@ -1242,6 +1272,134 @@ export function buildServer(opts: BuildOptions = {}) {
     } catch {
       return { reachable: false, paired: false, listeningRoomId: null };
     }
+  });
+
+  // Audio leg of the rehearsal (ADR 0028): proxy to Amp so the browser never holds the shared
+  // secret — same rationale as the Conductor rows above. Amp-unconfigured/unreachable is reported,
+  // not an error: the rehearsal degrades to lights + video.
+  app.post("/api/demo/audio", async (req, reply) => {
+    const { curatorId } = (req.body ?? {}) as { curatorId?: string };
+    if (!curatorId)
+      return reply.code(400).send({ error: "curatorId is required" });
+    const asset = store.read(curatorId);
+    if (!asset) return reply.code(404).send({ error: "not found" });
+    if (!amp)
+      return reply.code(200).send({
+        played: false,
+        reason:
+          "Amp isn't configured — set [amp] url to hear audio in a rehearsal",
+      });
+    const uri = asset.metadata.spotifyUri;
+    if (!uri)
+      return reply.code(200).send({
+        played: false,
+        reason: "This album has no Spotify URI, so Amp has nothing to stream",
+      });
+    try {
+      await amp.play(uri);
+      return { played: true };
+    } catch (err) {
+      return reply
+        .code(200)
+        .send({ played: false, reason: (err as Error).message });
+    }
+  });
+
+  // --- Room rehearsal: the real runtime path minus the physical tag (ADR 0028) ---
+  // Fans a scan event out to Conductor and Backdrop exactly as Stylus would, and drives Amp via its
+  // documented admin override. Every leg is best-effort and independently reported, so one dead
+  // service degrades the rehearsal instead of failing it (runtime-overview §8 error philosophy).
+  const scanEvent = (curatorId: string, event: "start" | "stop") => ({
+    event,
+    ...(event === "start"
+      ? { uri: `curator:album:${curatorId}`, tagUid: "00:00:00:00:00:00:00" }
+      : {}),
+    readerId: "curator-rehearsal",
+    at: new Date().toISOString(),
+  });
+
+  /** POST a scan event to a sibling service. Bounded like every other outbound call (5s). */
+  const callScan = async (
+    base: string,
+    secret: string | undefined,
+    body: unknown,
+  ) => {
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+    };
+    if (secret) headers["x-trigger-secret"] = secret;
+    const res = await fetch(`${base}/api/scan`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) throw new Error(`${res.status}`);
+  };
+
+  /**
+   * Run one rehearsal leg, collapsing any failure into a reportable reason. `skip` is the reason a
+   * leg didn't run at all (unconfigured, opted out, nothing to play) — distinct from a leg that ran
+   * and failed, so the UI can say "no Amp configured" rather than implying the call broke.
+   */
+  const leg = async (
+    name: string,
+    skip: string | null,
+    run: () => Promise<unknown>,
+  ): Promise<{ service: string; ok: boolean; reason?: string }> => {
+    if (skip) return { service: name, ok: false, reason: skip };
+    try {
+      await run();
+      return { service: name, ok: true };
+    } catch (err) {
+      return { service: name, ok: false, reason: (err as Error).message };
+    }
+  };
+
+  app.post("/api/albums/:curatorId/simulate-scan", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const asset = store.read(curatorId);
+    if (!asset) return reply.code(404).send({ error: "not found" });
+    const { audio = true } = (req.body ?? {}) as { audio?: boolean };
+    const body = scanEvent(curatorId, "start");
+
+    const services = await Promise.all([
+      leg("conductor", null, () =>
+        callScan(config.conductor.url, config.conductor.sharedSecret, body),
+      ),
+      leg("backdrop", config.backdrop ? null : "not configured", () =>
+        callScan(config.backdrop!.url, config.backdrop!.sharedSecret, body),
+      ),
+      leg(
+        "amp",
+        !amp
+          ? "not configured"
+          : !audio
+            ? "audio opted out"
+            : !asset.metadata.spotifyUri
+              ? "album has no Spotify URI"
+              : null,
+        () => amp!.play(asset.metadata.spotifyUri!),
+      ),
+    ]);
+    return { services };
+  });
+
+  app.post("/api/albums/:curatorId/simulate-scan/stop", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    if (!store.read(curatorId))
+      return reply.code(404).send({ error: "not found" });
+    const body = scanEvent(curatorId, "stop");
+    const services = await Promise.all([
+      leg("conductor", null, () =>
+        callScan(config.conductor.url, config.conductor.sharedSecret, body),
+      ),
+      leg("backdrop", config.backdrop ? null : "not configured", () =>
+        callScan(config.backdrop!.url, config.backdrop!.sharedSecret, body),
+      ),
+      leg("amp", amp ? null : "not configured", () => amp!.stop()),
+    ]);
+    return { services };
   });
 
   // --- Backdrop sync (step 9, roadie-spec §6) — push Curator's library projection to Backdrop ---
