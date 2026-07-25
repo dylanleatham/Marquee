@@ -2,6 +2,7 @@
 // video (upload / player / detach), card art, and the preview checkpoint. Each action goes through
 // the `run` helper the page provides, which handles errors + re-polls the album.
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   api,
   videoUrl,
@@ -998,7 +999,12 @@ export function TagWriteSection({
       <div className="tagwrite__payload muted">
         Write each URI to its sticker (NFC Tools), or download the Flipper .nfc.
         The <strong>card</strong> plays over Sonos; the <strong>sleeve</strong>{" "}
-        is for the vinyl.
+        is for the vinyl.{" "}
+        {/* Never written a tag before? The how-to lives in-app (issue #103), reachable from the
+            moment the question actually arises rather than buried in a repo doc. */}
+        <Link to="/help/tags" className="tagwrite__help">
+          How do I write these?
+        </Link>
       </div>
       <div className="tagwrite__objects">
         {writeRow("sleeve", "sleeve tag")}

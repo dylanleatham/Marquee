@@ -13,6 +13,7 @@ import { AlbumDetail } from "./pages/AlbumDetail";
 import { AddAlbum } from "./pages/AddAlbum";
 import { DemoRoom } from "./pages/DemoRoom";
 import { Settings } from "./pages/Settings";
+import { TagHelp } from "./pages/TagHelp";
 import { RoadieStrip } from "./components/RoadieStrip";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ConfirmProvider } from "./components/Confirm";
@@ -99,6 +100,7 @@ export function App() {
               />
               <Route path="/demo/:curatorId" element={<DemoRoom />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/help/tags" element={<TagHelp />} />
               <Route
                 path="*"
                 element={
