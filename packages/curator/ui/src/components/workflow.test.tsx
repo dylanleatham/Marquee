@@ -6,6 +6,7 @@ import {
   fireEvent,
   waitFor,
 } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import {
   PromptBlock,
   VideoSection,
@@ -644,11 +645,13 @@ describe("TagWriteSection (issue #55)", () => {
   it("marks the sleeve tag written and can't verify before the album is ready", () => {
     const run = vi.fn();
     render(
-      <TagWriteSection
-        curatorId="abcd1234"
-        asset={albumAt("awaiting_tag_write")}
-        run={run}
-      />,
+      <MemoryRouter>
+        <TagWriteSection
+          curatorId="abcd1234"
+          asset={albumAt("awaiting_tag_write")}
+          run={run}
+        />
+      </MemoryRouter>,
     );
     // The payload to write is shown, and the verify button is disabled until awaiting_verify.
     expect(screen.getByText("curator:album:abcd1234")).toBeTruthy();
@@ -661,11 +664,13 @@ describe("TagWriteSection (issue #55)", () => {
 
   it("offers a distinct card URI + card .nfc download (ADR 0023)", () => {
     render(
-      <TagWriteSection
-        curatorId="abcd1234"
-        asset={albumAt("awaiting_tag_write")}
-        run={vi.fn()}
-      />,
+      <MemoryRouter>
+        <TagWriteSection
+          curatorId="abcd1234"
+          asset={albumAt("awaiting_tag_write")}
+          run={vi.fn()}
+        />
+      </MemoryRouter>,
     );
     // Sleeve is curator:album, card is curator:card — different URIs on the two stickers.
     expect(screen.getByText("curator:album:abcd1234")).toBeTruthy();
@@ -682,16 +687,18 @@ describe("TagWriteSection (issue #55)", () => {
   it("shows the sleeve as done and enables verify at awaiting_verify", () => {
     const run = vi.fn();
     render(
-      <TagWriteSection
-        curatorId="abcd1234"
-        asset={albumAt("awaiting_verify", {
-          tag: {
-            payload: "curator:album:abcd1234",
-            sleeve: { written: true, writtenAt: "2026-07-22T00:00:00Z" },
-          },
-        })}
-        run={run}
-      />,
+      <MemoryRouter>
+        <TagWriteSection
+          curatorId="abcd1234"
+          asset={albumAt("awaiting_verify", {
+            tag: {
+              payload: "curator:album:abcd1234",
+              sleeve: { written: true, writtenAt: "2026-07-22T00:00:00Z" },
+            },
+          })}
+          run={run}
+        />
+      </MemoryRouter>,
     );
     expect(screen.getByText("✓ sleeve tag written")).toBeTruthy();
     fireEvent.click(screen.getByText("Mark physically verified"));
@@ -700,11 +707,13 @@ describe("TagWriteSection (issue #55)", () => {
 
   it("shows the verified banner once done", () => {
     render(
-      <TagWriteSection
-        curatorId="abcd1234"
-        asset={albumAt("verified")}
-        run={vi.fn()}
-      />,
+      <MemoryRouter>
+        <TagWriteSection
+          curatorId="abcd1234"
+          asset={albumAt("verified")}
+          run={vi.fn()}
+        />
+      </MemoryRouter>,
     );
     expect(screen.getByText(/fully onboarded/)).toBeTruthy();
     expect(screen.queryByText("Mark physically verified")).toBeNull();
@@ -727,13 +736,15 @@ describe("TagWriteSection — payload + QR", () => {
 
   const renderTag = (over: Partial<AlbumAsset> = {}) =>
     render(
-      <TagWriteSection
-        curatorId="abcd1234"
-        asset={tagged(over)}
-        run={async (fn) => {
-          await fn();
-        }}
-      />,
+      <MemoryRouter>
+        <TagWriteSection
+          curatorId="abcd1234"
+          asset={tagged(over)}
+          run={async (fn) => {
+            await fn();
+          }}
+        />
+      </MemoryRouter>,
     );
 
   it("shows a QR and the server's payload for each object", async () => {

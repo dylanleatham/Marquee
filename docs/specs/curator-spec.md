@@ -587,7 +587,7 @@ Settings that live here:
   Curator-local, never pushed. Connect/Disconnect via the `/api/spotify/auth/*` routes take effect
   immediately (no restart). The `spotify.redirect_uri` (loopback callback) defaults to Curator's
   host+port and is overridable via `config.toml`/env.
-- Tag placement guide text — a reminder string like "back cover, upper-right" shown to the user during the tag write flow
+- ~~Tag placement guide text~~ — **superseded 2026-07-25 (issue #103).** Replaced by an in-app **Writing NFC tags** help page (`/help/tags`), which teaches both the phone and Flipper paths and carries the placement guidance as advice. A blank text field you had to author yourself taught nobody anything; nothing is stored in settings for this any more.
 
 ## 9. Video workflow (mostly unchanged from prior spec)
 
@@ -702,13 +702,13 @@ _Left, fixed_ — art (large), metadata, state badge, album actions (Demo Room, 
 _Below it, the **rail**_ — five workstations. The selected one gets the full canvas; each is
 independently routable (`/albums/:curatorId/video`) and **always reachable**:
 
-| #   | Workstation | Contains                                                                                                               |
-| --- | ----------- | ---------------------------------------------------------------------------------------------------------------------- |
-| 1   | **Look**    | Palette (swatches, editor, role dropdowns, reorder, "reset to auto") · pattern · artwork override                      |
-| 2   | **Video**   | The five video prompts · clip gallery · splice · drop zone / attached preview · Detach · Replace                       |
-| 3   | **Card**    | The five card-art prompts · candidate set · drop zone / attached preview · Detach · Replace · "Download print version" |
-| 4   | **Preview** | Bench preview and room rehearsal ([ADR 0028](../adrs/0028-preview-bench-and-room-modes.md))                            |
-| 5   | **Ship**    | Tag URI + QR + placement guide · `.nfc` download · Mark as written (separate sleeve/card toggles) · Verify physical    |
+| #   | Workstation | Contains                                                                                                                                                 |
+| --- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **Look**    | Palette (swatches, editor, role dropdowns, reorder, "reset to auto") · pattern · artwork override                                                        |
+| 2   | **Video**   | The five video prompts · clip gallery · splice · drop zone / attached preview · Detach · Replace                                                         |
+| 3   | **Card**    | The five card-art prompts · candidate set · drop zone / attached preview · Detach · Replace · "Download print version"                                   |
+| 4   | **Preview** | Bench preview and room rehearsal ([ADR 0028](../adrs/0028-preview-bench-and-room-modes.md))                                                              |
+| 5   | **Ship**    | Tag URI + QR per object · `.nfc` download · link to the tag-writing help (issue #103) · Mark as written (separate sleeve/card toggles) · Verify physical |
 
 - **Video prompts** — five, default `narrative` style ([ADR 0022](../adrs/0022-video-prompt-parity-narrative-and-per-prompt.md)),
   each shown in full with its own **Copy** and, when API generation is on, its own **Generate clip**
@@ -816,6 +816,8 @@ Slide-over panel when a batch operation runs. Progress + cancel.
 
 Simple form-based screen accessible from a header link or a corner menu. Sections:
 
+<<<<<<< HEAD
+
 - **Listening room** — dropdown of Hue rooms (fetched via `GET /api/demo/rooms`, which proxies
   Conductor). Changing the selection pushes to Conductor via `PUT /api/demo/room`. First in the
   screen, because it is the setting most likely to change. _(Built 2026-07-25, issue #101 — it was
@@ -837,6 +839,20 @@ Simple form-based screen accessible from a header link or a corner menu. Section
   > The genuinely useful half — _is the thing I configured actually answering?_ — is what shipped.
 
 - **Tag placement guide** — a text field for the placement reminder shown during tag write ("back cover, upper-right corner, 25mm round"). Just a string; whatever helps you stay consistent.
+  \=======
+- **Listening room** — dropdown of Hue rooms (fetched from `/api/settings/available-rooms`, which proxies to Conductor). Changing the selection pushes to Conductor via `PUT /api/settings`. Shows current selection prominently — this is the setting most likely to change.
+- **Service URLs** — Conductor URL, Backdrop URL, plus their shared secrets. Editable; changes update the TOML config on disk. Test-connection buttons for each service that fire a lightweight probe (`GET /api/bridge/status` on Conductor, `/healthz` on Backdrop) and report success/failure.
+- ~~**Tag placement guide**~~ — **superseded 2026-07-25 (issue #103).** Instead of a settings field
+  holding a reminder you write yourself, Curator ships a **Writing NFC tags** help page at
+  `/help/tags`, linked from the Ship workstation (where the question arises) and from the app menu's
+  Help submenu. It covers both writing paths end to end and leads with the two mistakes that don't
+  announce themselves: writing a sleeve URI onto a card (or vice versa — [ADR 0023](../adrs/0023-amp-sonos-playback-and-card-uri.md);
+  the tag writes fine and quietly does the wrong thing) and setting NTAG213's one-way lock/password
+  pages. Placement guidance lives there as advice. Deeper firmware detail stays in
+  [the runbook §A7](../runbook.md) rather than being duplicated in-app.
+
+> > > > > > > 9accb59 (feat(curator): in-app help for writing NFC tags)
+
 - **Spotify** — Client ID + write-only Client Secret (needed for search/add), plus a **"Connect Spotify" / "Disconnect"** control (issue #23 / [ADR 0014](../adrs/0014-spotify-user-oauth-pkce.md)). Connect opens the Spotify authorize page in the system browser (Authorization Code + PKCE); once the loopback callback returns, the screen reflects the logged-in state. Login is optional — it routes calls through the user session (personalized search now, Connect playback later); without it Curator uses app-only catalog access. The connect button is disabled until credentials are saved.
 - **Gemini** — write-only API key + the opt-in artifact-generation toggles ([ADR 0012](../adrs/0012-artifact-generation-is-opt-in.md)).
 

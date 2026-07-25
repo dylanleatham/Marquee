@@ -168,6 +168,11 @@ function buildMenu(): void {
         label: "Help",
         submenu: [
           {
+            label: "Writing NFC tags…",
+            click: go("/help/tags"),
+          },
+          { type: "separator" },
+          {
             label: "Marquee docs on GitHub",
             click: () =>
               void shell.openExternal(

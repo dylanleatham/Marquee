@@ -1583,3 +1583,42 @@ em {
 .legs__item--bad .legs__dot {
   background: var(--alert);
 }
+
+/* --- tag-writing help (issue #103): read standing at the shelf, so generous measure + spacing --- */
+.taghelp h2 {
+  font-size: 17px;
+  margin: 0 0 8px;
+}
+.taghelp p,
+.taghelp li {
+  max-width: 68ch; /* a text column inside a wide window — §9.3's "text-column decision" */
+}
+.taghelp__list,
+.taghelp__steps ol {
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.taghelp__steps {
+  margin: 18px 0;
+}
+/* The two warnings earn the alert treatment: both describe silent, hard-to-undo mistakes. */
+.taghelp__warn {
+  margin: 20px 0;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--alert) 35%, var(--line));
+  background: color-mix(in srgb, var(--alert) 8%, transparent);
+}
+.taghelp__warn h2 {
+  color: #ff9a9d;
+}
+.taghelp__more {
+  margin-top: 28px;
+  font-size: 13px;
+}
+.tagwrite__help {
+  color: var(--amber);
+  text-decoration: underline;
+}
