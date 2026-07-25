@@ -13,9 +13,7 @@ import {
   rmSync,
   readFileSync,
 } from "node:fs";
-import { relative } from "node:path";
 import type { AssetStore } from "../store/asset-store.js";
-import { toPosix } from "../store/paths.js";
 import type { AlbumAsset } from "./asset.js";
 import { detectImage, ImageError } from "../media/images.js";
 
@@ -37,10 +35,6 @@ export function resolvedArtworkFile(
     ? store.paths.artworkOverrideFile(asset.curatorId, overrideExt(asset))
     : store.paths.artworkFile(asset.curatorId);
 }
-
-/** POSIX-relative path for the asset JSON, which stores paths portably (curator-spec §12 gotcha). */
-const posixRelative = (store: AssetStore, abs: string): string =>
-  toPosix(relative(store.paths.dataDir, abs));
 
 const sha256 = (bytes: Buffer): string =>
   `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
@@ -72,7 +66,7 @@ export function applyArtworkOverride(
 
   const saved = store.update(curatorId, (a) => {
     a.artwork = {
-      resolvedPath: posixRelative(store, abs),
+      resolvedPath: store.paths.relPosix(abs),
       overrideActive: true,
       contentHash: sha256(bytes),
     };
@@ -105,7 +99,7 @@ export function removeArtworkOverride(
     a.roadie.flags.art_override_active = false;
     if (hasBase) {
       a.artwork = {
-        resolvedPath: posixRelative(store, base),
+        resolvedPath: store.paths.relPosix(base),
         overrideActive: false,
         // The fetched cover's own hash — recomputed rather than remembered, so this stays correct
         // even for albums whose override predates this field being tracked.
