@@ -22,6 +22,7 @@ import {
   type PaletteGenerator,
 } from "./albums/add-manual.js";
 import { addSpotifyAlbum, DuplicateAlbumError } from "./albums/add-spotify.js";
+import { bucketFor, peerContext } from "./albums/peers.js";
 import {
   addAlbumsBatch,
   regeneratePalettesRunner,
@@ -262,12 +263,10 @@ function buildQueue(store: AssetStore) {
     needs_manual: [],
     done_recently: [],
   };
-  for (const asset of store.list()) {
-    const state = asset.roadie.state as RoadieState;
-    if (state === "verified") groups.done_recently!.push(queueEntry(asset));
-    else if (state in groups) groups[state]!.push(queueEntry(asset));
-    else groups.processing!.push(queueEntry(asset)); // fresh + all fetching/downloading/… states
-  }
+  // Bucketing is shared with the peer walk (issue #94) so "next album at this state" can never
+  // disagree with the list you were just looking at.
+  for (const asset of store.list())
+    groups[bucketFor(asset.roadie.state)]!.push(queueEntry(asset));
   groups.done_recently = groups.done_recently!.slice(0, DONE_RECENTLY_CAP);
   return groups;
 }
@@ -1655,6 +1654,17 @@ export function buildServer(opts: BuildOptions = {}) {
 
   // --- Roadie: queue view + observability + controls (roadie-spec §10/§11/§12) ---
   app.get("/api/agent/queue", async () => buildQueue(store));
+
+  /**
+   * Where this album sits among the others at the same state, and who is either side (issue #94).
+   * Server-side so the neighbours are the queue's, in the queue's order — deriving them on the
+   * detail page would be a second implementation of that ordering, free to drift.
+   */
+  app.get("/api/albums/:curatorId/peers", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const peers = peerContext(store.list(), curatorId);
+    return peers ?? reply.code(404).send({ error: "album not found" });
+  });
 
   // Just the counts — backs the browser-tab "needs you right now" badge (curator-spec §10).
   app.get("/api/agent/queue/counts", async () => queueCounts(store));

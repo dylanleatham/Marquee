@@ -341,6 +341,8 @@ Several design principles fall out of the queue-pull model:
 
 **"Next album at this state" is a first-class affordance.** After completing an action, the natural question is "am I in a flow?" If yes, jump to the next album at the same state. If no, back to queue view. Make both easy.
 
+> **Built 2026-07-26** ([issue #94](https://github.com/dylanleatham/Marquee/issues/94)) — `[` / `]`, plus Prev/Next controls beside the Queue link on the album detail, showing your position in the run ("2 of 3 awaiting tag write"). The neighbours come from the server sharing the queue's own bucketing, so a peer walk can't disagree with the list you were just looking at. Navigating keeps the workstation you're on, and the run doesn't wrap — the end of a run says so rather than looping you onto an album you already finished.
+
 **Sessions are user-controlled, not system-controlled.** Curator never asks "are you sure you're done for now?" or "would you like to complete this album?" You do what you do; the state persists on disk; you leave.
 
 **The needs-you number is the honest single metric.** "Needs you right now" tells you if there's work. If Curator ever starts showing other numbers beside it (queue depth, total albums, errors), the signal gets muddy.

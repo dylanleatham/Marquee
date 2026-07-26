@@ -1801,3 +1801,31 @@ em {
   color: #fff;
   mix-blend-mode: difference;
 }
+
+/* A compact button for dense rows — the batch panel's dismiss (issue #104) and the peer navigator
+   (issue #94) both reference this. It was referenced before it existed; defined here so those
+   controls are actually smaller rather than silently full-size. */
+.btn--small {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+/* --- next album at this state (issue #94) ----------------------------------------------------
+   Sits with the Queue link in the detail sidebar: both answer "where do I go next", and keeping
+   them together means the flow affordance is found by anyone already looking for the way out. */
+.peernav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 4px;
+  flex-wrap: wrap;
+}
+.peernav__count {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.peernav__count em {
+  font-style: normal;
+  display: block;
+}

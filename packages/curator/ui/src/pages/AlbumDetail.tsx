@@ -12,6 +12,7 @@ import { usePoll } from "../hooks";
 import { Cover, StateBadge, Spinner } from "../components/common";
 import { PaletteEditor } from "../components/PaletteEditor";
 import { ArtworkSection } from "../components/ArtworkSection";
+import { PeerNav } from "../components/PeerNav";
 import { FeelingPalette } from "../components/FeelingPalette";
 import { useConfirm } from "../components/Confirm";
 import { PreviewWorkstation } from "../components/PreviewWorkstation";
@@ -40,6 +41,9 @@ export function AlbumDetail() {
   } = usePoll<AlbumAsset>(() => api.album(curatorId), 3000);
   // Whether API artifact generation is enabled (opt-in; default off — see Settings). Polled slowly.
   const { data: gemini } = usePoll(api.geminiSettings, 30000);
+  // The album's neighbours at the same state (issue #94). Polled, not fetched once: finishing this
+  // album changes its state, and the control has to stop offering a run you've just left.
+  const { data: peers } = usePoll(() => api.albumPeers(curatorId), 5000);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -96,6 +100,9 @@ export function AlbumDetail() {
         <button className="btn btn--ghost" onClick={() => navigate("/")}>
           ← Queue
         </button>
+        {/* "Am I in a flow?" — the next album at this state, without a round trip through the
+            queue (issue #94). Sits with the Queue link because both answer "where do I go next". */}
+        <PeerNav peers={peers ?? null} {...(section ? { section } : {})} />
         <div className="banner banner--error">Couldn't load album: {error}</div>
       </div>
     );
