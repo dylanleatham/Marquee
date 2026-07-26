@@ -775,6 +775,41 @@ export function buildServer(opts: BuildOptions = {}) {
   });
 
   // Re-run Palette Press from the cover art. Skips a hand-edited palette unless ?force=1 (→ 409).
+  /**
+   * Propose colours from how the album *sounds* (ADR 0030 / issue #105). Two Gemini calls, invoked
+   * by a button press — never by the pipeline or a sweep (ADR 0027). Stores candidates and changes
+   * nothing else, so pressing it can't cost you the palette you have.
+   */
+  app.post("/api/albums/:curatorId/palette/feeling", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    try {
+      const asset = await actions.proposeFeelingPalette(actionDeps, curatorId);
+      return { candidates: asset.paletteCandidates };
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
+  });
+
+  /**
+   * Apply one of the offered palettes (ADR 0030). `cover` re-extracts and drops the protection —
+   * the true undo; `feeling`/`blend` take the stored candidate and mark the palette chosen, so the
+   * library sweep leaves it alone. Motion is re-derived from whichever palette wins (ADR 0022).
+   */
+  app.post("/api/albums/:curatorId/palette/choose", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const { source } = (req.body ?? {}) as { source?: string };
+    if (source !== "cover" && source !== "feeling" && source !== "blend")
+      return reply
+        .code(400)
+        .send({ error: "source must be cover, feeling or blend" });
+    try {
+      const asset = await actions.choosePalette(actionDeps, curatorId, source);
+      return { palette: asset.palette, pattern: asset.pattern };
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
+  });
+
   app.post("/api/albums/:curatorId/palette/generate", async (req, reply) => {
     const { curatorId } = req.params as { curatorId: string };
     const force = (req.query as { force?: string }).force === "1";

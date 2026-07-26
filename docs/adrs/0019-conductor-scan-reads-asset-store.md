@@ -13,7 +13,7 @@ only accepted a pre-built `PalettePayload` on `/api/playback`, which is driven b
 proxy (ADR 0007). So a raw scan from the stand couldn't drive the lights: the "place sleeve → room
 becomes the record" loop was missing its lights half (Backdrop already closes the video half).
 
-hue-conductor-spec §7 already *describes* `/api/scan` ("resolves the URI to a palette+pattern from
+hue-conductor-spec §7 already _describes_ `/api/scan` ("resolves the URI to a palette+pattern from
 the local asset store and applies it to the configured listening room"), and runtime-overview §5
 already says "Conductor reads the album-assets store" at scan time. This is the build that makes both
 true — the first time Conductor reads Curator's store rather than only accepting payloads.
@@ -22,7 +22,7 @@ Two shape questions fell out:
 
 - **Where does the album→payload mapping live?** Curator's Demo Room already maps a stored album to a
   `PalettePayload` in `curator/src/demo/payload.ts` (`buildPalettePayload`). Conductor's scan path
-  needs the *same* mapping. Duplicating it would be two copies of a cross-service rule that must agree.
+  needs the _same_ mapping. Duplicating it would be two copies of a cross-service rule that must agree.
 - **How hard should a scan fail?** Scan events come from hardware, unattended. A scan for an album
   Conductor hasn't synced yet — or one still mid-pipeline in Roadie — must not error-storm the
   always-on service.
@@ -48,10 +48,10 @@ album→payload mapping into `@marquee/contracts` so both services map identical
    - **stop** → `engine.stop(room)` (restore the pre-scan snapshot).
    - Reuses the existing playback engine, so crossfade-on-swap and snapshot/restore are identical to
      `/api/playback`. `X-Trigger-Secret` auth is already global.
-4. **Graceful degradation → 202 "ignored".** A *valid* scan we can't act on — no listening room,
+4. **Graceful degradation → 202 "ignored".** A _valid_ scan we can't act on — no listening room,
    album not synced, album not far enough along (no palette/pattern) — logs and returns
    `202 { ok:true, action:"ignored", reason }` rather than an error (runtime-overview §9). Only a
-   *malformed* body or a non-`curator:album:` URI is a 4xx. Bridge failures bubble to the existing
+   _malformed_ body or a non-`curator:album:` URI is a 4xx. Bridge failures bubble to the existing
    error handler (409 not paired / 502) exactly as `/api/playback` does.
 
 `/api/playback` stays — the Demo Room still uses it (ADR 0007). `/api/scan` is the runtime

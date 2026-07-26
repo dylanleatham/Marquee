@@ -14,10 +14,10 @@ list beats searching Spotify by hand or typing everything in manually.
 The issue flagged three decisions to make deliberately (CLAUDE.md: specs are the source of truth, and
 auth/art choices get an ADR):
 
-1. **Auth** — Discogs offers **OAuth 1.0a** (a real "log in with Discogs" 3-legged handshake) *or* a
+1. **Auth** — Discogs offers **OAuth 1.0a** (a real "log in with Discogs" 3-legged handshake) _or_ a
    **personal access token** the user generates in their Discogs developer settings.
 2. **Cover art / palette image** — feed **Discogs' own release image** into Palette Press directly,
-   *or* **resolve the Discogs release to a Spotify album** and reuse the existing Spotify art path.
+   _or_ **resolve the Discogs release to a Spotify album** and reuse the existing Spotify art path.
 3. **Dedupe across sources** — if the same record exists via both Spotify and Discogs, block the
    second add, or allow both.
 
@@ -63,7 +63,7 @@ Resolving Discogs → Spotify for "richer/consistent" art adds a fuzzy-match ste
 on Spotify config for a Discogs-only feature. It stays a **later enhancement** (a Discogs album whose
 art you dislike can already be fixed with the existing manual art-override).
 
-> **Update (2026-07-22, issue #58) — the enhancement landed, as an *opt-in fallback*:** the Discogs
+> **Update (2026-07-22, issue #58) — the enhancement landed, as an _opt-in fallback_:** the Discogs
 > metadata step now attempts a **conservative** fuzzy match to a Spotify album (artist + title both
 > must match closely; year is a tiebreaker — `albums/spotify-match.ts`, `bestSpotifyMatch`). On a
 > confident match with cover art, the art step downloads the **Spotify** image (reusing the Spotify
@@ -76,7 +76,7 @@ art you dislike can already be fixed with the existing manual art-override).
 
 Dedupe is **per-source**, mirroring today's per-Spotify-URI behavior: adding a Discogs release whose
 `discogs:release:<id>` is already in the collection is a 409 (`findByDiscogsUri`); a Spotify + Discogs
-pair of the *same* record can coexist. Cross-source dedupe needs a cross-provider match heuristic
+pair of the _same_ record can coexist. Cross-source dedupe needs a cross-provider match heuristic
 (the same album has no shared id across the two services) — more machinery than a home collection
 warrants, and the failure mode (two entries for one record) is easy to spot and delete.
 
@@ -86,7 +86,7 @@ warrants, and the failure mode (two entries for one record) is easy to spot and 
   `discogsReleaseId` (the stable dedupe key), `discogsUri` (`discogs:release:<id>`, parallel to
   `spotifyUri`), and `discogsArtUrl` (parallel to `spotifyArtUrl`).
 - Roadie's `fresh` routing changes from "spotify → fetching_metadata, else → generating_palette" to
-  "**manual → generating_palette, else → fetching_metadata**." Spotify *and* Discogs both fetch
+  "**manual → generating_palette, else → fetching_metadata**." Spotify _and_ Discogs both fetch
   metadata + art off the request path; only manual arrives with both already on disk. The
   `fetching_metadata` and `downloading_art` steps dispatch on `metadata.source`.
 - `DiscogsClient` mirrors `SpotifyClient`: injectable `fetch`, per-request timeout, its own

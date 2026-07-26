@@ -81,6 +81,17 @@ export interface PaletteColor {
 
 export type PaletteRole = "primary" | "secondary" | "accent";
 
+/** Where a palette's colours came from (ADR 0030). */
+export type PaletteSource = "cover" | "feeling" | "blend" | "hand";
+
+export interface PaletteCandidates {
+  generatedAt: string;
+  rationale: string;
+  cover: PaletteColor[];
+  feeling: PaletteColor[];
+  blend: PaletteColor[];
+}
+
 /** One swatch as the editor sends it back: a hex, and an optional explicit role (else positional). */
 export interface PaletteEditColor {
   hex: string;
@@ -237,7 +248,12 @@ export interface AlbumAsset {
     handEdited?: boolean;
     insufficient?: boolean;
     reason?: string;
+    /** Where the colours came from (ADR 0030); absent on albums predating it, read as "cover". */
+    source?: PaletteSource;
+    rationale?: string;
   };
+  /** Proposals from the feeling pass, awaiting a choice (ADR 0030). */
+  paletteCandidates?: PaletteCandidates;
   pattern?: { type: string; params: Record<string, unknown> };
   promptDrafts?: { video?: DraftedPrompt; cardArt?: DraftedPrompt };
   visualizer?: Visualizer;
@@ -582,6 +598,18 @@ export const api = {
     req<{ cardArtCandidates: CardArtCandidate[] }>(
       `/api/albums/${id}/card-art/generate/${index}`,
       { method: "POST" },
+    ),
+  /** Propose colours from how the album sounds. Costs a Gemini call; applies nothing (ADR 0030). */
+  feelingPalette: (id: string) =>
+    req<{ candidates: PaletteCandidates }>(
+      `/api/albums/${id}/palette/feeling`,
+      { method: "POST" },
+    ),
+  /** Apply one of the offered palettes. `cover` re-extracts and is the undo. */
+  choosePalette: (id: string, source: PaletteSource) =>
+    req<{ palette: AlbumAsset["palette"]; pattern: AlbumAsset["pattern"] }>(
+      `/api/albums/${id}/palette/choose`,
+      { method: "POST", body: JSON.stringify({ source }) },
     ),
   job: (jobId: string) => req<GenerationJob>(`/api/jobs/${jobId}`),
   // Cancel an in-flight generation job (issue #57).
