@@ -24,6 +24,24 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm turbo run ${{ matrix.task }}
 
+  # Formatting is a root-level script, not a turbo task, so the matrix above never ran it — which is
+  # how 28 files drifted unnoticed (issue #97). `pnpm run validate` covered it, but only for whoever
+  # remembered to run it; lint-staged only ever touches files someone happened to stage. Generated
+  # files are excluded via .prettierignore rather than fought with.
+  format:
+    name: format
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run format:check
+
   python:
     name: python (stylus)
     runs-on: ubuntu-latest

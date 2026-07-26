@@ -1,0 +1,24 @@
+# Files Prettier must not touch (issue #97).
+#
+# The rule: if something other than a human writes the file, the formatter and that writer will
+# fight, and the loser is `pnpm run format:check` — permanently red for a reason nobody can fix by
+# hand. Everything below has a generator; everything else in the repo gets formatted.
+
+# Palette Press goldens. Written by the test itself as `JSON.stringify(payload, null, 2) + "\n"`
+# (packages/palette-press/test/golden.test.ts, via `pnpm --filter @marquee/palette-press
+# run update-goldens`). Prettier's JSON style differs, so formatting them means the next golden
+# refresh reverts it and the check goes red again. A golden's whole value is being byte-identical to
+# what the generator produces — reformatting one is how you make it meaningless.
+fixtures/palettes/*.golden.json
+
+# pnpm's lockfile: generated, ordered by the resolver, and merged by pnpm's own strategy.
+pnpm-lock.yaml
+
+# Build output and dependencies (also gitignored; listed so a local build doesn't slow the check).
+node_modules/
+dist/
+dist-ui/
+.turbo/
+packages/contracts/ts/*.d.ts
+packages/desktop/staged/
+packages/desktop/release/

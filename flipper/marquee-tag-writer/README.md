@@ -35,7 +35,7 @@ risk.
 2. In `marquee_tag_writer.c`, the two TODOs are the whole job:
    - **`load_pending_albums()`** — parse the Curator-exported CSV from SD
      (`/ext/apps_data/marquee_tag_writer/pending.csv`) instead of the hardcoded sample.
-   - **`nfc_write_ntag_pages()`** — the real write. Strategy: get a bare *"write 4 bytes to page 4"*
+   - **`nfc_write_ntag_pages()`** — the real write. Strategy: get a bare _"write 4 bytes to page 4"_
      working against your firmware's NFC headers first (official fw: `NfcDevice` +
      `Iso14443_3aPoller` / `MfUltralightPoller`), verify with a read-back, **then** feed the TLV from
      `marquee_build_ndef_tlv()`. Never write lock/CC/PWD pages (spec §6).

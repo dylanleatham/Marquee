@@ -37,7 +37,7 @@ and close the blind spot (test, contract, property, or reviewer rule). Full work
 The review agents (`pnpm run review`) encode a checklist the repo already expects. Run them **in the
 inner loop** — before the first commit, iterating to green — so they act as a linter you answer in
 the same session, not a gate that bounces the PR. Only genuinely-debatable calls should reach human
-review. The bar is **no blocking findings and no *repeat* class**, not zero findings (chasing zero is
+review. The bar is **no blocking findings and no _repeat_ class**, not zero findings (chasing zero is
 gold-plating).
 
 Three checks close most of what otherwise slips through — each is the durable fix for a finding that
