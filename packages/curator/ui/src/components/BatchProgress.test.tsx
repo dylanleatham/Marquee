@@ -30,6 +30,8 @@ import {
   dismissBatch,
   resetBatchJob,
   POLL_MS,
+  MAX_POLL_MS,
+  pollDelay,
 } from "../batchJob";
 
 const job = (patch: Partial<GenerationJob> = {}): GenerationJob => ({
@@ -190,9 +192,9 @@ describe("batchJob polling", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  /** Advance one poll interval and let the awaited fetch settle. */
-  const tick = async () => {
-    await vi.advanceTimersByTimeAsync(POLL_MS);
+  /** Advance the clock and let the awaited fetch settle. Defaults to the happy-path cadence. */
+  const tick = async (ms = POLL_MS) => {
+    await vi.advanceTimersByTimeAsync(ms);
   };
 
   it("keeps polling while the job runs, and re-renders each answer", async () => {
@@ -238,12 +240,57 @@ describe("batchJob polling", () => {
     await startPaletteRegen();
 
     await tick();
-    await tick();
+    // The retry is backed off, so it lands a second later than the happy-path cadence.
+    await tick(pollDelay(1));
     // A blip must not end the loop — the sweep is still running on the server either way.
     expect(api.job).toHaveBeenCalledTimes(2);
     expect(
       screen.getByText("1 regenerated · 1 skipped · 1 failed"),
     ).toBeTruthy();
+  });
+
+  it("backs off instead of hammering a Curator that is down", async () => {
+    vi.mocked(api.regeneratePalettes).mockResolvedValue(job());
+    vi.mocked(api.job).mockRejectedValue(new Error("ECONNREFUSED"));
+    render(<BatchProgress />);
+    await startPaletteRegen();
+
+    // 1s, 2s, 4s, 8s… — each retry waits longer than the last. Advancing by only the base cadence
+    // after the first failure must NOT produce a second request.
+    await tick();
+    expect(api.job).toHaveBeenCalledTimes(1);
+    await tick(POLL_MS);
+    expect(api.job).toHaveBeenCalledTimes(1); // still waiting out the 2s backoff
+    await tick(POLL_MS);
+    expect(api.job).toHaveBeenCalledTimes(2);
+
+    // And it says so, rather than freezing the bar and looking like a stalled sweep.
+    await tick(pollDelay(2));
+    await tick(pollDelay(3));
+    expect(screen.getByText(/Lost contact with Curator/)).toBeTruthy();
+  });
+
+  it("caps the backoff rather than growing without bound", () => {
+    expect(pollDelay(0)).toBe(POLL_MS);
+    expect(pollDelay(3)).toBe(8 * POLL_MS);
+    expect(pollDelay(40)).toBe(MAX_POLL_MS); // no overflow, no absurd delay
+  });
+
+  it("clears the lost-contact warning as soon as Curator answers again", async () => {
+    vi.mocked(api.regeneratePalettes).mockResolvedValue(job());
+    vi.mocked(api.job).mockRejectedValue(new Error("ECONNREFUSED"));
+    render(<BatchProgress />);
+    await startPaletteRegen();
+
+    for (let i = 0; i < 4; i++) await tick(pollDelay(i));
+    expect(screen.getByText(/Lost contact with Curator/)).toBeTruthy();
+
+    vi.mocked(api.job).mockResolvedValue(
+      job({ progress: { done: 3, total: 5 } }),
+    );
+    await tick(MAX_POLL_MS);
+    expect(screen.queryByText(/Lost contact with Curator/)).toBeNull();
+    expect(screen.getByText("3 of 5 albums")).toBeTruthy();
   });
 
   it("stops polling when the panel is dismissed", async () => {

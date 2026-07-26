@@ -12,15 +12,30 @@ import { api, type GenerationJob } from "./api";
 /** Poll cadence. A sweep ticks once per album over minutes; a second is well inside human reading speed. */
 export const POLL_MS = 1000;
 
+/**
+ * Ceiling on the backed-off retry interval. Giving up entirely would be wrong — the sweep is still
+ * running on the server and Curator may come back — but retrying at the happy-path cadence forever
+ * is a client hammering a service that has already told us it can't answer.
+ */
+export const MAX_POLL_MS = 15_000;
+
 interface State {
   job: GenerationJob | null;
   /** Set when the *start* request itself failed — a job that never existed can't report its own error. */
   error: string | null;
+  /**
+   * True once polling has failed repeatedly. curator-ui-ux §10: an unreachable service is reported,
+   * never fatal — without this the panel silently freezes at whatever progress it last saw, which is
+   * indistinguishable from a sweep that stopped making progress.
+   */
+  unreachable: boolean;
 }
 
-let state: State = { job: null, error: null };
+let state: State = { job: null, error: null, unreachable: false };
 const listeners = new Set<() => void>();
 let timer: ReturnType<typeof setTimeout> | undefined;
+/** Consecutive poll failures, for the backoff. Reset by any successful answer. */
+let failures = 0;
 
 const emit = () => {
   for (const l of listeners) l();
@@ -39,6 +54,13 @@ function stopPolling(): void {
   timer = undefined;
 }
 
+/** Exponential backoff on consecutive failures: 1s, 2s, 4s, 8s, then capped at MAX_POLL_MS. */
+export const pollDelay = (consecutiveFailures: number): number =>
+  Math.min(POLL_MS * 2 ** consecutiveFailures, MAX_POLL_MS);
+
+/** Enough failures to stop calling it transient and tell the user contact is lost (~7s in). */
+const UNREACHABLE_AFTER = 3;
+
 function poll(id: string): void {
   stopPolling();
   timer = setTimeout(async () => {
@@ -47,17 +69,25 @@ function poll(id: string): void {
       // A newer sweep (or a dismiss) took over while this request was in flight — drop the answer
       // rather than resurrecting a job the user has moved past.
       if (state.job?.id !== id) return;
-      set({ job });
+      failures = 0;
+      set({ job, unreachable: false });
       if (isRunning(job)) poll(id);
     } catch {
       // A transient failure must not silently end the poll loop; keep trying while the job is ours.
-      if (state.job?.id === id) poll(id);
+      // But back off — a Curator that is down stays down, and a 1s retry forever is a client
+      // hammering a service that has already said it can't answer.
+      if (state.job?.id !== id) return;
+      failures++;
+      if (failures >= UNREACHABLE_AFTER && !state.unreachable)
+        set({ unreachable: true });
+      poll(id);
     }
-  }, POLL_MS);
+  }, pollDelay(failures));
 }
 
 function adopt(job: GenerationJob): void {
-  set({ job, error: null });
+  failures = 0;
+  set({ job, error: null, unreachable: false });
   if (isRunning(job)) poll(job.id);
 }
 
@@ -66,7 +96,11 @@ export async function startPaletteRegen(force = false): Promise<void> {
   try {
     adopt(await api.regeneratePalettes(force));
   } catch (err) {
-    set({ job: null, error: err instanceof Error ? err.message : String(err) });
+    set({
+      job: null,
+      error: err instanceof Error ? err.message : String(err),
+      unreachable: false,
+    });
   }
 }
 
@@ -101,13 +135,15 @@ export async function cancelBatch(): Promise<void> {
 /** Close the panel. Only ever user-driven or on a finished job — never while work is in flight. */
 export function dismissBatch(): void {
   stopPolling();
-  set({ job: null, error: null });
+  failures = 0;
+  set({ job: null, error: null, unreachable: false });
 }
 
 /** Test seam: drop all state and stop the timer between cases. */
 export function resetBatchJob(): void {
   stopPolling();
-  state = { job: null, error: null };
+  failures = 0;
+  state = { job: null, error: null, unreachable: false };
   emit();
 }
 

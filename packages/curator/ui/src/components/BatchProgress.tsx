@@ -34,7 +34,7 @@ function Row({ item }: { item: BatchPaletteOutcome }) {
 }
 
 export function BatchProgress() {
-  const { job, error } = useBatchJob();
+  const { job, error, unreachable } = useBatchJob();
   if (!job && !error) return null;
 
   const running = job?.status === "running";
@@ -67,6 +67,16 @@ export function BatchProgress() {
       </div>
 
       {error && <div className="banner banner--error">{error}</div>}
+
+      {/* Degraded, not fatal (curator-ui-ux §10). The sweep is still running on the server; what's
+          lost is our view of it. Saying so beats a bar that silently stops moving, which reads as a
+          stalled sweep rather than a stalled connection. */}
+      {unreachable && (
+        <div className="banner banner--warn">
+          Lost contact with Curator — the sweep is probably still running. Still
+          retrying, less often.
+        </div>
+      )}
 
       {job && (
         <>

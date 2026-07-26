@@ -835,6 +835,11 @@ Progress arrives by **polling `GET /api/jobs/:id`**, not an event stream, and a 
 Cancelling stops the remaining work; palettes already regenerated stay regenerated, and the panel says
 so rather than leaving you to guess.
 
+A poll that fails **backs off** (1s, 2s, 4s, 8s, capped at 15s) and, after a few consecutive failures,
+the panel says contact is lost while continuing to retry. It never gives up: the sweep is still running
+on the server, and what was lost is the view of it. A frozen bar with no explanation is
+indistinguishable from a sweep that stopped making progress — §10's degraded state, applied here.
+
 ### Settings
 
 Simple form-based screen accessible from a header link or a corner menu. Sections:
