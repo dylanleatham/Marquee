@@ -352,7 +352,15 @@ Same code path as CI. This is the primary iteration loop during dev — you catc
   Claude Code being unreachable **entirely** is still a skip, not a gate — that's a harness that
   isn't running, not a review with a hole in it.)_
 
-- **Malformed model output** (rare with Claude). Every specialist's prompt requires JSON output validated against a schema. Malformed responses are retried once, then logged as "agent failed to produce valid output" — visible in the PR but doesn't block merge.
+- **Malformed model output** — _not_ rare in practice. Every specialist's prompt requires a JSON
+  findings array, and the contract is placed **after** the diff so it sits closest to generation; a
+  reply that still isn't JSON gets one **reformat round** (the specialist translates its own reply,
+  no diff attached) before the orchestrator falls back to surfacing the prose as a single
+  informational finding. The report records `repaired` and `unformatted` counts so the rate is
+  observed rather than assumed. _(Reworked 2026-07-26, [issue #117](https://github.com/dylanleatham/Marquee/issues/117):
+  the original text assumed this was rare and that a salvaged reply was good enough. Neither held —
+  every specialist with something to say was answering in prose, and a salvaged reply loses file,
+  line and severity, so a blocking finding written as a paragraph could not block.)_
 - **False positive that keeps blocking a legitimate PR.** Two escape hatches: (a) admin override with labeled comment `override-review:<reviewer-name>`, logged for audit; (b) the reviewer's prompt gets updated in the same PR to fix the false-positive pattern.
 - **Workstation offline** (Option A only). Runner is offline; PR waits. If you're away for a while, disable the required check temporarily or manually mark the PR as reviewed.
 - **Subscription rate limits.** Very rare in solo dev, but if you hit them, Option B just delays that push; Option A's workflow retries.

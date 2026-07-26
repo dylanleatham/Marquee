@@ -11,26 +11,32 @@ To promote any of these to a GitHub issue, the text below is paste-ready.
 
 ### Open
 
-- **RA-4 — most specialists reply in prose, not the JSON findings contract.**
-  ([issue #117](https://github.com/dylanleatham/Marquee/issues/117).) Still current as of
-  2026-07-26: reviewing `feat/104-batch-add-and-regenerate`, _every_ specialist that had something to
-  say said it in prose — `consistency` (two real findings), `test-auditor` (two real coverage gaps),
-  `runtime` (a missing backoff), `spec-adherence` (a clean report). Only the two specialists with
-  nothing to report emitted JSON, so the contract held exactly when it didn't matter. The run's
-  `unformatted` count is now recorded in `.review-agents/report-<sha>.json` (added with RA-3's fix)
-  so the rate is measurable rather than assumed. Originally observed: 4 of 6
-  specialists (`consistency`, `spec-adherence`, `test-auditor`, and once `contract-guardian`)
-  returned a plain paragraph every run. RA-1's `salvageProse` correctly stops these from being
-  dropped, but a salvaged reply is always emitted as a single **info** finding with no `file`/`line`
-  and no severity — so a genuinely blocking issue expressed in prose (e.g. `test-auditor` literally
-  wrote "one blocking gap") **cannot block**, and findings lose their structure. `salvageProse` is a
-  safety net, not the intended path; the specialists should be emitting JSON.
-  _Proposed resolution:_ tighten the specialist prompt's output-format section (restate the JSON
-  contract at the end of the prompt + a one-shot example of a findings array), and/or add a single
-  re-prompt ("reply with JSON only") when a response isn't parseable before falling back to
-  `salvageProse`. Track prose-reply rate so the fix is measurable.
+_None currently._
 
 ### Resolved
+
+- **RA-4 — specialists replied in prose, so a blocking finding couldn't block.** Fixed 2026-07-26
+  ([issue #117](https://github.com/dylanleatham/Marquee/issues/117)). The measured state beforehand,
+  reviewing `feat/104-batch-add-and-regenerate`: _every_ specialist that had something to say said it
+  in prose — `consistency` (two findings), `test-auditor` (two coverage gaps), `runtime` (a missing
+  backoff), `spec-adherence` (a clean report). Only the two with nothing to report emitted JSON, so
+  the contract held exactly when it didn't matter. `salvageProse` kept the substance but collapsed it
+  into one unstructured **info** item with no file, line or severity — RA-4's original note recorded
+  `test-auditor` writing "one blocking gap" and it not gating.
+  Three parts:
+  (a) **The contract moved after the diff.** It had sat before the review context, putting thousands
+  of tokens between "reply with JSON only" and the moment of replying. It now ends the prompt, and it
+  carries a worked two-finding example plus an explicit shape for the common case — "do not explain
+  that you found nothing; respond with exactly `[]`". `composePrompt` lives in `lib/prompt.mjs` so the
+  ordering is pinned by a test rather than surviving the next edit by luck.
+  (b) **One reformat round before salvage.** `parseWithRepair` asks the same specialist to translate
+  its own reply into the array — same findings, same severities, none added or dropped — with no diff
+  attached, so it is cheap and can't smuggle in a second opinion. Exactly one extra attempt; a repair
+  that also answers in prose falls through to `salvageProse` as before.
+  (c) **Measurable.** The report records `repaired` alongside `unformatted`, so the prose rate is
+  observed rather than assumed.
+  Regression tests: the five `parseWithRepair` cases and three `composePrompt`/`repairPrompt` cases in
+  `lib/lib.test.mjs`.
 
 - **RA-3 — a blocking specialist that never ran was reported as a pass.** Fixed 2026-07-26
   ([issue #116](https://github.com/dylanleatham/Marquee/issues/116)). Two halves, matching the

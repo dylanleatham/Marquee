@@ -30,7 +30,12 @@ import {
 import { claudeAvailable, runSpecialist, isMock } from "./lib/claude.mjs";
 import { summarizeRun, silentWarning } from "./lib/outcome.mjs";
 import {
-  extractJsonArray,
+  composePrompt,
+  repairPrompt,
+  REPAIR_TIMEOUT_MS,
+} from "./lib/prompt.mjs";
+import {
+  parseWithRepair,
   salvageProse,
   normalizeFindings,
   dedupe,
@@ -136,25 +141,6 @@ function buildContext(config, { files, diff }) {
   return parts.join("\n\n");
 }
 
-const OUTPUT_CONTRACT = `
-# Output contract (STRICT)
-Respond with ONLY a JSON array of findings — no prose, and no markdown fences, before or after.
-The response MUST be a JSON array even for a single finding — wrap it as [ { ... } ], never a bare object.
-Each element of the array is one finding object:
-{ "severity": "blocking" | "info", "file": "<repo-relative path>", "line": <int or null>, "message": "<one sentence>", "suggestion": "<optional fix>" }
-Emit "blocking" ONLY for issues your role is defined to block on. When in doubt, use "info".
-If you find nothing worth reporting, respond with exactly: []
-Signal over volume — a false positive costs the reader's trust. Prefer fewer, high-confidence findings.`;
-
-function composePrompt(config, context) {
-  return [
-    config.systemPrompt,
-    config.examples ? `\n# Examples\n${config.examples}` : "",
-    OUTPUT_CONTRACT,
-    `\n# Review this change\n${context}`,
-  ].join("\n");
-}
-
 async function main() {
   const base = resolveBase(opts.base);
   const files = changedFiles({ base, staged: opts.staged });
@@ -210,7 +196,20 @@ async function main() {
           findings: [],
         };
       }
-      const raw = extractJsonArray(res.text);
+      // One translation round before falling back to prose (issue #117). A repair carries no diff,
+      // so it is cheap; it re-uses the specialist's own model so the wording stays theirs.
+      const { raw, outcome } = parseWithRepair(res.text, {
+        repair: (text) =>
+          runSpecialist({
+            prompt: repairPrompt(text),
+            model: config.model,
+            timeoutMs: REPAIR_TIMEOUT_MS,
+          }),
+      });
+      if (outcome === "repaired")
+        console.warn(
+          `  ~ ${config.id}: reply wasn't JSON — recovered its findings on a reformat pass`,
+        );
       if (raw === null) {
         // Persist the unparseable output so the failure is diagnosable (and a regression
         // test can be written) instead of silently lost. See review-agents/KNOWN-ISSUES.md.
@@ -262,6 +261,7 @@ async function main() {
         id: config.id,
         blocking: !!config.blocking,
         status: findings.length ? "ran" : "no-findings",
+        repaired: outcome === "repaired",
         durationMs,
         findings,
       };

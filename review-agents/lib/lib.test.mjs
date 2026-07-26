@@ -9,6 +9,8 @@ import {
 } from "./findings.mjs";
 import { resolveTimeoutMs, resolveRetries, runSpecialist } from "./claude.mjs";
 import { summarizeRun, silentWarning } from "./outcome.mjs";
+import { parseWithRepair } from "./findings.mjs";
+import { composePrompt, repairPrompt } from "./prompt.mjs";
 
 test("globToRegExp: ** spans directories, * does not", () => {
   assert.match(
@@ -340,4 +342,126 @@ test("dedupe: collapses same file+line+message, prefers blocking", () => {
   ]);
   assert.equal(out.length, 2);
   assert.equal(out.find((f) => f.line === 1).severity, "blocking");
+});
+
+// --- RA-4 / issue #117: one reformat round before structure is lost to prose salvage ---
+
+const PROSE =
+  "I found one blocking issue: the upload handler has no timeout, so a stalled client wedges " +
+  "the event loop. Wrap the read in AbortSignal.timeout(5000).";
+
+test("parseWithRepair: a well-formed reply is used as-is, with no repair call", () => {
+  let called = 0;
+  const out = parseWithRepair('[{"severity":"info","message":"m"}]', {
+    repair: () => {
+      called++;
+      return { ok: true, text: "[]" };
+    },
+  });
+  assert.equal(out.outcome, "clean");
+  assert.equal(called, 0); // never spend a second call on a reply that already parsed
+  assert.equal(out.raw.length, 1);
+});
+
+test("parseWithRepair: prose is recovered as structured findings, keeping severity", () => {
+  const out = parseWithRepair(PROSE, {
+    repair: (text) => {
+      // The repair is a translation, so it must be handed the original reply.
+      assert.match(text, /wedges the event loop/);
+      return {
+        ok: true,
+        text: '[{"severity":"blocking","file":"a.ts","line":4,"message":"no timeout"}]',
+      };
+    },
+  });
+  assert.equal(out.outcome, "repaired");
+  // The point of the whole fix: a blocking finding written in prose can now actually block, and
+  // arrives with a file and line instead of collapsed into one unstructured info item.
+  assert.equal(out.raw[0].severity, "blocking");
+  assert.equal(out.raw[0].file, "a.ts");
+  assert.equal(out.raw[0].line, 4);
+});
+
+test("parseWithRepair: a repair that also replies in prose falls through, it doesn't loop", () => {
+  let calls = 0;
+  const out = parseWithRepair(PROSE, {
+    repair: () => {
+      calls++;
+      return { ok: true, text: "Sorry — here is the summary again in words." };
+    },
+  });
+  assert.equal(calls, 1); // exactly one extra attempt, never a retry storm
+  assert.equal(out.outcome, "unrepaired");
+  assert.equal(out.raw, null);
+});
+
+test("parseWithRepair: a failed or throwing repair is never worse than not trying", () => {
+  assert.deepEqual(
+    parseWithRepair(PROSE, {
+      repair: () => ({ ok: false, reason: "timeout" }),
+    }),
+    { raw: null, outcome: "unrepaired" },
+  );
+  assert.deepEqual(
+    parseWithRepair(PROSE, {
+      repair: () => {
+        throw new Error("spawn failed");
+      },
+    }),
+    { raw: null, outcome: "unrepaired" },
+  );
+  // No repair injected at all (the mock path) still degrades to prose salvage.
+  assert.deepEqual(parseWithRepair(PROSE), {
+    raw: null,
+    outcome: "unrepaired",
+  });
+});
+
+test("parseWithRepair: an empty findings array is a clean answer, not something to repair", () => {
+  let called = 0;
+  const out = parseWithRepair("[]", {
+    repair: () => {
+      called++;
+      return { ok: true, text: "[]" };
+    },
+  });
+  assert.equal(out.outcome, "clean");
+  assert.deepEqual(out.raw, []);
+  assert.equal(called, 0);
+});
+
+test("composePrompt: the output contract comes after the diff, not before it (RA-4)", () => {
+  const prompt = composePrompt(
+    { systemPrompt: "You are the runtime reviewer.", examples: "" },
+    "diff --git a/x.ts b/x.ts\n+const x = 1;",
+  );
+  const diffAt = prompt.indexOf("diff --git");
+  const contractAt = prompt.indexOf("# Output contract");
+  assert.ok(diffAt !== -1 && contractAt !== -1);
+  // This ordering *is* the fix: with the contract first, a large diff put thousands of tokens
+  // between "reply with JSON only" and the moment of replying, and specialists drifted into prose.
+  assert.ok(
+    contractAt > diffAt,
+    "the contract must sit closest to generation, after the review context",
+  );
+  // The role still leads — the specialist needs to know who it is before it reads the diff.
+  assert.ok(prompt.indexOf("runtime reviewer") < diffAt);
+});
+
+test("composePrompt: the contract shows the empty answer, which is the common case", () => {
+  const prompt = composePrompt({ systemPrompt: "x" }, "diff");
+  assert.match(prompt, /Respond with exactly:\n\[\]/);
+  // A worked example of a real array, so "nothing to report" isn't the only shape it has seen.
+  assert.match(prompt, /"severity": "blocking"/);
+});
+
+test("repairPrompt: asks for a translation of the reply, not a fresh review", () => {
+  const p = repairPrompt(
+    "I found one blocking issue: no timeout on the upload handler.",
+  );
+  assert.match(p, /no timeout on the upload handler/); // carries the original verbatim
+  assert.match(p, /none added, none dropped/);
+  assert.match(p, /# Output contract/);
+  // No diff: a repair is cheap and must not invite a second, different opinion.
+  assert.ok(!p.includes("diff --git"));
 });

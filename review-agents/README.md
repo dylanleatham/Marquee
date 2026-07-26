@@ -29,8 +29,11 @@ else is informational.
 4. Runs each relevant specialist via Claude Code headless (`claude -p --output-format json`). The
    call is a blocking `spawnSync`, so specialists run **one at a time** — gentler on a loaded
    machine than N concurrent sessions. A specialist that overruns its budget retries once (RA-2).
-5. Parses each reply into findings (recovering a lone object or, failing that, surfacing prose as
-   an info finding rather than dropping it — RA-1), aggregates, dedupes by file+line+message.
+5. Parses each reply into findings. A reply that isn't the JSON array gets **one reformat round** —
+   the specialist is asked to translate its own reply into the contract shape, with no diff attached,
+   so structure (file, line, severity) survives instead of collapsing into one unstructured info
+   finding (issue #117). Only if that also comes back as prose does it fall through to surfacing the
+   prose itself rather than dropping it (RA-1). Then aggregates and dedupes by file+line+message.
 6. Writes `.review-agents/report-<sha>.json` (gitignored) and prints a summary.
 7. In `--ci` mode, exits non-zero if there's any blocking finding — **or if a blocking specialist
    produced no verdict at all** (timed out, or returned something unparseable). A dimension that
@@ -62,11 +65,16 @@ reviewer that is _inherently_ slow rather than raising the global default: `runt
 `spec-adherence` get 300s, `consistency` 240s, `test-auditor` 180s, and everything else stays at 90s
 so a genuinely stuck fast specialist still fails quickly.
 
+The prompt is assembled in `lib/prompt.mjs` as **system prompt → examples → the diff → the output
+contract**, in that order. The contract goes last on purpose: it used to sit before the review
+context, which on a large diff left thousands of tokens between "reply with JSON only" and the moment
+of replying, and the specialists reliably drifted into prose (issue #117). A test pins the ordering.
+
 ## Anatomy of a specialist
 
 ```
 <specialist>/
-├── config.json       # id, blocking, model, trigger*/context globs
+├── config.json       # id, blocking, model, timeoutMs, trigger*/context globs
 ├── system-prompt.md  # the role, blocking rules, what to ignore
 └── examples.md       # few-shot good findings + false positives to avoid
 ```
