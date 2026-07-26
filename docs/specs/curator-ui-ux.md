@@ -288,17 +288,26 @@ control is what turns a session into a chore.
 | Detail  | `1`–`5`                  | Jump to rail workstation                  | built    |
 | Detail  | `Esc`                    | Back to queue                             | built    |
 | Global  | `Ctrl/⌘ K`               | Jump to album (fuzzy over title/artist)   | deferred |
-| Detail  | `[` / `]`                | Previous / next album at the same state   | deferred |
+| Detail  | `[` / `]`                | Previous / next album at the same state   | built    |
 | Detail  | `Ctrl/⌘ Enter`           | Primary action of the current workstation | deferred |
 
-> **Status added 2026-07-25** when the keyboard path was implemented. The three deferred rows are
-> not abandoned, but each is a feature rather than a binding: `Ctrl/⌘ K` needs a command-palette
-> surface, `[`/`]` needs the queue's ordering available inside the detail page, and `Ctrl/⌘ Enter`
-> needs each workstation to declare which of its controls is primary. They are tracked here rather
-> than silently dropped.
+> **Status added 2026-07-25** when the keyboard path was implemented; `[`/`]` built 2026-07-26
+> ([issue #94](https://github.com/dylanleatham/Marquee/issues/94)). The two remaining deferred rows
+> are not abandoned, but each is a feature rather than a binding: `Ctrl/⌘ K` needs a command-palette
+> surface and `Ctrl/⌘ Enter` needs each workstation to declare which of its controls is primary.
+> They are tracked in [issue #95](https://github.com/dylanleatham/Marquee/issues/95) rather than
+> silently dropped.
 
-`[` / `]` would implement the onboarding workflow's "next album at this state is a first-class
-affordance," which remains specified but unbuilt — you still return to the queue and find your place.
+`[` / `]` implement the onboarding workflow's "next album at this state is a first-class affordance"
+(§12 there). The neighbours come from the **server**, sharing the queue's own bucketing
+(`GET /api/albums/:curatorId/peers`) — re-deriving the ordering on the detail page would be a second
+implementation of it, free to drift from the list you were just looking at.
+
+Two behaviours are deliberate. Navigating **keeps the workstation you are on**, so finishing five tag
+writes in a row doesn't bounce you back to Look each time. And the run **does not wrap**: at the end,
+the honest answer is "that was the last one", where looping silently back to the first would have you
+re-verify an album you already finished. Both ends stay visible and disabled with the reason (§10),
+as does an album that is the only one at its state.
 
 Every shortcut must also be reachable by mouse. The keyboard is an accelerator, never the only path.
 No shortcut fires while focus is in a text field, so a search query never triggers navigation.

@@ -54,6 +54,21 @@ export type QueueBucket =
   | "needs_manual"
   | "done_recently";
 
+/** Where an album sits among its same-state peers (issue #94). */
+export interface Peer {
+  curatorId: string;
+  title: string;
+}
+
+export interface PeerContext {
+  bucket: QueueBucket;
+  /** 1-based, for "3 of 7". */
+  position: number;
+  total: number;
+  prev: Peer | null;
+  next: Peer | null;
+}
+
 export interface QueueCounts {
   counts: Record<string, number>;
   needsYou: number;
@@ -615,6 +630,8 @@ export const api = {
   // Cancel an in-flight generation job (issue #57).
   cancelJob: (jobId: string) =>
     req<GenerationJob>(`/api/jobs/${jobId}/cancel`, { method: "POST" }),
+  /** The album's neighbours at the same state, in queue order (issue #94). */
+  albumPeers: (id: string) => req<PeerContext>(`/api/albums/${id}/peers`),
   albumJobs: (id: string, kind?: JobKind) =>
     req<{ jobs: GenerationJob[] }>(
       `/api/albums/${id}/jobs${kind ? `?kind=${kind}` : ""}`,

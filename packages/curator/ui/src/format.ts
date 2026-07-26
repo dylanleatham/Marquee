@@ -36,6 +36,19 @@ export const QUEUE_SECTIONS: Array<{ bucket: QueueBucket; label: string }> = [
   { bucket: "awaiting_verify", label: "Awaiting verification" },
 ];
 
+/**
+ * Every bucket's label, including the ones QUEUE_SECTIONS omits because they render under their own
+ * headings. Used where a bucket has to be named in a sentence — the peer navigator's "3 of 7
+ * awaiting review" (issue #94).
+ */
+export const QUEUE_LABEL: Record<QueueBucket, string> = {
+  ...Object.fromEntries(QUEUE_SECTIONS.map((s) => [s.bucket, s.label])),
+  processing: "Processing",
+  errored: "Errored",
+  needs_manual: "Needs manual",
+  done_recently: "Done recently",
+} as Record<QueueBucket, string>;
+
 export const PROCESSING_STATES: RoadieState[] = [
   "fresh",
   "fetching_metadata",
