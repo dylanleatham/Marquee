@@ -303,6 +303,15 @@ affordance," which remains specified but unbuilt — you still return to the que
 Every shortcut must also be reachable by mouse. The keyboard is an accelerator, never the only path.
 No shortcut fires while focus is in a text field, so a search query never triggers navigation.
 
+**A shortcut acts on what is on screen now, and never silently does nothing.** A key handler must
+read the current list and selection at the moment the key arrives, not a copy captured when it was
+registered — React paints rows before it flushes effects, so a handler that closed over the list was
+stale in precisely the moment the queue first appeared, and `j`/`Enter` were discarded with no
+feedback ([issue #119](https://github.com/dylanleatham/Marquee/issues/119)). A shortcut that
+intermittently does nothing is worse than one that doesn't exist, because the user can't tell which
+they have. The decision itself lives in `ui/src/queueKeys.ts` as a pure function of the live rows, so
+the clamping rules are checkable without racing a render.
+
 ### 9.2 App menu
 
 `autoHideMenuBar: true` with no menu defined means the app has no discoverable command surface and no
