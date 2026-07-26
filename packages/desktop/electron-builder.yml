@@ -2,6 +2,13 @@ appId: com.marquee.desktop
 productName: Marquee
 directories:
   output: release
+# This app ships no native node modules (the two servers are self-contained esbuild bundles and
+# `files:` is just dist/** + package.json), so there is nothing for @electron/rebuild to rebuild.
+# Leaving it on makes electron-builder's "installing native dependencies" step walk node_modules
+# with fs.stat, which follows symlinks and dies on pnpm's dangling optional-platform symlinks
+# (@esbuild/aix-ppc64, @rollup/rollup-*, …) — links pnpm creates for every platform but only
+# populates for the host, so a clean install always fails here. We have no native deps to rebuild.
+npmRebuild: false
 # The Electron main + the two esbuild-bundled servers (+ their runtime files) are all this app needs;
 # no pnpm node_modules are shipped (the servers are self-contained bundles — see scripts/bundle-servers.mjs).
 files:
