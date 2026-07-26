@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   api,
   ApiError,
+  type BatchAddReport,
+  type BatchAddStatus,
   type DiscogsCollectionItem,
   type SpotifyAlbumMeta,
 } from "../api";
@@ -81,11 +83,26 @@ function SpotifySearch({ onAdded }: { onAdded: (id: string) => void }) {
   );
 }
 
-/** Paste one `spotify:album:…` URI per line; each is added and enqueued separately. */
+const ADD_STATUS_LABEL: Record<BatchAddStatus, string> = {
+  added: "Added",
+  duplicate: "Already in the collection",
+  invalid: "Not a Spotify album URI",
+  failed: "Failed",
+};
+
+/**
+ * Paste one `spotify:album:…` URI per line. Submitted as a single batch (issue #104) so the answer is
+ * a per-line report rather than N independent requests whose failures the screen can only lump
+ * together: "18 added, line 7 was already 2k7bxq9m, line 12 isn't a URI" is the useful answer.
+ *
+ * The report stays on screen after a partial success instead of navigating away — with twenty lines
+ * in flight, the outcome *is* the result, and leaving for the queue would throw it away.
+ */
 function PasteUri({ onAdded }: { onAdded: (ids: string[]) => void }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
-  const [errors, setErrors] = useState<string[]>([]);
+  const [report, setReport] = useState<BatchAddReport | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const submit = async () => {
     const uris = text
@@ -94,22 +111,19 @@ function PasteUri({ onAdded }: { onAdded: (ids: string[]) => void }) {
       .filter(Boolean);
     if (!uris.length) return;
     setBusy(true);
-    setErrors([]);
-    const ids: string[] = [];
-    const errs: string[] = [];
-    for (const uri of uris) {
-      try {
-        const { curatorId } = await api.addSpotify(uri);
-        ids.push(curatorId);
-      } catch (err) {
-        errs.push(
-          `${uri}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
+    setError(null);
+    setReport(null);
+    try {
+      const result = await api.addAlbumsBatch(uris);
+      setReport(result);
+      // Clean sweep → straight to the queue, which is what you wanted. Anything else stays put so
+      // the report can be read.
+      if (result.added === uris.length) onAdded(result.curatorIds);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
-    setErrors(errs);
-    if (ids.length) onAdded(ids);
   };
 
   return (
@@ -121,11 +135,39 @@ function PasteUri({ onAdded }: { onAdded: (ids: string[]) => void }) {
         value={text}
         onChange={(e) => setText(e.target.value)}
       />
-      {errors.map((e, i) => (
-        <div key={i} className="banner banner--error">
-          {e}
+      {error && <div className="banner banner--error">{error}</div>}
+      {report && (
+        <div className="batch-add">
+          <p className="batch-add__summary">
+            {report.added} added
+            {report.duplicate > 0 && ` · ${report.duplicate} already added`}
+            {report.invalid > 0 && ` · ${report.invalid} not a URI`}
+            {report.failed > 0 && ` · ${report.failed} failed`}
+          </p>
+          <ul className="batch-add__rows">
+            {report.items
+              .filter((i) => i.status !== "added")
+              .map((i) => (
+                <li key={i.index} className="batch-add__row">
+                  <b>Line {i.index + 1}</b>
+                  <code>{i.input}</code>
+                  <span>{ADD_STATUS_LABEL[i.status]}</span>
+                  {i.curatorId && (
+                    <Link to={`/albums/${i.curatorId}`}>{i.curatorId}</Link>
+                  )}
+                </li>
+              ))}
+          </ul>
+          {report.added > 0 && (
+            <button
+              className="btn btn--ghost"
+              onClick={() => onAdded(report.curatorIds)}
+            >
+              Go to queue
+            </button>
+          )}
         </div>
-      ))}
+      )}
       <button className="btn btn--primary" onClick={submit} disabled={busy}>
         {busy ? "Adding…" : "Add all"}
       </button>

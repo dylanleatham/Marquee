@@ -1622,3 +1622,114 @@ em {
   color: var(--amber);
   text-decoration: underline;
 }
+
+/* --- batch progress slide-over (issue #104, curator-spec §10) ---------------------------------
+   Bottom-right and above the Roadie strip: a sweep is background work, so it reports without
+   taking the screen. It is app-wide (see batchJob.ts), so it must read as its own thing rather
+   than as part of whichever page is behind it. */
+.batch {
+  position: fixed;
+  right: 16px;
+  bottom: 56px; /* clears the Roadie strip */
+  z-index: 40;
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(60vh, 560px);
+  overflow-y: auto;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 45%);
+}
+.batch__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.batch__head h2 {
+  margin: 0;
+  font-size: 15px;
+}
+.batch__bar {
+  margin: 10px 0 6px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+.batch__fill {
+  height: 100%;
+  background: var(--amber);
+  transition: width 240ms ease; /* the bar is the one place motion earns its keep here */
+}
+.batch__count {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.batch__rows,
+.batch-add__rows {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+.batch__row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 10px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border-left: 3px solid var(--line);
+  background: var(--panel);
+}
+/* Tone is a second channel, never the only one — every row also carries its outcome in words
+   (curator-ui-ux §3.4). */
+.batch__row--ok {
+  border-left-color: var(--sage);
+}
+.batch__row--bad {
+  border-left-color: var(--alert);
+}
+.batch__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.batch__outcome {
+  color: var(--muted);
+  white-space: nowrap;
+}
+.batch__error {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* --- batch add report (issue #104): which pasted line did what --- */
+.batch-add {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+.batch-add__summary {
+  margin: 0;
+  font-weight: 600;
+}
+.batch-add__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+.batch-add__row code {
+  color: var(--muted);
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
+}

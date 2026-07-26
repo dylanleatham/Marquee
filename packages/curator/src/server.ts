@@ -22,6 +22,11 @@ import {
   type PaletteGenerator,
 } from "./albums/add-manual.js";
 import { addSpotifyAlbum, DuplicateAlbumError } from "./albums/add-spotify.js";
+import {
+  addAlbumsBatch,
+  regeneratePalettesRunner,
+  type BatchAddItem,
+} from "./albums/batch.js";
 import { addDiscogsAlbum } from "./albums/add-discogs.js";
 import { SpotifyClient, SpotifyError } from "./spotify/client.js";
 import { SpotifyAuth, SpotifyAuthError } from "./spotify/auth.js";
@@ -1175,6 +1180,16 @@ export function buildServer(opts: BuildOptions = {}) {
     return { jobs: jobs.forAlbum(curatorId, filter) };
   });
 
+  // Library-scoped jobs of a kind, newest first — how the batch panel reattaches to a sweep that was
+  // already running when the window reloaded (ADR 0029). Per-album jobs live at the route above and
+  // are deliberately not returned here; `kind` is required so this can never become "all jobs".
+  app.get("/api/jobs", async (req, reply) => {
+    const kind = (req.query as { kind?: string }).kind;
+    if (kind !== "paletteBatch")
+      return reply.code(400).send({ error: "kind=paletteBatch is required" });
+    return { jobs: jobs.library(kind) };
+  });
+
   // Promote a generated candidate to the attached card art.
   app.post("/api/albums/:curatorId/card-art/select", async (req, reply) => {
     const { curatorId } = req.params as { curatorId: string };
@@ -2006,6 +2021,50 @@ export function buildServer(opts: BuildOptions = {}) {
       req.log.error(err);
       return reply.code(500).send({ error: (err as Error).message });
     }
+  });
+
+  /**
+   * Add a pasted list in one call (curator-spec §8, issue #104). Always 200 for a well-formed
+   * request: partial success is the normal outcome of pasting twenty lines, so per-item outcomes go
+   * in the body rather than one status code standing for all of them. A malformed *envelope* (not an
+   * array, empty, over the cap) is still a 400 — that's a client bug, not a bad line.
+   */
+  app.post("/api/albums/batch", async (req, reply) => {
+    if (!spotify)
+      return reply.code(503).send({
+        error: "Spotify not configured (set SPOTIFY_CLIENT_ID/SECRET)",
+      });
+    const { items } = (req.body ?? {}) as { items?: BatchAddItem[] };
+    try {
+      return await addAlbumsBatch({ store, roadie }, items as BatchAddItem[]);
+    } catch (err) {
+      if (err instanceof ValidationError)
+        return reply.code(400).send({ error: err.message });
+      req.log.error(err);
+      return reply.code(500).send({ error: (err as Error).message });
+    }
+  });
+
+  /**
+   * Re-derive every algorithmic palette (curator-spec §Palettes). A library-scoped background job on
+   * the ADR 0018 manager, not the SSE stream the spec originally assumed — see ADR 0029. `?force=1`
+   * includes hand-edited palettes, which the sweep otherwise skips. Starting it twice reattaches to
+   * the running sweep rather than walking the collection again.
+   *
+   * Sends the job as the body, like every other job-starting route — `202` means "here is your job."
+   */
+  app.post("/api/batch/regenerate-palettes", async (req, reply) => {
+    if (!actionDeps.generate)
+      return reply
+        .code(503)
+        .send({ error: "palette generator isn't available" });
+    const force = (req.query as { force?: string }).force === "1";
+    const job = jobs.start(
+      "paletteBatch",
+      undefined,
+      regeneratePalettesRunner(actionDeps, { force }),
+    );
+    return reply.code(202).send(job);
   });
 
   // Serve the built React UI (packages/curator/dist-ui) when present. It's absent in dev/test —

@@ -331,6 +331,20 @@ unused. The rail layout (§5) is what spends it — the detail page now uses a `
 every other screen keeps the narrower reading width. Long-form text inside a workstation — a prompt
 body — may still constrain its own measure; that is a text-column decision, not a page-width one.
 
+### 9.4 Background work outlives the screen that started it
+
+Long work — a batch palette sweep today (curator-spec §10, issue #104), any future library operation —
+reports through a **fixed panel mounted at app level**, not inside the page that launched it. Two rules
+follow, and they are the same rule seen from either end:
+
+- **Starting it is a page's job; watching it is not.** Settings has the button; the panel is
+  app-wide, so walking off to look at an album while the sweep runs neither hides it nor stops it.
+- **The stop control and the progress live together, and neither can be dismissed while work is in
+  flight.** A panel you can close mid-run is a run you can no longer cancel.
+
+This is the visual half of [ADR 0029](../adrs/0029-batch-work-runs-as-a-library-job.md): one job
+mechanism on the server, one place it surfaces in the window.
+
 ## 10. States every screen owes
 
 Specified once here rather than improvised per component:
