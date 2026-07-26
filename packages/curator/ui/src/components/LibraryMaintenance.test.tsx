@@ -47,7 +47,7 @@ const runButton = () => screen.getByRole("button", { name: /regenerate all/i });
 
 beforeEach(() => {
   resetBatchJob();
-  vi.mocked(api.regeneratePalettes).mockResolvedValue({ job: running });
+  vi.mocked(api.regeneratePalettes).mockResolvedValue(running);
   vi.mocked(api.job).mockResolvedValue(running);
 });
 

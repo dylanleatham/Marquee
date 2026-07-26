@@ -1180,6 +1180,16 @@ export function buildServer(opts: BuildOptions = {}) {
     return { jobs: jobs.forAlbum(curatorId, filter) };
   });
 
+  // Library-scoped jobs of a kind, newest first — how the batch panel reattaches to a sweep that was
+  // already running when the window reloaded (ADR 0029). Per-album jobs live at the route above and
+  // are deliberately not returned here; `kind` is required so this can never become "all jobs".
+  app.get("/api/jobs", async (req, reply) => {
+    const kind = (req.query as { kind?: string }).kind;
+    if (kind !== "paletteBatch")
+      return reply.code(400).send({ error: "kind=paletteBatch is required" });
+    return { jobs: jobs.library(kind) };
+  });
+
   // Promote a generated candidate to the attached card art.
   app.post("/api/albums/:curatorId/card-art/select", async (req, reply) => {
     const { curatorId } = req.params as { curatorId: string };
@@ -2040,6 +2050,8 @@ export function buildServer(opts: BuildOptions = {}) {
    * the ADR 0018 manager, not the SSE stream the spec originally assumed — see ADR 0029. `?force=1`
    * includes hand-edited palettes, which the sweep otherwise skips. Starting it twice reattaches to
    * the running sweep rather than walking the collection again.
+   *
+   * Sends the job as the body, like every other job-starting route — `202` means "here is your job."
    */
   app.post("/api/batch/regenerate-palettes", async (req, reply) => {
     if (!actionDeps.generate)
@@ -2052,17 +2064,7 @@ export function buildServer(opts: BuildOptions = {}) {
       undefined,
       regeneratePalettesRunner(actionDeps, { force }),
     );
-    return reply.code(202).send({ job });
-  });
-
-  // Library-scoped jobs of a kind, newest first — how the batch panel reattaches to a sweep that was
-  // already running when the window reloaded (ADR 0029). Per-album jobs live at
-  // /api/albums/:curatorId/jobs and are deliberately not returned here.
-  app.get("/api/jobs", async (req, reply) => {
-    const kind = (req.query as { kind?: string }).kind;
-    if (kind !== "paletteBatch")
-      return reply.code(400).send({ error: "kind=paletteBatch is required" });
-    return { jobs: jobs.library(kind) };
+    return reply.code(202).send(job);
   });
 
   // Serve the built React UI (packages/curator/dist-ui) when present. It's absent in dev/test —

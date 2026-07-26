@@ -31,9 +31,10 @@ uniform cancel) are exactly what a library-wide sweep needs.
 
 **Batch palette regeneration is a job kind on the ADR 0018 manager. There is no SSE endpoint.**
 
-1. `JobKind` gains `paletteBatch`. `POST /api/batch/regenerate-palettes` returns `202 { job }` and the
-   UI polls the same `GET /api/jobs/:id` it already polls for video and card art. Cancel is the
-   existing `POST /api/jobs/:id/cancel`.
+1. `JobKind` gains `paletteBatch`. `POST /api/batch/regenerate-palettes` returns `202` with the job
+   as the body — the shape the other three job-starting routes already use — and the UI polls the
+   same `GET /api/jobs/:id` it already polls for video and card art. Cancel is the existing
+   `POST /api/jobs/:id/cancel`.
 2. **A job's `curatorId` becomes optional.** Every job so far belonged to one album; a library sweep
    belongs to none. Rather than encode "the whole library" as a sentinel id, the field is absent, and
    a job with no `curatorId` is **library-scoped**. `GET /api/jobs?kind=paletteBatch` lists them, which

@@ -230,6 +230,37 @@ describe("GenerationJobs", () => {
     expect(j.error).toMatch(/interrupted/i);
   });
 
+  // Library scope (ADR 0029): a batch sweep belongs to no album, so its `curatorId` is absent rather
+  // than a sentinel. The two lookups have to stay disjoint — a sweep showing up on an album's detail
+  // page, or an album's job showing up in the batch panel, would each be wrong in its own way.
+  describe("library-scoped jobs", () => {
+    it("keeps library and per-album lookups from seeing each other", () => {
+      const jobs = new GenerationJobs();
+      const albumJob = jobs.start("video", "abcd1234", neverSettles());
+      const sweep = jobs.start("paletteBatch", undefined, neverSettles());
+
+      expect(sweep.curatorId).toBeUndefined();
+      expect(jobs.library("paletteBatch").map((j) => j.id)).toEqual([sweep.id]);
+      expect(jobs.forAlbum("abcd1234").map((j) => j.id)).toEqual([albumJob.id]);
+      // Not merely filtered out by kind — the sweep belongs to no album at all.
+      expect(jobs.forAlbum("abcd1234", "paletteBatch")).toEqual([]);
+      expect(jobs.library("video")).toEqual([]);
+    });
+
+    it("runs one sweep of a kind at a time, without blocking per-album jobs", () => {
+      const jobs = new GenerationJobs();
+      const first = jobs.start("paletteBatch", undefined, neverSettles());
+      // Same dedup key (kind + absent curatorId + no index) → the running sweep comes back.
+      expect(jobs.start("paletteBatch", undefined, neverSettles()).id).toBe(
+        first.id,
+      );
+      // …and an album's own job is keyed separately, so a sweep never shadows it.
+      expect(jobs.start("video", "abcd1234", neverSettles()).id).not.toBe(
+        first.id,
+      );
+    });
+  });
+
   it("survives a corrupt/unreadable job log by starting empty", () => {
     const throwing: JobStore = {
       load: () => {

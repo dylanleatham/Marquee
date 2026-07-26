@@ -292,7 +292,8 @@ describe("batch routes", () => {
       url: "/api/batch/regenerate-palettes",
     });
     expect(start.statusCode).toBe(202);
-    const { job } = start.json() as { job: { id: string; kind: string } };
+    // The job *is* the body, as with every other job-starting route.
+    const job = start.json() as { id: string; kind: string };
     expect(job.kind).toBe("paletteBatch");
     // Library-scoped: no album owns it (ADR 0029).
     expect(job).not.toHaveProperty("curatorId");
@@ -329,10 +330,10 @@ describe("batch routes", () => {
       method: "POST",
       url: "/api/batch/regenerate-palettes",
     });
-    expect(two.json().job.id).toBe(one.json().job.id);
+    expect(two.json().id).toBe(one.json().id);
 
     release();
-    expect((await poll(app, one.json().job.id)).status).toBe("done");
+    expect((await poll(app, one.json().id)).status).toBe("done");
   });
 
   it("GET /api/jobs 400s without a library kind, and never returns per-album jobs", async () => {

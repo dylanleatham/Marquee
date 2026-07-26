@@ -64,8 +64,7 @@ function adopt(job: GenerationJob): void {
 /** Start a palette sweep, or reattach to the one already running (the server dedups — ADR 0029). */
 export async function startPaletteRegen(force = false): Promise<void> {
   try {
-    const { job } = await api.regeneratePalettes(force);
-    adopt(job);
+    adopt(await api.regeneratePalettes(force));
   } catch (err) {
     set({ job: null, error: err instanceof Error ? err.message : String(err) });
   }

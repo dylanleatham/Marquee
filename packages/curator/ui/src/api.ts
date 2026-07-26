@@ -596,7 +596,7 @@ export const api = {
     req<{ jobs: GenerationJob[] }>(`/api/jobs?kind=${kind}`),
   /** Re-derive every algorithmic palette. `force` includes hand-edited ones, which are otherwise skipped. */
   regeneratePalettes: (force = false) =>
-    req<{ job: GenerationJob }>(
+    req<GenerationJob>(
       `/api/batch/regenerate-palettes${force ? "?force=1" : ""}`,
       { method: "POST" },
     ),

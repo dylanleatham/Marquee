@@ -29,6 +29,7 @@ import {
   cancelBatch,
   dismissBatch,
   resetBatchJob,
+  POLL_MS,
 } from "../batchJob";
 
 const job = (patch: Partial<GenerationJob> = {}): GenerationJob => ({
@@ -75,7 +76,7 @@ const finished = (): GenerationJob =>
 
 beforeEach(() => {
   resetBatchJob();
-  vi.mocked(api.regeneratePalettes).mockResolvedValue({ job: job() });
+  vi.mocked(api.regeneratePalettes).mockResolvedValue(job());
   vi.mocked(api.job).mockResolvedValue(job());
   vi.mocked(api.cancelJob).mockResolvedValue(job({ status: "cancelled" }));
   vi.mocked(api.libraryJobs).mockResolvedValue({ jobs: [] });
@@ -111,7 +112,7 @@ describe("BatchProgress", () => {
   });
 
   it("names every outcome in words, not by colour alone", async () => {
-    vi.mocked(api.regeneratePalettes).mockResolvedValue({ job: finished() });
+    vi.mocked(api.regeneratePalettes).mockResolvedValue(finished());
     render(<BatchProgress />);
     await startPaletteRegen();
 
@@ -123,7 +124,7 @@ describe("BatchProgress", () => {
   });
 
   it("can be dismissed once the sweep is over", async () => {
-    vi.mocked(api.regeneratePalettes).mockResolvedValue({ job: finished() });
+    vi.mocked(api.regeneratePalettes).mockResolvedValue(finished());
     const { container } = render(<BatchProgress />);
     await startPaletteRegen();
 
@@ -176,5 +177,83 @@ describe("batchJob store", () => {
     await cancelBatch();
     dismissBatch();
     expect(api.cancelJob).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The poll loop is what makes the panel live, and both of its failure modes are silent: a loop that
+ * stops early leaves a sweep running with a frozen bar, and one that never stops keeps hitting the
+ * server forever after the job is over. Neither shows up in the rendering tests above, so drive the
+ * clock directly.
+ */
+describe("batchJob polling", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  /** Advance one poll interval and let the awaited fetch settle. */
+  const tick = async () => {
+    await vi.advanceTimersByTimeAsync(POLL_MS);
+  };
+
+  it("keeps polling while the job runs, and re-renders each answer", async () => {
+    vi.mocked(api.regeneratePalettes).mockResolvedValue(job());
+    vi.mocked(api.job).mockResolvedValue(
+      job({ progress: { done: 4, total: 5 } }),
+    );
+    render(<BatchProgress />);
+    await startPaletteRegen();
+
+    await tick();
+    expect(api.job).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("4 of 5 albums")).toBeTruthy();
+
+    await tick();
+    expect(api.job).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops polling once the job reaches a terminal state", async () => {
+    vi.mocked(api.regeneratePalettes).mockResolvedValue(job());
+    vi.mocked(api.job).mockResolvedValue(finished());
+    render(<BatchProgress />);
+    await startPaletteRegen();
+
+    await tick();
+    expect(api.job).toHaveBeenCalledTimes(1);
+
+    // Several more intervals with no further requests — the loop is genuinely stopped, not slowed.
+    await tick();
+    await tick();
+    expect(api.job).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByText("1 regenerated · 1 skipped · 1 failed"),
+    ).toBeTruthy();
+  });
+
+  it("survives a transient poll failure instead of going quiet", async () => {
+    vi.mocked(api.regeneratePalettes).mockResolvedValue(job());
+    vi.mocked(api.job)
+      .mockRejectedValueOnce(new Error("connection reset"))
+      .mockResolvedValue(finished());
+    render(<BatchProgress />);
+    await startPaletteRegen();
+
+    await tick();
+    await tick();
+    // A blip must not end the loop — the sweep is still running on the server either way.
+    expect(api.job).toHaveBeenCalledTimes(2);
+    expect(
+      screen.getByText("1 regenerated · 1 skipped · 1 failed"),
+    ).toBeTruthy();
+  });
+
+  it("stops polling when the panel is dismissed", async () => {
+    vi.mocked(api.regeneratePalettes).mockResolvedValue(finished());
+    render(<BatchProgress />);
+    await startPaletteRegen();
+
+    dismissBatch();
+    await tick();
+    await tick();
+    expect(api.job).not.toHaveBeenCalled();
   });
 });
