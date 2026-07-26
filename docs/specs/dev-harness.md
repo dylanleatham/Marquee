@@ -92,6 +92,11 @@ Managed by Husky. The goal: never push code that a CI would immediately reject. 
 
 ### Pre-commit (runs on `git commit`, must be fast: <5 seconds)
 
+- **Conflict markers**: `node scripts/check-conflict-markers.mjs --staged`, and it runs **first** —
+  ahead of the formatter. Prettier does not read `<<<<<<< HEAD` as anything but prose, and it
+  rewrites a closing marker in markdown into a nested blockquote, which then looks deliberate. Once
+  formatted, the evidence is gone. _(Added 2026-07-25, [issue #113](https://github.com/dylanleatham/Marquee/issues/113),
+  after a botched resolution shipped both sides of a conflict into `curator-spec.md`.)_
 - **Format check**: `prettier --check` on staged files (Node), `black --check` (Python). Auto-fix available via `pnpm run format`.
 - **Lint the staged files only**: `eslint` / `ruff` on just what's staged. `lint-staged` handles the file filtering.
 - **Type-check** (fast, incremental): `tsc --noEmit` on affected packages via turbo. `mypy` for Python.
@@ -101,7 +106,7 @@ If any fail, commit is blocked. `--no-verify` exists for genuine emergencies; do
 
 ### Pre-push (runs on `git push`, budget: 20-30 seconds)
 
-- **Contract validation**: run the JSON schema validators against every checked-in fixture and reference payload. Catches schema drift before CI does.
+- **Contract validation**: run the JSON schema validators against every checked-in fixture and reference payload. Catches schema drift before CI does. The same suite carries the repo-wide conflict-marker scan — a backstop for the pre-commit check, since that one can be skipped with `--no-verify` and the CI `contract-tests` job runs it unfiltered.
 - **Unit tests** on affected packages via turbo cache. Only re-runs what changed.
 - **Type-check** across the full workspace.
 
@@ -113,6 +118,7 @@ If any fail, push is blocked. Same escape hatch.
 
 ```bash
 #!/usr/bin/env sh
+node scripts/check-conflict-markers.mjs --staged
 pnpm exec lint-staged
 pnpm turbo run type-check --filter=...[HEAD^1]
 ```

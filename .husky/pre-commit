@@ -1,3 +1,7 @@
+# Conflict markers first, ahead of lint-staged: prettier rewrites a closing marker in markdown into
+# a nested blockquote, which then reads as intentional (issue #113). Catch it in its raw shape.
+node scripts/check-conflict-markers.mjs --staged
+
 pnpm exec lint-staged
 # Affected-only type-check, but fall back to a full run when there's no parent
 # commit to diff against (initial commit / fresh clone).

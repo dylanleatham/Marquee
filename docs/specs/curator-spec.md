@@ -816,8 +816,6 @@ Slide-over panel when a batch operation runs. Progress + cancel.
 
 Simple form-based screen accessible from a header link or a corner menu. Sections:
 
-<<<<<<< HEAD
-
 - **Listening room** — dropdown of Hue rooms (fetched via `GET /api/demo/rooms`, which proxies
   Conductor). Changing the selection pushes to Conductor via `PUT /api/demo/room`. First in the
   screen, because it is the setting most likely to change. _(Built 2026-07-25, issue #101 — it was
@@ -838,10 +836,6 @@ Simple form-based screen accessible from a header link or a corner menu. Section
   > rarely, and a web form is the wrong home for a shared secret. They stay in `config.toml`/env.
   > The genuinely useful half — _is the thing I configured actually answering?_ — is what shipped.
 
-- **Tag placement guide** — a text field for the placement reminder shown during tag write ("back cover, upper-right corner, 25mm round"). Just a string; whatever helps you stay consistent.
-  \=======
-- **Listening room** — dropdown of Hue rooms (fetched from `/api/settings/available-rooms`, which proxies to Conductor). Changing the selection pushes to Conductor via `PUT /api/settings`. Shows current selection prominently — this is the setting most likely to change.
-- **Service URLs** — Conductor URL, Backdrop URL, plus their shared secrets. Editable; changes update the TOML config on disk. Test-connection buttons for each service that fire a lightweight probe (`GET /api/bridge/status` on Conductor, `/healthz` on Backdrop) and report success/failure.
 - ~~**Tag placement guide**~~ — **superseded 2026-07-25 (issue #103).** Instead of a settings field
   holding a reminder you write yourself, Curator ships a **Writing NFC tags** help page at
   `/help/tags`, linked from the Ship workstation (where the question arises) and from the app menu's
@@ -850,8 +844,6 @@ Simple form-based screen accessible from a header link or a corner menu. Section
   the tag writes fine and quietly does the wrong thing) and setting NTAG213's one-way lock/password
   pages. Placement guidance lives there as advice. Deeper firmware detail stays in
   [the runbook §A7](../runbook.md) rather than being duplicated in-app.
-
-> > > > > > > 9accb59 (feat(curator): in-app help for writing NFC tags)
 
 - **Spotify** — Client ID + write-only Client Secret (needed for search/add), plus a **"Connect Spotify" / "Disconnect"** control (issue #23 / [ADR 0014](../adrs/0014-spotify-user-oauth-pkce.md)). Connect opens the Spotify authorize page in the system browser (Authorization Code + PKCE); once the loopback callback returns, the screen reflects the logged-in state. Login is optional — it routes calls through the user session (personalized search now, Connect playback later); without it Curator uses app-only catalog access. The connect button is disabled until credentials are saved.
 - **Gemini** — write-only API key + the opt-in artifact-generation toggles ([ADR 0012](../adrs/0012-artifact-generation-is-opt-in.md)).
