@@ -58,7 +58,9 @@ Env: `CLAUDE_CODE_PATH` (binary override, default `claude`), `REVIEW_MOCK=1` (sk
 used by tests/CI to exercise the pipeline without tokens; `REVIEW_MOCK_OUTPUT` supplies a
 canned findings array), `REVIEW_TIMEOUT_MS` (default spawn budget in ms, default
 `90000` — bump it on a slow/loaded machine if a specialist gets marked unavailable),
-`REVIEW_TIMEOUT_RETRIES` (extra attempts on a timeout, default `1`; set `0` to disable).
+`REVIEW_TIMEOUT_RETRIES` (extra attempts on a timeout, default `1`; set `0` to disable),
+`REVIEW_REPAIR_TIMEOUT_MS` (budget for the reformat round, default `60000` — it carries no diff, so
+it is much cheaper than a review).
 
 A specialist's own `timeoutMs` in its `config.json` overrides `REVIEW_TIMEOUT_MS`. Prefer that for a
 reviewer that is _inherently_ slow rather than raising the global default: `runtime` and

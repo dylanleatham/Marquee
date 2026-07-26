@@ -3,9 +3,6 @@
 // Extracted from the orchestrator for issue #117 so the one thing that actually fixes RA-4 — where
 // the contract sits — is pinned by a test rather than left to survive the next edit by luck.
 
-/** A reformat carries no diff — it's a translation of a reply the specialist already produced. */
-export const REPAIR_TIMEOUT_MS = 60_000;
-
 export const OUTPUT_CONTRACT = `
 # Output contract (STRICT)
 Respond with ONLY a JSON array of findings — no prose, and no markdown fences, before or after.

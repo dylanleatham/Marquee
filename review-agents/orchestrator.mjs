@@ -27,13 +27,14 @@ import {
   changedFiles,
   unifiedDiff,
 } from "./lib/git.mjs";
-import { claudeAvailable, runSpecialist, isMock } from "./lib/claude.mjs";
-import { summarizeRun, silentWarning } from "./lib/outcome.mjs";
 import {
-  composePrompt,
-  repairPrompt,
-  REPAIR_TIMEOUT_MS,
-} from "./lib/prompt.mjs";
+  claudeAvailable,
+  runSpecialist,
+  resolveRepairTimeoutMs,
+  isMock,
+} from "./lib/claude.mjs";
+import { summarizeRun, silentWarning } from "./lib/outcome.mjs";
+import { composePrompt, repairPrompt } from "./lib/prompt.mjs";
 import {
   parseWithRepair,
   salvageProse,
@@ -203,7 +204,7 @@ async function main() {
           runSpecialist({
             prompt: repairPrompt(text),
             model: config.model,
-            timeoutMs: REPAIR_TIMEOUT_MS,
+            timeoutMs: resolveRepairTimeoutMs(),
           }),
       });
       if (outcome === "repaired")

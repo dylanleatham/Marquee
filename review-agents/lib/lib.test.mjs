@@ -6,10 +6,15 @@ import {
   salvageProse,
   normalizeFindings,
   dedupe,
+  parseWithRepair,
 } from "./findings.mjs";
-import { resolveTimeoutMs, resolveRetries, runSpecialist } from "./claude.mjs";
+import {
+  resolveTimeoutMs,
+  resolveRepairTimeoutMs,
+  resolveRetries,
+  runSpecialist,
+} from "./claude.mjs";
 import { summarizeRun, silentWarning } from "./outcome.mjs";
-import { parseWithRepair } from "./findings.mjs";
 import { composePrompt, repairPrompt } from "./prompt.mjs";
 
 test("globToRegExp: ** spans directories, * does not", () => {
@@ -464,4 +469,30 @@ test("repairPrompt: asks for a translation of the reply, not a fresh review", ()
   assert.match(p, /# Output contract/);
   // No diff: a repair is cheap and must not invite a second, different opinion.
   assert.ok(!p.includes("diff --git"));
+});
+
+test("resolveRepairTimeoutMs: its own knob, following the same idiom as the review budget", () => {
+  const DEFAULT = 60_000;
+  // A repair translates a reply the specialist already produced — no diff — so it defaults tighter
+  // than a review, but a slow machine must still be able to raise it rather than lose the recovery.
+  assert.equal(resolveRepairTimeoutMs({}), DEFAULT);
+  assert.equal(
+    resolveRepairTimeoutMs({ REVIEW_REPAIR_TIMEOUT_MS: "" }),
+    DEFAULT,
+  );
+  assert.equal(
+    resolveRepairTimeoutMs({ REVIEW_REPAIR_TIMEOUT_MS: "120000" }),
+    120_000,
+  );
+  // Bad input degrades to the default rather than throwing or zeroing the budget.
+  for (const bad of ["nope", "0", "-5", "1.5"])
+    assert.equal(
+      resolveRepairTimeoutMs({ REVIEW_REPAIR_TIMEOUT_MS: bad }),
+      DEFAULT,
+    );
+  // The review budget is a separate knob — raising one must not move the other.
+  assert.equal(
+    resolveRepairTimeoutMs({ REVIEW_TIMEOUT_MS: "300000" }),
+    DEFAULT,
+  );
 });
