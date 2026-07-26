@@ -11,6 +11,7 @@ import { GeminiClient } from "../src/gemini/client.js";
 import { blendPalettes } from "../src/albums/palette.js";
 import { resolvedArtworkFile } from "../src/albums/artwork.js";
 import { feelingPaletteWithGemini } from "../src/gemini/feeling.js";
+import { regeneratePalettesRunner } from "../src/albums/batch.js";
 import { fakeRoadie, fakeProber, fakeGenerate, makeAsset } from "./helpers.js";
 
 /** A Gemini client whose two calls return canned research + a canned colour JSON. */
@@ -253,5 +254,55 @@ describe("palette feeling + choose routes", () => {
     });
     expect(early.statusCode).toBe(400);
     expect(early.json().error).toMatch(/run the feeling pass first/);
+  });
+});
+
+describe("a chosen palette and the library sweep (ADR 0029 × ADR 0030)", () => {
+  it("survives a library-wide regeneration, and is reported rather than passed over", async () => {
+    const store = seeded();
+    const app = server(store, fakeGemini().client);
+    await app.inject({
+      method: "POST",
+      url: "/api/albums/feelalb1/palette/feeling",
+    });
+    await app.inject({
+      method: "POST",
+      url: "/api/albums/feelalb1/palette/choose",
+      payload: { source: "feeling" },
+    });
+
+    // The whole point of ADR 0030 reusing `handEdited` instead of adding a second guard: the sweep
+    // needs no knowledge of "feeling" to leave a deliberate choice alone.
+    const { paletteBatch } = await regeneratePalettesRunner(
+      { store, prober: fakeProber(), generate: fakeGenerate },
+      {},
+    )({ onProgress: () => {}, signal: new AbortController().signal });
+
+    expect(paletteBatch.regenerated).toBe(0);
+    expect(paletteBatch.items[0]!.status).toBe("skipped_hand_edited");
+    expect(store.read("feelalb1")!.palette!.colors[0]!.hex).toBe("#1B2A4A");
+    expect(store.read("feelalb1")!.palette!.source).toBe("feeling");
+  });
+
+  it("is still reachable with force, which is the documented escape hatch", async () => {
+    const store = seeded();
+    const app = server(store, fakeGemini().client);
+    await app.inject({
+      method: "POST",
+      url: "/api/albums/feelalb1/palette/feeling",
+    });
+    await app.inject({
+      method: "POST",
+      url: "/api/albums/feelalb1/palette/choose",
+      payload: { source: "feeling" },
+    });
+
+    const { paletteBatch } = await regeneratePalettesRunner(
+      { store, prober: fakeProber(), generate: fakeGenerate },
+      { force: true },
+    )({ onProgress: () => {}, signal: new AbortController().signal });
+
+    expect(paletteBatch.regenerated).toBe(1);
+    expect(store.read("feelalb1")!.palette!.source).toBe("cover");
   });
 });
