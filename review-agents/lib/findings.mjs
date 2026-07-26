@@ -180,3 +180,35 @@ export function dedupe(findings) {
   }
   return [...byKey.values()];
 }
+
+/**
+ * Parse a specialist's reply, asking once for a reformat before giving up on structure
+ * (issue #117 / KNOWN-ISSUES RA-4).
+ *
+ * `salvageProse` was meant as a last resort and became the normal path: a salvaged reply collapses
+ * every finding into one unstructured **info** item with no file, no line and no severity, so a
+ * blocking issue expressed in prose cannot block. One cheap translation round recovers the
+ * structure, and the outcome is recorded so the rate is measurable rather than assumed.
+ *
+ * `repair` is injected — it returns the same `{ ok, text }` shape as `runSpecialist` — so this is
+ * testable without a Claude call.
+ *
+ * @returns {{ raw: unknown[]|null, outcome: "clean"|"repaired"|"unrepaired" }}
+ */
+export function parseWithRepair(text, { repair } = {}) {
+  const first = extractJsonArray(text);
+  if (first !== null) return { raw: first, outcome: "clean" };
+  if (!repair) return { raw: null, outcome: "unrepaired" };
+
+  let second;
+  try {
+    second = repair(text);
+  } catch {
+    return { raw: null, outcome: "unrepaired" }; // a failed repair is never worse than not trying
+  }
+  if (!second?.ok) return { raw: null, outcome: "unrepaired" };
+  const parsed = extractJsonArray(second.text);
+  return parsed === null
+    ? { raw: null, outcome: "unrepaired" }
+    : { raw: parsed, outcome: "repaired" };
+}

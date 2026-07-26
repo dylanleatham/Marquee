@@ -9,6 +9,7 @@ import { spawnSync } from "node:child_process";
 const BIN = process.env.CLAUDE_CODE_PATH || "claude";
 const DEFAULT_TIMEOUT_MS = 90_000; // per-specialist budget (dev-harness §6 failure modes)
 const DEFAULT_RETRIES = 1; // extra attempts on a *timeout* only (RA-2)
+const DEFAULT_REPAIR_TIMEOUT_MS = 60_000; // a reformat carries no diff (RA-4)
 const IS_WIN = process.platform === "win32";
 
 export const isMock = () => process.env.REVIEW_MOCK === "1";
@@ -50,6 +51,16 @@ export function resolveRetries(env = process.env) {
   if (raw == null || raw === "") return DEFAULT_RETRIES;
   const n = Number(raw);
   return Number.isInteger(n) && n >= 0 ? n : DEFAULT_RETRIES;
+}
+
+/**
+ * Budget for the reformat round that recovers a prose reply (issue #117). Its own knob rather than a
+ * constant, so it follows the same override idiom as every other budget here: a repair carries no
+ * diff — it translates a reply the specialist already produced — so it is much cheaper than a review
+ * and deserves a tighter default, but a slow machine still needs a way to raise it.
+ */
+export function resolveRepairTimeoutMs(env = process.env) {
+  return positiveInt(env.REVIEW_REPAIR_TIMEOUT_MS) ?? DEFAULT_REPAIR_TIMEOUT_MS;
 }
 
 export function claudeAvailable() {
