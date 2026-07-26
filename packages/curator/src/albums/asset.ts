@@ -64,6 +64,32 @@ export interface PaletteSection {
   handEdited: boolean;
   insufficient?: boolean;
   reason?: string;
+  /**
+   * Where these colours came from (ADR 0030). Absent on albums predating it, which reads as
+   * `"cover"` — every palette was a cover extraction until this existed. Provenance only: the guard
+   * against being overwritten is `handEdited`, which choosing a non-cover palette also sets.
+   */
+  source?: "cover" | "feeling" | "blend" | "hand";
+  /** One line on why these colours, for a feeling/blend palette (ADR 0030). */
+  rationale?: string;
+}
+
+/**
+ * Proposals from the feeling pass, waiting to be chosen or ignored (ADR 0030). Stored on the asset
+ * so you can weigh them against the sleeve, reload, and still be looking at them — the same shape as
+ * `cardArtCandidates`: generate a set, choose one, discard the rest.
+ */
+export interface PaletteCandidates {
+  generatedAt: string;
+  rationale: string;
+  /**
+   * The cover extraction as it stood when the pass ran. Snapshotted because choosing a feeling
+   * palette *replaces* the stored one — without this the UI could offer "From the cover" with no
+   * swatches to show, and you'd be picking between an option you can see and one you can't.
+   */
+  cover: PaletteSection["colors"];
+  feeling: PaletteSection["colors"];
+  blend: PaletteSection["colors"];
 }
 
 export interface PatternSection {
@@ -184,6 +210,8 @@ export interface AlbumAsset {
   };
   /** Present once Palette Press has run. */
   palette?: PaletteSection;
+  /** Present once a feeling pass has run and before a choice is made (ADR 0030). */
+  paletteCandidates?: PaletteCandidates;
   /** Present once Palette Press has run (pattern travels with the palette payload). */
   pattern?: PatternSection;
   /** Present once Roadie has drafted the video + card-art prompts. */

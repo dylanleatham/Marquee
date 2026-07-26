@@ -12,6 +12,7 @@ import { usePoll } from "../hooks";
 import { Cover, StateBadge, Spinner } from "../components/common";
 import { PaletteEditor } from "../components/PaletteEditor";
 import { ArtworkSection } from "../components/ArtworkSection";
+import { FeelingPalette } from "../components/FeelingPalette";
 import { useConfirm } from "../components/Confirm";
 import { PreviewWorkstation } from "../components/PreviewWorkstation";
 import {
@@ -247,6 +248,11 @@ export function AlbumDetail() {
                 <span className="tag">{pattern.type}</span>
                 <code>{JSON.stringify(pattern.params)}</code>
               </div>
+            )}
+            {/* Where the colours come from (ADR 0030) — below the palette itself, because the cover
+                is the default and this is the escape hatch, not the main event. */}
+            {palette && (
+              <FeelingPalette curatorId={curatorId} asset={asset} run={run} />
             )}
             {/* The cover the palette is derived from — replacing a bad scan is a colour decision
                 before it is a metadata one, so it lives here rather than in a settings screen. */}

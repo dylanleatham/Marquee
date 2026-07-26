@@ -1733,3 +1733,71 @@ em {
   font-family: var(--mono);
   overflow-wrap: anywhere;
 }
+
+/* --- where the colours come from (ADR 0030, issue #105) --------------------------------------
+   Below the palette editor: the cover is the default, and this is the escape hatch for a record
+   whose sleeve doesn't look like it sounds. Presented as options side by side so the choice is a
+   comparison rather than a leap. */
+.feel {
+  margin-top: 20px;
+}
+.feel__rationale {
+  margin: 12px 0;
+  font-style: italic;
+  color: var(--text);
+  max-width: 68ch;
+}
+.feel__options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+.feel__option {
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+/* The one in force is marked by a border *and* an "in use" tag — never colour alone (§3.4). */
+.feel__option.is-current {
+  border-color: var(--amber);
+}
+.feel__option-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.feel__option p {
+  margin: 0;
+  font-size: 13px;
+}
+.feel__swatches {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.feel__swatch {
+  flex: 1 1 40px;
+  min-width: 40px;
+  height: 44px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 2px;
+}
+/* The hex sits on the swatch rather than only in a tooltip: a strip of colour is unreadable to
+   anyone who can't distinguish the hues, and mix-blend keeps it legible on light and dark alike. */
+.feel__swatch em {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-style: normal;
+  color: #fff;
+  mix-blend-mode: difference;
+}

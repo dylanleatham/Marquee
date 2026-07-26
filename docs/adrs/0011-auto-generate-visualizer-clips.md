@@ -55,7 +55,7 @@ that stays set by the manual upload of the spliced result.**
    > **Superseded 2026-07-21 by [ADR 0018](0018-generation-runs-as-background-jobs.md) (issue #30):**
    > the future improvement was taken. `video/generate` now returns `202` with the job object
    > (`{ id, status, progress, … }`) and the clips generate in a background job the UI polls (`GET
-   > /api/jobs/:id`, using that `id`); the synchronous held request is gone. The generation logic +
+/api/jobs/:id`, using that `id`); the synchronous held request is gone. The generation logic +
    > partial-success semantics here are otherwise unchanged.
 
 ## Consequences
@@ -104,6 +104,6 @@ remain follow-ups — a plain concat of same-sized clips is the MVP.~~
   `crossfadeSec` (`POST …/video/splice`, body `{ order?, crossfadeSec? }`). The longer xfade encode
   is covered by the existing `CONCAT_TIMEOUT_MS`.
 
-  *Still a further refinement:* a dedicated **head/tail wrap** crossfade at the loop point (end→start)
+  _Still a further refinement:_ a dedicated **head/tail wrap** crossfade at the loop point (end→start)
   — the seam crossfade removes the hard cuts between clips, which is the dominant artifact; the single
   loop-seam blend is best tuned against real playback on the stand (step 12 / issue #53). Not blocking.

@@ -38,7 +38,7 @@ Two facts drove the ordering:
   NTAG213 pages; `GET /api/albums/:id/tag.nfc` downloads the `.nfc`, `GET /api/tags/pending` lists
   albums awaiting a write. The **page/NDEF bytes are the tested invariant** (unit-tested exact bytes +
   a round-trip, and the identical bytes are asserted through Stylus's `parse_uri`). The `.nfc` file
-  *wrapper* (header schema) targets recent firmware and is isolated in one function — validate it once
+  _wrapper_ (header schema) targets recent firmware and is isolated in one function — validate it once
   on-device (write → read back), and if a firmware wants a different schema it's a one-place edit.
 - **Route B (#68, scaffold):** `flipper/marquee-tag-writer/` (manifest + single-file app: NDEF compose
   done, NFC write + list-load stubbed) plus `docs/specs/flipper-tag-writer.md`. Built with ufbt on a

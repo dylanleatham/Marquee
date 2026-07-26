@@ -80,3 +80,54 @@ export function sanitizePaletteEdit(input: unknown): PaletteSection["colors"] {
     };
   });
 }
+
+// --- palette provenance + blending (ADR 0030, issue #105) ---------------------------------------
+
+/**
+ * Where a palette's colours came from. Absent on albums created before ADR 0030, which is read as
+ * `"cover"` — every palette was an extraction until this existed.
+ *
+ * This is provenance for display. The *protection* against being overwritten stays `handEdited`,
+ * which choosing anything but the cover also sets: "a human decided this palette" is already exactly
+ * what that flag means, and one guard is better than two that must agree.
+ */
+export type PaletteSource = "cover" | "feeling" | "blend" | "hand";
+
+/** Human-facing label for each source, so the Look workstation never shows a bare enum. */
+export const PALETTE_SOURCE_LABEL: Record<PaletteSource, string> = {
+  cover: "From the cover",
+  feeling: "From the feeling",
+  blend: "Blend",
+  hand: "Hand-edited",
+};
+
+/**
+ * The blend: the cover's dominant colour, then the feeling's colours behind it.
+ *
+ * Keeping the cover's primary is the whole point — the room still reads as the object on the stand,
+ * and the feeling only changes the colours around it. Taking the *first* cover swatch rather than
+ * mixing channels keeps every colour one that something actually chose; averaging two palettes
+ * produces muddy in-between hues that neither the sleeve nor the record justifies, and a Hue bulb
+ * renders those worst of all.
+ *
+ * Deduped on hex so the blend never shows the same colour twice, and capped at MAX_PALETTE_COLORS.
+ */
+export function blendPalettes(
+  cover: PaletteEditColor[],
+  feeling: PaletteEditColor[],
+): PaletteEditColor[] {
+  const dominant = cover[0];
+  const merged = dominant ? [dominant, ...feeling] : [...feeling];
+  const seen = new Set<string>();
+  const out: PaletteEditColor[] = [];
+  for (const c of merged) {
+    const key = normalizeHex(c.hex);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    // Roles are positional after the blend — the caller's sanitize assigns them — so drop any
+    // inherited role rather than carrying two "primary"s into the same list.
+    out.push({ hex: key });
+    if (out.length === MAX_PALETTE_COLORS) break;
+  }
+  return out;
+}

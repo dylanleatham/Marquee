@@ -22,7 +22,17 @@ import {
   type VideoClip,
 } from "./asset.js";
 import { ValidationError, type PaletteGenerator } from "./add-manual.js";
-import { sanitizePaletteEdit, type PaletteEditColor } from "./palette.js";
+import {
+  selectDefaultPattern,
+  type PaletteColor,
+} from "@marquee/palette-press";
+import {
+  sanitizePaletteEdit,
+  blendPalettes,
+  type PaletteEditColor,
+  type PaletteSource,
+} from "./palette.js";
+import { feelingPaletteWithGemini } from "../gemini/feeling.js";
 import { resolvedArtworkFile } from "./artwork.js";
 import {
   draftPrompts,
@@ -291,6 +301,7 @@ export function editPalette(
     generatedAt: clock(deps)(),
     algorithm: asset.palette.algorithm,
     handEdited: true,
+    source: "hand",
   };
   asset.roadie.flags.palette_insufficient = false;
   asset.status = deriveStatus(asset.roadie);
@@ -362,10 +373,14 @@ export async function regeneratePalette(
       generatedAt: payload.meta?.generatedAt ?? now(),
       algorithm: payload.meta?.generator ?? "palette-press",
       handEdited: false,
+      source: "cover",
       ...(insufficient
         ? { insufficient: true, reason: payload.palette.reason }
         : {}),
     };
+    // Candidates described the palette being replaced; keeping them would offer a "feeling" option
+    // blended against a cover that no longer exists.
+    delete a.paletteCandidates;
     a.pattern = {
       type: payload.pattern.type,
       params: payload.pattern.params,
@@ -376,6 +391,129 @@ export async function regeneratePalette(
   });
   if (!saved)
     throw new NotFoundError(`album ${curatorId} was deleted mid-regeneration`);
+  return saved;
+}
+
+/**
+ * Propose colours from how the album *sounds* (ADR 0030 / issue #105) — the escape hatch for a cover
+ * whose colours aren't the ones you want. Two Gemini calls, invoked by a button press and never by
+ * the pipeline or a batch sweep (ADR 0027).
+ *
+ * Stores the candidates and **changes nothing else**: the album keeps the palette it had until you
+ * choose. That is what makes this safe to press — you can look at both against the sleeve, reload,
+ * and still be looking at them.
+ */
+export async function proposeFeelingPalette(
+  deps: ActionDeps,
+  curatorId: string,
+): Promise<AlbumAsset> {
+  if (!deps.gemini)
+    throw new ValidationError(
+      "a Gemini API key is required to read colours from an album's feeling",
+    );
+  const asset = load(deps.store, curatorId);
+  assertNotProcessing(asset);
+  if (!asset.palette)
+    throw new ValidationError(
+      "the cover palette isn't generated yet — there is nothing to compare against",
+    );
+
+  const { rationale, hexes } = await feelingPaletteWithGemini(
+    deps.gemini,
+    asset.metadata,
+  );
+  // Through the same validation a hand-edit goes through: hex normalised, cie_xy recomputed and
+  // gamut-clamped, roles positional. A model-supplied colour is no more trusted than a typed one.
+  const feeling = sanitizePaletteEdit(hexes.map((hex) => ({ hex })));
+  const blend = sanitizePaletteEdit(
+    blendPalettes(
+      asset.palette.colors.map((c) => ({ hex: c.hex })),
+      hexes.map((hex) => ({ hex })),
+    ),
+  );
+
+  const saved = deps.store.update(curatorId, (a) => {
+    // Re-validate on the fresh copy: the album may have moved while the two calls ran (issue #38).
+    assertNotProcessing(a);
+    a.paletteCandidates = {
+      generatedAt: clock(deps)(),
+      rationale,
+      cover: a.palette?.colors ?? [],
+      feeling,
+      blend,
+    };
+  });
+  if (!saved)
+    throw new NotFoundError(`album ${curatorId} was deleted mid-generation`);
+  return saved;
+}
+
+/**
+ * Apply one of the offered palettes (ADR 0030). `cover` re-runs Palette Press and drops the
+ * protection, so it is the true undo; `feeling` and `blend` take the stored candidate.
+ *
+ * Choosing anything but the cover sets `handEdited` as well as `source`. That is deliberate reuse,
+ * not a second mechanism: `handEdited` already means "a human decided this palette, don't overwrite
+ * it", which is exactly true here — so `regeneratePalette`'s 409 and the library sweep's skip
+ * (ADR 0029) protect a chosen palette with no new rule to keep in sync.
+ */
+export async function choosePalette(
+  deps: ActionDeps,
+  curatorId: string,
+  source: PaletteSource,
+): Promise<AlbumAsset> {
+  if (source === "hand")
+    throw new ValidationError(
+      'a hand-edited palette is set by PUT /palette, not chosen — use "cover", "feeling" or "blend"',
+    );
+  // Back to the algorithmic extraction, protection cleared. force=true because the palette being
+  // replaced is by definition a chosen one, and choosing the cover *is* the explicit user action
+  // that the force flag exists to require.
+  if (source === "cover") return regeneratePalette(deps, curatorId, true);
+
+  const asset = load(deps.store, curatorId);
+  assertNotProcessing(asset);
+  const candidates = asset.paletteCandidates;
+  if (!candidates)
+    throw new ValidationError(
+      "no palette candidates — run the feeling pass first",
+    );
+
+  const colors = candidates[source];
+  const saved = deps.store.update(curatorId, (a) => {
+    assertNotProcessing(a);
+    a.palette = {
+      colors,
+      generatedAt: clock(deps)(),
+      algorithm: a.palette?.algorithm ?? "palette-press",
+      handEdited: true,
+      source,
+      rationale: candidates.rationale,
+    };
+    // Motion follows the palette in force (ADR 0022): a fiercer set of colours should drive a
+    // livelier room. Re-deriving here is the point of choosing a feeling palette at all — otherwise
+    // the colours change and the record still behaves like its sleeve.
+    // sanitizePaletteEdit always computes cie_xy, so the fallback here is only to satisfy the
+    // stored type's optionality — it is never reached for a candidate.
+    const pattern = selectDefaultPattern({
+      colors: colors.map((c) => ({
+        hex: c.hex,
+        cie_xy: c.cie_xy ?? ([0, 0] as [number, number]),
+        role: c.role as PaletteColor["role"],
+        sourceSwatch: c.sourceSwatch ?? "HandEdited",
+      })),
+    });
+    a.pattern = {
+      type: pattern.type,
+      params: pattern.params,
+      handEdited: false,
+    };
+    // A chosen palette is whatever the human picked — the monochrome-insufficient flag described the
+    // cover extraction and no longer applies (same reasoning as editPalette).
+    a.roadie.flags.palette_insufficient = false;
+    a.status = deriveStatus(a.roadie);
+  });
+  if (!saved) throw new NotFoundError(`album ${curatorId} was deleted`);
   return saved;
 }
 

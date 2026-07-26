@@ -23,7 +23,7 @@ fragile in exactly the ways a minutes-long HTTP call always is:
 - a page reload **loses the result** — the work may still be running server-side, but the client
   that would receive it is gone.
 
-Roadie is untouched by this: generation is a human-triggered action deliberately *outside* Roadie's
+Roadie is untouched by this: generation is a human-triggered action deliberately _outside_ Roadie's
 queue (roadie-spec §15). This is purely about the request/response shape of two routes.
 
 ## Decision
@@ -32,7 +32,7 @@ queue (roadie-spec §15). This is purely about the request/response shape of two
 
 1. **A tiny in-memory job manager** (`src/jobs/manager.ts`, `GenerationJobs`). A job carries
    `{ id, kind: "video"|"cardArt", curatorId, status: running|done|failed, progress: {done,total},
-   result?, error? }`. In-memory is deliberate (issue #30: "in-memory is fine to start") — generation
+result?, error? }`. In-memory is deliberate (issue #30: "in-memory is fine to start") — generation
    is a convenience, not durable pipeline state, so a job lost on restart just means clicking generate
    again. Terminal jobs are GC'd after a TTL so the map can't grow without bound.
 2. **`POST …/video/generate` and `…/card-art/generate`** now:
