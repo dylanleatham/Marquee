@@ -110,6 +110,67 @@ describe("QueueView keyboard navigation", () => {
     expect(await screen.findByText("detail page")).toBeTruthy();
   });
 
+  /**
+   * Issue #119. React commits the rows to the DOM *before* it flushes passive effects, so there is
+   * a window where the queue is painted and looks interactive but the keydown listener is still the
+   * one captured while the queue was empty — where `j` clamps to `Math.min(c + 1, 0)` and `Enter`
+   * sees no selection. A keystroke in that window was silently discarded.
+   *
+   * Firing from a MutationObserver callback lands in that window deterministically: the callback is
+   * a microtask queued by the DOM mutation itself, which runs before React's passive-effect flush.
+   * Every other test here waits for the loaded state first, so none of them could ever catch this —
+   * it only ever showed up as a 1-in-12 CI flake.
+   */
+  const pressOnFirstPaint = (key: string) =>
+    new Promise<void>((resolve) => {
+      const obs = new MutationObserver(() => {
+        if (!document.querySelector(".row")) return;
+        obs.disconnect();
+        fireEvent.keyDown(window, { key });
+        resolve();
+      });
+      obs.observe(document.body, { childList: true, subtree: true });
+    });
+
+  /**
+   * The deterministic half of #119. The two tests below reproduce the bug but only probabilistically
+   * — they race React's flush order, which is exactly the property that made it a CI flake instead
+   * of a failure. This one pins the fix's mechanism directly: the handler reads rows and cursor from
+   * refs, so it depends on nothing that changes, and therefore subscribes exactly once. A listener
+   * re-created whenever the data changes is a listener that can be holding last render's data.
+   */
+  it("subscribes its key handler once, not per data change (#119)", async () => {
+    // Fresh objects on every poll, so anything keyed on data identity would re-subscribe.
+    vi.mocked(api.queue).mockImplementation(async () => groups());
+    const add = vi.spyOn(window, "addEventListener");
+    const keydownSubs = () =>
+      add.mock.calls.filter(([type]) => type === "keydown").length;
+
+    renderQueue();
+    await waitFor(() => expect(selectedTitle()).toBe("One"));
+    expect(keydownSubs()).toBe(1);
+
+    // Moving the selection must not swap it either.
+    fireEvent.keyDown(window, { key: "j" });
+    await waitFor(() => expect(selectedTitle()).toBe("Two"));
+    expect(keydownSubs()).toBe(1);
+
+    add.mockRestore();
+  });
+
+  it("doesn't swallow j pressed the instant the rows appear (#119)", async () => {
+    renderQueue();
+    await pressOnFirstPaint("j");
+    await waitFor(() => expect(selectedTitle()).toBe("Two"));
+  });
+
+  it("doesn't swallow Enter pressed the instant the rows appear (#119)", async () => {
+    renderQueue();
+    await pressOnFirstPaint("Enter");
+    // Enter read a null selection in that window and did nothing at all.
+    expect(await screen.findByText("detail page")).toBeTruthy();
+  });
+
   it("focuses search on /", async () => {
     renderQueue();
     await waitFor(() => expect(selectedTitle()).toBe("One"));

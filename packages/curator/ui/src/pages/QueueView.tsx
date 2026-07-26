@@ -8,6 +8,7 @@ import {
 } from "../api";
 import { QUEUE_SECTIONS, NEXT_ACTION, relativeTime } from "../format";
 import { usePoll } from "../hooks";
+import { queueKeyAction } from "../queueKeys";
 import { AlbumThumb, Spinner } from "../components/common";
 
 /** One album row: thumbnail, title/artist, how long it's waited, and its next-action link. */
@@ -117,37 +118,40 @@ export function QueueView() {
     : null;
 
   // Queue keyboard path (curator-ui-ux §9.1). Every one of these is also a click.
+  //
+  // The rows and cursor are read through refs, not the effect's closure (issue #119). React commits
+  // rows to the DOM before it flushes passive effects, so a listener that captured the row list was
+  // stale in exactly the moment the queue first appears: `j` clamped against an empty list and
+  // `Enter` found no selection, and the keystroke was discarded with no feedback. Refs are current
+  // at commit time, so the handler always decides on what is actually on screen — and the listener
+  // subscribes once instead of re-subscribing on every poll.
+  const rowsRef = useRef(ordered);
+  rowsRef.current = ordered;
+  const cursorRef = useRef(cursor);
+  cursorRef.current = cursor;
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
-      const typing =
-        t &&
-        (t.tagName === "INPUT" ||
-          t.tagName === "TEXTAREA" ||
-          t.tagName === "SELECT" ||
-          t.isContentEditable);
-      if (e.key === "Escape" && typing) {
-        (t as HTMLElement).blur();
+      const action = queueKeyAction(e.key, {
+        rows: rowsRef.current,
+        cursor: cursorRef.current,
+        target: t,
+        modifier: e.metaKey || e.ctrlKey || e.altKey,
+      });
+      if (!action) return;
+      if (action.type === "blurTarget") {
+        t?.blur();
         return;
       }
-      if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === "j" || e.key === "ArrowDown") {
-        e.preventDefault();
-        setCursor((c) => Math.min(c + 1, Math.max(ordered.length - 1, 0)));
-      } else if (e.key === "k" || e.key === "ArrowUp") {
-        e.preventDefault();
-        setCursor((c) => Math.max(c - 1, 0));
-      } else if (e.key === "Enter" && selected) {
-        e.preventDefault();
-        navigate(`/albums/${selected.curatorId}`);
-      } else if (e.key === "/") {
-        e.preventDefault();
-        searchRef.current?.focus();
-      }
+      e.preventDefault();
+      if (action.type === "move") setCursor(action.cursor);
+      else if (action.type === "open") navigate(`/albums/${action.curatorId}`);
+      else searchRef.current?.focus();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [ordered.length, selected, navigate]);
+  }, [navigate]);
 
   if (error)
     return (
