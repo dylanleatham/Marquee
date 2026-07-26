@@ -8,6 +8,7 @@ import {
   dedupe,
 } from "./findings.mjs";
 import { resolveTimeoutMs, resolveRetries, runSpecialist } from "./claude.mjs";
+import { summarizeRun, silentWarning } from "./outcome.mjs";
 
 test("globToRegExp: ** spans directories, * does not", () => {
   assert.match(
@@ -208,6 +209,121 @@ test("resolveTimeoutMs: env override, with fallback to default on bad input", ()
   assert.equal(resolveTimeoutMs({ REVIEW_TIMEOUT_MS: "0" }), DEFAULT);
   assert.equal(resolveTimeoutMs({ REVIEW_TIMEOUT_MS: "-5" }), DEFAULT);
   assert.equal(resolveTimeoutMs({ REVIEW_TIMEOUT_MS: "1.5" }), DEFAULT);
+});
+
+test("resolveTimeoutMs: a specialist's own timeoutMs wins over the env default (RA-3)", () => {
+  const DEFAULT = 90_000;
+  // The whole point: `runtime` needs minutes while `security` finishes in seconds, so the budget
+  // belongs to the specialist, not the machine.
+  assert.equal(resolveTimeoutMs({}, { timeoutMs: 300_000 }), 300_000);
+  assert.equal(
+    resolveTimeoutMs({ REVIEW_TIMEOUT_MS: "90000" }, { timeoutMs: 300_000 }),
+    300_000,
+  );
+  // No per-specialist value -> the env default still applies.
+  assert.equal(resolveTimeoutMs({ REVIEW_TIMEOUT_MS: "120000" }, {}), 120_000);
+  // Bad per-specialist value falls through instead of throwing or zeroing the budget.
+  assert.equal(resolveTimeoutMs({}, { timeoutMs: "nope" }), DEFAULT);
+  assert.equal(resolveTimeoutMs({}, { timeoutMs: 0 }), DEFAULT);
+  assert.equal(resolveTimeoutMs({}, { timeoutMs: -1 }), DEFAULT);
+  assert.equal(
+    resolveTimeoutMs({ REVIEW_TIMEOUT_MS: "120000" }, { timeoutMs: null }),
+    120_000,
+  );
+});
+
+test("runSpecialist: passes the specialist's budget through to spawn (RA-3)", () => {
+  let seen;
+  const spawn = (_bin, _args, o) => {
+    seen = o.timeout;
+    return { status: 0, stdout: '{"result":"[]"}' };
+  };
+  runSpecialist({ prompt: "p", timeoutMs: 300_000 }, { spawn, retries: 0 });
+  assert.equal(seen, 300_000);
+  runSpecialist({ prompt: "p" }, { spawn, retries: 0 });
+  assert.equal(seen, 90_000); // no declared budget -> the default
+});
+
+// --- RA-3 / issue #116: "did not run" must never be reported as "found nothing" ---
+
+test("summarizeRun: a clean review is clean", () => {
+  const runs = [
+    { id: "security", blocking: true, status: "no-findings" },
+    { id: "consistency", blocking: false, status: "no-findings" },
+  ];
+  const out = summarizeRun(runs, []);
+  assert.deepEqual(out.silent, []);
+  assert.equal(out.clean, true);
+});
+
+test("summarizeRun: an unavailable blocking specialist makes the run not clean", () => {
+  const runs = [
+    { id: "security", blocking: true, status: "no-findings" },
+    {
+      id: "runtime",
+      blocking: true,
+      status: "unavailable",
+      reason: "spawnSync claude ETIMEDOUT",
+    },
+  ];
+  const out = summarizeRun(runs, []);
+  // No findings at all, yet the run must not read as a pass — this is the RA-3 bug.
+  assert.equal(out.blocking.length, 0);
+  assert.equal(out.clean, false);
+  assert.deepEqual(
+    out.silent.map((s) => s.id),
+    ["runtime"],
+  );
+  assert.match(out.silent[0].reason, /ETIMEDOUT/);
+});
+
+test("summarizeRun: an unparseable blocking reply counts as no verdict too", () => {
+  // `error` = the reply couldn't be parsed *and* couldn't be salvaged as prose. Same class as a
+  // timeout: the dimension went unreviewed.
+  const out = summarizeRun(
+    [{ id: "runtime", blocking: true, status: "error" }],
+    [],
+  );
+  assert.equal(out.clean, false);
+});
+
+test("summarizeRun: a salvaged prose reply is a verdict, not a gap", () => {
+  // RA-1 surfaces prose as an info finding — the specialist did review the diff, so it isn't silent.
+  const out = summarizeRun(
+    [{ id: "consistency", blocking: true, status: "unformatted" }],
+    [{ severity: "info", message: "…", specialist: "consistency" }],
+  );
+  assert.deepEqual(out.silent, []);
+  assert.equal(out.clean, true);
+});
+
+test("summarizeRun: a non-blocking specialist going missing doesn't gate", () => {
+  const out = summarizeRun(
+    [{ id: "consistency", blocking: false, status: "unavailable" }],
+    [],
+  );
+  assert.deepEqual(out.silent, []);
+  assert.equal(out.clean, true);
+});
+
+test("summarizeRun: blocking findings still gate, independently of gaps", () => {
+  const out = summarizeRun(
+    [{ id: "security", blocking: true, status: "ran" }],
+    [{ severity: "blocking", message: "leak", specialist: "security" }],
+  );
+  assert.equal(out.blocking.length, 1);
+  assert.equal(out.clean, false);
+});
+
+test("silentWarning: names the specialists and says the run is incomplete", () => {
+  const msg = silentWarning([
+    { id: "runtime", status: "unavailable" },
+    { id: "spec-adherence", status: "unavailable" },
+  ]);
+  assert.match(msg, /runtime, spec-adherence/);
+  assert.match(msg, /incomplete, not as a pass/);
+  assert.match(msg, /timeoutMs/); // tells you how to fix it
+  assert.equal(silentWarning([]), "");
 });
 
 test("dedupe: collapses same file+line+message, prefers blocking", () => {

@@ -2,6 +2,7 @@
   "id": "consistency",
   "blocking": false,
   "model": "sonnet",
+  "timeoutMs": 240000,
   "triggerGlobs": [
     "packages/**/*.ts",
     "packages/**/*.tsx",

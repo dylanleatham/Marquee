@@ -2,6 +2,7 @@
   "id": "runtime",
   "blocking": true,
   "model": "sonnet",
+  "timeoutMs": 300000,
   "triggerGlobs": [
     "packages/**/*.ts",
     "packages/**/*.tsx",

@@ -32,10 +32,14 @@ else is informational.
 5. Parses each reply into findings (recovering a lone object or, failing that, surfacing prose as
    an info finding rather than dropping it — RA-1), aggregates, dedupes by file+line+message.
 6. Writes `.review-agents/report-<sha>.json` (gitignored) and prints a summary.
-7. In `--ci` mode, exits non-zero if there's any blocking finding.
+7. In `--ci` mode, exits non-zero if there's any blocking finding — **or if a blocking specialist
+   produced no verdict at all** (timed out, or returned something unparseable). A dimension that
+   went unreviewed is a hole in the review, not a pass; the summary names it, the "No findings"
+   message is withheld, and the report records `silentBlocking` (issue #116).
 
 If Claude Code isn't reachable (not installed / not logged in), the run **skips without
-blocking** — unavailable ≠ invalid.
+blocking** — unavailable ≠ invalid. That's the harness not running at all, which is visible; it is
+not the same as a review that silently covered less than it claims.
 
 ## Commands
 
@@ -49,9 +53,14 @@ pnpm run review --ci                # hook mode: write report, exit 1 on blockin
 
 Env: `CLAUDE_CODE_PATH` (binary override, default `claude`), `REVIEW_MOCK=1` (skip real calls —
 used by tests/CI to exercise the pipeline without tokens; `REVIEW_MOCK_OUTPUT` supplies a
-canned findings array), `REVIEW_TIMEOUT_MS` (per-specialist spawn budget in ms, default
+canned findings array), `REVIEW_TIMEOUT_MS` (default spawn budget in ms, default
 `90000` — bump it on a slow/loaded machine if a specialist gets marked unavailable),
 `REVIEW_TIMEOUT_RETRIES` (extra attempts on a timeout, default `1`; set `0` to disable).
+
+A specialist's own `timeoutMs` in its `config.json` overrides `REVIEW_TIMEOUT_MS`. Prefer that for a
+reviewer that is _inherently_ slow rather than raising the global default: `runtime` and
+`spec-adherence` get 300s, `consistency` 240s, `test-auditor` 180s, and everything else stays at 90s
+so a genuinely stuck fast specialist still fails quickly.
 
 ## Anatomy of a specialist
 
@@ -68,7 +77,8 @@ so prompts focus on the reviewing role, not the format.
 **Add a specialist:** create a directory with those three files. No orchestrator change needed —
 it auto-discovers any dir containing a `config.json`.
 
-**config.json fields:** `id`, `blocking` (bool), `model`, and any of `triggerAll` (bool),
+**config.json fields:** `id`, `blocking` (bool), `model`, `timeoutMs` (spawn budget in ms; overrides
+`REVIEW_TIMEOUT_MS`), and any of `triggerAll` (bool),
 `triggerGlobs` (string[]), `triggerImports` (string[] — run if a changed file's text contains
 one), `contextGlobs` (string[] — files to load into context), `includePackageSpecs` (bool —
 auto-load the spec(s) for changed packages).

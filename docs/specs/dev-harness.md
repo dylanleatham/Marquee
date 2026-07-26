@@ -330,7 +330,22 @@ Same code path as CI. This is the primary iteration loop during dev — you catc
 ### Failure modes
 
 - **Claude Code not authenticated.** Pre-push hook or workflow fails with a clear message ("Run `claude login`, then retry").
-- **A specialist times out.** Each session has a 90-second budget. On timeout, that specialist's finding slot is marked "specialist unavailable"; other specialists still run. Doesn't block merge (unavailable ≠ invalid).
+- **A specialist times out.** Each session has a budget — 90 seconds by default, overridable globally
+  with `REVIEW_TIMEOUT_MS` and **per specialist** via `timeoutMs` in its `config.json`. The budget
+  belongs to the reviewer, not the machine: `runtime` triggers on every source file in the repo and
+  needs minutes, while `security` finishes in seconds. On timeout the specialist retries once, then
+  its slot is marked "specialist unavailable"; the others still run.
+
+  A **non-blocking** specialist going missing is reported and doesn't gate. A **blocking** one going
+  missing means that dimension went unreviewed, so the run is reported as _incomplete_ — the summary
+  names the specialists, the clean-review message is suppressed, `--ci` exits non-zero, and the
+  report records `silentBlocking`. _(Changed 2026-07-26, [issue #116](https://github.com/dylanleatham/Marquee/issues/116).
+  This previously read "doesn't block merge (unavailable ≠ invalid)", which let a run where two
+  blocking specialists never started still print "No findings" and "0 blocking". "Didn't review" and
+  "reviewed and found nothing" are different claims, and a gate people trust must not conflate them.
+  Claude Code being unreachable **entirely** is still a skip, not a gate — that's a harness that
+  isn't running, not a review with a hole in it.)_
+
 - **Malformed model output** (rare with Claude). Every specialist's prompt requires JSON output validated against a schema. Malformed responses are retried once, then logged as "agent failed to produce valid output" — visible in the PR but doesn't block merge.
 - **False positive that keeps blocking a legitimate PR.** Two escape hatches: (a) admin override with labeled comment `override-review:<reviewer-name>`, logged for audit; (b) the reviewer's prompt gets updated in the same PR to fix the false-positive pattern.
 - **Workstation offline** (Option A only). Runner is offline; PR waits. If you're away for a while, disable the required check temporarily or manually mark the PR as reviewed.

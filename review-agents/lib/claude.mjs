@@ -13,18 +13,31 @@ const IS_WIN = process.platform === "win32";
 
 export const isMock = () => process.env.REVIEW_MOCK === "1";
 
+const positiveInt = (v) => {
+  const n = Number(v);
+  return Number.isInteger(n) && n > 0 ? n : null;
+};
+
 /**
- * Per-specialist spawn budget in ms. Defaults to 90s; override with REVIEW_TIMEOUT_MS
- * (a positive integer) when a slow/loaded machine pushes a specialist past the default
- * and it gets marked unavailable — see review-agents/KNOWN-ISSUES.md (RA-2). A missing,
- * non-numeric, or non-positive value falls back to the default rather than throwing, so
- * a bad env var degrades to the old behaviour instead of breaking the harness.
+ * Spawn budget in ms for one specialist. Precedence: the specialist's own `timeoutMs` in its
+ * `config.json`, then REVIEW_TIMEOUT_MS, then 90s.
+ *
+ * The per-specialist value exists because the budget is not a property of the machine, it is a
+ * property of the reviewer: `runtime` triggers on every source file in the repo, so it loads the
+ * most context and is reliably the slowest, while `security` finishes in ten seconds. One global
+ * number can't fit both — set it for `runtime` and every fast specialist waits far too long before
+ * failing; set it for `security` and `runtime` never runs at all, which is what RA-3 was
+ * (see review-agents/KNOWN-ISSUES.md, issue #116).
+ *
+ * A missing, non-numeric, or non-positive value at either level falls through to the next rather
+ * than throwing — bad config degrades to the old behaviour instead of breaking the harness.
  */
-export function resolveTimeoutMs(env = process.env) {
-  const raw = env.REVIEW_TIMEOUT_MS;
-  if (raw == null || raw === "") return DEFAULT_TIMEOUT_MS;
-  const n = Number(raw);
-  return Number.isInteger(n) && n > 0 ? n : DEFAULT_TIMEOUT_MS;
+export function resolveTimeoutMs(env = process.env, config = undefined) {
+  return (
+    positiveInt(config?.timeoutMs) ??
+    positiveInt(env.REVIEW_TIMEOUT_MS) ??
+    DEFAULT_TIMEOUT_MS
+  );
 }
 
 /**
@@ -87,7 +100,7 @@ function interpret(r) {
  * and `retries` are injectable so the retry path is unit-testable without a real Claude call.
  */
 export function runSpecialist(
-  { prompt, model },
+  { prompt, model, timeoutMs },
   { spawn = spawnSync, retries = resolveRetries() } = {},
 ) {
   if (isMock())
@@ -95,6 +108,7 @@ export function runSpecialist(
 
   const args = ["-p", "--output-format", "json"];
   if (model) args.push("--model", model);
+  const budget = resolveTimeoutMs(process.env, { timeoutMs });
 
   let result;
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -102,7 +116,7 @@ export function runSpecialist(
       spawn(BIN, args, {
         input: prompt,
         encoding: "utf8",
-        timeout: resolveTimeoutMs(),
+        timeout: budget,
         maxBuffer: 32 * 1024 * 1024,
         shell: IS_WIN,
       }),

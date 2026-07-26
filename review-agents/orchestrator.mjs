@@ -28,6 +28,7 @@ import {
   unifiedDiff,
 } from "./lib/git.mjs";
 import { claudeAvailable, runSpecialist, isMock } from "./lib/claude.mjs";
+import { summarizeRun, silentWarning } from "./lib/outcome.mjs";
 import {
   extractJsonArray,
   salvageProse,
@@ -195,13 +196,16 @@ async function main() {
       const res = runSpecialist({
         prompt: composePrompt(config, context),
         model: config.model,
+        timeoutMs: config.timeoutMs,
       });
       const durationMs = Date.now() - started;
       if (!res.ok) {
         console.warn(`  ! ${config.id}: unavailable (${res.reason})`);
         return {
           id: config.id,
+          blocking: !!config.blocking,
           status: "unavailable",
+          reason: res.reason,
           durationMs,
           findings: [],
         };
@@ -228,12 +232,24 @@ async function main() {
           console.warn(
             `  ! ${config.id}: reply wasn't JSON — surfaced its prose as an info finding (raw saved to ${rawPath})`,
           );
-          return { id: config.id, status: "unformatted", durationMs, findings };
+          return {
+            id: config.id,
+            blocking: !!config.blocking,
+            status: "unformatted",
+            durationMs,
+            findings,
+          };
         }
         console.warn(
           `  ! ${config.id}: could not parse findings output (raw saved to ${rawPath})`,
         );
-        return { id: config.id, status: "error", durationMs, findings: [] };
+        return {
+          id: config.id,
+          blocking: !!config.blocking,
+          status: "error",
+          durationMs,
+          findings: [],
+        };
       }
       const findings = normalizeFindings(raw, {
         specialist: config.id,
@@ -244,6 +260,7 @@ async function main() {
       );
       return {
         id: config.id,
+        blocking: !!config.blocking,
         status: findings.length ? "ran" : "no-findings",
         durationMs,
         findings,
@@ -255,19 +272,31 @@ async function main() {
   return finish(runs, all);
 
   function finish(runSummaries, findings) {
-    printFindings(findings);
-    const blocking = findings.filter((f) => f.severity === "blocking");
+    const { blocking, silent, clean } = summarizeRun(runSummaries, findings);
+    printFindings(findings, clean);
+    // A blocking specialist that produced no verdict is reported as loudly as a finding: the run
+    // covered less than it claims to (issue #116).
+    if (silent.length) console.warn(`\n[GAP  ] ${silentWarning(silent)}`);
+
     const report = {
       sha,
       base,
       createdAt: new Date().toISOString(),
-      specialists: runSummaries.map(({ id, status, durationMs }) => ({
-        id,
-        status,
-        durationMs,
-      })),
+      specialists: runSummaries.map(
+        ({ id, status, durationMs, blocking: isBlocking }) => ({
+          id,
+          status,
+          durationMs,
+          blocking: !!isBlocking,
+        }),
+      ),
       findings,
       blocking: blocking.length,
+      // Counted separately so "0 blocking" can never be read as "nothing to worry about" on its own.
+      silentBlocking: silent.length,
+      // The prose-reply rate (RA-4 / issue #117), so the fix there is measurable rather than assumed.
+      unformatted: runSummaries.filter((r) => r.status === "unformatted")
+        .length,
     };
     const reportDir = join(ROOT, ".review-agents");
     mkdirSync(reportDir, { recursive: true });
@@ -276,24 +305,33 @@ async function main() {
       JSON.stringify(report, null, 2),
     );
 
-    if (blocking.length && opts.ci) {
-      console.error(
-        `\nreview-agents: ${blocking.length} blocking finding(s). Push blocked.`,
-      );
+    if (opts.ci && (blocking.length || silent.length)) {
+      if (blocking.length)
+        console.error(
+          `\nreview-agents: ${blocking.length} blocking finding(s). Push blocked.`,
+        );
+      if (silent.length)
+        console.error(
+          `\nreview-agents: ${silent.length} blocking specialist(s) never ran, so this review is incomplete. Push blocked.`,
+        );
       console.error(
         "Address them, or bypass in a genuine emergency with `git push --no-verify`.",
       );
       process.exit(1);
     }
     console.log(
-      `\nreview-agents: done (${findings.length} finding(s), ${blocking.length} blocking).`,
+      `\nreview-agents: done (${findings.length} finding(s), ${blocking.length} blocking` +
+        (silent.length ? `, ${silent.length} specialist(s) did not run` : "") +
+        ").",
     );
   }
 }
 
-function printFindings(findings) {
+function printFindings(findings, clean = true) {
   if (!findings.length) {
-    console.log("\nNo findings. 🎵");
+    // Only claim a clean review when every blocking specialist actually reviewed the diff.
+    // Otherwise stay quiet here and let the gap warning speak (issue #116).
+    if (clean) console.log("\nNo findings. 🎵");
     return;
   }
   const order = { blocking: 0, info: 1 };
