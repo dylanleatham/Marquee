@@ -18,6 +18,7 @@ one-page systems doc, then the individual specs.
 | **Backdrop**      | Plays looping visualizer videos on the display.                          | Pi 5 near TV         | `packages/backdrop`           |
 | **Stylus**        | Reads NFC tags, publishes scan events. **Python.**                       | Pi Zero 2 W in stand | `packages/stylus`             |
 | **Contracts**     | Shared JSON schemas + generated types for every boundary.                | —                    | `packages/contracts`          |
+| **Observability** | Pure library: structured log records + stable error fingerprints.        | (library)            | `packages/observability`      |
 | **Fakes**         | Hand-written fakes of external deps (Hue bridge, Spotify, PN532).        | —                    | `packages/fakes/*`            |
 
 > **Naming note:** the dev-harness/testing-strategy docs sketch the Python service's
@@ -60,7 +61,7 @@ Full toolchain + hardware + accounts checklist: see `docs/SETUP.md`.
 ## Repo layout
 
 ```
-packages/            contracts, fakes, palette-press, curator, hue-conductor, backdrop, stylus
+packages/            contracts, observability, fakes, palette-press, curator, hue-conductor, backdrop, stylus
 fixtures/            album art, golden palettes, tiny test videos, NDEF byte fixtures
 contract-tests/      cross-service boundary tests
 e2e/                 end-to-end runtime scenarios

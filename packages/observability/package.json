@@ -1,0 +1,24 @@
+{
+  "name": "@marquee/observability",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Structured log records and stable error fingerprints. Pure library, no I/O.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "lint": "echo \"(no linter configured yet)\""
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "typescript": "^5.6.2",
+    "vitest": "^2.1.3"
+  }
+}

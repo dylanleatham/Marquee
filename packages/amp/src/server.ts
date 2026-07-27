@@ -7,6 +7,7 @@ import { PlaybackEngine, type Timers } from "./playback/engine.js";
 import { SonosUnavailableError, type SonosDriver } from "./sonos/driver.js";
 import { SvrooijSonosDriver } from "./sonos/svrooij-driver.js";
 import { FsAlbumAssetReader, type AlbumAssetReader } from "./assets.js";
+import { createLogger } from "@marquee/observability";
 
 export interface BuildOptions {
   /** Config overrides (tests inject a shared secret + temp data dir + tiny idle timeout). */
@@ -259,7 +260,9 @@ if (
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
   start().catch((err) => {
-    console.error("Failed to start Amp:", err);
+    // Structured, fingerprinted (issue #142) — the shell captures this stream into the
+    // rotating log (issue #141), and a boot failure is exactly what needs to survive it.
+    createLogger({ service: "amp" }).error("Failed to start", err);
     process.exit(1);
   });
 }

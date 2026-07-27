@@ -76,6 +76,7 @@ import {
   type BackdropSyncLike,
 } from "./backdrop/sync.js";
 import { AmpClient } from "./amp/client.js";
+import { createLogger } from "@marquee/observability";
 
 export interface BuildOptions {
   config?: Partial<Config>;
@@ -2194,7 +2195,9 @@ if (
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
   start().catch((err) => {
-    console.error("Failed to start Curator:", err);
+    // Structured, fingerprinted (issue #142) — the shell captures this stream into the
+    // rotating log (issue #141), and a boot failure is exactly what needs to survive it.
+    createLogger({ service: "curator" }).error("Failed to start", err);
     process.exit(1);
   });
 }
