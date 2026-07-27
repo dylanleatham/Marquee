@@ -20,7 +20,12 @@ import {
   type PromptType,
   type VideoClip,
 } from "../api";
-import { useGenerationJob, usePending, type GenerationJobHook } from "../hooks";
+import {
+  useGenerationJob,
+  usePending,
+  useVisibleCycle,
+  type GenerationJobHook,
+} from "../hooks";
 import { AsyncButton, Spinner } from "./common";
 
 /** The generate button's label reflects live job progress ("Generating 3/5…"). */
@@ -849,17 +854,14 @@ function PaletteStage({
   colors: Array<{ hex: string }>;
   holdMs: number;
 }) {
-  const [i, setI] = useState(0);
-  useEffect(() => {
-    if (colors.length < 2) return;
-    const t = setInterval(() => setI((x) => (x + 1) % colors.length), holdMs);
-    return () => clearInterval(t);
-  }, [colors.length, holdMs]);
+  // Gated: no re-renders for a light show nobody is looking at (issue #136).
+  const { index, ref } = useVisibleCycle(colors.length, holdMs);
   return (
     <div
+      ref={ref}
       className="palette-stage"
       style={{
-        background: colors[i]?.hex ?? "#000",
+        background: colors[index]?.hex ?? "#000",
         transition: `background ${Math.min(holdMs / 2, 4000)}ms ease-in-out`,
       }}
     />
@@ -998,7 +1000,7 @@ export function TagWriteSection({
   const verified = state === "verified";
   const canVerify = state === "awaiting_verify";
 
-  // Sleeve and card carry different URIs since ADR 0023: a sleeve is curator:album (you play the
+  // Sleeve and card carry different URIs since ADR 0034: a sleeve is curator:album (you play the
   // vinyl), a card is curator:card (Amp streams it over Sonos). Each row shows its URI and a Flipper
   // .nfc download for that object.
   const writeRow = (object: "sleeve" | "card", label: string) => {

@@ -152,6 +152,7 @@ export function AlbumDetail() {
           curatorId={curatorId}
           title={m.name || curatorId}
           version={asset.artwork?.contentHash}
+          state={roadie.state}
         />
         <h1>{m.name || <em>fetching…</em>}</h1>
         <div className="detail__artist">{m.artist}</div>

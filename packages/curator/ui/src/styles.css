@@ -283,6 +283,24 @@ em {
   letter-spacing: 0.04em;
   border: 1px solid var(--line);
 }
+/* Art still on its way (issue #134). Pending is carried by *motion*, genuinely-absent art by
+   *text* (the monogram) — two channels, so neither depends on colour (curator-ui-ux §3.4). The
+   global prefers-reduced-motion rule stills this like every other animation. */
+.thumb--loading,
+.detail__art--loading {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  animation: art-loading 1.4s ease-in-out infinite;
+}
+@keyframes art-loading {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
 
 /* --- state badges --- */
 .badge {

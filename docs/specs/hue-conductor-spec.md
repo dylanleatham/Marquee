@@ -225,7 +225,7 @@ Quick preview:
 - `pulse` — hold a color; ramp brightness up and down. Params: `{ periodMs: number, minBrightness: 0-100, maxBrightness: 0-100 }`.
 - `crossfade` — smoothly fade between palette colors on all lights together. Params: `{ transitionMs: number, holdMs: number }`.
 
-That's the set the engine renders. _Which_ of these an album uses is chosen upstream by Palette Press, which is now **energy-aware** — a vivid palette gets `rotate`/`pulse` instead of always `crossfade`, read from the palette itself with no audio data required ([ADR 0022](../adrs/0022-palette-derived-motion-energy.md)). What still needs upstream data is live **beat**-sync (real-time audio-reactive effects at streaming rates), which remains a future extension gated on an audio input and the Entertainment API (§9 rate limiting).
+That's the set the engine renders. _Which_ of these an album uses is chosen upstream by Palette Press, which is now **energy-aware** — a vivid palette gets `rotate`/`pulse` instead of always `crossfade`, read from the palette itself with no audio data required ([ADR 0033](../adrs/0033-palette-derived-motion-energy.md)). What still needs upstream data is live **beat**-sync (real-time audio-reactive effects at streaming rates), which remains a future extension gated on an audio input and the Entertainment API (§9 rate limiting).
 
 ### Streaming patterns (Entertainment API)
 
@@ -245,7 +245,9 @@ once. Built across [ADR 0023](../adrs/0023-entertainment-streaming-effect-engine
 - **The engine (`StreamEngine`)** samples a renderer at a fps-capped rate (default 25) and pushes each
   frame to a `StreamTransport` **port**; timers/clock are injected for deterministic tests. A throwing
   transport can't wedge the loop. `pnpm preview:stream` renders the effects to a self-contained HTML
-  page to watch them without hardware.
+  page to watch them without hardware. That page runs **one** animation loop for all effect cards,
+  advances only when the content frame index actually changes, and stops entirely while the page is
+  hidden — the loop lives in `stream/preview-driver.ts` and is inlined into the page (issue #135).
 - **The transport (`DtlsStreamTransport`, ADR 0024)** encodes each frame as a HueStream v2 datagram
   (`encodeHueStreamFrame`) and sends it over a DTLS/PSK socket (`node-dtls-client`) to UDP 2100. A tiny
   CLIP v2 client (`Clip2Client`) lists entertainment areas (id, name, per-channel positions) and PUTs

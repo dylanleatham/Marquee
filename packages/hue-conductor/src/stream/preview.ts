@@ -9,7 +9,9 @@
 // Artifact (which supplies that skeleton), and also stands alone in a browser.
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { aurora, shimmer, wave } from "./renderers.js";
+import { drivePreview } from "./preview-driver.js";
 import type { StreamFrame, StreamLight, StreamRenderer } from "./types.js";
 
 // A plausible listening-room layout: five around the front/sides, two behind. x∈[-1,1] L→R, y rear→front.
@@ -68,18 +70,50 @@ function precompute(renderer: StreamRenderer): number[][][] {
   return frames;
 }
 
-const data = {
-  lights: LIGHTS,
-  fps: FPS,
-  palette: PALETTE,
-  effects: EFFECTS.map((e) => ({
-    name: e.name,
-    blurb: e.blurb,
-    frames: precompute(e.renderer),
-  })),
-};
+/**
+ * The driver's source plus the runtime helpers it was transpiled onto, ready to paste into the page.
+ *
+ * `toString()` returns *transpiled* output, and the transpiler is free to lower the body onto
+ * helpers that exist in the bundle but not on a bare page. esbuild's keep-names transform (what
+ * `tsx` runs) does exactly that: it wraps every inner function in `__name(…)`, which produced a
+ * page that threw `__name is not defined` on load while every structural check on the HTML still
+ * passed. `__name` is shimmed below; any *other* helper is a build error rather than a page that
+ * silently fails to animate.
+ */
+const HELPER_SHIM = `// esbuild's keep-names transform (via tsx) lowers the driver's inner functions onto this helper.
+// The page supplies a no-op so the inlined source below runs exactly as authored.
+var __name = function (fn) { return fn; };`;
 
-const html = `<title>Marquee — streaming light effects</title>
+function inlinedDriverSource(): string {
+  const source = drivePreview.toString();
+  const unknown = source
+    .match(/\b__[A-Za-z]\w*\s*\(/g)
+    ?.filter((h) => h.replace(/\s*\($/, "") !== "__name");
+  if (unknown?.length) {
+    throw new Error(
+      `preview driver was transpiled onto unshimmed runtime helper(s) ${[...new Set(unknown)].join(", ")}, ` +
+        `which the generated page has no definition for. Either shim them in HELPER_SHIM or keep ` +
+        `drivePreview's body free of the constructs that need them — see preview-driver.ts.`,
+    );
+  }
+  // Sentinels so the test can lift out exactly what the page will evaluate, shim included.
+  return `/* driver:start */\n${HELPER_SHIM}\n${source}\n/* driver:end */`;
+}
+
+/** Build the self-contained preview page. Exported (and side-effect free) so tests can read it. */
+export function renderPreviewHtml(): string {
+  const data = {
+    lights: LIGHTS,
+    fps: FPS,
+    palette: PALETTE,
+    effects: EFFECTS.map((e) => ({
+      name: e.name,
+      blurb: e.blurb,
+      frames: precompute(e.renderer),
+    })),
+  };
+
+  return `<title>Marquee — streaming light effects</title>
 <style>
   /* Neutrals carry a faint purple bias, drawn from the Purple Rain palette the effects sample. */
   :root {
@@ -120,6 +154,10 @@ const html = `<title>Marquee — streaming light effects</title>
   <p class="foot">Frames precomputed at ${FPS}fps by <code>pnpm preview:stream</code> — exactly what the engine emits. The transport that pushes these to the bridge over DTLS is the hardware follow-up (ADR 0023).</p>
 </div>
 <script>
+// Inlined from src/stream/preview-driver.ts — the page has to stay self-contained, and the loop
+// has to stay unit-testable. Same source, one copy.
+${inlinedDriverSource()}
+
 const DATA = ${JSON.stringify(data)};
 const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -159,26 +197,45 @@ function setup(card, effect) {
       ctx.beginPath(); ctx.arc(cx, cy, radius * 0.12, 0, Math.PI * 2); ctx.fill();
     }
   }
-  if (reduce) { render(0); return; } // respect reduced-motion: show a representative still
-  const start = performance.now();
-  function loop(now) {
-    render(Math.floor(((now - start) / 1000) * DATA.fps) % effect.frames.length);
-    requestAnimationFrame(loop);
-  }
-  requestAnimationFrame(loop);
+  if (reduce) { render(0); return null; } // respect reduced-motion: show a representative still
+  return render;
 }
 
 const grid = document.getElementById("grid");
+const stages = [];
 for (const effect of DATA.effects) {
   const card = document.createElement("div");
   card.className = "card";
   card.innerHTML = '<canvas class="stage"></canvas><div class="meta"><p class="name">' +
     effect.name + '</p><p class="blurb">' + effect.blurb + '</p></div>';
   grid.appendChild(card);
-  setup(card, effect);
+  const render = setup(card, effect);
+  if (render) stages.push({ render: render, length: effect.frames.length });
 }
-</script>`;
 
-const out = resolve(process.argv[2] ?? "stream-effects-preview.html");
-writeFileSync(out, html);
-console.log(`Wrote streaming-effects preview → ${out}`);
+// One loop for the whole page, not one per card (issue #135): cost no longer scales with the
+// number of effects, redundant frames are skipped, and a hidden tab animates nothing at all.
+// Kept on window so the loop can be stopped from the console when poking at the page.
+window.stopPreview = stages.length === 0 ? function () {} : drivePreview({
+  fps: DATA.fps,
+  onTick: function (tick) {
+    for (const s of stages) s.render(tick % s.length);
+  },
+  now: function () { return performance.now(); },
+  requestFrame: function (cb) { return requestAnimationFrame(cb); },
+  cancelFrame: function (h) { cancelAnimationFrame(h); },
+  isHidden: function () { return document.hidden; },
+  onVisibilityChange: function (listener) {
+    document.addEventListener("visibilitychange", listener);
+    return function () { document.removeEventListener("visibilitychange", listener); };
+  },
+});
+</script>`;
+}
+
+// Only write a file when run as a script — importing this module (the tests do) must be inert.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  const out = resolve(process.argv[2] ?? "stream-effects-preview.html");
+  writeFileSync(out, renderPreviewHtml());
+  console.log(`Wrote streaming-effects preview → ${out}`);
+}

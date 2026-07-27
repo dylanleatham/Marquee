@@ -1,7 +1,7 @@
 // Settings → Library: collection-wide maintenance (curator-spec §Palettes, issue #104).
 //
 // This is the "Palette Press changed, re-derive everything" path. It exists because the alternative
-// is opening every album and pressing Reset to auto — ADR 0022 already changed pattern selection once
+// is opening every album and pressing Reset to auto — ADR 0033 already changed pattern selection once
 // and issue #105 will change the palette signals again, so a library-wide re-derive is a recurring
 // need, not a hypothetical one.
 //

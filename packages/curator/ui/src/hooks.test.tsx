@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
-import { usePoll, useGenerationJob, usePending } from "./hooks";
+import {
+  usePoll,
+  useGenerationJob,
+  usePending,
+  useVisibleCycle,
+} from "./hooks";
 import { api, type GenerationJob, type JobKind } from "./api";
 
 // Flush the microtasks an async fetcher resolves on (fake timers don't fake promises).
@@ -221,5 +226,140 @@ describe("usePending", () => {
       );
     });
     expect(result.current[0]).toBe(false);
+  });
+});
+
+describe("useVisibleCycle", () => {
+  /** Minimal IntersectionObserver stand-in — jsdom has none. Exposes the last instance's callback. */
+  class FakeIO {
+    static last: FakeIO | undefined;
+    readonly observed: Element[] = [];
+    disconnected = false;
+    constructor(private readonly cb: IntersectionObserverCallback) {
+      FakeIO.last = this;
+    }
+    observe(el: Element) {
+      this.observed.push(el);
+    }
+    disconnect() {
+      this.disconnected = true;
+    }
+    unobserve() {}
+    takeRecords(): IntersectionObserverEntry[] {
+      return [];
+    }
+    /** Drive the callback the way a real observer would. */
+    emit(isIntersecting: boolean) {
+      this.cb(
+        [{ isIntersecting } as IntersectionObserverEntry],
+        this as unknown as IntersectionObserver,
+      );
+    }
+  }
+
+  const setHidden = (value: boolean) =>
+    Object.defineProperty(document, "hidden", { value, configurable: true });
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    FakeIO.last = undefined;
+    vi.stubGlobal("IntersectionObserver", FakeIO);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    setHidden(false);
+  });
+
+  /** Attach the ref to a real node, as a component rendering the hook would. */
+  const attach = (ref: (node: Element | null) => void) => {
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    act(() => ref(el));
+    return el;
+  };
+
+  it("advances one step per holdMs and wraps at the end", () => {
+    const { result } = renderHook(() => useVisibleCycle(3, 1000));
+    expect(result.current.index).toBe(0);
+
+    act(() => void vi.advanceTimersByTime(1000));
+    expect(result.current.index).toBe(1);
+    act(() => void vi.advanceTimersByTime(2000));
+    expect(result.current.index).toBe(0);
+  });
+
+  it("does not tick when there is nothing to cycle through", () => {
+    const { result } = renderHook(() => useVisibleCycle(1, 1000));
+    act(() => void vi.advanceTimersByTime(10_000));
+    expect(result.current.index).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("stops while the tab is hidden and resumes on return", () => {
+    const { result } = renderHook(() => useVisibleCycle(3, 1000));
+    act(() => void vi.advanceTimersByTime(1000));
+    expect(result.current.index).toBe(1);
+
+    setHidden(true);
+    act(() => void document.dispatchEvent(new Event("visibilitychange")));
+    expect(vi.getTimerCount()).toBe(0);
+    act(() => void vi.advanceTimersByTime(5000));
+    expect(result.current.index).toBe(1); // frozen — nobody is looking
+
+    setHidden(false);
+    act(() => void document.dispatchEvent(new Event("visibilitychange")));
+    act(() => void vi.advanceTimersByTime(1000));
+    expect(result.current.index).toBe(2);
+  });
+
+  it("stops while the observed element is off screen and resumes on screen", () => {
+    const { result } = renderHook(() => useVisibleCycle(3, 1000));
+    attach(result.current.ref);
+
+    act(() => FakeIO.last!.emit(false));
+    expect(vi.getTimerCount()).toBe(0);
+    act(() => void vi.advanceTimersByTime(5000));
+    expect(result.current.index).toBe(0);
+
+    act(() => FakeIO.last!.emit(true));
+    act(() => void vi.advanceTimersByTime(1000));
+    expect(result.current.index).toBe(1);
+  });
+
+  it("keeps cycling when the environment has no IntersectionObserver", () => {
+    vi.stubGlobal("IntersectionObserver", undefined);
+    const { result } = renderHook(() => useVisibleCycle(3, 1000));
+    attach(result.current.ref);
+    act(() => void vi.advanceTimersByTime(1000));
+    expect(result.current.index).toBe(1);
+  });
+
+  it("clamps the index when the palette shrinks under it", () => {
+    const { result, rerender } = renderHook(
+      ({ n }: { n: number }) => useVisibleCycle(n, 1000),
+      { initialProps: { n: 5 } },
+    );
+    act(() => void vi.advanceTimersByTime(4000));
+    expect(result.current.index).toBe(4);
+
+    rerender({ n: 2 });
+    expect(result.current.index).toBeLessThan(2);
+  });
+
+  it("tears down the timer, the observer, and the listener on unmount", () => {
+    const remove = vi.spyOn(document, "removeEventListener");
+    const { result, unmount } = renderHook(() => useVisibleCycle(3, 1000));
+    attach(result.current.ref);
+    const io = FakeIO.last!;
+
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(io.disconnected).toBe(true);
+    expect(remove).toHaveBeenCalledWith(
+      "visibilitychange",
+      expect.any(Function),
+    );
   });
 });

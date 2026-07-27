@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseCuratorUri, curatorUri } from "@marquee/contracts";
 
-// The scan-URI kind (album=sleeve, card=card) is a cross-service fact (ADR 0023) — pin the
+// The scan-URI kind (album=sleeve, card=card) is a cross-service fact (ADR 0034) — pin the
 // parse/build helpers so every service decodes and encodes it identically.
 
 test("parseCuratorUri parses album and card kinds", () => {

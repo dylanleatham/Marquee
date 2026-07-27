@@ -46,7 +46,7 @@ describe("TagHelp", () => {
     expect(tab(/Phone/).getAttribute("aria-selected")).toBe("true");
   });
 
-  // The silent failure: a sleeve and a card carry different URIs (ADR 0023), and writing the wrong
+  // The silent failure: a sleeve and a card carry different URIs (ADR 0034), and writing the wrong
   // one produces a tag that works perfectly and does the wrong thing.
   it("explains the sleeve/card distinction and that getting it wrong fails quietly", () => {
     renderAt();

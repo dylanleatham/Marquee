@@ -51,7 +51,7 @@ test("a malformed palette payload is rejected", () => {
   assert.equal(validate(bad), false);
 });
 
-// --- scan-event: both album (sleeve) and card kinds are accepted (ADR 0023) ---
+// --- scan-event: both album (sleeve) and card kinds are accepted (ADR 0034) ---
 
 test("a start scan for a sleeve (curator:album) validates", () => {
   const validate = ajv.getSchema(SCAN_ID);

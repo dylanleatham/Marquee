@@ -63,6 +63,67 @@ export function usePoll<T>(
   return { data, error, loading, refresh: run };
 }
 
+export interface VisibleCycle {
+  /** The current step, always within `[0, length)`. */
+  index: number;
+  /** Attach to the animating element to also pause it while it is scrolled off screen. Optional. */
+  ref: (node: Element | null) => void;
+}
+
+/**
+ * Step through `length` items every `holdMs`, but only while someone can actually see them (issue
+ * #136). The palette previews each grew their own bare `setInterval`, which re-rendered on a hidden
+ * tab forever; this is the one gated implementation they share, so a third preview inherits the
+ * gating instead of re-introducing the bug.
+ *
+ * Two gates, cheapest first: the tab's `visibilitychange` (same mechanism `usePoll` uses), and —
+ * when the caller attaches `ref` — an `IntersectionObserver` for the off-screen case. Environments
+ * without `IntersectionObserver` simply keep the visibility gate.
+ */
+export function useVisibleCycle(length: number, holdMs: number): VisibleCycle {
+  const [index, setIndex] = useState(0);
+  const [onScreen, setOnScreen] = useState(true);
+  // Node in state, not a ref: attaching has to re-run the observer effect, and a ref mutation won't.
+  const [node, setNode] = useState<Element | null>(null);
+  const ref = useCallback((next: Element | null) => setNode(next), []);
+
+  useEffect(() => {
+    if (!node || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([entry]) =>
+      setOnScreen(Boolean(entry?.isIntersecting)),
+    );
+    io.observe(node);
+    return () => io.disconnect();
+  }, [node]);
+
+  useEffect(() => {
+    // Nothing to cycle through (0 or 1 items) means no timer at all, not a timer that no-ops.
+    if (length < 2 || !onScreen) return;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const start = () => {
+      timer = setInterval(() => setIndex((i) => (i + 1) % length), holdMs);
+    };
+    const stop = () => {
+      if (timer) clearInterval(timer);
+      timer = undefined;
+    };
+    const onVisibility = () => {
+      stop();
+      if (!document.hidden) start();
+    };
+    if (!document.hidden) start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [length, holdMs, onScreen]);
+
+  // Modulo on the way out rather than resetting on length change: a palette that shrinks under the
+  // cursor keeps animating from a valid step instead of jumping back to the first colour.
+  return { index: length > 0 ? index % length : 0, ref };
+}
+
 /**
  * Track whether a single async action is in flight, for per-button loading affordances (issue #62).
  * `wrap` runs the given thunk, flipping `pending` true for its duration — so each button owns its own

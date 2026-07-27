@@ -1,11 +1,16 @@
-# ADR 0023 — Amp plays card-scanned albums over Sonos via local UPnP; cards get a distinct URI
+# ADR 0034 — Amp plays card-scanned albums over Sonos via local UPnP; cards get a distinct URI
 
 Status: accepted · Date: 2026-07-24 · Amends: runtime-overview.md (§2 services table, §5 runtime
 signals — a `card` URI kind and a fourth runtime service), integration-contract.md / scan-event
 schema (`uri` now `curator:(album|card):<id>`), hue-conductor-spec.md + backdrop-spec.md (both accept
 the `card` kind, treat it identically to `album`), stylus-spec.md (forwards either kind) ·
 Supersedes the "Amp" sketch in docs/research/sonos-spotify-playback.md · Implements: (new) Amp
-service
+service · **Renumbered from 0023 on 2026-07-27**
+([#151](https://github.com/dylanleatham/Marquee/issues/151)): 0023 had been allocated to two
+decisions in parallel. The number stayed with
+[ADR 0023](0023-entertainment-streaming-effect-engine.md), which
+[ADR 0024](0024-entertainment-dtls-transport.md) documents itself as continuing; this decision moved.
+The decision itself, and its 2026-07-24 date, are unchanged.
 
 ## Context
 

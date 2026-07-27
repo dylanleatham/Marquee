@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 # The URI written to a tag and keyed on downstream (scan-event.schema.json). `kind` is `album` for a
-# record sleeve or `card` for a streaming-only card (ADR 0023); Stylus forwards either unchanged —
+# record sleeve or `card` for a streaming-only card (ADR 0034); Stylus forwards either unchanged —
 # Conductor/Backdrop treat them the same, and Amp acts on the difference.
 URI_RE = re.compile(r"^curator:(album|card):[a-z0-9]{8}$")
 

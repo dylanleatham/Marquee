@@ -11,7 +11,11 @@ drift.** When an implementation needs to deviate from a spec:
 
 1. **Discuss it first** — surface the deviation and the tradeoff, don't just quietly diverge.
 2. **Record the decision** — add an ADR in `docs/adrs/` (numbered, immutable) capturing context,
-   decision, and consequences.
+   decision, and consequences. Take the next free number, make the `# ADR NNNN` heading match the
+   filename, and cite other ADRs as a **link**, not a bare number. `adr-numbering.test.ts` enforces
+   all three — two branches once allocated the same number in parallel and ~74 citations became
+   ambiguous ([#151](https://github.com/dylanleatham/Marquee/issues/151)); rebasing onto a newer
+   `main` can put you in the same position, and the test is what tells you.
 3. **Update the affected spec in the same PR** — edit `docs/specs/*.md` so it matches what the
    code actually does (a dated note that points to the ADR is enough; supersede, don't delete
    the history). A spec that lies is worse than no spec.

@@ -8,7 +8,7 @@ import { Buffer } from "node:buffer";
 import { curatorUri } from "@marquee/contracts";
 import { isCuratorId } from "../ids.js";
 
-/** The physical object a tag is stuck to: a record `sleeve` or a printed `card` (ADR 0023). */
+/** The physical object a tag is stuck to: a record `sleeve` or a printed `card` (ADR 0034). */
 export type TagObject = "sleeve" | "card";
 
 /**

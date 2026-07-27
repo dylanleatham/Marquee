@@ -57,6 +57,100 @@ describe("AlbumThumb", () => {
   });
 });
 
+// Issue #134: before the cover lands, both components mounted an <img> whose src is known to 404,
+// so the browser painted its broken-image glyph and only then fell back to the monogram. Both read
+// as "this art is broken" when it is merely still downloading.
+describe("artwork while Roadie is still working", () => {
+  const loader = (root: HTMLElement) =>
+    root.querySelector('[data-art="loading"]');
+
+  it("AlbumThumb issues no artwork request while the album is processing", () => {
+    const { container } = render(
+      <AlbumThumb
+        curatorId="abcd1234"
+        title="Purple Rain"
+        state="downloading_art"
+      />,
+    );
+    expect(img(container)).toBeNull();
+    expect(loader(container)).not.toBeNull();
+  });
+
+  it("AlbumThumb does not show the monogram while processing — that means absent, not pending", () => {
+    const { container } = render(
+      <AlbumThumb curatorId="abcd1234" title="Purple Rain" state="fresh" />,
+    );
+    expect(screen.queryByText("PR")).toBeNull();
+    expect(loader(container)).not.toBeNull();
+  });
+
+  it("AlbumThumb requests the cover once the album leaves the processing states", () => {
+    const { container, rerender } = render(
+      <AlbumThumb
+        curatorId="abcd1234"
+        title="Purple Rain"
+        state="downloading_art"
+      />,
+    );
+    expect(img(container)).toBeNull();
+
+    rerender(
+      <AlbumThumb
+        curatorId="abcd1234"
+        title="Purple Rain"
+        state="awaiting_review"
+        version="deadbeef"
+      />,
+    );
+    expect(img(container)?.getAttribute("src")).toBe(
+      "/api/albums/abcd1234/artwork?v=deadbeef",
+    );
+  });
+
+  it("Cover issues no artwork request while the album is processing", () => {
+    const { container } = render(
+      <Cover
+        curatorId="abcd1234"
+        title="Purple Rain"
+        state="generating_palette"
+      />,
+    );
+    expect(img(container)).toBeNull();
+    expect(screen.queryByText("PR")).toBeNull();
+    expect(loader(container)).not.toBeNull();
+  });
+
+  it("keeps the img unpainted until it actually loads", () => {
+    // The request is in flight the moment the element mounts, and the glyph is what the browser
+    // paints in the gap. Hiding the element until onLoad closes that window for every caller —
+    // including the ones that pass no state at all.
+    const { container } = render(
+      <AlbumThumb curatorId="abcd1234" title="Purple Rain" />,
+    );
+    expect(img(container)?.style.display).toBe("none");
+
+    fireEvent.load(img(container)!);
+    expect(img(container)?.style.display).toBe("");
+  });
+
+  it("distinguishes pending from absent by more than colour", () => {
+    // curator-ui-ux §3.4: never colour alone. Pending is motion (a pulsing skeleton), absent is
+    // text (the monogram) — two different channels, so they can't be confused.
+    const { container: pending } = render(
+      <Cover curatorId="abcd1234" title="Purple Rain" state="fresh" />,
+    );
+    const { container: absent } = render(
+      <Cover curatorId="abcd1234" title="Purple Rain" state="verified" />,
+    );
+    fireEvent.error(img(absent)!);
+
+    expect(loader(pending)).not.toBeNull();
+    expect(pending.textContent).toBe("");
+    expect(loader(absent)).toBeNull();
+    expect(absent.textContent).toContain("PR");
+  });
+});
+
 describe("Cover", () => {
   it("recovers from a transient 404 when the artwork version changes", () => {
     const { container, rerender } = render(
