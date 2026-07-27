@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { writeFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { loadConfig } from "../src/config.js";
 
 const savedEnv = { ...process.env };
@@ -67,11 +67,18 @@ describe("loadConfig", () => {
     delete process.env.ALBUM_ASSETS_DIR;
     // Default: sits beside the (default) data dir.
     expect(loadConfig().albumAssetsDir).toMatch(/[\\/]data[\\/]album-assets$/);
-    // Env override (absolute path wins).
-    process.env.ALBUM_ASSETS_DIR = "/srv/marquee/album-assets";
-    expect(loadConfig().albumAssetsDir).toBe("/srv/marquee/album-assets");
-    // File override beats env.
-    withFile('[storage]\nalbum_assets_dir = "/from/toml/album-assets"\n');
-    expect(loadConfig().albumAssetsDir).toBe("/from/toml/album-assets");
+    // Env override (absolute path wins). loadConfig resolves the configured value against the
+    // package dir so a *relative* setting (the default, and the runbook's `data_dir = "data"`)
+    // anchors somewhere sensible; an absolute one passes through untouched. Build the inputs with
+    // resolve() so they're absolute on this platform too — a bare "/srv/..." literal is absolute on
+    // the Pi but merely drive-relative on Windows, where resolve() correctly yields "C:\srv\...".
+    const fromEnv = resolve("/srv/marquee/album-assets");
+    process.env.ALBUM_ASSETS_DIR = fromEnv;
+    expect(loadConfig().albumAssetsDir).toBe(fromEnv);
+    // File override beats env. JSON.stringify escapes the backslashes a Windows path carries into
+    // the TOML basic string; on POSIX it's just the quoted path.
+    const fromToml = resolve("/from/toml/album-assets");
+    withFile(`[storage]\nalbum_assets_dir = ${JSON.stringify(fromToml)}\n`);
+    expect(loadConfig().albumAssetsDir).toBe(fromToml);
   });
 });
