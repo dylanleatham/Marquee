@@ -245,7 +245,9 @@ once. Built across [ADR 0023](../adrs/0023-entertainment-streaming-effect-engine
 - **The engine (`StreamEngine`)** samples a renderer at a fps-capped rate (default 25) and pushes each
   frame to a `StreamTransport` **port**; timers/clock are injected for deterministic tests. A throwing
   transport can't wedge the loop. `pnpm preview:stream` renders the effects to a self-contained HTML
-  page to watch them without hardware.
+  page to watch them without hardware. That page runs **one** animation loop for all effect cards,
+  advances only when the content frame index actually changes, and stops entirely while the page is
+  hidden — the loop lives in `stream/preview-driver.ts` and is inlined into the page (issue #135).
 - **The transport (`DtlsStreamTransport`, ADR 0024)** encodes each frame as a HueStream v2 datagram
   (`encodeHueStreamFrame`) and sends it over a DTLS/PSK socket (`node-dtls-client`) to UDP 2100. A tiny
   CLIP v2 client (`Clip2Client`) lists entertainment areas (id, name, per-channel positions) and PUTs
