@@ -247,6 +247,9 @@ export interface BatchPaletteReport {
   items: BatchPaletteOutcome[];
 }
 
+/** The Entertainment streaming effects an album can opt into (ADR 0023/0024/0035). */
+export type StreamingEffect = "aurora" | "shimmer" | "wave";
+
 export interface AlbumAsset {
   curatorId: string;
   createdAt: string;
@@ -280,6 +283,11 @@ export interface AlbumAsset {
   };
   /** Proposals from the feeling pass, awaiting a choice (ADR 0030). */
   paletteCandidates?: PaletteCandidates;
+  /**
+   * Per-album opt-in to an Entertainment streaming effect (ADR 0035). Absent/null means the derived
+   * `pattern` plays — which is also what plays on a room with no entertainment area configured.
+   */
+  streamingEffect?: StreamingEffect | null;
   pattern?: { type: string; params: Record<string, unknown> };
   promptDrafts?: { video?: DraftedPrompt; cardArt?: DraftedPrompt };
   visualizer?: Visualizer;
@@ -467,6 +475,16 @@ export const api = {
     req<{ palette: AlbumAsset["palette"] }>(`/api/albums/${id}/palette`, {
       method: "PUT",
       body: JSON.stringify({ colors }),
+    }),
+  // Opt an album into a streaming effect, or pass null to clear it (ADR 0035). The derived pattern
+  // is untouched — it stays the fallback for a room with no entertainment area.
+  setStreamingEffect: (id: string, effect: StreamingEffect | null) =>
+    req<{
+      streamingEffect: StreamingEffect | null;
+      pattern: AlbumAsset["pattern"];
+    }>(`/api/albums/${id}/streaming-effect`, {
+      method: "PUT",
+      body: JSON.stringify({ effect }),
     }),
   // Drop the hand-edit flag (keeps the colors) so a later re-extract/batch may replace it.
   resetPalette: (id: string) =>

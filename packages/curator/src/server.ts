@@ -56,7 +56,7 @@ import type { PaletteEditColor } from "./albums/palette.js";
 import { GenerationJobs, FileJobStore } from "./jobs/manager.js";
 import { flipperNfcFile } from "./tags/flipper-nfc.js";
 import { tagQrDataUrl } from "./tags/qr.js";
-import { curatorUri } from "@marquee/contracts";
+import { curatorUri, type StreamPatternType } from "@marquee/contracts";
 import {
   ffmpegProber,
   ffmpegAvailable,
@@ -758,6 +758,29 @@ export function buildServer(opts: BuildOptions = {}) {
         colors as PaletteEditColor[],
       );
       return { palette: asset.palette };
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
+  });
+
+  /**
+   * Opt this album into an Entertainment streaming effect, or clear it with `{ effect: null }`
+   * (ADR 0035). The derived pattern is untouched and remains what plays where no entertainment area
+   * is configured, so this is a switch rather than an edit — see actions.setStreamingEffect.
+   */
+  app.put("/api/albums/:curatorId/streaming-effect", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const { effect } = (req.body ?? {}) as { effect?: unknown };
+    try {
+      const asset = actions.setStreamingEffect(
+        actionDeps,
+        curatorId,
+        (effect ?? null) as StreamPatternType | null,
+      );
+      return {
+        streamingEffect: asset.streamingEffect ?? null,
+        pattern: asset.pattern,
+      };
     } catch (err) {
       return actionError(err, reply, req);
     }

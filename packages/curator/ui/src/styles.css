@@ -1847,3 +1847,25 @@ em {
   font-style: normal;
   display: block;
 }
+
+/* --- Streaming effect opt-in (ADR 0035): a switch in the Look tab, beside the derived pattern --- */
+.streaming {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 4px;
+}
+.streaming__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.streaming__options {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.streaming__note {
+  font-size: 12.5px;
+  margin: 0;
+}

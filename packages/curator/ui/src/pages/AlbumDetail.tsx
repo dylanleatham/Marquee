@@ -14,6 +14,7 @@ import { PaletteEditor } from "../components/PaletteEditor";
 import { ArtworkSection } from "../components/ArtworkSection";
 import { PeerNav } from "../components/PeerNav";
 import { FeelingPalette } from "../components/FeelingPalette";
+import { StreamingEffectPicker } from "../components/StreamingEffectPicker";
 import { useConfirm } from "../components/Confirm";
 import { PreviewWorkstation } from "../components/PreviewWorkstation";
 import {
@@ -256,6 +257,15 @@ export function AlbumDetail() {
                 <span className="tag">{pattern.type}</span>
                 <code>{JSON.stringify(pattern.params)}</code>
               </div>
+            )}
+            {/* Opting into a streaming effect (ADR 0035) sits directly under the derived pattern it
+                overrides, because the pattern above is exactly what it falls back to. */}
+            {pattern && (
+              <StreamingEffectPicker
+                curatorId={curatorId}
+                asset={asset}
+                run={run}
+              />
             )}
             {/* Where the colours come from (ADR 0030) — below the palette itself, because the cover
                 is the default and this is the escape hatch, not the main event. */}

@@ -519,6 +519,91 @@ describe("hue-conductor HTTP API", () => {
       );
     });
 
+    // ADR 0035: an album can opt into an effect while keeping its derived pattern as the fallback.
+    // The direct form above cannot express that — the effect *is* the pattern, so there is nothing
+    // to fall back to but a guess.
+    describe("per-album opt-in (ADR 0035)", () => {
+      const OPTED_IN = {
+        ...STREAM_ALBUM,
+        // Derived, energy-aware, and deliberately NOT a streaming type.
+        pattern: {
+          type: "crossfade",
+          params: { transitionMs: 8000, holdMs: 30000 },
+        },
+        streamingEffect: "shimmer",
+      };
+      const buildOptIn = (
+        streamSession: ReturnType<typeof fakeStream>,
+        { area }: { area: boolean },
+      ) => {
+        const store = seededStore();
+        store.setListeningRoom("1");
+        if (area) store.setEntertainmentArea(AREA_ID);
+        const fake = livingRoom();
+        const { app } = buildServer({
+          config: { sharedSecret: SECRET },
+          store,
+          driver: fake.driver,
+          timers: new FakeTimers(),
+          assets: { read: async () => OPTED_IN as never },
+          streamSession,
+        });
+        return { app, fake };
+      };
+
+      it("plays the opted-in effect when an area is configured", async () => {
+        const ss = fakeStream();
+        const { app } = buildOptIn(ss, { area: true });
+        expect((await scan(app)).json()).toMatchObject({
+          action: "streaming",
+          effect: "shimmer",
+        });
+        // No params forwarded: the derived pattern's `transitionMs`/`holdMs` belong to crossfade,
+        // and handing them to shimmer would be nonsense.
+        expect(ss.start).toHaveBeenCalledWith(
+          "1",
+          AREA_ID,
+          "shimmer",
+          ["#7867A0", "#D98D40"],
+          {},
+        );
+      });
+
+      it("falls back to the album's own derived pattern, not a generic rotate", async () => {
+        // The reason the opt-in rides beside `pattern` instead of overwriting it. A CLIP-only room
+        // must keep the energy-aware motion ADR 0033 derived for this album.
+        const ss = fakeStream();
+        const { app } = buildOptIn(ss, { area: false });
+        expect((await scan(app)).json()).toMatchObject({ action: "playing" });
+        expect(ss.start).not.toHaveBeenCalled();
+
+        const { playback } = (
+          await app.inject({
+            method: "GET",
+            url: "/api/playback/current",
+            headers: AUTH,
+          })
+        ).json();
+        expect(playback[0].pattern).toBe("crossfade");
+      });
+
+      it("falls back to the derived pattern when the session throws, too", async () => {
+        const ss = fakeStream();
+        ss.start.mockRejectedValueOnce(new Error("handshake timeout"));
+        const { app } = buildOptIn(ss, { area: true });
+        expect((await scan(app)).json()).toMatchObject({ action: "playing" });
+
+        const { playback } = (
+          await app.inject({
+            method: "GET",
+            url: "/api/playback/current",
+            headers: AUTH,
+          })
+        ).json();
+        expect(playback[0].pattern).toBe("crossfade");
+      });
+    });
+
     it("falls back to a lively CLIP pattern when no area is configured", async () => {
       const ss = fakeStream();
       const { app, fake } = build(ss, { area: false });

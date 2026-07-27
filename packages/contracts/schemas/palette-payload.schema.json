@@ -6,17 +6,32 @@
   "type": "object",
   "required": ["version", "source", "palette", "pattern"],
   "properties": {
-    "version": { "const": 1 },
+    "version": {
+      "const": 1
+    },
     "source": {
       "type": "object",
       "required": ["type"],
       "properties": {
-        "type": { "enum": ["album", "manual", "test"] },
-        "spotifyId": { "type": "string" },
-        "name": { "type": "string" },
-        "artist": { "type": "string" },
-        "year": { "type": "integer" },
-        "artworkUrl": { "type": "string", "format": "uri" }
+        "type": {
+          "enum": ["album", "manual", "test"]
+        },
+        "spotifyId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "artist": {
+          "type": "string"
+        },
+        "year": {
+          "type": "integer"
+        },
+        "artworkUrl": {
+          "type": "string",
+          "format": "uri"
+        }
       }
     },
     "palette": {
@@ -31,15 +46,26 @@
             "type": "object",
             "required": ["hex", "role"],
             "properties": {
-              "hex": { "type": "string", "pattern": "^#[0-9A-F]{6}$" },
+              "hex": {
+                "type": "string",
+                "pattern": "^#[0-9A-F]{6}$"
+              },
               "cie_xy": {
                 "type": "array",
                 "minItems": 2,
                 "maxItems": 2,
-                "items": { "type": "number", "minimum": 0, "maximum": 1 }
+                "items": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
               },
-              "role": { "enum": ["primary", "secondary", "accent"] },
-              "sourceSwatch": { "type": "string" }
+              "role": {
+                "enum": ["primary", "secondary", "accent"]
+              },
+              "sourceSwatch": {
+                "type": "string"
+              }
             }
           }
         }
@@ -51,31 +77,48 @@
       "oneOf": [
         {
           "properties": {
-            "type": { "const": "static" },
-            "params": { "type": "object", "maxProperties": 0 }
+            "type": {
+              "const": "static"
+            },
+            "params": {
+              "type": "object",
+              "maxProperties": 0
+            }
           }
         },
         {
           "properties": {
-            "type": { "const": "rotate" },
+            "type": {
+              "const": "rotate"
+            },
             "params": {
               "type": "object",
               "required": ["intervalMs", "direction"],
               "properties": {
-                "intervalMs": { "type": "integer", "minimum": 100 },
-                "direction": { "enum": ["forward", "reverse"] }
+                "intervalMs": {
+                  "type": "integer",
+                  "minimum": 100
+                },
+                "direction": {
+                  "enum": ["forward", "reverse"]
+                }
               }
             }
           }
         },
         {
           "properties": {
-            "type": { "const": "pulse" },
+            "type": {
+              "const": "pulse"
+            },
             "params": {
               "type": "object",
               "required": ["periodMs", "minBrightness", "maxBrightness"],
               "properties": {
-                "periodMs": { "type": "integer", "minimum": 200 },
+                "periodMs": {
+                  "type": "integer",
+                  "minimum": 200
+                },
                 "minBrightness": {
                   "type": "number",
                   "minimum": 0,
@@ -92,25 +135,50 @@
         },
         {
           "properties": {
-            "type": { "const": "crossfade" },
+            "type": {
+              "const": "crossfade"
+            },
             "params": {
               "type": "object",
               "required": ["transitionMs", "holdMs"],
               "properties": {
-                "transitionMs": { "type": "integer", "minimum": 100 },
-                "holdMs": { "type": "integer", "minimum": 0 }
+                "transitionMs": {
+                  "type": "integer",
+                  "minimum": 100
+                },
+                "holdMs": {
+                  "type": "integer",
+                  "minimum": 0
+                }
               }
             }
           }
         },
         {
           "properties": {
-            "type": { "enum": ["aurora", "shimmer", "wave"] },
-            "params": { "type": "object" }
+            "type": {
+              "enum": ["aurora", "shimmer", "wave"]
+            },
+            "params": {
+              "type": "object"
+            }
           }
         }
       ]
     },
-    "meta": { "type": "object" }
+    "meta": {
+      "type": "object"
+    },
+    "streaming": {
+      "type": "object",
+      "description": "Play this Entertainment effect instead of `pattern` when the consumer has an entertainment area configured (ADR 0035). Optional and additive; `pattern` remains the fallback.",
+      "properties": {
+        "effect": {
+          "enum": ["aurora", "shimmer", "wave"]
+        }
+      },
+      "required": ["effect"],
+      "additionalProperties": false
+    }
   }
 }

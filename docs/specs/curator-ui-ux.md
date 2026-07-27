@@ -158,13 +158,13 @@ rendered in full, the page became a document to scroll rather than a bench to wo
 workstations is the right unit because it matches how the work actually arrives: _I have the card
 art, let me go do card things._
 
-| #   | Rail item   | Contains                                                                                                      |
-| --- | ----------- | ------------------------------------------------------------------------------------------------------------- |
-| 1   | **Look**    | Palette (swatches, roles, reorder, reset-to-auto), pattern, artwork override _(built 2026-07-25, issue #100)_ |
-| 2   | **Video**   | Five video prompts · clip gallery · splice · attach / detach / replace                                        |
-| 3   | **Card**    | Five card-art prompts · candidate set · attach / detach / replace · download print version                    |
-| 4   | **Preview** | Bench preview and room rehearsal (§6)                                                                         |
-| 5   | **Ship**    | Tag payload + QR · `.nfc` download · mark written (sleeve / card) · verify physical                           |
+| #   | Rail item   | Contains                                                                                                                                                                                                                                                          |
+| --- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **Look**    | Palette (swatches, roles, reorder, reset-to-auto), the derived pattern **read-only**, the streaming-effect opt-in, artwork override _(built 2026-07-25, issue #100; opt-in added 2026-07-27, [ADR 0035](../adrs/0035-streaming-effect-is-a-per-album-opt-in.md))_ |
+| 2   | **Video**   | Five video prompts · clip gallery · splice · attach / detach / replace                                                                                                                                                                                            |
+| 3   | **Card**    | Five card-art prompts · candidate set · attach / detach / replace · download print version                                                                                                                                                                        |
+| 4   | **Preview** | Bench preview and room rehearsal (§6)                                                                                                                                                                                                                             |
+| 5   | **Ship**    | Tag payload + QR · `.nfc` download · mark written (sleeve / card) · verify physical                                                                                                                                                                               |
 
 Notes on the grouping:
 
@@ -186,6 +186,16 @@ Notes on the grouping:
   `roadie.state` legitimately influences the UI, because choosing a default is emphasis, not gating.
 - **No section is ever hidden.** Including for albums still in a Roadie processing state: if you have
   the video in hand while metadata is still fetching, Video accepts it.
+
+**Pattern is shown, not edited.** Motion is derived from palette energy
+([ADR 0033](../adrs/0033-palette-derived-motion-energy.md)), and the answer to "the motion doesn't
+suit this record" is to change where the colours come from, not to hand-tune a params blob
+([ADR 0030](../adrs/0030-palette-from-album-feeling.md)). The one thing a human _can_ set is the
+**streaming-effect opt-in**, because that decision depends on hardware the producer can't see — does
+this room have an entertainment area? It is a switch with four states (off, aurora, shimmer, wave),
+and it never replaces the derived pattern, which remains what plays without an area
+([ADR 0035](../adrs/0035-streaming-effect-is-a-per-album-opt-in.md)). Per §10 the control says so
+rather than degrading silently.
 
 ## 6. Preview — bench and room
 

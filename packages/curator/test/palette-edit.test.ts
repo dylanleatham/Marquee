@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { AssetStore } from "../src/store/asset-store.js";
 import {
   editPalette,
+  setStreamingEffect,
   resetPalette,
   regeneratePalette,
   PaletteConflictError,
@@ -277,5 +278,57 @@ describe("regeneratePalette", () => {
     await expect(
       regeneratePalette(noGen, "aaaa1111", true),
     ).rejects.toBeInstanceOf(ValidationError);
+  });
+});
+
+// ADR 0035: a per-album opt-in to an Entertainment streaming effect. The point of the design is
+// that it is a switch, not a pattern editor — the derived pattern must survive it untouched.
+describe("setStreamingEffect", () => {
+  it("opts the album in and persists it", () => {
+    const store = tmpStore();
+    seed(store);
+    const asset = setStreamingEffect(deps(store), "aaaa1111", "aurora");
+    expect(asset.streamingEffect).toBe("aurora");
+    expect(store.read("aaaa1111")!.streamingEffect).toBe("aurora");
+  });
+
+  it("leaves the derived pattern exactly as Palette Press produced it", () => {
+    // The whole reason this is a sibling field: the pattern is the no-entertainment-area fallback.
+    const store = tmpStore();
+    const before = seed(store).pattern;
+    const asset = setStreamingEffect(deps(store), "aaaa1111", "wave");
+    expect(asset.pattern).toEqual(before);
+  });
+
+  it("clears the opt-in with null, restoring the default", () => {
+    const store = tmpStore();
+    seed(store);
+    setStreamingEffect(deps(store), "aaaa1111", "shimmer");
+    const cleared = setStreamingEffect(deps(store), "aaaa1111", null);
+    expect(cleared.streamingEffect).toBeUndefined();
+    expect(store.read("aaaa1111")!.streamingEffect).toBeUndefined();
+  });
+
+  it("rejects an effect that isn't a streaming effect", () => {
+    // `rotate` is a real pattern type but a CLIP one — it is derived, never opted into.
+    const store = tmpStore();
+    seed(store);
+    expect(() =>
+      setStreamingEffect(deps(store), "aaaa1111", "rotate" as never),
+    ).toThrow(ValidationError);
+  });
+
+  it("refuses while the album is still processing", () => {
+    const store = tmpStore();
+    store.save(
+      buildFreshAsset({
+        curatorId: "bbbb2222",
+        metadata: { name: "N", artist: "A", source: "manual" },
+        now: () => NOW,
+      }),
+    );
+    expect(() => setStreamingEffect(deps(store), "bbbb2222", "aurora")).toThrow(
+      PaletteConflictError,
+    );
   });
 });

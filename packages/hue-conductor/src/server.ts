@@ -13,6 +13,7 @@ import {
   PaletteNotReadyError,
   type PalettePayload,
   type ScanEvent,
+  type StreamPatternType,
 } from "@marquee/contracts";
 import {
   FsAlbumAssetReader,
@@ -219,37 +220,79 @@ export function buildServer(opts: BuildOptions = {}) {
    * configured; otherwise, or on a failed handshake, it falls back to a lively CLIP pattern. Handles
    * the CLIP↔streaming handoff in both directions so the two paths never fight over the lights.
    */
+  /**
+   * Try to play `effect` over the Entertainment API. Returns null when it can't — no configured
+   * area, no clientkey, or the session failed — leaving the CLIP decision to the caller, because
+   * the right fallback differs between the two ways an effect can be asked for.
+   */
+  const tryStreaming = async (
+    roomId: string,
+    effect: StreamPatternType,
+    payload: PalettePayload,
+    params: Record<string, number>,
+    log: { warn(msg: string): void; error(msg: string): void },
+    ctx: string,
+  ): Promise<ApplyResult | null> => {
+    const areaId = store.settings.entertainmentAreaId;
+    const sess = streaming();
+    if (!areaId || !sess) {
+      log.warn(
+        `streaming ${effect}${ctx} needs an entertainment area + clientkey — CLIP fallback`,
+      );
+      return null;
+    }
+    try {
+      await engine.stop(roomId); // CLIP → streaming handoff, from the true pre-session state
+      await sess.start(
+        roomId,
+        areaId,
+        effect,
+        payload.palette.colors.map((c) => c.hex),
+        params,
+      );
+      return { kind: "streaming", areaId, effect };
+    } catch (err) {
+      log.error(
+        `streaming ${effect}${ctx} failed (${(err as Error).message}) — CLIP fallback`,
+      );
+      return null;
+    }
+  };
+
   const applyPayload = async (
     roomId: string,
     payload: PalettePayload,
     log: { warn(msg: string): void; error(msg: string): void },
     ctx = "",
   ): Promise<ApplyResult> => {
+    // A per-album opt-in (ADR 0035) asks for the effect *instead of* `pattern`, and leaves `pattern`
+    // as the fallback — so a room with no entertainment area gets the album's own energy-aware
+    // pattern rather than clipFallback's generic rotate. That is the whole reason the opt-in rides
+    // beside `pattern` instead of overwriting it.
+    //
+    // No params are forwarded here: `pattern.params` belong to the CLIP pattern that is standing by
+    // as the fallback, and handing `intervalMs` to aurora would be nonsense. The renderers' own
+    // defaults are the opt-in's contract — tuning them is a separate decision (ADR 0035).
+    const optIn = payload.streaming?.effect;
+    if (optIn && isStreamEffect(optIn)) {
+      const played = await tryStreaming(roomId, optIn, payload, {}, log, ctx);
+      if (played) return played;
+      // Fall through with `payload` untouched: its pattern is the derived CLIP one.
+    }
+
     const type = payload.pattern.type;
     if (isStreamEffect(type)) {
-      const areaId = store.settings.entertainmentAreaId;
-      const sess = streaming();
-      if (areaId && sess) {
-        try {
-          await engine.stop(roomId); // CLIP → streaming handoff, from the true pre-session state
-          await sess.start(
-            roomId,
-            areaId,
-            type,
-            payload.palette.colors.map((c) => c.hex),
-            (payload.pattern.params ?? {}) as Record<string, number>,
-          );
-          return { kind: "streaming", areaId, effect: type };
-        } catch (err) {
-          log.error(
-            `streaming ${type}${ctx} failed (${(err as Error).message}) — CLIP fallback`,
-          );
-        }
-      } else {
-        log.warn(
-          `streaming ${type}${ctx} needs an entertainment area + clientkey — CLIP fallback`,
-        );
-      }
+      // The direct form (Demo Room, manual curl): the effect *is* the pattern, so its params are
+      // the effect's, and there is no album pattern standing by — hence clipFallback's guess.
+      const played = await tryStreaming(
+        roomId,
+        type,
+        payload,
+        (payload.pattern.params ?? {}) as Record<string, number>,
+        log,
+        ctx,
+      );
+      if (played) return played;
       payload = clipFallback(payload);
     }
     // A CLIP payload arriving while a stream is active must release the lights first (the reverse

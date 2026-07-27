@@ -235,6 +235,13 @@ the **Entertainment API**: a DTLS/UDP stream where Conductor pushes ~25 Hz frame
 once. Built across [ADR 0023](../adrs/0023-entertainment-streaming-effect-engine.md) (engine) and
 [ADR 0024](../adrs/0024-entertainment-dtls-transport.md) (transport):
 
+- **How an album asks for one ([ADR 0035](../adrs/0035-streaming-effect-is-a-per-album-opt-in.md)).**
+  A payload's optional `streaming.effect` opts that album in while `pattern` keeps its derived CLIP
+  value; with an entertainment area Conductor plays the effect, without one it plays `pattern` — the
+  album's own energy-aware motion, not a guess. Curator writes it via
+  `PUT /api/albums/:curatorId/streaming-effect`. Setting `pattern.type` to an effect directly still
+  works (Demo Room, manual `curl`) but has only `clipFallback`'s guess to fall back on, since there
+  is no other pattern in the payload.
 - **The effects (`src/stream/renderers.ts`).** Pure, deterministic, unit-tested:
   - `aurora` — a 2D-noise flow field drifts each light's position along the palette gradient; colours
     bleed and morph, never quite repeating. Params `{ speed?, scale?, brightness? }`.
