@@ -53,9 +53,11 @@ reference was actually sent.
   album's visual language that does not closely re-render the sleeve — which is why the candidate is
   marked rather than silently swapped.
 - A refused variant is now visible with its reason, including the all-refused case.
-- We deliberately did **not** soften ADR 0021's Option 1 wording ("direct adaptation… exact color
-  palette"). That may be the deeper fix, but it changes prompt strategy for every album to address a
-  failure observed once. Retry first; revisit with more refusals in hand.
+- **ADR 0021's Option 1 stands as written.** Softening "direct adaptation… exact color palette" was
+  considered and declined by the repo owner: the refusal is **intermittent**, not systematic — most
+  albums generate the anchored option fine — so weakening the prompt for every album to avoid a
+  refusal that affects some of them trades a real loss for an occasional one. The retry is therefore
+  the settled answer here, not a stopgap pending a prompt rewrite.
 - This also covers the case that motivated [PR #82](https://github.com/dylanleatham/Marquee/pull/82)
   (a portrait cover tripping a person-safety refusal): dropping the reference is the same correct
   move, since the reference is what carries a face. #82's blanket no-people guardrail stays parked —
