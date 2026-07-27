@@ -74,6 +74,15 @@ export const PROMPT_VARIANTS = 5;
 export interface PromptVariant {
   text: string;
   nudge: string;
+  /**
+   * Whether this variant re-renders the album's actual cover (ADR 0031). The drafter sets it for the
+   * options that adapt the sleeve — card-art Option 1 "Cover Reimagining", video Option 1 "Cover in
+   * Motion" — and card-art generation attaches the cover as a reference image only for those. The
+   * departing options (Signature Motif, Visual Artist Provenance, Live Performance Era, Album Lore)
+   * stay text-only so the set keeps its intended spread. Absent on template drafts and on drafts
+   * persisted before ADR 0031; both read as "not anchored".
+   */
+  coverAnchored?: boolean;
 }
 
 /**

@@ -14,7 +14,11 @@ import {
   type PaletteColorRef,
   type PromptVariant,
 } from "../roadie/prompts.js";
-import { GeminiError, type GeminiClient } from "./client.js";
+import {
+  GeminiError,
+  type GeminiClient,
+  type ResponseSchema,
+} from "./client.js";
 import {
   METAPROMPTS,
   VIDEO_METAPROMPTS,
@@ -45,7 +49,11 @@ const RESEARCH_SYSTEM =
 // count (n) is requested in the user turn and enforced by parseVariants (slice + tolerate fewer),
 // not by minItems/maxItems on the schema — the live responseSchema is picky about those, and a hard
 // bound isn't worth a 400.
-const VARIANTS_SCHEMA = {
+//
+// Card art additionally asks for `coverAnchored` (ADR 0031), which decides whether that prompt gets
+// the real cover attached as a reference image. Video doesn't: every video prompt animates the cover
+// by construction, so the flag would be uniformly true and nothing reads it.
+const variantsSchema = (type: PromptType): ResponseSchema => ({
   type: "object",
   properties: {
     variants: {
@@ -55,13 +63,17 @@ const VARIANTS_SCHEMA = {
         properties: {
           text: { type: "string" },
           nudge: { type: "string" },
+          ...(type === "cardArt" ? { coverAnchored: { type: "boolean" } } : {}),
         },
-        required: ["text", "nudge"],
+        required:
+          type === "cardArt"
+            ? ["text", "nudge", "coverAnchored"]
+            : ["text", "nudge"],
       },
     },
   },
   required: ["variants"],
-} as const;
+});
 
 const metapromptFor = (type: PromptType, videoStyle: VideoStyle): string =>
   type === "video" ? VIDEO_METAPROMPTS[videoStyle] : METAPROMPTS[type];
@@ -118,6 +130,20 @@ function draftUserPrompt(
       ? "Each prompt animates the album cover image as its visual reference — explicitly describe " +
         "how to animate elements already present in the cover.\n"
       : "";
+  // coverAnchored drives whether card-art generation attaches the real cover as a reference image
+  // (ADR 0031). Only the options that re-render the sleeve want it; the departing options must stay
+  // text-only or the whole set collapses toward the cover and loses its spread. Card art only —
+  // video animates the cover in every variant, so the flag would carry no information there.
+  const anchored = type === "cardArt";
+  const anchorLine = anchored
+    ? 'For each prompt also set "coverAnchored": true only if that prompt directly re-renders or ' +
+      "adapts the album's actual front cover artwork (its real subject and composition); set it " +
+      "false when the prompt deliberately departs from the cover to depict a different scene, " +
+      "motif, era, or artifact — even if it borrows the cover's palette or medium.\n"
+    : "";
+  const anchorField = anchored
+    ? ', and "coverAnchored" (boolean, per the rule above)'
+    : "";
   return [
     `Album: ${albumLine(metadata)}`,
     genreLine(metadata),
@@ -128,9 +154,9 @@ function draftUserPrompt(
     research,
     "",
     "OUTPUT OVERRIDE (authoritative — supersedes any earlier instruction about the number of " +
-      `options or ready-to-copy formatting): ${varianceLine}\n${animateLine}Return JSON matching ` +
-      'the schema: a "variants" array where each item has "text" (the full, ready-to-use prompt) ' +
-      `and "nudge" (${nudgeHint}).`,
+      `options or ready-to-copy formatting): ${varianceLine}\n${animateLine}${anchorLine}Return ` +
+      'JSON matching the schema: a "variants" array where each item has "text" (the full, ' +
+      `ready-to-use prompt), "nudge" (${nudgeHint})${anchorField}.`,
   ].join("\n");
 }
 
@@ -149,6 +175,11 @@ function parseVariants(json: string, n: number): PromptVariant[] {
     .map((v) => ({
       text: String((v as PromptVariant)?.text ?? "").trim(),
       nudge: String((v as PromptVariant)?.nudge ?? "").trim(),
+      // Omitted rather than coerced when absent: a model that skipped the field means "unknown",
+      // and the safe reading is "not anchored" (today's text-only behavior), not "anchored".
+      ...((v as PromptVariant)?.coverAnchored === true
+        ? { coverAnchored: true }
+        : {}),
     }))
     .filter((v) => v.text.length > 0)
     .slice(0, n);
@@ -170,7 +201,7 @@ async function draftOne(
   const json = await client.generateText({
     system: metapromptFor(type, videoStyle),
     prompt: draftUserPrompt(type, metadata, colors, research, n, videoStyle),
-    responseSchema: VARIANTS_SCHEMA,
+    responseSchema: variantsSchema(type),
     temperature: 1.0, // lean into variance across the set
   });
   return {

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, existsSync } from "node:fs";
+import { mkdtempSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { createFakeGemini } from "@marquee/fake-gemini";
 import { AssetStore } from "../src/store/asset-store.js";
 import { GeminiClient, type FetchLike } from "../src/gemini/client.js";
@@ -9,7 +9,7 @@ import * as actions from "../src/albums/actions.js";
 import { type ActionDeps } from "../src/albums/actions.js";
 import { ValidationError } from "../src/albums/add-manual.js";
 import type { DraftedPrompt } from "../src/roadie/prompts.js";
-import { makeAsset, fakeProber, pngBytes } from "./helpers.js";
+import { makeAsset, fakeProber, pngBytes, jpegBytes } from "./helpers.js";
 
 const store = () => new AssetStore(mkdtempSync(join(tmpdir(), "curator-ca-")));
 const now = () => "2026-07-18T00:00:00.000Z";
@@ -18,11 +18,19 @@ const cardArtDraft = (n: number): DraftedPrompt => ({
   variants: Array.from({ length: n }, (_, i) => ({
     text: `card prompt ${i}`,
     nudge: `look ${i}`,
+    // Mirrors the drafter's five-option output: only Option 1 re-renders the sleeve (ADR 0031).
+    ...(i === 0 ? { coverAnchored: true } : {}),
   })),
   selectedIndex: 0,
   generator: "gemini",
   generatedAt: now(),
 });
+
+/** Write the album's cover to disk so it can be sent as a reference image. */
+function writeCover(s: AssetStore, id: string) {
+  mkdirSync(s.paths.artwork, { recursive: true });
+  writeFileSync(s.paths.artworkFile(id), jpegBytes());
+}
 
 /** Seed an awaiting_review album with a palette + an n-variant card-art prompt. */
 function seed(s: AssetStore, id = "aaaa1111", variants = 5) {
@@ -31,6 +39,14 @@ function seed(s: AssetStore, id = "aaaa1111", variants = 5) {
   s.save(asset);
   return id;
 }
+
+/** The inlineData part of call `i`, or undefined when that call was text-only. */
+const referenceOf = (
+  fg: ReturnType<typeof createFakeGemini>,
+  i: number,
+): { mimeType?: string; data?: string } | undefined =>
+  fg.calls()[i]!.body.contents?.[0]?.parts?.find((p) => p.inlineData)
+    ?.inlineData;
 
 const geminiWith = (fetch: FetchLike) =>
   new GeminiClient({ apiKey: "k", fetch });
@@ -66,6 +82,82 @@ describe("generateCardArtSet", () => {
       expect(existsSync(s.paths.cardArtFile(c.fileId, c.ext))).toBe(true);
     // One image call per variant.
     expect(fg.calls()).toHaveLength(5);
+  });
+
+  it("attaches the cover only to coverAnchored variants (ADR 0031)", async () => {
+    const s = store();
+    const id = seed(s, "aaaa9999", 5); // only variant 0 is coverAnchored
+    writeCover(s, id);
+    const fg = createFakeGemini({ imageBase64: pngBytes().toString("base64") });
+    await actions.generateCardArtSet(deps(s, geminiWith(fg.fetch)), id);
+
+    // Option 1 re-renders the sleeve → it gets the real cover bytes...
+    expect(referenceOf(fg, 0)).toEqual({
+      mimeType: "image/jpeg",
+      data: jpegBytes().toString("base64"),
+    });
+    // ...and the four departing options stay text-only, so the set keeps its spread.
+    for (const i of [1, 2, 3, 4]) expect(referenceOf(fg, i)).toBeUndefined();
+  });
+
+  it("labels a PNG cover image/png rather than the image/jpeg default", async () => {
+    const s = store();
+    const id = "aaaa5555";
+    const asset = makeAsset(id, "Purple Rain", "Prince");
+    asset.promptDrafts = { cardArt: cardArtDraft(1) }; // variant 0 is coverAnchored
+    // A manual override lands as .png; resolvedArtworkFile resolves to the override path.
+    asset.artwork = {
+      resolvedPath: `media/artwork/${id}-override.png`,
+      overrideActive: true,
+      contentHash: "sha256:deadbeef",
+    };
+    s.save(asset);
+    const overridePath = s.paths.artworkOverrideFile(id, "png");
+    mkdirSync(dirname(overridePath), { recursive: true });
+    writeFileSync(overridePath, pngBytes());
+
+    const fg = createFakeGemini({ imageBase64: pngBytes().toString("base64") });
+    await actions.generateCardArtSet(deps(s, geminiWith(fg.fetch)), id);
+
+    expect(referenceOf(fg, 0)).toEqual({
+      mimeType: "image/png",
+      data: pngBytes().toString("base64"),
+    });
+  });
+
+  it("generates text-only when the album has no cover on disk (no reference to send)", async () => {
+    const s = store();
+    const id = seed(s, "aaaa8888", 3); // seed() writes no artwork file
+    const fg = createFakeGemini({ imageBase64: pngBytes().toString("base64") });
+    const asset = await actions.generateCardArtSet(
+      deps(s, geminiWith(fg.fetch)),
+      id,
+    );
+
+    // Unlike video, a missing cover is not fatal for card art — it degrades to text-only.
+    expect(asset.cardArtCandidates).toHaveLength(3);
+    for (const i of [0, 1, 2]) expect(referenceOf(fg, i)).toBeUndefined();
+  });
+
+  it("sends no reference when the drafter marked nothing coverAnchored", async () => {
+    const s = store();
+    const id = "aaaa7777";
+    const asset = makeAsset(id, "Purple Rain", "Prince");
+    // A template draft (or one persisted before ADR 0031) carries no coverAnchored flag at all.
+    asset.promptDrafts = {
+      cardArt: {
+        variants: [{ text: "p0", nudge: "n0" }],
+        selectedIndex: 0,
+        generator: "template",
+        generatedAt: now(),
+      },
+    };
+    s.save(asset);
+    writeCover(s, id);
+    const fg = createFakeGemini({ imageBase64: pngBytes().toString("base64") });
+    await actions.generateCardArtSet(deps(s, geminiWith(fg.fetch)), id);
+
+    expect(referenceOf(fg, 0)).toBeUndefined();
   });
 
   it("keeps the successes when some generations fail (partial failure)", async () => {
@@ -237,6 +329,22 @@ describe("generateCardArtOne (per-prompt, ADR 0021)", () => {
     expect(existsSync(s.paths.cardArtFile("aaaa1111-c2", "png"))).toBe(true);
     // Exactly one image call for the single prompt.
     expect(fg.calls()).toHaveLength(1);
+  });
+
+  it("attaches the cover for the anchored index and not for a departing one (ADR 0031)", async () => {
+    const s = store();
+    const id = seed(s, "aaaa6666", 5); // only variant 0 is coverAnchored
+    writeCover(s, id);
+    const fg = createFakeGemini({ imageBase64: pngBytes().toString("base64") });
+    const d = deps(s, geminiWith(fg.fetch));
+
+    await actions.generateCardArtOne(d, id, 0);
+    await actions.generateCardArtOne(d, id, 4);
+
+    expect(referenceOf(fg, 0)).toMatchObject({
+      data: jpegBytes().toString("base64"),
+    });
+    expect(referenceOf(fg, 1)).toBeUndefined();
   });
 
   it("merges into the existing set: keeps siblings, replaces its own index, stays sorted", async () => {

@@ -81,8 +81,42 @@ describe("GeminiClient", () => {
     // The text model returns text, not inlineData → no image bytes.
     const fg = createFakeGemini({ text: "no image here" });
     await expect(
-      client(fg).generateImage("x", "gemini-2.5-flash"),
+      client(fg).generateImage("x", { model: "gemini-2.5-flash" }),
     ).rejects.toMatchObject({ name: "GeminiError" });
+  });
+
+  it("generateImage sends no image part when there's no reference (text-only)", async () => {
+    const fg = createFakeGemini({ imageBase64: "AQID" });
+    await client(fg).generateImage("a purple motorcycle");
+    const parts = fg.calls()[0]!.body.contents![0]!.parts!;
+    expect(parts).toEqual([{ text: "a purple motorcycle" }]);
+  });
+
+  it("generateImage sends the reference image as an inlineData part before the prompt (ADR 0031)", async () => {
+    const fg = createFakeGemini({ imageBase64: "AQID" });
+    const cover = Buffer.from("COVERBYTES");
+    await client(fg).generateImage("re-render this sleeve", {
+      reference: { bytes: cover, mimeType: "image/png" },
+    });
+
+    const parts = fg.calls()[0]!.body.contents![0]!.parts!;
+    // Order matters: the image is the subject, the trailing text instructs on it.
+    expect(parts).toHaveLength(2);
+    expect(parts[0]!.inlineData).toEqual({
+      mimeType: "image/png",
+      data: cover.toString("base64"),
+    });
+    expect(parts[1]!.text).toBe("re-render this sleeve");
+  });
+
+  it("generateImage defaults the reference mime type to image/jpeg", async () => {
+    const fg = createFakeGemini({ imageBase64: "AQID" });
+    await client(fg).generateImage("x", {
+      reference: { bytes: Buffer.from("C") },
+    });
+    expect(
+      fg.calls()[0]!.body.contents![0]!.parts![0]!.inlineData,
+    ).toMatchObject({ mimeType: "image/jpeg" });
   });
 
   it("generateImage throws when the prompt is safety-blocked", async () => {
@@ -106,10 +140,9 @@ describe("GeminiClient", () => {
       fetch: fg.fetch,
       sleep: async () => {},
     });
-    const bytes = await c.generateVideo(
-      "animate the cover",
-      Buffer.from("JPG"),
-    );
+    const bytes = await c.generateVideo("animate the cover", {
+      bytes: Buffer.from("JPG"),
+    });
     expect(bytes.toString()).toBe("MP4-DATA");
     expect(fg.calls().map((x) => x.video)).toEqual(["interaction", "download"]);
     // The request used the Omni model + carried the cover image as an input part.
@@ -122,9 +155,9 @@ describe("GeminiClient", () => {
   it("generateVideo returns inline video bytes without a download when delivered inline", async () => {
     const fg = createFakeGemini({ videoBytes: "INLINE", videoInline: true });
     const c = new GeminiClient({ apiKey: "k", fetch: fg.fetch });
-    expect((await c.generateVideo("p", Buffer.from("JPG"))).toString()).toBe(
-      "INLINE",
-    );
+    expect(
+      (await c.generateVideo("p", { bytes: Buffer.from("JPG") })).toString(),
+    ).toBe("INLINE");
     // No separate download call when the video came back inline.
     expect(fg.calls().some((x) => x.video === "download")).toBe(false);
   });
@@ -133,7 +166,7 @@ describe("GeminiClient", () => {
     const fg = createFakeGemini({ failStatus: 500 });
     const c = new GeminiClient({ apiKey: "k", fetch: fg.fetch });
     await expect(
-      c.generateVideo("p", Buffer.from("JPG")),
+      c.generateVideo("p", { bytes: Buffer.from("JPG") }),
     ).rejects.toMatchObject({ name: "GeminiError", status: 500 });
   });
 
@@ -141,7 +174,7 @@ describe("GeminiClient", () => {
     const fg = createFakeGemini({ videoError: "content policy" });
     const c = new GeminiClient({ apiKey: "k", fetch: fg.fetch });
     await expect(
-      c.generateVideo("p", Buffer.from("JPG")),
+      c.generateVideo("p", { bytes: Buffer.from("JPG") }),
     ).rejects.toMatchObject({ name: "GeminiError" });
   });
 
@@ -156,7 +189,7 @@ describe("GeminiClient", () => {
       );
     const c = new GeminiClient({ apiKey: "k", fetch });
     await expect(
-      c.generateVideo("p", Buffer.from("JPG")),
+      c.generateVideo("p", { bytes: Buffer.from("JPG") }),
     ).rejects.toMatchObject({ name: "GeminiError" });
   });
 
@@ -195,9 +228,9 @@ describe("GeminiClient", () => {
       sleep: async () => {},
       videoMaxPolls: 3,
     });
-    expect((await c.generateVideo("p", Buffer.from("JPG"))).toString()).toBe(
-      "READY-MP4",
-    );
+    expect(
+      (await c.generateVideo("p", { bytes: Buffer.from("JPG") })).toString(),
+    ).toBe("READY-MP4");
     expect(downloads).toBe(2);
   });
 
@@ -226,7 +259,7 @@ describe("GeminiClient", () => {
       });
     const c = new GeminiClient({ apiKey: "k", fetch: hanging });
     const ctrl = new AbortController();
-    const p = c.generateImage("a purple sky", undefined, ctrl.signal);
+    const p = c.generateImage("a purple sky", { signal: ctrl.signal });
     ctrl.abort();
     await expect(p).rejects.toMatchObject({
       name: "GeminiError",
@@ -247,7 +280,7 @@ describe("GeminiClient", () => {
     const ctrl = new AbortController();
     ctrl.abort();
     await expect(
-      c.generateImage("x", undefined, ctrl.signal),
+      c.generateImage("x", { signal: ctrl.signal }),
     ).rejects.toMatchObject({ name: "GeminiError", status: 499 });
   });
 });

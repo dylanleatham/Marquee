@@ -74,6 +74,56 @@ describe("draftPromptsWithGemini", () => {
     expect(drafted.variants.map((v) => v.text)).toEqual(["keep 1", "keep 2"]);
   });
 
+  it("carries coverAnchored through, and treats anything but true as not anchored (ADR 0031)", async () => {
+    const fg = createFakeGemini({
+      research: "facts",
+      json: {
+        variants: [
+          { text: "Cover Reimagining", nudge: "cover", coverAnchored: true },
+          { text: "Signature Motif", nudge: "motif", coverAnchored: false },
+          { text: "Album Lore", nudge: "lore" }, // model omitted the field
+        ],
+      },
+    });
+    const drafted = await draftOnePromptWithGemini(
+      client(fg),
+      "cardArt",
+      meta,
+      colors,
+      { n: 3, now: at },
+    );
+    // Only an explicit `true` anchors — a false or a missing field both read as "not anchored",
+    // which is the safe default (today's text-only behavior).
+    expect(drafted.variants.map((v) => v.coverAnchored)).toEqual([
+      true,
+      undefined,
+      undefined,
+    ]);
+  });
+
+  it("asks for coverAnchored in the schema and the user turn", async () => {
+    const fg = createFakeGemini({
+      research: "facts",
+      json: { variants: variants(2) },
+    });
+    await draftOnePromptWithGemini(client(fg), "cardArt", meta, colors, {
+      n: 2,
+      now: at,
+    });
+    const draftCall = fg.calls().find((c) => c.structured)!;
+    const schema = draftCall.body.generationConfig!.responseSchema as {
+      properties: {
+        variants: { items: { properties: Record<string, unknown> } };
+      };
+    };
+    expect(schema.properties.variants.items.properties).toHaveProperty(
+      "coverAnchored",
+    );
+    expect(draftCall.body.contents![0]!.parts![0]!.text).toContain(
+      "coverAnchored",
+    );
+  });
+
   it("throws on a malformed structured response (caller falls back)", async () => {
     // research ok, but the structured pass returns an empty object → no variants array.
     const fg = createFakeGemini({ research: "facts", json: {} });

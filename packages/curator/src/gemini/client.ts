@@ -40,6 +40,22 @@ export interface GenerateTextOptions {
   temperature?: number;
 }
 
+/** A reference image sent alongside an image prompt (the album cover — ADR 0031). */
+export interface ReferenceImage {
+  bytes: Buffer;
+  /** Defaults to image/jpeg, matching `generateVideo`'s default. */
+  mimeType?: string;
+}
+
+export interface GenerateImageOptions {
+  /** Model override; defaults to the client's image model. */
+  model?: string;
+  /** Cancellation (a cancelled generation job, issue #57). */
+  signal?: AbortSignal;
+  /** Optional reference image the prompt should re-render rather than reinvent. */
+  reference?: ReferenceImage;
+}
+
 export interface GeminiClientOptions {
   apiKey: string;
   fetch?: FetchLike;
@@ -222,17 +238,30 @@ export class GeminiClient {
    * Generate one image from a text prompt (Nano Banana). Returns the raw image bytes from the first
    * inline-data part. Throws GeminiError if the response was blocked or carried no image — the
    * caller decides whether one failure among a batch is fatal.
+   *
+   * Pass `reference` to send an image alongside the prompt (ADR 0031) — the album cover, for the
+   * variants that re-render the sleeve. The image part goes *first*: Gemini reads parts in order and
+   * the reference reads as the subject the trailing text then instructs on. Without it the model is
+   * reconstructing the cover from whatever it knows of the album by name, which drifts.
    */
   async generateImage(
     prompt: string,
-    model?: string,
-    signal?: AbortSignal,
+    opts: GenerateImageOptions = {},
   ): Promise<Buffer> {
+    const { model, signal, reference } = opts;
+    const parts: Array<Record<string, unknown>> = [];
+    if (reference)
+      parts.push({
+        inlineData: {
+          mimeType: reference.mimeType ?? "image/jpeg",
+          data: reference.bytes.toString("base64"),
+        },
+      });
+    parts.push({ text: prompt });
+
     const data = await this.generateContent(
       model ?? this.imageModel,
-      {
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-      },
+      { contents: [{ role: "user", parts }] },
       signal,
     );
     const blocked =
@@ -319,13 +348,19 @@ export class GeminiClient {
    * endpoint/shape from generateContent). Sends the prompt + a reference image (the album cover);
    * the model returns a video either inline (base64) or as a file URI to download. Throws GeminiError
    * on failure. The caller decides whether one failure among a batch is fatal.
+   *
+   * `reference` is required here (unlike `generateImage`, where it's optional): image-to-video has
+   * nothing to animate without it. Both methods take the same `ReferenceImage` shape so the two
+   * reference-carrying calls on this client read alike.
    */
   async generateVideo(
     prompt: string,
-    imageBytes: Buffer,
-    imageMimeType = "image/jpeg",
-    signal?: AbortSignal,
+    reference: ReferenceImage,
+    opts: { signal?: AbortSignal } = {},
   ): Promise<Buffer> {
+    const { signal } = opts;
+    const imageBytes = reference.bytes;
+    const imageMimeType = reference.mimeType ?? "image/jpeg";
     const res = await this.fetchT(
       `${this.apiBase}/v1beta/interactions`,
       {
