@@ -156,7 +156,10 @@ Jobs:
 
 1. **lint** — full workspace, all languages
 2. **type-check** — full workspace
-3. **unit tests** — all Node packages, in parallel via turbo
+3. **unit tests** — all Node packages, in parallel via turbo. Runs on **both `ubuntu-latest` and
+   `windows-latest`** (issue #129): the Pi is Linux but the workstation is Windows, and while CI was
+   Linux-only a POSIX-only path assumption could only be caught by hand. The other jobs stay
+   Linux-only to limit cost. Job names carry the OS, e.g. `test:unit (windows-latest)`.
 4. **unit tests (Python)** — nfc-trigger package
 5. **integration tests** — all packages, using fakes from `packages/fakes/`
 6. **coverage report** — aggregated across packages, posted as PR comment (not gating)
