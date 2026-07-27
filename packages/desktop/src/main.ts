@@ -16,10 +16,53 @@ import {
   type FfmpegPaths,
 } from "./services";
 import { registerRendererDiagnostics } from "./crash-log";
+import { createLogSink, type LogSink } from "./log-sink";
+import { createShellLogger, type ShellLogger } from "./logging";
+
+// Before anything reads a path off `app`. A packaged build gets "Marquee" from electron-builder's
+// productName, but an unpackaged `electron dist/main.js` defaults to "Electron" — and Electron
+// resolves userData (which `logs` hangs off) once, early, so calling this inside `whenReady` is too
+// late: a dev run then writes to %APPDATA%\Electron\logs. Verified the hard way. Naming it here
+// makes dev and packaged agree, so the README can name one path.
+app.setName("Marquee");
 
 const children: ChildProcess[] = [];
 let mainWindow: BrowserWindow | null = null;
 let shuttingDown = false;
+
+// Logging is initialised before anything else can fail, so a boot failure is itself logged. Until
+// then (and if the sink can't be opened at all) records go to the console only — the old behaviour.
+let logSink: LogSink | null = null;
+let logDir = "";
+let log: ShellLogger = createShellLogger({ sink: { write: () => {} } });
+/** Line writers for the child streams, flushed on shutdown so a last partial line isn't lost. */
+const streams: { flush(): void }[] = [];
+
+function initLogging(): void {
+  try {
+    logDir = app.getPath("logs");
+    logSink = createLogSink({ dir: logDir });
+    log = createShellLogger({ sink: logSink });
+    log.info("shell", `logging to ${logSink.file}`);
+  } catch (err) {
+    // No sink → console-only, via the default logger, so the one record that explains why the log
+    // file is missing reads like every other record. Worth saying out loud: the symptom is an empty
+    // log folder, which otherwise looks identical to "nothing went wrong".
+    log.error(
+      "shell",
+      `could not open the log file: ${(err as Error).message}`,
+    );
+  }
+}
+
+/**
+ * Log a failure *and* show it. `dialog.showErrorBox` is ephemeral — dismissing it was previously the
+ * end of the evidence (issue #141), which is exactly the case the log file exists for.
+ */
+function reportFailure(title: string, message: string): void {
+  log.error("shell", `${title}: ${message}`);
+  dialog.showErrorBox(title, message);
+}
 
 /** dist/main.js → packages/desktop/dist → up three levels is the monorepo root (dev run). */
 const repoRoot = (): string => resolve(__dirname, "..", "..", "..");
@@ -66,22 +109,29 @@ function startService(spec: ServiceSpec): void {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", ...spec.env },
     stdio: ["ignore", "pipe", "pipe", "ipc"],
   });
-  child.stdout?.on("data", (d) => process.stdout.write(`[${spec.name}] ${d}`));
-  child.stderr?.on("data", (d) => process.stderr.write(`[${spec.name}] ${d}`));
+  // Each service's output is framed into whole lines and logged under its own name, so per-service
+  // attribution survives into the file (the old `[name] ` prefix, now the record's source field).
+  const out = log.stream("info", spec.name);
+  const err = log.stream("error", spec.name);
+  streams.push(out, err);
+  child.stdout?.on("data", (d: Buffer) => out.push(d.toString()));
+  child.stderr?.on("data", (d: Buffer) => err.push(d.toString()));
   // A spawn failure (e.g. a missing bundled server) emits 'error'; without this listener it would
   // throw unhandled and crash the main process instead of showing the dialog + quitting.
-  child.on("error", (err) => {
+  child.on("error", (spawnErr) => {
     if (shuttingDown) return;
-    dialog.showErrorBox(
+    reportFailure(
       "Marquee failed to start",
-      `Could not start ${spec.name}: ${err.message}`,
+      `Could not start ${spec.name}: ${spawnErr.message}`,
     );
     shutdown();
     app.quit();
   });
   child.on("exit", (code) => {
+    out.flush();
+    err.flush();
     if (code && code !== 0 && !shuttingDown)
-      dialog.showErrorBox(
+      reportFailure(
         "Marquee service stopped",
         `${spec.name} exited with code ${code}. Restart the app.`,
       );
@@ -98,6 +148,10 @@ function shutdown(): void {
       // already gone
     }
   }
+  // Flush partial lines, then release the handle. Ordering matters: a flush after close is dropped.
+  for (const stream of streams) stream.flush();
+  logSink?.close();
+  logSink = null;
 }
 
 async function boot(): Promise<void> {
@@ -172,6 +226,14 @@ function buildMenu(): void {
             click: go("/help/tags"),
           },
           { type: "separator" },
+          // A log you can't find is nearly as useless as one that was never written (issue #141).
+          // Opening the folder rather than the file lets you grab the rotated siblings too.
+          {
+            label: "Open log folder",
+            enabled: logDir !== "",
+            click: () => void shell.openPath(logDir),
+          },
+          { type: "separator" },
           {
             label: "Marquee docs on GitHub",
             click: () =>
@@ -204,8 +266,8 @@ function createWindow(): void {
     mainWindow = null;
   });
   // The shell surfaces service failures but was blind to renderer crashes — a React exception or a
-  // failed load blanked the window with nothing logged (issue #63). Log those to the same stream.
-  registerRendererDiagnostics(mainWindow.webContents);
+  // failed load blanked the window with nothing logged (issue #63). Log those to the same sink.
+  registerRendererDiagnostics(mainWindow.webContents, log.scoped("renderer"));
   // External links (Spotify, GitHub) open in the system browser, not inside the app shell.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
@@ -227,11 +289,12 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
+    initLogging();
     try {
       await boot();
       createWindow();
     } catch (err) {
-      dialog.showErrorBox("Marquee failed to start", (err as Error).message);
+      reportFailure("Marquee failed to start", (err as Error).message);
       shutdown();
       app.quit();
     }
