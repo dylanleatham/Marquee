@@ -2,96 +2,43 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "marquee/schemas/album-asset-v1.json",
   "title": "AlbumAsset",
-  "description": "Curator's on-disk format: one {curatorId}.json per album. Source of truth for the collection. See curator-spec.md \u00a77 for full field semantics. This schema is a starting point \u2014 extend it as the store shape is implemented.",
+  "description": "Curator's on-disk format: one {curatorId}.json per album. Source of truth for the collection. See curator-spec.md §7 for full field semantics. This schema is a starting point — extend it as the store shape is implemented.",
   "type": "object",
   "required": ["version", "curatorId", "createdAt", "metadata", "roadie"],
   "properties": {
-    "version": {
-      "const": 1
-    },
-    "curatorId": {
-      "type": "string",
-      "pattern": "^[a-z0-9]{8}$"
-    },
-    "createdAt": {
-      "type": "string",
-      "format": "date-time"
-    },
+    "version": { "const": 1 },
+    "curatorId": { "type": "string", "pattern": "^[a-z0-9]{8}$" },
+    "createdAt": { "type": "string", "format": "date-time" },
     "metadata": {
       "type": "object",
       "required": ["name", "artist", "source"],
       "properties": {
-        "name": {
-          "type": "string"
-        },
-        "artist": {
-          "type": "string"
-        },
-        "year": {
-          "type": "integer"
-        },
-        "genres": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "source": {
-          "enum": ["spotify", "manual", "discogs"]
-        },
-        "spotifyUri": {
-          "type": "string"
-        },
-        "spotifyArtUrl": {
-          "type": "string"
-        },
-        "discogsReleaseId": {
-          "type": "integer"
-        },
-        "discogsUri": {
-          "type": "string"
-        },
-        "discogsArtUrl": {
-          "type": "string"
-        }
+        "name": { "type": "string" },
+        "artist": { "type": "string" },
+        "year": { "type": "integer" },
+        "genres": { "type": "array", "items": { "type": "string" } },
+        "source": { "enum": ["spotify", "manual", "discogs"] },
+        "spotifyUri": { "type": "string" },
+        "spotifyArtUrl": { "type": "string" },
+        "discogsReleaseId": { "type": "integer" },
+        "discogsUri": { "type": "string" },
+        "discogsArtUrl": { "type": "string" }
       }
     },
-    "artwork": {
-      "type": "object"
+    "artwork": { "type": "object" },
+    "palette": { "type": "object" },
+    "pattern": { "type": "object" },
+    "streamingEffect": {
+      "description": "Per-album opt-in to an Entertainment streaming effect (ADR 0035). Absent or null means the derived `pattern` plays.",
+      "oneOf": [{ "enum": ["aurora", "shimmer", "wave"] }, { "type": "null" }]
     },
-    "palette": {
-      "type": "object"
-    },
-    "pattern": {
-      "type": "object"
-    },
-    "promptDrafts": {
-      "type": "object"
-    },
-    "visualizer": {
-      "type": ["object", "null"]
-    },
-    "videoClips": {
-      "type": "array",
-      "items": {
-        "type": "object"
-      }
-    },
-    "cardArt": {
-      "type": ["object", "null"]
-    },
-    "cardArtCandidates": {
-      "type": "array",
-      "items": {
-        "type": "object"
-      }
-    },
-    "tag": {
-      "type": "object"
-    },
-    "verification": {
-      "type": "object"
-    },
+    "promptDrafts": { "type": "object" },
+    "visualizer": { "type": ["object", "null"] },
+    "videoClips": { "type": "array", "items": { "type": "object" } },
+    "cardArt": { "type": ["object", "null"] },
+    "cardArtCandidates": { "type": "array", "items": { "type": "object" } },
+    "tag": { "type": "object" },
+    "verification": { "type": "object" },
     "roadie": {
       "type": "object",
       "required": ["state"],
@@ -113,41 +60,17 @@
             "needs_manual"
           ]
         },
-        "subState": {
-          "type": ["string", "null"]
-        },
-        "flags": {
-          "type": "object"
-        },
-        "history": {
-          "type": "array"
-        },
-        "lastError": {
-          "type": ["object", "string", "null"]
-        },
-        "retryCount": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "syncIssues": {
-          "type": "array"
-        }
+        "subState": { "type": ["string", "null"] },
+        "flags": { "type": "object" },
+        "history": { "type": "array" },
+        "lastError": { "type": ["object", "string", "null"] },
+        "retryCount": { "type": "integer", "minimum": 0 },
+        "syncIssues": { "type": "array" }
       }
     },
     "status": {
       "type": "object",
       "description": "Derived, recomputed on save."
-    },
-    "streamingEffect": {
-      "description": "Per-album opt-in to an Entertainment streaming effect (ADR 0035). Absent or null means the derived `pattern` plays.",
-      "oneOf": [
-        {
-          "enum": ["aurora", "shimmer", "wave"]
-        },
-        {
-          "type": "null"
-        }
-      ]
     }
   }
 }
