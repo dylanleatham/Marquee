@@ -235,6 +235,13 @@ the **Entertainment API**: a DTLS/UDP stream where Conductor pushes ~25 Hz frame
 once. Built across [ADR 0023](../adrs/0023-entertainment-streaming-effect-engine.md) (engine) and
 [ADR 0024](../adrs/0024-entertainment-dtls-transport.md) (transport):
 
+- **How an album asks for one ([ADR 0035](../adrs/0035-streaming-effect-is-a-per-album-opt-in.md)).**
+  A payload's optional `streaming.effect` opts that album in while `pattern` keeps its derived CLIP
+  value; with an entertainment area Conductor plays the effect, without one it plays `pattern` — the
+  album's own energy-aware motion, not a guess. Curator writes it via
+  `PUT /api/albums/:curatorId/streaming-effect`. Setting `pattern.type` to an effect directly still
+  works (Demo Room, manual `curl`) but has only `clipFallback`'s guess to fall back on, since there
+  is no other pattern in the payload.
 - **The effects (`src/stream/renderers.ts`).** Pure, deterministic, unit-tested:
   - `aurora` — a 2D-noise flow field drifts each light's position along the palette gradient; colours
     bleed and morph, never quite repeating. Params `{ speed?, scale?, brightness? }`.
@@ -255,13 +262,22 @@ once. Built across [ADR 0023](../adrs/0023-entertainment-streaming-effect-engine
 - **The session (`StreamSession`)** ties it together for a scan: snapshot the room (CLIP) → PUT area
   streaming-on → open DTLS → run the engine; `stop` reverses it and restores the snapshot, under the
   same idle-timeout safety net as CLIP. On `/api/scan`, a streaming-effect album with an
-  `entertainmentAreaId` configured hands off CLIP → streaming; with no area configured (or if the
-  handshake fails) it **falls back to a lively CLIP pattern** — `rotate` for a multi-colour palette,
-  `pulse` for a single colour — never a flat hold.
+  `entertainmentAreaId` configured hands off CLIP → streaming. **What it falls back to with no area
+  configured — or if the handshake fails — depends on how the effect was asked for**
+  ([ADR 0035](../adrs/0035-streaming-effect-is-a-per-album-opt-in.md)):
+  - **`streaming.effect`** (the per-album opt-in) → the payload's own `pattern`, which is the
+    album's derived, energy-aware CLIP pattern. Opting in never costs an album its motion.
+  - **`pattern.type` set to the effect directly** (Demo Room, manual `curl`) → a lively CLIP guess:
+    `rotate` for a multi-colour palette, `pulse` for a single colour, never a flat hold. There is no
+    other pattern in the payload to fall back to.
 
 Streaming effects are **opt-in via a Curator per-album override**, not auto-selected — Palette Press
 still defaults to CLIP patterns (the producer can't know whether a runtime has an entertainment area;
-ADR 0024). The pattern types are in the `PalettePayload` contract so an override can request them.
+ADR 0024). That override is `PUT /api/albums/:curatorId/streaming-effect`, which sets
+`asset.streamingEffect` and reaches Conductor as the payload's `streaming` block
+([ADR 0035](../adrs/0035-streaming-effect-is-a-per-album-opt-in.md)); it was named by ADR 0024 but
+not built until 2026-07-27, so until then the effects were reachable only from the Demo Room or a
+manual `curl`.
 
 ### Palette transitions within a session
 

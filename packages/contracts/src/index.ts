@@ -36,6 +36,13 @@ export type PatternParams =
  */
 export type StreamPatternType = "aurora" | "shimmer" | "wave";
 
+/** The streaming effects, as a runtime list — for validating an opt-in at an API boundary. */
+export const STREAM_PATTERN_TYPES: readonly StreamPatternType[] = [
+  "aurora",
+  "shimmer",
+  "wave",
+];
+
 /**
  * Optional per-album audio descriptors (integration-contract §1 `meta.audioFeatures`). Present only
  * when a generator had access — Spotify's audio-features endpoint is deprecated, so today this is a
@@ -65,6 +72,17 @@ export interface PalettePayload {
     type: "static" | "rotate" | "pulse" | "crossfade" | StreamPatternType;
     params: PatternParams;
   };
+  /**
+   * Play this Entertainment effect *instead of* `pattern`, when the consumer has an entertainment
+   * area configured (ADR 0035). Optional and additive: a producer that omits it, or a consumer that
+   * ignores it, behaves exactly as before.
+   *
+   * Carried alongside `pattern` rather than inside it so the fallback is the album's own derived
+   * pattern — energy-aware per [ADR 0033] — rather than a generic guess. Setting
+   * `pattern.type` to a streaming effect directly still works (the Demo Room and manual `curl` do
+   * that); it just cannot express what to play instead when there's no area.
+   */
+  streaming?: { effect: StreamPatternType };
   meta?: {
     generatedAt?: string;
     generator?: string;
@@ -169,6 +187,12 @@ export interface AlbumPaletteInput {
     colors: Array<{ hex: string; role: string; cie_xy?: [number, number] }>;
   };
   pattern?: { type: string; params: unknown };
+  /**
+   * Per-album opt-in to an Entertainment streaming effect (ADR 0035). Absent/null means the derived
+   * `pattern` plays, which is the default for every album — Palette Press never selects a streaming
+   * effect, because the producer can't know whether a given runtime has an entertainment area.
+   */
+  streamingEffect?: string | null;
 }
 
 /** The album isn't far enough along to drive a light show (no palette/pattern yet). Callers → 409. */
@@ -227,5 +251,12 @@ export function buildPalettePayload(asset: AlbumPaletteInput): PalettePayload {
       type,
       params: asset.pattern.params as PalettePayload["pattern"]["params"],
     },
+    // The derived pattern above stays put and becomes the no-entertainment-area fallback; the
+    // opt-in rides alongside it (ADR 0035). An unrecognized value is dropped rather than passed on
+    // — same best-effort posture as the role/pattern-type coercion above.
+    ...(asset.streamingEffect &&
+    (STREAM_PATTERN_TYPES as string[]).includes(asset.streamingEffect)
+      ? { streaming: { effect: asset.streamingEffect as StreamPatternType } }
+      : {}),
   };
 }

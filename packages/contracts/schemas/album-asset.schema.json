@@ -28,6 +28,10 @@
     "artwork": { "type": "object" },
     "palette": { "type": "object" },
     "pattern": { "type": "object" },
+    "streamingEffect": {
+      "description": "Per-album opt-in to an Entertainment streaming effect (ADR 0035). Absent or null means the derived `pattern` plays.",
+      "oneOf": [{ "enum": ["aurora", "shimmer", "wave"] }, { "type": "null" }]
+    },
     "promptDrafts": { "type": "object" },
     "visualizer": { "type": ["object", "null"] },
     "videoClips": { "type": "array", "items": { "type": "object" } },

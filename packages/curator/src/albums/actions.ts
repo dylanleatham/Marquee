@@ -10,6 +10,10 @@ import {
 } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
+import {
+  STREAM_PATTERN_TYPES,
+  type StreamPatternType,
+} from "@marquee/contracts";
 import type { AssetStore } from "../store/asset-store.js";
 import {
   transitionTo,
@@ -293,6 +297,34 @@ function assertNotProcessing(asset: AlbumAsset): void {
  * is the dominant/primary. Clears any monochrome-insufficient flag: a hand-crafted palette is whatever
  * the human made it. Synchronous, so a plain load→save is race-safe (no await to interleave).
  */
+/**
+ * Opt an album into an Entertainment streaming effect, or back out of it with `null` (ADR 0035).
+ *
+ * Not a pattern editor. The derived `pattern` is left exactly as Palette Press produced it — it is
+ * what plays on a room with no entertainment area, so backing out is just clearing this field, and
+ * an album never loses its energy-aware motion by opting in.
+ *
+ * Rejected while Roadie is processing, for the same reason a palette edit is
+ * ([ADR 0025](../../../../docs/adrs/0025-palette-edit-rejected-during-processing.md)): the pipeline
+ * is still writing the asset.
+ */
+export function setStreamingEffect(
+  deps: ActionDeps,
+  curatorId: string,
+  effect: StreamPatternType | null,
+): AlbumAsset {
+  const asset = load(deps.store, curatorId);
+  assertNotProcessing(asset);
+  if (effect !== null && !STREAM_PATTERN_TYPES.includes(effect))
+    throw new ValidationError(
+      `unknown streaming effect — expected one of ${STREAM_PATTERN_TYPES.join(", ")}, or null to clear`,
+    );
+  if (effect === null) delete asset.streamingEffect;
+  else asset.streamingEffect = effect;
+  deps.store.save(asset);
+  return asset;
+}
+
 export function editPalette(
   deps: ActionDeps,
   curatorId: string,

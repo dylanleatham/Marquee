@@ -111,6 +111,13 @@
         }
       ]
     },
+    "streaming": {
+      "description": "Play this Entertainment effect instead of `pattern`, when the consumer has an entertainment area configured (ADR 0035). Optional and additive; `pattern` stays the fallback.",
+      "type": "object",
+      "required": ["effect"],
+      "additionalProperties": false,
+      "properties": { "effect": { "enum": ["aurora", "shimmer", "wave"] } }
+    },
     "meta": { "type": "object" }
   }
 }

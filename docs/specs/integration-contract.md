@@ -36,6 +36,13 @@ type PalettePayload = {
     params: PatternParams; // shape depends on type
   };
 
+  // Play this Entertainment effect *instead of* `pattern`, when the consumer has an area configured
+  // (ADR 0035). Optional and additive. Carried beside `pattern` rather than in it so the fallback is
+  // the album's own derived pattern rather than a generic guess — see the note below.
+  streaming?: {
+    effect: "aurora" | "shimmer" | "wave";
+  };
+
   meta?: {
     generatedAt?: string; // ISO
     generator?: string; // "palette-press@0.1.0"
@@ -67,11 +74,16 @@ type PatternParams =
 ```
 
 > **Streaming effects (ADR 0024).** `aurora`/`shimmer`/`wave` are rendered by Conductor over the Hue
-> Entertainment API (DTLS, ~25 Hz) instead of CLIP. They need a configured entertainment area; a
-> Conductor without one falls back to a lively CLIP pattern (`rotate`, or `pulse` for a single
-> colour), so they're always safe to send. All their
-> params are optional (sensible defaults). They're opt-in via a Curator per-album override — Palette
-> Press does not auto-select them (ADR 0024).
+> Entertainment API (DTLS, ~25 Hz) instead of CLIP. They need a configured entertainment area, and
+> all their params are optional (sensible defaults). Palette Press never auto-selects them: the
+> producer can't know whether a runtime has an area.
+>
+> **Two ways to ask, with different fallbacks ([ADR 0035](../adrs/0035-streaming-effect-is-a-per-album-opt-in.md)).**
+> Set `pattern.type` to the effect and it _is_ the pattern — with no area, Conductor falls back to a
+> lively CLIP guess (`rotate`, or `pulse` for a single colour). That's the Demo Room and manual
+> `curl` path. Set `streaming.effect` instead and `pattern` stays the album's own derived,
+> energy-aware pattern, which is what plays with no area. **Prefer `streaming.effect`** — it is the
+> per-album override ADR 0024 called for, and it can't downgrade an album's motion.
 
 ## 2. JSON Schema
 
@@ -190,6 +202,12 @@ Sketch:
           }
         }
       ]
+    },
+    "streaming": {
+      "type": "object",
+      "required": ["effect"],
+      "additionalProperties": false,
+      "properties": { "effect": { "enum": ["aurora", "shimmer", "wave"] } }
     },
     "meta": { "type": "object" }
   }
