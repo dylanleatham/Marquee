@@ -19,6 +19,7 @@ import {
   type AlbumAsset,
   type RoadieState,
   type CardArtCandidate,
+  type CardArtRefusal,
   type VideoClip,
 } from "./asset.js";
 import { ValidationError, type PaletteGenerator } from "./add-manual.js";
@@ -42,7 +43,13 @@ import {
   type PromptVariant,
 } from "../roadie/prompts.js";
 import { draftOnePromptWithGemini } from "../gemini/draft.js";
-import type { GeminiClient, ReferenceImage } from "../gemini/client.js";
+import {
+  GeminiError,
+  describeRefusal,
+  type GeminiClient,
+  type GeminiRefusal,
+  type ReferenceImage,
+} from "../gemini/client.js";
 import { ingestVideo, VideoError, type VideoProber } from "../media/video.js";
 import {
   ingestCardArt,
@@ -1059,6 +1066,68 @@ const referenceFor = (
   cover: ReferenceImage | undefined,
 ): ReferenceImage | undefined => (variant.coverAnchored ? cover : undefined);
 
+/** A refused generation, or undefined if the error was something else (a 500, a timeout, a cancel). */
+const refusalOf = (err: unknown): GeminiRefusal | undefined =>
+  err instanceof GeminiError ? err.refusal : undefined;
+
+/**
+ * Generate one card-art image, retrying **once without the cover reference** if the first attempt
+ * was refused (ADR 0032).
+ *
+ * Observed on a cover-anchored prompt: `IMAGE_RECITATION` — the model declining to reproduce
+ * copyrighted material, that material being the album cover we handed it (issue #152). Asking for a
+ * "direct adaptation" of a real sleeve while attaching that sleeve is close to a textbook recitation
+ * trigger. The reference is the specific thing recitation is about, so removing it is a targeted
+ * retry rather than a reword-and-hope.
+ *
+ * Bounded at exactly one retry, and only when there is a lever to pull: no reference on the first
+ * attempt means an identical second attempt, so we don't spend the call. A non-refusal error
+ * (network, 5xx, cancellation) rethrows untouched — retrying those is the caller's business.
+ */
+async function generateCardArtImage(
+  gemini: GeminiClient,
+  variant: PromptVariant,
+  cover: ReferenceImage | undefined,
+  signal?: AbortSignal,
+): Promise<{ buffer: Buffer; coverReferenceDropped: boolean }> {
+  const reference = referenceFor(variant, cover);
+  try {
+    return {
+      buffer: await gemini.generateImage(variant.text, { signal, reference }),
+      coverReferenceDropped: false,
+    };
+  } catch (err) {
+    if (!reference || !refusalOf(err)) throw err;
+    return {
+      buffer: await gemini.generateImage(variant.text, { signal }),
+      coverReferenceDropped: true,
+    };
+  }
+}
+
+/**
+ * The refusal to record for a failed variant, or undefined when it failed for some other reason
+ * (those already surface as the thrown error / a 5xx). `retriedWithoutCover` distinguishes "we had
+ * a lever and pulled it, and it still said no" from "there was nothing to try".
+ */
+function refusalRecord(
+  err: unknown,
+  variant: PromptVariant,
+  index: number,
+  cover: ReferenceImage | undefined,
+  at: string,
+): CardArtRefusal | undefined {
+  const refusal = refusalOf(err);
+  if (!refusal) return undefined;
+  return {
+    index,
+    ...(variant.nudge !== undefined ? { nudge: variant.nudge } : {}),
+    reason: describeRefusal(refusal),
+    retriedWithoutCover: referenceFor(variant, cover) !== undefined,
+    at,
+  };
+}
+
 /**
  * Generate a set of card-art candidates from the drafted card-art prompt variants (Nano Banana,
  * one image per variant). Stored as `cardArtCandidates` for the human to pick from; the manual
@@ -1077,27 +1146,45 @@ export async function generateCardArtSet(
   // set keeps the successes (ADR 0010). Doing the ingest in a bare forEach would let one malformed
   // image throw and discard the whole batch.
   const results = await settleWithProgress(
-    draft.variants.map(async (v, i) =>
-      ingestCardArtCandidate(
+    draft.variants.map(async (v, i) => {
+      const { buffer, coverReferenceDropped } = await generateCardArtImage(
+        gemini,
+        v,
+        cover,
+        opts.signal,
+      );
+      return ingestCardArtCandidate(
         { paths: deps.store.paths, now: deps.now },
         {
-          buffer: await gemini.generateImage(v.text, {
-            signal: opts.signal,
-            reference: referenceFor(v, cover),
-          }),
+          buffer,
           curatorId,
           index: i,
           nudge: v.nudge,
+          coverReferenceDropped,
         },
-      ),
-    ),
+      );
+    }),
     opts.onProgress,
   );
 
   const candidates: CardArtCandidate[] = results.flatMap((r) =>
     r.status === "fulfilled" ? [r.value] : [],
   );
+  // A refused variant used to vanish here: rejected reasons were read only when *every* variant
+  // failed, so 3-of-5 left two silent gaps in the gallery (issue #152). Keep each one, named.
+  const at = clock(deps)();
+  const refusals = results.flatMap((r, i) => {
+    if (r.status !== "rejected") return [];
+    const record = refusalRecord(r.reason, draft.variants[i]!, i, cover, at);
+    return record ? [record] : [];
+  });
   if (candidates.length === 0) {
+    // Record before throwing. The all-refused case is the *worst* silent one — no images and no
+    // explanation — and an early return here is what made it silent (issue #152).
+    if (refusals.length > 0)
+      deps.store.update(curatorId, (a) => {
+        a.cardArtRefusals = refusals;
+      });
     const reason = (
       results.find((r) => r.status === "rejected") as
         PromiseRejectedResult | undefined
@@ -1118,6 +1205,9 @@ export async function generateCardArtSet(
   // current state is.
   const saved = deps.store.update(curatorId, (a) => {
     a.cardArtCandidates = candidates;
+    // The whole set was regenerated, so the previous run's refusals no longer describe anything.
+    if (refusals.length > 0) a.cardArtRefusals = refusals;
+    else delete a.cardArtRefusals;
     a.status = deriveStatus(a.roadie);
   });
   if (!saved)
@@ -1143,13 +1233,33 @@ export async function generateCardArtOne(
   assertVariantIndex(draft, index);
   const variant = draft.variants[index]!;
 
-  const buffer = await gemini.generateImage(variant.text, {
-    signal: opts.signal,
-    reference: referenceFor(variant, cover),
-  });
+  let generated;
+  try {
+    generated = await generateCardArtImage(gemini, variant, cover, opts.signal);
+  } catch (err) {
+    // Record the refusal before rethrowing, so the album carries the reason even though the route
+    // also surfaces it — the human may not be looking when the request returns (issue #152).
+    const record = refusalRecord(err, variant, index, cover, clock(deps)());
+    if (record)
+      deps.store.update(curatorId, (a) => {
+        const others = (a.cardArtRefusals ?? []).filter(
+          (r) => r.index !== index,
+        );
+        a.cardArtRefusals = [...others, record].sort(
+          (x, y) => x.index - y.index,
+        );
+      });
+    throw err;
+  }
   const candidate = ingestCardArtCandidate(
     { paths: deps.store.paths, now: deps.now },
-    { buffer, curatorId, index, nudge: variant.nudge },
+    {
+      buffer: generated.buffer,
+      curatorId,
+      index,
+      nudge: variant.nudge,
+      coverReferenceDropped: generated.coverReferenceDropped,
+    },
   );
 
   const saved = deps.store.update(curatorId, (a) => {
@@ -1157,6 +1267,10 @@ export async function generateCardArtOne(
     a.cardArtCandidates = [...others, candidate].sort(
       (x, y) => x.index - y.index,
     );
+    // This index succeeded — any refusal recorded for it is now stale.
+    const left = (a.cardArtRefusals ?? []).filter((r) => r.index !== index);
+    if (left.length > 0) a.cardArtRefusals = left;
+    else delete a.cardArtRefusals;
     a.status = deriveStatus(a.roadie);
   });
   if (!saved)

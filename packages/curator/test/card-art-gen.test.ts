@@ -436,3 +436,214 @@ describe("selectCardArt", () => {
     );
   });
 });
+
+/**
+ * Issue #152 / ADR 0032. Observed live: the cover-anchored prompt came back `IMAGE_RECITATION` —
+ * Gemini declining to reproduce copyrighted material, that material being the album cover we
+ * attached. The reference is the specific thing recitation is about, so a refused variant retries
+ * once without it.
+ */
+describe("card-art refusals", () => {
+  /** How many requests carried a reference image, and how many didn't. */
+  const callsWithReference = (calls: { body: unknown }[]) =>
+    calls.filter((c) =>
+      (
+        c.body as { contents?: { parts?: { inlineData?: unknown }[] }[] }
+      ).contents?.[0]?.parts?.some((p) => p.inlineData),
+    ).length;
+
+  /** Records every request, refuses the ones carrying a reference image, images the rest. */
+  function refusingFetch(
+    opts: { reason?: string; alwaysRefuse?: boolean } = {},
+  ) {
+    const calls: { body: unknown; hasReference: boolean }[] = [];
+    const fetch: FetchLike = async (_input, init) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        contents?: { parts?: { inlineData?: unknown }[] }[];
+      };
+      const hasReference = Boolean(
+        body.contents?.[0]?.parts?.some((p) => p.inlineData),
+      );
+      calls.push({ body, hasReference });
+      const refuse = opts.alwaysRefuse || hasReference;
+      const payload = refuse
+        ? { candidates: [{ finishReason: opts.reason ?? "IMAGE_RECITATION" }] }
+        : {
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    { inlineData: { data: pngBytes().toString("base64") } },
+                  ],
+                },
+              },
+            ],
+          };
+      return new Response(JSON.stringify(payload), {
+        headers: { "content-type": "application/json" },
+      });
+    };
+    return { fetch, calls };
+  }
+
+  it("retries the cover-anchored variant without the reference and keeps the image", async () => {
+    const s = store();
+    const id = seed(s, "ref00001", 5);
+    writeCover(s, id);
+    const { fetch, calls } = refusingFetch();
+
+    const asset = await actions.generateCardArtOne(
+      deps(s, geminiWith(fetch)),
+      id,
+      0, // the only coverAnchored variant
+    );
+
+    expect(calls).toHaveLength(2); // refused with the cover, retried without it
+    expect(calls[0]!.hasReference).toBe(true);
+    expect(calls[1]!.hasReference).toBe(false);
+    expect(asset.cardArtCandidates![0]).toMatchObject({
+      index: 0,
+      coverReferenceDropped: true, // the option no longer re-renders the sleeve — say so
+    });
+    expect(asset.cardArtRefusals).toBeUndefined();
+  });
+
+  it("does not retry a variant that never had a reference to drop", async () => {
+    const s = store();
+    const id = seed(s, "ref00002", 5);
+    writeCover(s, id);
+    // Refuse everything: variant 1 is not coverAnchored, so there is no lever and no second call.
+    const { fetch, calls } = refusingFetch({ alwaysRefuse: true });
+
+    await expect(
+      actions.generateCardArtOne(deps(s, geminiWith(fetch)), id, 1),
+    ).rejects.toMatchObject({ name: "GeminiError" });
+
+    expect(calls).toHaveLength(1);
+    const refusals = s.read(id)!.cardArtRefusals!;
+    expect(refusals).toHaveLength(1);
+    expect(refusals[0]).toMatchObject({
+      index: 1,
+      nudge: "look 1",
+      reason: "IMAGE_RECITATION",
+      retriedWithoutCover: false,
+    });
+  });
+
+  it("records a refusal that survived the retry, marked as such", async () => {
+    const s = store();
+    const id = seed(s, "ref00003", 5);
+    writeCover(s, id);
+    const { fetch, calls } = refusingFetch({ alwaysRefuse: true });
+
+    await expect(
+      actions.generateCardArtOne(deps(s, geminiWith(fetch)), id, 0),
+    ).rejects.toMatchObject({ name: "GeminiError" });
+
+    expect(calls).toHaveLength(2); // it did have a lever, and pulled it
+    expect(s.read(id)!.cardArtRefusals![0]).toMatchObject({
+      index: 0,
+      retriedWithoutCover: true,
+    });
+  });
+
+  it("does not retry an error that isn't a refusal", async () => {
+    const s = store();
+    const id = seed(s, "ref00004", 5);
+    writeCover(s, id);
+    let calls = 0;
+    const fetch: FetchLike = async () => {
+      calls++;
+      return new Response("boom", { status: 500 });
+    };
+
+    await expect(
+      actions.generateCardArtOne(deps(s, geminiWith(fetch)), id, 0),
+    ).rejects.toMatchObject({ name: "GeminiError" });
+
+    expect(calls).toBe(1); // a 5xx is not evidence the reference was the problem
+    expect(s.read(id)!.cardArtRefusals).toBeUndefined();
+  });
+
+  it("keeps the successes and names the refused option, rather than dropping it silently", async () => {
+    const s = store();
+    const id = seed(s, "ref00005", 5);
+    writeCover(s, id);
+    // Variant 0 is anchored → refused, retried without the cover → refused again. 1–4 succeed.
+    const { fetch } = refusingFetch({ alwaysRefuse: false });
+    const alwaysRefuseAnchored: FetchLike = async (input, init) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as {
+        contents?: { parts?: { text?: string }[] }[];
+      };
+      const text = body.contents?.[0]?.parts?.find((p) => p.text)?.text ?? "";
+      if (text.includes("card prompt 0"))
+        return new Response(
+          JSON.stringify({
+            candidates: [{ finishReason: "IMAGE_RECITATION" }],
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      return fetch(input, init);
+    };
+
+    const asset = await actions.generateCardArtSet(
+      deps(s, geminiWith(alwaysRefuseAnchored)),
+      id,
+    );
+
+    expect(asset.cardArtCandidates).toHaveLength(4); // the set keeps what worked
+    expect(asset.cardArtCandidates!.map((c) => c.index)).toEqual([1, 2, 3, 4]);
+    expect(asset.cardArtRefusals).toEqual([
+      {
+        index: 0,
+        nudge: "look 0",
+        reason: "IMAGE_RECITATION",
+        retriedWithoutCover: true,
+        at: now(),
+      },
+    ]);
+  });
+
+  it("clears a stale refusal once that option generates", async () => {
+    const s = store();
+    const id = seed(s, "ref00006", 5);
+    writeCover(s, id);
+
+    const refusing = refusingFetch({ alwaysRefuse: true });
+    await expect(
+      actions.generateCardArtOne(deps(s, geminiWith(refusing.fetch)), id, 0),
+    ).rejects.toMatchObject({ name: "GeminiError" });
+    expect(s.read(id)!.cardArtRefusals).toHaveLength(1);
+
+    const fg = createFakeGemini({ imageBase64: pngBytes().toString("base64") });
+    const asset = await actions.generateCardArtOne(
+      deps(s, geminiWith(fg.fetch)),
+      id,
+      0,
+    );
+    expect(asset.cardArtRefusals).toBeUndefined(); // no longer describes anything
+    expect(asset.cardArtCandidates).toHaveLength(1);
+  });
+
+  it("regenerating the whole set replaces the previous run's refusals", async () => {
+    const s = store();
+    const id = seed(s, "ref00007", 3);
+    writeCover(s, id);
+    const refusing = refusingFetch({ alwaysRefuse: true });
+    await expect(
+      actions.generateCardArtSet(deps(s, geminiWith(refusing.fetch)), id),
+    ).rejects.toThrow();
+    // All-refused still throws (nothing to show), but it is no longer *silent*: the reasons are on
+    // the album. This is the case that used to return early, before any save (issue #152).
+    expect(s.read(id)!.cardArtRefusals).toHaveLength(3);
+
+    const fg = createFakeGemini({ imageBase64: pngBytes().toString("base64") });
+    const asset = await actions.generateCardArtSet(
+      deps(s, geminiWith(fg.fetch)),
+      id,
+    );
+    expect(asset.cardArtRefusals).toBeUndefined();
+    expect(asset.cardArtCandidates).toHaveLength(3);
+    expect(callsWithReference(refusing.calls)).toBeGreaterThan(0);
+  });
+});

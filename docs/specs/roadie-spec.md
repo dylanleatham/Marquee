@@ -301,6 +301,12 @@ Video style templates (motion-oriented):
 > it. Card-art generation sends the cover as a **reference image** only for anchored prompts — see
 > [curator-spec §Card art](curator-spec.md). The flag is optional: absent on template drafts and on
 > drafts persisted before ADR 0031, and absence means "not anchored".
+>
+> **Amended 2026-07-27 by [ADR 0032](../adrs/0032-card-art-refusal-drops-the-cover-reference.md):**
+> anchoring is a _request_, not a guarantee. Gemini refused an anchored prompt with
+> `IMAGE_RECITATION` (declining to reproduce the copyrighted sleeve), so generation retries once
+> without the reference and marks the resulting candidate — an anchored variant can therefore end up
+> text-only. See [curator-spec §Card art](curator-spec.md).
 
 ```
 [Card art style template preamble — user-selectable]
