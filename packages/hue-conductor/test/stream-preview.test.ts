@@ -215,9 +215,12 @@ describe("preview:stream, as actually run", () => {
     const dir = mkdtempSync(join(tmpdir(), "marquee-preview-"));
     const out = join(dir, "preview.html");
     try {
+      // `node --import tsx`, not node_modules/.bin/tsx: the bin shim is a POSIX shell script with
+      // no extension, so execFileSync can only spawn it on Unix — Windows gets ENOENT and would
+      // need tsx.CMD plus shell:true. process.execPath sidesteps the shim on every platform.
       execFileSync(
-        join(pkgDir, "node_modules/.bin/tsx"),
-        [join(pkgDir, "src/stream/preview.ts"), out],
+        process.execPath,
+        ["--import", "tsx", join(pkgDir, "src/stream/preview.ts"), out],
         { cwd: pkgDir, timeout: 120_000, stdio: "pipe" },
       );
       const page = readFileSync(out, "utf8");
