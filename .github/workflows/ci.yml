@@ -22,13 +22,23 @@ jobs:
           # stay Linux-only to keep the bill down (Windows runners bill at 2x on private repos).
           - os: windows-latest
             task: test:unit
-            # Serialize the packages here (issue #131). Turbo's default ~10 concurrent tasks each
-            # spawn a vitest fork pool sized to the CPU count; on a 4-core Windows runner that
-            # process storm got a worker killed mid-run ("Worker exited unexpectedly") rather than
-            # failing any assertion. Windows process overhead is far higher than Linux, which is why
-            # only this leg flaked. It's a platform-bug safety net, not a speed-critical gate, so
-            # wall-clock is the right thing to trade for determinism.
+            # This leg flaked twice, for the two halves of one cause (issues #131, #156): a Windows
+            # runner has far higher process overhead than Linux, and the suite spawns Node processes
+            # from two directions at once. Both need bounding — fixing only the first left it
+            # failing at ~1 run in 7, with STATUS_DLL_INIT_FAILED (a process failing to *initialize*)
+            # instead of any assertion.
+            #
+            #   1. Across packages — turbo defaults to ~10 concurrent tasks.
             turboFlags: --concurrency=1
+            #   2. Within a package — each `vitest run` forks a pool sized to the CPU count, and no
+            #      package configures one. Vitest honours these at config resolution, so one setting
+            #      reaches all six vitest packages (curator's own vitest.config.ts included);
+            #      review-agents runs `node --test` and ignores them.
+            #
+            # Not a speed trade, despite what #131 assumed: measured over the full fleet, capping
+            # forks ran *faster* (43.3s vs 48.5s) with 32% less system time, because fork-spawn
+            # overhead exceeds the parallelism benefit at this suite size.
+            vitestForks: 1
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -38,6 +48,12 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm turbo run ${{ matrix.task }} ${{ matrix.turboFlags }}
+        env:
+          # Unset on every other leg: matrix.vitestForks is undefined there, which renders as the
+          # empty string, and vitest's own `if (process.env.VITEST_MAX_FORKS)` guard treats that as
+          # absent. Linux keeps its default pool sizing.
+          VITEST_MAX_FORKS: ${{ matrix.vitestForks }}
+          VITEST_MIN_FORKS: ${{ matrix.vitestForks }}
 
   # Formatting is a root-level script, not a turbo task, so the matrix above never ran it — which is
   # how 28 files drifted unnoticed (issue #97). `pnpm run validate` covered it, but only for whoever
