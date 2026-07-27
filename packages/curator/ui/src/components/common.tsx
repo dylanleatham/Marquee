@@ -26,27 +26,87 @@ const artworkSrc = (curatorId: string, version?: string | null): string =>
     ? `${artworkUrl(curatorId)}?v=${encodeURIComponent(version)}`
     : artworkUrl(curatorId);
 
-/** Cover thumbnail that degrades to the album's initials while art is missing (404) or absent. */
+type ArtStatus = "pending" | "loading" | "ready" | "absent";
+
+/**
+ * Which of the three artwork affordances to show (issue #134).
+ *
+ * The pre-arrival window used to look identical to genuine failure: the endpoint 404s until Roadie
+ * writes the file, so the component mounted an <img> that was *known* to fail, the browser painted
+ * its broken-image glyph, and only then did onError swap in the monogram. Two different "broken"
+ * pictures for art that was simply still downloading.
+ *
+ *  - `pending` — Roadie is still working. Don't request at all; show a skeleton.
+ *  - `loading` — request in flight. Keep the <img> unpainted so the glyph never lands.
+ *  - `ready`   — the cover.
+ *  - `absent`  — a real 404 on an album Roadie has finished with. The monogram, as before.
+ */
+function useArtStatus(
+  version: string | null | undefined,
+  state: RoadieState | undefined,
+): [ArtStatus, { onLoad: () => void; onError: () => void }] {
+  const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
+  // A new version means the art may now exist — retry the request instead of staying latched.
+  useEffect(() => {
+    setLoaded(false);
+    setFailed(false);
+  }, [version]);
+
+  const status: ArtStatus =
+    state !== undefined && isProcessing(state)
+      ? "pending"
+      : failed
+        ? "absent"
+        : loaded
+          ? "ready"
+          : "loading";
+  return [
+    status,
+    { onLoad: () => setLoaded(true), onError: () => setFailed(true) },
+  ];
+}
+
+/**
+ * Cover thumbnail. Shows a skeleton while the art is still on its way, the album's initials when
+ * there genuinely is none, and never the browser's broken-image glyph.
+ *
+ * Pass `state` wherever it's available: without it the component can't tell "downloading" from
+ * "unavailable" and falls back to the monogram, which is the pre-#134 behaviour.
+ */
 export function AlbumThumb({
   curatorId,
   title,
   version,
+  state,
   size = 48,
 }: {
   curatorId: string;
   title: string;
   /** Freshness token — changes when the art becomes available, clearing a stale 404 latch. */
   version?: string | null;
+  /** Roadie's state, so a pending cover reads as pending rather than missing. */
+  state?: RoadieState;
   size?: number;
 }) {
-  const [failed, setFailed] = useState(false);
-  // A new version means the art may now exist — retry the request instead of staying latched.
-  useEffect(() => setFailed(false), [version]);
-  if (failed) {
+  const [status, handlers] = useArtStatus(version, state);
+  const box = { width: size, height: size };
+
+  if (status === "pending") {
+    return (
+      <div
+        className="thumb thumb--loading"
+        style={box}
+        data-art="loading"
+        aria-hidden
+      />
+    );
+  }
+  if (status === "absent") {
     return (
       <div
         className="thumb thumb--placeholder"
-        style={{ width: size, height: size, fontSize: size * 0.4 }}
+        style={{ ...box, fontSize: size * 0.4 }}
         aria-hidden
       >
         {initialsOf(title)}
@@ -54,31 +114,53 @@ export function AlbumThumb({
     );
   }
   return (
-    <img
-      className="thumb"
-      style={{ width: size, height: size }}
-      src={artworkSrc(curatorId, version)}
-      alt=""
-      onError={() => setFailed(true)}
-    />
+    <>
+      {status === "loading" && (
+        <div
+          className="thumb thumb--loading"
+          style={box}
+          data-art="loading"
+          aria-hidden
+        />
+      )}
+      {/* display:none still fetches and still fires onLoad/onError — it just never paints. */}
+      <img
+        className="thumb"
+        style={{ ...box, display: status === "ready" ? undefined : "none" }}
+        src={artworkSrc(curatorId, version)}
+        alt=""
+        {...handlers}
+      />
+    </>
   );
 }
 
-/** Full-width cover for the detail view — same art/initials fallback, fills its container square. */
+/** Full-width cover for the detail view — same three states, fills its container square. */
 export function Cover({
   curatorId,
   title,
   version,
+  state,
 }: {
   curatorId: string;
   title: string;
   /** Freshness token — changes when the art becomes available, clearing a stale 404 latch. */
   version?: string | null;
+  /** Roadie's state, so a pending cover reads as pending rather than missing. */
+  state?: RoadieState;
 }) {
-  const [failed, setFailed] = useState(false);
-  // A new version means the art may now exist — retry the request instead of staying latched.
-  useEffect(() => setFailed(false), [version]);
-  if (failed) {
+  const [status, handlers] = useArtStatus(version, state);
+
+  if (status === "pending") {
+    return (
+      <div
+        className="detail__art detail__art--loading"
+        data-art="loading"
+        aria-hidden
+      />
+    );
+  }
+  if (status === "absent") {
     return (
       <div className="detail__art detail__art--placeholder" aria-hidden>
         {initialsOf(title)}
@@ -86,12 +168,22 @@ export function Cover({
     );
   }
   return (
-    <img
-      className="detail__art"
-      src={artworkSrc(curatorId, version)}
-      alt=""
-      onError={() => setFailed(true)}
-    />
+    <>
+      {status === "loading" && (
+        <div
+          className="detail__art detail__art--loading"
+          data-art="loading"
+          aria-hidden
+        />
+      )}
+      <img
+        className="detail__art"
+        style={{ display: status === "ready" ? undefined : "none" }}
+        src={artworkSrc(curatorId, version)}
+        alt=""
+        {...handlers}
+      />
+    </>
   );
 }
 

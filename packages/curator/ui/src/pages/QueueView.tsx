@@ -38,6 +38,7 @@ function Row({
         curatorId={entry.curatorId}
         title={entry.title || "?"}
         version={entry.artwork}
+        state={entry.state}
       />
       <div className="row__main">
         <div className="row__title">{entry.title || <em>fetching…</em>}</div>

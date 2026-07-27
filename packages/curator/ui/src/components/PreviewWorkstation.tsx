@@ -126,6 +126,7 @@ export function PreviewWorkstation({
                 curatorId={curatorId}
                 title={asset.metadata.name || curatorId}
                 version={asset.artwork?.contentHash}
+                state={asset.roadie.state}
               />
               <span className="preview__sleeve-cap">On the stand</span>
             </div>
