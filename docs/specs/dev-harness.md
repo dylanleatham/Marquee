@@ -98,6 +98,15 @@ Managed by Husky. The goal: never push code that a CI would immediately reject. 
   formatted, the evidence is gone. _(Added 2026-07-25, [issue #113](https://github.com/dylanleatham/Marquee/issues/113),
   after a botched resolution shipped both sides of a conflict into `curator-spec.md`.)_
 - **Format check**: `prettier --check` on staged files (Node), `black --check` (Python). Auto-fix available via `pnpm run format`.
+
+  > **Note (2026-07-26, [issue #97](https://github.com/dylanleatham/Marquee/issues/97)):** staged-only
+  > is why this alone isn't enough. A file nobody happens to stage after a Prettier version or config
+  > change stays drifted indefinitely — 28 files had accumulated before anyone ran `validate`. CI now
+  > has a **`format`** job running `pnpm run format:check` over the whole tree (§5), and generated
+  > files are excluded in `.prettierignore` rather than fought with: the Palette Press goldens are
+  > written by their own test as `JSON.stringify(…, null, 2)`, so formatting them just means the next
+  > golden refresh reverts it.
+
 - **Lint the staged files only**: `eslint` / `ruff` on just what's staged. `lint-staged` handles the file filtering.
 - **Type-check** (fast, incremental): `tsc --noEmit` on affected packages via turbo. `mypy` for Python.
 - **Commit message format**: enforced by `commitlint`.
@@ -135,6 +144,10 @@ The `--filter=...[HEAD^1]` syntax runs turbo tasks only for packages affected by
 ## 5. CI pipeline
 
 Three GitHub Actions workflows, staged by cost and coverage. Every PR blocks on all three passing.
+
+`ci.yml` carries a matrix of turbo tasks (`lint`, `type-check`, `test:unit`, `test:integration`,
+`build`) plus two jobs that aren't turbo tasks: **`format`** (`pnpm run format:check` over the whole
+tree — issue #97) and **`python (stylus)`**.
 
 ### `contract-tests.yml` — the fastest, most valuable gate
 

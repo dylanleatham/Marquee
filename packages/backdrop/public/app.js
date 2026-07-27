@@ -41,8 +41,14 @@
   // Connection state is shown as a WORD, not just a colour — the dot alone is unreadable to a
   // colour-blind viewer (and hard to judge on a dim TV). Colour stays as a redundant cue.
   function setConn(state) {
-    const label = { open: "online", connecting: "connecting…", offline: "offline" }[state];
-    const cls = { open: "is-open", connecting: "is-connecting", offline: "" }[state];
+    const label = {
+      open: "online",
+      connecting: "connecting…",
+      offline: "offline",
+    }[state];
+    const cls = { open: "is-open", connecting: "is-connecting", offline: "" }[
+      state
+    ];
     connDot.className = "conn " + cls;
     connDot.textContent = "● ws " + label;
   }
