@@ -203,6 +203,12 @@ Sketch:
         }
       ]
     },
+    "streaming": {
+      "type": "object",
+      "required": ["effect"],
+      "additionalProperties": false,
+      "properties": { "effect": { "enum": ["aurora", "shimmer", "wave"] } }
+    },
     "meta": { "type": "object" }
   }
 }
