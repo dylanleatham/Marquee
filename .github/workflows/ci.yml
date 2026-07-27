@@ -7,13 +7,21 @@ on:
 
 jobs:
   node:
-    name: ${{ matrix.task }}
-    runs-on: ubuntu-latest
+    name: ${{ matrix.task }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         task: [lint, type-check, test:unit, test:integration, build]
+        include:
+          # The Pi runs Linux but the workstation is Windows, and CI was Linux-only — so
+          # platform-specific breakage (path resolution above all) could only ever be found by
+          # hand. One Windows leg over the unit tests covers that class; lint/build/integration
+          # stay Linux-only to keep the bill down (Windows runners bill at 2x on private repos).
+          - os: windows-latest
+            task: test:unit
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
