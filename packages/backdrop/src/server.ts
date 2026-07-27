@@ -8,6 +8,7 @@ import { loadConfig, type Config } from "./config.js";
 import { Library } from "./library.js";
 import { SocketHub, type Socket } from "./hub.js";
 import { PlaybackController, type Timers } from "./controller.js";
+import { createLogger } from "@marquee/observability";
 
 const pkgDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const publicDir = resolve(pkgDir, "public");
@@ -231,7 +232,9 @@ if (
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
   start().catch((err) => {
-    console.error("Failed to start Backdrop:", err);
+    // Structured, fingerprinted (issue #142) — the shell captures this stream into the
+    // rotating log (issue #141), and a boot failure is exactly what needs to survive it.
+    createLogger({ service: "backdrop" }).error("Failed to start", err);
     process.exit(1);
   });
 }

@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@marquee/contracts": "workspace:*",
+    "@marquee/observability": "workspace:*",
     "fastify": "^5.1.0",
     "node-dtls-client": "^2.0.3",
     "node-hue-api": "^4.0.11",

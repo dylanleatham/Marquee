@@ -23,6 +23,7 @@ import { isStreamEffect } from "./stream/renderers.js";
 import { StreamSession } from "./stream/session.js";
 import { Clip2Client, httpsClip2Request } from "./stream/clip2.js";
 import { createHueDtlsSocket } from "./stream/dtls-transport.js";
+import { createLogger } from "@marquee/observability";
 
 /** The streaming surface the server drives — a real `StreamSession`, or a fake in tests. */
 export type StreamController = Pick<
@@ -452,7 +453,9 @@ if (
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
   start().catch((err) => {
-    console.error("Failed to start Hue Conductor:", err);
+    // Structured, fingerprinted (issue #142) — the shell captures this stream into the
+    // rotating log (issue #141), and a boot failure is exactly what needs to survive it.
+    createLogger({ service: "hue-conductor" }).error("Failed to start", err);
     process.exit(1);
   });
 }

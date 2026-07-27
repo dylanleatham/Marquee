@@ -68,9 +68,11 @@ Sources are `shell` (the Electron main process, including anything that raised a
 per supervised service (`curator`, `hue-conductor`). Writes are synchronous, so a crash doesn't take
 the tail of the log with it.
 
-Two things to expect when you open it. The services log **pino JSON**, which passes through verbatim
-inside the record — so a service line is a stamped envelope around a JSON object until
-[#142](https://github.com/dylanleatham/Marquee/issues/142) unifies the two. And Curator logs **every
+Two things to expect when you open it. The services log **pino JSON** for HTTP requests, which passes
+through verbatim inside the record — so a request line is still a stamped envelope around a JSON
+object. [#142](https://github.com/dylanleatham/Marquee/issues/142) landed the shared record shape and
+converted the service boot-failure paths to it, but it did not migrate pino; unifying the request logs
+is follow-up. And Curator logs **every
 HTTP request**, so an active session fills the file fast; that's what the rotation is for, but it does
 mean the interesting lines are outnumbered. Grep for `ERROR` first.
 
@@ -78,9 +80,13 @@ mean the interesting lines are outnumbered. Grep for `ERROR` first.
 `journalctl -u marquee-<service> -f`, per [the runbook](../../docs/runbook.md). Nothing here collects
 them; that's a separate answer.
 
-Structured records with stable error fingerprints ([#142](https://github.com/dylanleatham/Marquee/issues/142))
-build on this file — it is stage 1 of the error-observability pipeline
-([#144](https://github.com/dylanleatham/Marquee/issues/144)).
+This file is stage 1 of the error-observability pipeline
+([#144](https://github.com/dylanleatham/Marquee/issues/144)). Stage 2 —
+structured records with stable error fingerprints
+([#142](https://github.com/dylanleatham/Marquee/issues/142)) — now lives in
+[`@marquee/observability`](../observability/README.md), and it is what makes a line here groupable:
+every error record carries a fingerprint, so `grep <fingerprint> shell.log` finds every other
+occurrence of that one bug.
 
 ## Notes
 
