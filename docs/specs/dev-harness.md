@@ -160,6 +160,9 @@ Jobs:
    `windows-latest`** (issue #129): the Pi is Linux but the workstation is Windows, and while CI was
    Linux-only a POSIX-only path assumption could only be caught by hand. The other jobs stay
    Linux-only to limit cost. Job names carry the OS, e.g. `test:unit (windows-latest)`.
+   The Windows leg runs turbo at `--concurrency=1` (issue #131) — parallel package tasks each spawn
+   their own vitest fork pool, and on a 4-core Windows runner that got a worker killed mid-run. It
+   costs almost nothing: serialized, the whole `test:unit` graph is ~37s.
 4. **unit tests (Python)** — nfc-trigger package
 5. **integration tests** — all packages, using fakes from `packages/fakes/`
 6. **coverage report** — aggregated across packages, posted as PR comment (not gating)
