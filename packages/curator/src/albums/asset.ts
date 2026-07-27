@@ -252,7 +252,7 @@ export interface AlbumAsset {
    * stored, and they belong to the *current* effect — switching effects clears them, since
    * `aurora.scale` means nothing to `wave`.
    */
-  streamingParams?: Record<string, number> | null;
+  streamingParams?: Record<string, number>;
   /** Present once Roadie has drafted the video + card-art prompts. */
   promptDrafts?: PromptDrafts;
   /** Present once a video is attached (step 7). */

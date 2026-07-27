@@ -7,6 +7,9 @@ import {
 
 // ADR 0036. These knobs are not derived from anything — they're the renderers' own defaults — which
 // is precisely why tuning them is a different decision from tuning a CLIP pattern (ADR 0030).
+// The defaults are diffed against the renderers themselves in hue-conductor's
+// stream-param-specs.test.ts — that's the only place both sides are visible. Restating them
+// here would only compare the spec to a copy of itself.
 describe("STREAM_PARAM_SPECS", () => {
   it("covers every streaming effect", () => {
     for (const effect of STREAM_PATTERN_TYPES) {
@@ -24,22 +27,6 @@ describe("STREAM_PARAM_SPECS", () => {
         expect(spec.step).toBeGreaterThan(0);
       }
     }
-  });
-
-  it("matches the renderers' documented defaults", () => {
-    // Drift guard: these mirror hue-conductor/src/stream/renderers.ts. If a renderer default moves
-    // and this doesn't, the UI shows the wrong "untouched" position for every album.
-    const byKey = (
-      effect: (typeof STREAM_PATTERN_TYPES)[number],
-      key: string,
-    ) => STREAM_PARAM_SPECS[effect].find((s) => s.key === key)?.default;
-    expect(byKey("aurora", "speed")).toBe(0.06);
-    expect(byKey("aurora", "scale")).toBe(1.2);
-    expect(byKey("aurora", "brightness")).toBe(1);
-    expect(byKey("shimmer", "speed")).toBe(1.5);
-    expect(byKey("shimmer", "intensity")).toBe(0.35);
-    expect(byKey("wave", "speed")).toBe(0.25);
-    expect(byKey("wave", "angleDeg")).toBe(0);
   });
 
   it("gives every knob a label and a plain-language hint", () => {

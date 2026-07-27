@@ -333,7 +333,7 @@ export interface AlbumPaletteInput {
    */
   streamingEffect?: string | null;
   /** Tuning for `streamingEffect` (ADR 0036). Belongs to the current effect; cleared when it changes. */
-  streamingParams?: Record<string, number> | null;
+  streamingParams?: Record<string, number>;
 }
 
 /** The album isn't far enough along to drive a light show (no palette/pattern yet). Callers → 409. */

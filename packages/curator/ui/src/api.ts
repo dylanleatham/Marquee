@@ -289,7 +289,7 @@ export interface AlbumAsset {
    */
   streamingEffect?: StreamingEffect | null;
   /** Tuning for `streamingEffect` (ADR 0036). Only knobs moved off their default are stored. */
-  streamingParams?: Record<string, number> | null;
+  streamingParams?: Record<string, number>;
   pattern?: { type: string; params: Record<string, unknown> };
   promptDrafts?: { video?: DraftedPrompt; cardArt?: DraftedPrompt };
   visualizer?: Visualizer;
