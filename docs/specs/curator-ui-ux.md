@@ -80,14 +80,22 @@ uppercase.
 
 ### 3.3 Motion
 
-Motion carries state, never decoration. Two sanctioned uses:
+Motion carries state, never decoration. Three sanctioned uses:
 
 - **The bulb pulse** — the album Roadie is working on, in `--cyan`. The signature; do not reuse the
   animation for anything else.
+- **The artwork skeleton** — a cover that is still downloading (§10, issue
+  [#134](https://github.com/dylanleatham/Marquee/issues/134)). Distinct from the bulb pulse: it
+  stands in for the art itself rather than annotating a row.
 - **Transitions** — `150ms` for hover/focus affordances, `500–600ms` crossfades where the runtime
   itself crossfades (Preview, Demo Room), so what you rehearse matches what Backdrop does.
 
 `prefers-reduced-motion: reduce` disables animation globally. Already implemented; keep it.
+
+Animation that loops runs **only while it can be seen** — gated on tab visibility, and on an
+`IntersectionObserver` where the element can scroll away. The shared `useVisibleCycle` hook owns
+this so each new preview inherits it rather than growing its own bare `setInterval`
+([#136](https://github.com/dylanleatham/Marquee/issues/136)).
 
 ### 3.4 State is never encoded in colour alone
 
@@ -191,7 +199,8 @@ Everything in the window. **Touches no hardware, ever.** Always available, canno
 
 - The **sleeve** — album art at size, as it sits on the stand
 - The **video** loop, with Backdrop-accurate crossfade timing
-- The **palette** animating as CSS, driven by the same pattern the runtime will use
+- The **palette** animating as CSS, driven by the same pattern the runtime will use — paused
+  whenever the tab is hidden or the stage is off screen (§3.3)
 - **Audio** — a track from the album, played at the workstation (see §11; ships silent until the
   route is proven)
 
@@ -359,6 +368,12 @@ mechanism on the server, one place it surfaces in the window.
 Specified once here rather than improvised per component:
 
 - **Loading** — spinner plus what is loading. Never a bare spinner.
+- **Pending vs absent** — a thing that hasn't arrived yet must not look like a thing that isn't
+  coming. Album art is the worked example ([#134](https://github.com/dylanleatham/Marquee/issues/134)):
+  while Roadie is still fetching the cover, `AlbumThumb`/`Cover` request nothing and show a pulsing
+  skeleton; the initials monogram is reserved for art that genuinely isn't there; the browser's
+  broken-image glyph is never painted, so the `<img>` stays hidden until it loads. Per §3.4 the two
+  cases differ by channel — pending is motion, absent is text — not by colour.
 - **Empty** — what this is for and the action that fills it.
 - **Error** — what failed, in plain language, and what to do. Errors are shown in place, next to the
   control that failed; a failed action never silently reverts.

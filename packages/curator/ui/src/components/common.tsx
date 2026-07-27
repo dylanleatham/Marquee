@@ -73,6 +73,11 @@ function useArtStatus(
  *
  * Pass `state` wherever it's available: without it the component can't tell "downloading" from
  * "unavailable" and falls back to the monogram, which is the pre-#134 behaviour.
+ *
+ * The skeleton is marked `aria-hidden`, not `aria-busy` like AsyncButton: the cover is decorative
+ * (`alt=""`) and the album's title sits next to it as real text, so there is nothing here for a
+ * screen reader to wait on. `aria-busy` under `aria-hidden` would be inert anyway. `data-art` is
+ * the test hook, deliberately not an ARIA attribute doing double duty.
  */
 export function AlbumThumb({
   curatorId,
