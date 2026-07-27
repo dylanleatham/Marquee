@@ -26,10 +26,11 @@ Four services that together turn "you placed a record on the stand" into "the ro
 > [`spikes/`](../../spikes); Path B (Spotify Connect) was rejected because it can't start an idle
 > speaker (research doc + [ADR 0034](../adrs/0034-amp-sonos-playback-and-card-uri.md)).
 
-Plus one internal agent, one library, and two data stores:
+Plus one internal agent, two libraries, and two data stores:
 
 - **Roadie** — a background agent inside Curator that automates every album-onboarding step it can (metadata fetch, art download, palette generation). Not a separate service; a component within Curator. _(Prompt drafting was in this list until 2026-07-25; it is now invoked by the human rather than pipelined, because it costs Gemini calls on albums that may never need prompts — [ADR 0027](../adrs/0027-generation-is-invoked-not-pipelined.md).)_
 - **Palette Press** — a library (not a service) used by Roadie to generate palettes from album art.
+- **Observability** — a library (not a service) giving every service one log-record shape and a stable fingerprint per error, so occurrences of one bug group together across restarts and machines. Stage 2 of the error pipeline ([#142](https://github.com/dylanleatham/Marquee/issues/142) / [#144](https://github.com/dylanleatham/Marquee/issues/144)); currently used by each service's boot-failure path.
 - **Album-assets store** — JSON files, one per album, produced by Curator. Contains the palette, pattern, video reference, metadata, tag payload, and Roadie state.
 - **Media store** — video files on the Backdrop Pi's SD card, populated by Curator + rsync.
 
