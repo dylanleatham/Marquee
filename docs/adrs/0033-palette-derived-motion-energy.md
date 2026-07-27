@@ -1,6 +1,6 @@
-# ADR 0022 — Pattern selection is energy-aware, driven by the palette (not Spotify)
+# ADR 0033 — Pattern selection is energy-aware, driven by the palette (not Spotify)
 
-Status: accepted · Date: 2026-07-23 · Supersedes: palette-press-spec §7 (size-only pattern
+Status: accepted · Renumbered from 0022 on 2026-07-27 ([#151](https://github.com/dylanleatham/Marquee/issues/151): 0022 had been allocated twice) · Date: 2026-07-23 · Supersedes: palette-press-spec §7 (size-only pattern
 selection) and the "no audio features" framing in palette-press-spec §3, roadie-spec, curator-spec
 
 ## Context

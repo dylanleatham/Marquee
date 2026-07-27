@@ -225,7 +225,7 @@ Quick preview:
 - `pulse` — hold a color; ramp brightness up and down. Params: `{ periodMs: number, minBrightness: 0-100, maxBrightness: 0-100 }`.
 - `crossfade` — smoothly fade between palette colors on all lights together. Params: `{ transitionMs: number, holdMs: number }`.
 
-That's the set the engine renders. _Which_ of these an album uses is chosen upstream by Palette Press, which is now **energy-aware** — a vivid palette gets `rotate`/`pulse` instead of always `crossfade`, read from the palette itself with no audio data required ([ADR 0022](../adrs/0022-palette-derived-motion-energy.md)). What still needs upstream data is live **beat**-sync (real-time audio-reactive effects at streaming rates), which remains a future extension gated on an audio input and the Entertainment API (§9 rate limiting).
+That's the set the engine renders. _Which_ of these an album uses is chosen upstream by Palette Press, which is now **energy-aware** — a vivid palette gets `rotate`/`pulse` instead of always `crossfade`, read from the palette itself with no audio data required ([ADR 0033](../adrs/0033-palette-derived-motion-energy.md)). What still needs upstream data is live **beat**-sync (real-time audio-reactive effects at streaming rates), which remains a future extension gated on an audio input and the Entertainment API (§9 rate limiting).
 
 ### Streaming patterns (Entertainment API)
 

@@ -21,7 +21,7 @@ describe("curatorIdFromUri", () => {
   it("extracts the id from a curator album URI", () => {
     expect(curatorIdFromUri(`curator:album:${ID}`)).toBe(ID);
   });
-  it("extracts the id from a curator card URI (card == album for Conductor, ADR 0023)", () => {
+  it("extracts the id from a curator card URI (card == album for Conductor, ADR 0034)", () => {
     expect(curatorIdFromUri(`curator:card:${ID}`)).toBe(ID);
   });
   it("rejects non-curator / malformed URIs", () => {

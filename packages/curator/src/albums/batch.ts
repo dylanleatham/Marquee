@@ -175,7 +175,7 @@ const label = (name: string, artist: string, curatorId: string): string =>
 
 /**
  * Re-derive every algorithmic palette in the collection — the "Palette Press v2 shipped, refresh the
- * library" path ([ADR 0022](../../../docs/adrs/0022-palette-derived-motion-energy.md) already changed
+ * library" path ([ADR 0033](../../../docs/adrs/0033-palette-derived-motion-energy.md) already changed
  * pattern selection once, and more palette-signal work is planned in issue #105).
  *
  * Three things are **skipped, not failed**, because none of them is a problem with the run:

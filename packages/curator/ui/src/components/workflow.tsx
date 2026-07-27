@@ -998,7 +998,7 @@ export function TagWriteSection({
   const verified = state === "verified";
   const canVerify = state === "awaiting_verify";
 
-  // Sleeve and card carry different URIs since ADR 0023: a sleeve is curator:album (you play the
+  // Sleeve and card carry different URIs since ADR 0034: a sleeve is curator:album (you play the
   // vinyl), a card is curator:card (Amp streams it over Sonos). Each row shows its URI and a Flipper
   // .nfc download for that object.
   const writeRow = (object: "sleeve" | "card", label: string) => {

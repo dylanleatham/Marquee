@@ -36,7 +36,7 @@ Also: **an album that Roadie couldn't process for a legitimate reason (not on Sp
 - Video generation via API (external tool has no API; this stays manual)
 - Automatic tag writing (human uses phone)
 - Automatic physical verification (impossible; human confirms)
-- **Automatic** audio-feature fetching for pattern selection (Spotify Audio Features deprecated). Palette Press picks patterns from palette energy instead ([ADR 0022](../adrs/0022-palette-derived-motion-energy.md)); hand-authored `audioFeatures` refine it when present
+- **Automatic** audio-feature fetching for pattern selection (Spotify Audio Features deprecated). Palette Press picks patterns from palette energy instead ([ADR 0033](../adrs/0033-palette-derived-motion-energy.md)); hand-authored `audioFeatures` refine it when present
 - Distributed execution / horizontal scale
 
 ## 4. Where Roadie fits
@@ -516,7 +516,7 @@ Roadie should be built after Curator's baseline exists (add-album, asset store, 
 The agent design has natural growth paths:
 
 - **Video service API** (if the tool ever supports one): a new Roadie sub-state `generating_video` that calls the API, waits for callback, downloads result, moves to `awaiting_preview_approval`. The `awaiting_video` human step disappears; humans only enter at preview.
-- **Audio features return**: pattern selection is already energy-aware from the palette ([ADR 0022](../adrs/0022-palette-derived-motion-energy.md)); a returning audio-features source would refine it further — a truer energy read and tempo-locked motion — making pattern hand-edits rarer still.
+- **Audio features return**: pattern selection is already energy-aware from the palette ([ADR 0033](../adrs/0033-palette-derived-motion-energy.md)); a returning audio-features source would refine it further — a truer energy read and tempo-locked motion — making pattern hand-edits rarer still.
 - **Multi-source metadata**: Roadie could fall back to MusicBrainz for albums Spotify doesn't have. `album_not_on_spotify` stops being terminal; becomes just "moving to fallback source."
 - **Auto-templating from artist history**: "for this artist, past albums used `abstract_flow` — recommend the same." Small ML/heuristic layer for template selection.
 - **Batch-add intelligence**: "you just added 40 albums by the same artist — want to apply the same style template to all of them?" Contextual batch operations without a formal batch concept.

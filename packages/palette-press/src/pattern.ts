@@ -2,7 +2,7 @@ import type { AudioFeatures, Pattern, PaletteResult, RGB } from "./types.js";
 import { rgbToHsv } from "./color.js";
 
 // Pattern selection (palette-press-spec §7). Historically size-only + always-gentle; now
-// energy-aware (ADR 0022): a vivid palette earns lively motion (rotate / pulse), a muted one keeps
+// energy-aware (ADR 0033): a vivid palette earns lively motion (rotate / pulse), a muted one keeps
 // the calm crossfade/static it had before. "Energy" is read from the palette itself so every record
 // feels distinct straight from its art; `audioFeatures` (when a caller has it — hand-authored today,
 // since Spotify's endpoint is deprecated) overrides that read and tempo-locks the motion.
@@ -85,7 +85,7 @@ export interface SelectPatternOptions {
 /**
  * Choose the default pattern for a palette (palette-press-spec §7). Energy-aware: muted palettes keep
  * the historical static/crossfade defaults; vivid ones get rotate (2+ colors) or pulse (1 color),
- * with timing scaled by energy and tempo-locked when `audioFeatures.tempo` is supplied (ADR 0022).
+ * with timing scaled by energy and tempo-locked when `audioFeatures.tempo` is supplied (ADR 0033).
  * The human can still override the result in Curator on the way to review.
  */
 export function selectDefaultPattern(
@@ -97,7 +97,7 @@ export function selectDefaultPattern(
 
   // Insufficient art (monochrome, all-clamped) holds a calm static default: its colors were
   // saturation-boosted to floors during post-processing, so their "energy" is synthesized, not a
-  // real read of the cover — not something to animate off of (ADR 0022). The human tunes it in review.
+  // real read of the cover — not something to animate off of (ADR 0033). The human tunes it in review.
   if (palette.insufficient) return { type: "static", params: {} };
 
   const af = opts.audioFeatures;

@@ -42,7 +42,7 @@ pulse for a single colour) rather than a flat color — a
 scan must always do something visible (runtime-overview §9).
 
 **Streaming effects are opt-in, not auto-selected.** Palette Press still selects only CLIP patterns
-(ADR 0022); `aurora`/`shimmer`/`wave` reach an album via a Curator per-album override. Rationale: the
+(ADR 0033); `aurora`/`shimmer`/`wave` reach an album via a Curator per-album override. Rationale: the
 _producer_ can't know whether a given runtime has an entertainment area, so auto-selecting a streaming
 effect would hand CLIP-only setups the rotate _fallback_ instead of the calmer default they'd have
 gotten. Opt-in keeps the automatic path honest; the contract still carries the types so an override

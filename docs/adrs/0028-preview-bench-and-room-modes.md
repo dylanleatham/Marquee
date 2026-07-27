@@ -1,7 +1,7 @@
 # ADR 0028 — Preview has bench and room modes; driving hardware requires explicit arming
 
 Status: accepted · Date: 2026-07-25 · Extends: [ADR 0007](0007-demo-room-drives-conductor-via-curator-proxy.md)
-(Demo Room), [ADR 0023](0023-amp-sonos-playback-and-card-uri.md) (Amp) · Amends: curator-spec §8
+(Demo Room), [ADR 0034](0034-amp-sonos-playback-and-card-uri.md) (Amp) · Amends: curator-spec §8
 (`simulate-scan`), §10 (Preview, Demo Room)
 
 ## Context
@@ -80,6 +80,6 @@ persisted across launches, defaulting to bench:
   / Connect transfer) needs a spike — see [curator-ui-ux.md](../specs/curator-ui-ux.md) §11. Bench
   preview ships silent; sleeve + video + palette carries most of the judgment. Room rehearsal's audio
   has no such uncertainty: it goes through Amp, which already works.
-- **ADR 0023's rejection of Spotify Connect does not transfer** to bench audio. It was rejected for
+- **ADR 0034's rejection of Spotify Connect does not transfer** to bench audio. It was rejected for
   Amp because Connect cannot wake an idle Sonos speaker; a workstation Spotify client is already
   awake. The spike must still confirm the licensing and packaging constraints.

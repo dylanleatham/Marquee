@@ -189,7 +189,7 @@ describe("palette feeling + choose routes", () => {
     expect(regen.statusCode).toBe(409);
   });
 
-  it("re-derives the motion from the palette that won (ADR 0022)", async () => {
+  it("re-derives the motion from the palette that won (ADR 0033)", async () => {
     const store = seeded();
     const app = server(store, fakeGemini().client);
     await app.inject({

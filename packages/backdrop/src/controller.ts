@@ -103,7 +103,7 @@ export class PlaybackController {
   play(uri: string): void {
     // A card and a sleeve for the same album share one visualizer, and Curator keys the library by
     // the album URI. So resolve any scan by its canonical album key — a `curator:card:<id>` plays
-    // the same video as `curator:album:<id>` (ADR 0023). Non-curator URIs pass through unchanged and
+    // the same video as `curator:album:<id>` (ADR 0034). Non-curator URIs pass through unchanged and
     // miss the library as before.
     const parsed = parseCuratorUri(uri);
     const lookupUri = parsed ? `curator:album:${parsed.curatorId}` : uri;

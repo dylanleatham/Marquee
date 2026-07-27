@@ -2,6 +2,11 @@
 # a nested blockquote, which then reads as intentional (issue #113). Catch it in its raw shape.
 node scripts/check-conflict-markers.mjs --staged
 
+# ADR numbers must be unique (issue #151). Cheap and whole-directory, so it runs unconditionally —
+# the failure mode is two branches each taking "the next number", which only shows up on the second
+# merge. The contract test is the real gate; this is the fast one that tells you before you push.
+node scripts/check-adr-numbers.mjs
+
 pnpm exec lint-staged
 # Affected-only type-check, but fall back to a full run when there's no parent
 # commit to diff against (initial commit / fresh clone).

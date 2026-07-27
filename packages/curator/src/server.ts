@@ -499,7 +499,7 @@ export function buildServer(opts: BuildOptions = {}) {
     const asset = store.read(curatorId);
     if (!asset) return reply.code(404).send({ error: "not found" });
     // A sleeve keeps any payload already recorded on the asset, so a tag written before this route
-    // existed still round-trips; a card is always derived (ADR 0023).
+    // existed still round-trips; a card is always derived (ADR 0034).
     const payload =
       object === "card"
         ? curatorUri("card", curatorId)
@@ -792,7 +792,7 @@ export function buildServer(opts: BuildOptions = {}) {
   /**
    * Apply one of the offered palettes (ADR 0030). `cover` re-extracts and drops the protection —
    * the true undo; `feeling`/`blend` take the stored candidate and mark the palette chosen, so the
-   * library sweep leaves it alone. Motion is re-derived from whichever palette wins (ADR 0022).
+   * library sweep leaves it alone. Motion is re-derived from whichever palette wins (ADR 0033).
    */
   app.post("/api/albums/:curatorId/palette/choose", async (req, reply) => {
     const { curatorId } = req.params as { curatorId: string };

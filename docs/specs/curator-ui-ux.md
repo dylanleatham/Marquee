@@ -380,11 +380,11 @@ route is not yet decided. Three candidates, none free:
 - **Connect transfer** to an already-running desktop Spotify client — anticipated by
   [ADR 0014](../adrs/0014-spotify-user-oauth-pkce.md) ("the foundation for Spotify Connect playback
   later"); needs Premium and the client running. Note that
-  [ADR 0023](../adrs/0023-amp-sonos-playback-and-card-uri.md) rejected Connect for **Amp**
+  [ADR 0034](../adrs/0034-amp-sonos-playback-and-card-uri.md) rejected Connect for **Amp**
   specifically because it cannot wake an idle speaker — a workstation client is already awake, so
   that rejection does not transfer here.
 
-Resolve with a spike under [`spikes/`](../../spikes), as ADR 0023 did for Amp's transport, and record
+Resolve with a spike under [`spikes/`](../../spikes), as ADR 0034 did for Amp's transport, and record
 the outcome in an ADR.
 
 **This does not block bench preview.** Sleeve + video + palette animation carries most of the

@@ -15,7 +15,7 @@ export interface AlbumMetadata {
   spotifyUri?: string;
   /**
    * Optional audio descriptors (energy/tempo/…). When present, they refine pattern selection —
-   * tempo-locking motion and widening dynamics (ADR 0022). Absent for most albums today (Spotify's
+   * tempo-locking motion and widening dynamics (ADR 0033). Absent for most albums today (Spotify's
    * audio-features endpoint is deprecated); pattern energy then comes from the palette itself.
    */
   audioFeatures?: AudioFeatures;

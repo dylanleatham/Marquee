@@ -497,7 +497,7 @@ export async function choosePalette(
       source,
       rationale: candidates.rationale,
     };
-    // Motion follows the palette in force (ADR 0022): a fiercer set of colours should drive a
+    // Motion follows the palette in force (ADR 0033): a fiercer set of colours should drive a
     // livelier room. Re-deriving here is the point of choosing a feeling palette at all — otherwise
     // the colours change and the record still behaves like its sleeve.
     // sanitizePaletteEdit always computes cie_xy, so the fallback here is only to satisfy the

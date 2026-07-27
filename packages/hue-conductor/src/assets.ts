@@ -14,7 +14,7 @@ export interface AlbumAssetReader {
 /**
  * Extract the curatorId from a `curator:(album|card):<id>` URI, or null if it isn't one. Conductor
  * treats a card the same as a sleeve — both light up the room — so it only wants the id and ignores
- * the kind (ADR 0023). Delegates to the shared contracts parser so the accepted shape stays uniform.
+ * the kind (ADR 0034). Delegates to the shared contracts parser so the accepted shape stays uniform.
  */
 export function curatorIdFromUri(uri: string): string | null {
   return parseCuratorUri(uri)?.curatorId ?? null;

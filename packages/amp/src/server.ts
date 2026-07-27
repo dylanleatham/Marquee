@@ -129,7 +129,7 @@ export function buildServer(opts: BuildOptions = {}) {
       return reply.code(400).send({ error: `not a curator URI: ${scan.uri}` });
 
     if (parsed.kind === "album") {
-      // A sleeve: the record plays the audio, not Amp (ADR 0023).
+      // A sleeve: the record plays the audio, not Amp (ADR 0034).
       return reply.code(202).send({
         ok: true,
         action: "ignored",

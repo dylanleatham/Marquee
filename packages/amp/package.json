@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Plays a card-scanned album's audio over Sonos. Headless runtime service (ADR 0023).",
+  "description": "Plays a card-scanned album's audio over Sonos. Headless runtime service (ADR 0034).",
   "main": "./dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",

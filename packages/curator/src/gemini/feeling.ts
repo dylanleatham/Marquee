@@ -1,6 +1,6 @@
 // Colours from what the record *sounds* like, not what its sleeve looks like (ADR 0030, issue #105).
 //
-// Palette Press reads the cover, and ADR 0022 derives motion energy from those same swatches — so a
+// Palette Press reads the cover, and ADR 0033 derives motion energy from those same swatches — so a
 // muted sleeve on a ferocious record gets a calm, slow crossfade. This is the escape hatch: two
 // grounded Gemini calls that propose colours from the album's sound and subject matter, offered as a
 // candidate next to the cover's, never applied on their own.

@@ -11,7 +11,12 @@ drift.** When an implementation needs to deviate from a spec:
 
 1. **Discuss it first** — surface the deviation and the tradeoff, don't just quietly diverge.
 2. **Record the decision** — add an ADR in `docs/adrs/` (numbered, immutable) capturing context,
-   decision, and consequences.
+   decision, and consequences. **Take the next free number and cite ADRs by filename link, not a
+   bare "ADR 0022"** — parallel branches each grabbing "the next number" collided three times
+   (0022, 0023, 0026) before anyone noticed, which left ~74 bare citations pointing at a number that
+   named two different decisions ([#151](https://github.com/dylanleatham/Marquee/issues/151)).
+   `scripts/check-adr-numbers.mjs` now fails the commit on a duplicate or a heading/filename
+   mismatch; `contract-tests/adr-numbers.test.mjs` is the CI gate.
 3. **Update the affected spec in the same PR** — edit `docs/specs/*.md` so it matches what the
    code actually does (a dated note that points to the ADR is enough; supersede, don't delete
    the history). A spec that lies is worse than no spec.

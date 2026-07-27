@@ -51,7 +51,7 @@ describe("albumUri", () => {
   });
 });
 
-describe("tagUri — sleeve vs card (ADR 0023)", () => {
+describe("tagUri — sleeve vs card (ADR 0034)", () => {
   it("builds the right URI per physical object", () => {
     expect(tagUri(ID)).toBe(`curator:album:${ID}`); // default = sleeve
     expect(tagUri(ID, "sleeve")).toBe(`curator:album:${ID}`);

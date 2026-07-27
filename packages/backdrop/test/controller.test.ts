@@ -38,7 +38,7 @@ describe("PlaybackController", () => {
     controller.dispose();
   });
 
-  it("a card scan plays the same album video as the sleeve (ADR 0023)", () => {
+  it("a card scan plays the same album video as the sleeve (ADR 0034)", () => {
     const { dir, paths } = tempMedia(["x.mp4"]);
     // Library is keyed by the album URI (as Curator syncs it) — no card key.
     const { controller, hub } = setup(
