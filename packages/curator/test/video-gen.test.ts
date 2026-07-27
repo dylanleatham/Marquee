@@ -7,7 +7,7 @@ import {
   readdirSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { createFakeGemini } from "@marquee/fake-gemini";
 import { AssetStore } from "../src/store/asset-store.js";
 import { GeminiClient, type FetchLike } from "../src/gemini/client.js";
@@ -17,7 +17,7 @@ import { type ActionDeps } from "../src/albums/actions.js";
 import { ValidationError } from "../src/albums/add-manual.js";
 import { TransitionError } from "../src/albums/asset.js";
 import type { DraftedPrompt } from "../src/roadie/prompts.js";
-import { makeAsset, fakeProber, jpegBytes } from "./helpers.js";
+import { makeAsset, fakeProber, jpegBytes, pngBytes } from "./helpers.js";
 
 const store = () => new AssetStore(mkdtempSync(join(tmpdir(), "curator-vg-")));
 const now = () => "2026-07-18T00:00:00.000Z";
@@ -58,6 +58,29 @@ const deps = (
 });
 
 describe("generateVideoSet", () => {
+  it("sends the cover with its real mime type, not a hardcoded image/jpeg (ADR 0031)", async () => {
+    const s = store();
+    const id = "aaaa0000";
+    const asset = makeAsset(id, "Purple Rain", "Prince");
+    asset.promptDrafts = { video: videoDraft(1) };
+    // A manual override lands as .png — before ADR 0031 the video path passed image/jpeg regardless.
+    asset.artwork = {
+      resolvedPath: `media/artwork/${id}-override.png`,
+      overrideActive: true,
+      contentHash: "sha256:deadbeef",
+    };
+    s.save(asset);
+    const overridePath = s.paths.artworkOverrideFile(id, "png");
+    mkdirSync(dirname(overridePath), { recursive: true });
+    writeFileSync(overridePath, pngBytes());
+
+    const fg = createFakeGemini({ videoBytes: "MP4" });
+    await actions.generateVideoSet(deps(s, geminiWith(fg.fetch)), id);
+
+    const image = fg.calls()[0]!.body.input?.find((p) => p.type === "image");
+    expect(image?.mime_type).toBe("image/png");
+  });
+
   it("generates one clip per video variant, grounded on the cover", async () => {
     const s = store();
     const id = seed(s, "aaaa1111", 3);

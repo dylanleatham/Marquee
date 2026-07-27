@@ -294,6 +294,13 @@ Video style templates (motion-oriented):
 > nudges. The detail UI surfaces all five prompts, each individually copyable and generatable
 > (per-prompt "Generate art"). The deterministic **template** shape below remains the fallback and the
 > on-demand style `redraft`.
+>
+> **Amended 2026-07-26 by [ADR 0031](../adrs/0031-card-art-cover-reference-image.md).** Each drafted
+> variant also carries **`coverAnchored`** (boolean): true for the options that directly re-render the
+> album's real front cover (Option 1, Cover Reimagining), false for those that deliberately depart from
+> it. Card-art generation sends the cover as a **reference image** only for anchored prompts — see
+> [curator-spec §Card art](curator-spec.md). The flag is optional: absent on template drafts and on
+> drafts persisted before ADR 0031, and absence means "not anchored".
 
 ```
 [Card art style template preamble — user-selectable]

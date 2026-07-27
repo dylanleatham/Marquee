@@ -42,7 +42,7 @@ import {
   type PromptVariant,
 } from "../roadie/prompts.js";
 import { draftOnePromptWithGemini } from "../gemini/draft.js";
-import type { GeminiClient } from "../gemini/client.js";
+import type { GeminiClient, ReferenceImage } from "../gemini/client.js";
 import { ingestVideo, VideoError, type VideoProber } from "../media/video.js";
 import {
   ingestCardArt,
@@ -745,14 +745,46 @@ function assertVariantIndex(draft: DraftedPrompt, index: number): void {
 }
 
 /**
- * Video preconditions → the (narrowed) Gemini client, loaded draft, and cover path. Shared by the
- * route precheck and the action; returning the narrowed `gemini` lets the action skip a redundant
- * non-null assertion.
+ * Extension → mime type for cover art. `.jpg`/`.jpeg` are absent on purpose: they fall through to
+ * each Gemini call's `image/jpeg` default, which is what covers overwhelmingly are.
+ */
+const MIME_BY_EXT: Record<string, string> = {
+  png: "image/png",
+  webp: "image/webp",
+  gif: "image/gif",
+};
+
+/**
+ * The album's cover as a Gemini reference image, or undefined when there isn't one on disk. The one
+ * place a cover is read for an LLM call — both generation paths go through it, so the mime type is
+ * derived identically for video and card art (before ADR 0031 the video path hardcoded `image/jpeg`,
+ * mislabelling a PNG override).
+ *
+ * Resolution goes through `resolvedArtworkFile`, so a manual artwork override is honoured. Callers
+ * differ on whether absence is fatal: video throws (image-to-video needs something to animate), card
+ * art degrades to a text-only prompt.
+ */
+function coverReference(
+  deps: ActionDeps,
+  asset: AlbumAsset,
+): ReferenceImage | undefined {
+  if (!asset.artwork) return undefined;
+  const path = resolvedArtworkFile(deps.store, asset);
+  if (!existsSync(path)) return undefined;
+  const ext = path.split(".").pop()?.toLowerCase() ?? "";
+  return { bytes: readFileSync(path), mimeType: MIME_BY_EXT[ext] };
+}
+
+/**
+ * Video preconditions → the (narrowed) Gemini client, loaded draft, and the cover as a reference
+ * image. Shared by the route precheck and the action; returning the narrowed `gemini` lets the
+ * action skip a redundant non-null assertion. The cover is non-optional here (unlike card art):
+ * image-to-video has nothing to animate without one, so a missing cover is a 400.
  */
 function ensureVideoGenerable(
   deps: ActionDeps,
   curatorId: string,
-): { gemini: GeminiClient; draft: DraftedPrompt; coverPath: string } {
+): { gemini: GeminiClient; draft: DraftedPrompt; cover: ReferenceImage } {
   if (!deps.gemini)
     throw new ValidationError(
       "Gemini is not configured — set an API key in Settings",
@@ -767,12 +799,12 @@ function ensureVideoGenerable(
     throw new ValidationError(
       "no video prompt drafted yet — nothing to generate from",
     );
-  const coverPath = resolvedArtworkFile(deps.store, asset);
-  if (!asset.artwork || !existsSync(coverPath))
+  const cover = coverReference(deps, asset);
+  if (!cover)
     throw new ValidationError(
       "album has no cover art to animate — add art first",
     );
-  return { gemini: deps.gemini, draft, coverPath };
+  return { gemini: deps.gemini, draft, cover };
 }
 
 /**
@@ -792,18 +824,13 @@ async function generateVideoClip(
   deps: ActionDeps,
   gemini: GeminiClient,
   curatorId: string,
-  cover: Buffer,
+  cover: ReferenceImage,
   variant: PromptVariant,
   index: number,
   now: () => string,
   signal?: AbortSignal,
 ): Promise<VideoClip> {
-  const bytes = await gemini.generateVideo(
-    variant.text,
-    cover,
-    undefined,
-    signal,
-  );
+  const bytes = await gemini.generateVideo(variant.text, cover, { signal });
   const tmp = deps.store.paths.incomingFile(
     `.vidgen-${curatorId}-${index}-${randomUUID()}.mp4`,
   );
@@ -840,8 +867,7 @@ export async function generateVideoSet(
   curatorId: string,
   opts: GenerateOptions = {},
 ): Promise<AlbumAsset> {
-  const { gemini, draft, coverPath } = ensureVideoGenerable(deps, curatorId);
-  const cover = readFileSync(coverPath);
+  const { gemini, draft, cover } = ensureVideoGenerable(deps, curatorId);
   const now = clock(deps);
 
   // Generate + ingest each clip inside allSettled so one failure (generation or validation) is
@@ -895,9 +921,8 @@ export async function generateVideoOne(
   index: number,
   opts: GenerateOptions = {},
 ): Promise<AlbumAsset> {
-  const { gemini, draft, coverPath } = ensureVideoGenerable(deps, curatorId);
+  const { gemini, draft, cover } = ensureVideoGenerable(deps, curatorId);
   assertVariantIndex(draft, index);
-  const cover = readFileSync(coverPath);
   const now = clock(deps);
 
   opts.onProgress?.(0, 1);
@@ -988,11 +1013,19 @@ export function detachCardArt(
   return asset;
 }
 
-/** Card-art preconditions → the (narrowed) Gemini client + loaded draft (route precheck + action). */
+/**
+ * Card-art preconditions → the (narrowed) Gemini client, loaded draft, and the cover reference when
+ * one exists (route precheck + action). `cover` is attached only to `coverAnchored` variants — see
+ * `referenceFor` / ADR 0031.
+ */
 function ensureCardArtGenerable(
   deps: ActionDeps,
   curatorId: string,
-): { gemini: GeminiClient; draft: DraftedPrompt } {
+): {
+  gemini: GeminiClient;
+  draft: DraftedPrompt;
+  cover: ReferenceImage | undefined;
+} {
   if (!deps.gemini)
     throw new ValidationError(
       "Gemini is not configured — set an API key in Settings",
@@ -1007,8 +1040,24 @@ function ensureCardArtGenerable(
     throw new ValidationError(
       "no card-art prompt drafted yet — nothing to generate from",
     );
-  return { gemini: deps.gemini, draft };
+  return {
+    gemini: deps.gemini,
+    draft,
+    cover: coverReference(deps, asset),
+  };
 }
+
+/**
+ * The reference image for one variant: the cover for the options that re-render the sleeve (Option 1
+ * "Cover Reimagining"), undefined for the ones that deliberately depart from it (Signature Motif,
+ * Visual Artist Provenance, Live Performance Era, Album Lore). Attaching it to all five would pull
+ * the whole set back toward the cover and lose the spread the five-option strategy exists for
+ * (ADR 0021 / ADR 0031).
+ */
+const referenceFor = (
+  variant: PromptVariant,
+  cover: ReferenceImage | undefined,
+): ReferenceImage | undefined => (variant.coverAnchored ? cover : undefined);
 
 /**
  * Generate a set of card-art candidates from the drafted card-art prompt variants (Nano Banana,
@@ -1022,7 +1071,7 @@ export async function generateCardArtSet(
   curatorId: string,
   opts: GenerateOptions = {},
 ): Promise<AlbumAsset> {
-  const { gemini, draft } = ensureCardArtGenerable(deps, curatorId);
+  const { gemini, draft, cover } = ensureCardArtGenerable(deps, curatorId);
   // Generate *and* ingest inside allSettled: a candidate can fail either at the API (network/5xx)
   // or at ingest (Gemini returned 200 with non-image bytes). Both are per-candidate failures — the
   // set keeps the successes (ADR 0010). Doing the ingest in a bare forEach would let one malformed
@@ -1032,7 +1081,10 @@ export async function generateCardArtSet(
       ingestCardArtCandidate(
         { paths: deps.store.paths, now: deps.now },
         {
-          buffer: await gemini.generateImage(v.text, undefined, opts.signal),
+          buffer: await gemini.generateImage(v.text, {
+            signal: opts.signal,
+            reference: referenceFor(v, cover),
+          }),
           curatorId,
           index: i,
           nudge: v.nudge,
@@ -1087,15 +1139,14 @@ export async function generateCardArtOne(
   index: number,
   opts: GenerateOptions = {},
 ): Promise<AlbumAsset> {
-  const { gemini, draft } = ensureCardArtGenerable(deps, curatorId);
+  const { gemini, draft, cover } = ensureCardArtGenerable(deps, curatorId);
   assertVariantIndex(draft, index);
   const variant = draft.variants[index]!;
 
-  const buffer = await gemini.generateImage(
-    variant.text,
-    undefined,
-    opts.signal,
-  );
+  const buffer = await gemini.generateImage(variant.text, {
+    signal: opts.signal,
+    reference: referenceFor(variant, cover),
+  });
   const candidate = ingestCardArtCandidate(
     { paths: deps.store.paths, now: deps.now },
     { buffer, curatorId, index, nudge: variant.nudge },

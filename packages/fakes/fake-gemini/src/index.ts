@@ -19,7 +19,13 @@ export interface FakeGeminiCall {
   /** For Omni video: which phase this call was. */
   video?: "interaction" | "download";
   body: {
-    contents?: Array<{ parts?: Array<{ text?: string }> }>;
+    contents?: Array<{
+      parts?: Array<{
+        text?: string;
+        /** A reference image sent with the prompt (the album cover — ADR 0031). */
+        inlineData?: { mimeType?: string; data?: string };
+      }>;
+    }>;
     systemInstruction?: { parts?: Array<{ text?: string }> };
     tools?: unknown[];
     generationConfig?: { responseSchema?: unknown; temperature?: number };
