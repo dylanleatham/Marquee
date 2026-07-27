@@ -1,11 +1,16 @@
 // Renderer-failure diagnostics for the Curator window (issue #63). The shell already surfaces
 // *service* failures (child-process error/exit → dialogs) but was blind to *renderer* failures — a
 // React crash or a failed page load blanked the window with nothing logged. These handlers make the
-// next occurrence self-reporting: they log to the same stdout/stderr stream the service logs use.
+// next occurrence self-reporting.
 //
 // Kept free of any Electron runtime import so it unit-tests without booting Electron — main.ts
 // passes the real webContents, which structurally satisfies WebContentsLike.
 
+/**
+ * Messages carry no source prefix of their own: main.ts passes `logger.scoped("renderer")`, and the
+ * logger stamps source and level onto every record (issue #141). The bare-`console` default is for
+ * standalone use and tests, where the surrounding context is already obvious.
+ */
 export interface CrashLogger {
   warn(msg: string): void;
   error(msg: string): void;
@@ -33,7 +38,7 @@ export function registerRendererDiagnostics(
     const details = args[1] as
       { reason?: string; exitCode?: number } | undefined;
     log.error(
-      `[renderer] process gone: reason=${details?.reason ?? "unknown"} exitCode=${
+      `process gone: reason=${details?.reason ?? "unknown"} exitCode=${
         details?.exitCode ?? "?"
       }`,
     );
@@ -45,7 +50,7 @@ export function registerRendererDiagnostics(
     const errorDescription = args[2] as string;
     const validatedURL = args[3] as string;
     log.error(
-      `[renderer] page failed to load (${errorCode} ${errorDescription}) ${validatedURL}`,
+      `page failed to load (${errorCode} ${errorDescription}) ${validatedURL}`,
     );
   });
 
@@ -55,10 +60,10 @@ export function registerRendererDiagnostics(
     const message = args[2] as string;
     const line = args[3] as number;
     const sourceId = args[4] as string;
-    log.error(`[renderer] console: ${message} (${sourceId}:${line})`);
+    log.error(`console: ${message} (${sourceId}:${line})`);
   });
 
   wc.on("unresponsive", () => {
-    log.warn("[renderer] window became unresponsive");
+    log.warn("window became unresponsive");
   });
 }
