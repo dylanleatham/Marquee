@@ -116,7 +116,14 @@
       "type": "object",
       "required": ["effect"],
       "additionalProperties": false,
-      "properties": { "effect": { "enum": ["aurora", "shimmer", "wave"] } }
+      "properties": {
+        "effect": { "enum": ["aurora", "shimmer", "wave"] },
+        "params": {
+          "description": "Per-album overrides for that effect's knobs (ADR 0036). Absent keys use the renderer default.",
+          "type": "object",
+          "additionalProperties": { "type": "number" }
+        }
+      }
     },
     "meta": { "type": "object" }
   }

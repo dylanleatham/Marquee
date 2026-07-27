@@ -770,15 +770,19 @@ export function buildServer(opts: BuildOptions = {}) {
    */
   app.put("/api/albums/:curatorId/streaming-effect", async (req, reply) => {
     const { curatorId } = req.params as { curatorId: string };
-    const { effect } = (req.body ?? {}) as { effect?: unknown };
+    const body = (req.body ?? {}) as { effect?: unknown; params?: unknown };
     try {
       const asset = actions.setStreamingEffect(
         actionDeps,
         curatorId,
-        (effect ?? null) as StreamPatternType | null,
+        (body.effect ?? null) as StreamPatternType | null,
+        // Distinguish "params omitted" (leave tuning alone) from "params: {}" (reset to defaults),
+        // so a caller flipping the effect doesn't have to restate the knobs.
+        "params" in body ? body.params : undefined,
       );
       return {
         streamingEffect: asset.streamingEffect ?? null,
+        streamingParams: asset.streamingParams ?? {},
         pattern: asset.pattern,
       };
     } catch (err) {

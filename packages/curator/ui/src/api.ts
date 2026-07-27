@@ -288,6 +288,8 @@ export interface AlbumAsset {
    * `pattern` plays — which is also what plays on a room with no entertainment area configured.
    */
   streamingEffect?: StreamingEffect | null;
+  /** Tuning for `streamingEffect` (ADR 0036). Only knobs moved off their default are stored. */
+  streamingParams?: Record<string, number> | null;
   pattern?: { type: string; params: Record<string, unknown> };
   promptDrafts?: { video?: DraftedPrompt; cardArt?: DraftedPrompt };
   visualizer?: Visualizer;
@@ -478,13 +480,21 @@ export const api = {
     }),
   // Opt an album into a streaming effect, or pass null to clear it (ADR 0035). The derived pattern
   // is untouched — it stays the fallback for a room with no entertainment area.
-  setStreamingEffect: (id: string, effect: StreamingEffect | null) =>
+  // `params` omitted leaves existing tuning alone; `{}` resets it to the renderer defaults.
+  setStreamingEffect: (
+    id: string,
+    effect: StreamingEffect | null,
+    params?: Record<string, number>,
+  ) =>
     req<{
       streamingEffect: StreamingEffect | null;
+      streamingParams: Record<string, number>;
       pattern: AlbumAsset["pattern"];
     }>(`/api/albums/${id}/streaming-effect`, {
       method: "PUT",
-      body: JSON.stringify({ effect }),
+      body: JSON.stringify(
+        params === undefined ? { effect } : { effect, params },
+      ),
     }),
   // Drop the hand-edit flag (keeps the colors) so a later re-extract/batch may replace it.
   resetPalette: (id: string) =>

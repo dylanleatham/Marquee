@@ -270,12 +270,20 @@ export function buildServer(opts: BuildOptions = {}) {
     // pattern rather than clipFallback's generic rotate. That is the whole reason the opt-in rides
     // beside `pattern` instead of overwriting it.
     //
-    // No params are forwarded here: `pattern.params` belong to the CLIP pattern that is standing by
-    // as the fallback, and handing `intervalMs` to aurora would be nonsense. The renderers' own
-    // defaults are the opt-in's contract — tuning them is a separate decision (ADR 0035).
+    // `pattern.params` are deliberately NOT forwarded: they belong to the CLIP pattern standing by
+    // as the fallback, and handing `intervalMs` to aurora would be nonsense. The effect's own knobs
+    // travel in `streaming.params` (ADR 0036); absent ones fall to the renderer's default.
     const optIn = payload.streaming?.effect;
     if (optIn && isStreamEffect(optIn)) {
-      const played = await tryStreaming(roomId, optIn, payload, {}, log, ctx);
+      const params = payload.streaming?.params ?? {};
+      const played = await tryStreaming(
+        roomId,
+        optIn,
+        payload,
+        params,
+        log,
+        ctx,
+      );
       if (played) return played;
       // Fall through with `payload` untouched: its pattern is the derived CLIP one.
     }
