@@ -133,6 +133,115 @@ describe("GeminiClient", () => {
     });
   });
 
+  // Issue #149. `finishReason` is an open enum and the check matched one exact string, so a refused
+  // *image* (`IMAGE_SAFETY`) fell past it and died at "returned no image data" — a refusal reported
+  // as a malformed response. These pin the candidate-side path for both methods.
+  describe("refusal detection (#149)", () => {
+    const respondWith = (payload: unknown): FetchLike => {
+      const body = JSON.stringify(payload);
+      return async () =>
+        new Response(body, { headers: { "content-type": "application/json" } });
+    };
+    const c = (payload: unknown) =>
+      new GeminiClient({ apiKey: "k", fetch: respondWith(payload) });
+
+    // The refusal reasons Gemini is known to use, plus one invented value standing in for whatever
+    // it adds next: the check must not depend on enumerating them.
+    for (const finishReason of [
+      "SAFETY",
+      "IMAGE_SAFETY",
+      "PROHIBITED_CONTENT",
+      "BLOCKLIST",
+      "SOME_FUTURE_SAFETY_REASON",
+    ]) {
+      it(`generateImage reports finishReason ${finishReason} as a refusal, naming it`, async () => {
+        await expect(
+          c({ candidates: [{ finishReason }] }).generateImage("x"),
+        ).rejects.toMatchObject({
+          name: "GeminiError",
+          message: expect.stringContaining(finishReason),
+        });
+      });
+
+      it(`generateText reports finishReason ${finishReason} as a refusal, naming it`, async () => {
+        await expect(
+          c({ candidates: [{ finishReason }] }).generateText({ prompt: "x" }),
+        ).rejects.toMatchObject({
+          name: "GeminiError",
+          message: expect.stringContaining(finishReason),
+        });
+      });
+    }
+
+    it("does not treat an ordinary finish reason as a refusal", async () => {
+      // MAX_TOKENS truncates but still carries text — a refusal message here would be a lie.
+      const text = await c({
+        candidates: [
+          { finishReason: "MAX_TOKENS", content: { parts: [{ text: "hi" }] } },
+        ],
+      }).generateText({ prompt: "x" });
+      expect(text).toBe("hi");
+    });
+
+    it("carries the triggered safety categories into the error", async () => {
+      await expect(
+        c({
+          candidates: [
+            {
+              finishReason: "IMAGE_SAFETY",
+              safetyRatings: [
+                {
+                  category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+                  probability: "NEGLIGIBLE",
+                },
+                {
+                  category: "HARM_CATEGORY_HARASSMENT",
+                  probability: "HIGH",
+                  blocked: true,
+                },
+              ],
+            },
+          ],
+        }).generateImage("x"),
+      ).rejects.toMatchObject({
+        // The category that actually blocked it, not the whole ratings array — that's the
+        // difference between a log line worth reading and one worth skipping.
+        message: expect.stringContaining("HARM_CATEGORY_HARASSMENT"),
+      });
+    });
+
+    // Same defect class on the Omni path: `status` is parsed and thrown away, so a declined video
+    // reads as a malformed response too. We don't yet know Omni's refusal vocabulary — this keeps
+    // whatever it says instead of classifying it, so the first real refusal is legible in the log.
+    it("keeps the interaction status when a video response carries no clip", async () => {
+      const c = new GeminiClient({
+        apiKey: "k",
+        fetch: async () =>
+          new Response(
+            JSON.stringify({ status: "BLOCKED_POLICY", steps: [] }),
+            {
+              headers: { "content-type": "application/json" },
+            },
+          ),
+      });
+      await expect(
+        c.generateVideo("x", { bytes: Buffer.from("JPG") }),
+      ).rejects.toMatchObject({
+        message: expect.stringContaining("BLOCKED_POLICY"),
+      });
+    });
+
+    it("names the blockReason when the refusal is on the prompt side", async () => {
+      await expect(
+        c({
+          promptFeedback: { blockReason: "PROHIBITED_CONTENT" },
+        }).generateText({ prompt: "x" }),
+      ).rejects.toMatchObject({
+        message: expect.stringContaining("PROHIBITED_CONTENT"),
+      });
+    });
+  });
+
   it("generateVideo posts an Omni interaction with the reference image, then downloads the clip", async () => {
     const fg = createFakeGemini({ videoBytes: "MP4-DATA" });
     const c = new GeminiClient({

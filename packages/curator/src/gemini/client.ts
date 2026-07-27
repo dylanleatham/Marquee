@@ -12,10 +12,24 @@ export type FetchLike = (
   init?: RequestInit,
 ) => Promise<Response>;
 
+/**
+ * Why Gemini declined a request (issue #149). Carried as a field rather than left for the caller to
+ * pattern-match out of the message: the planned re-draft-and-retry path branches on this, and
+ * branching on prose is how a message reword silently disables a retry.
+ */
+export interface GeminiRefusal {
+  /** The raw `blockReason` / `finishReason` Gemini reported, verbatim — never normalized away. */
+  reason: string;
+  /** Safety categories flagged as blocking, when the response named any. */
+  categories: string[];
+}
+
 export class GeminiError extends Error {
   constructor(
     message: string,
     readonly status?: number,
+    /** Present when the call was declined rather than failing — see `GeminiRefusal`. */
+    readonly refusal?: GeminiRefusal,
   ) {
     super(message);
     this.name = "GeminiError";
@@ -84,6 +98,13 @@ export interface GeminiClientOptions {
   videoMaxPolls?: number;
 }
 
+/** One per-category safety verdict. `blocked` marks the category that actually stopped the call. */
+interface SafetyRating {
+  category?: string;
+  probability?: string;
+  blocked?: boolean;
+}
+
 /** The parts of the first candidate — text and/or inline (image) data. */
 interface GenerateContentResponse {
   candidates?: Array<{
@@ -91,9 +112,48 @@ interface GenerateContentResponse {
       parts?: Array<{ text?: string; inlineData?: { data?: string } }>;
     };
     finishReason?: string;
+    safetyRatings?: SafetyRating[];
   }>;
-  promptFeedback?: { blockReason?: string };
+  promptFeedback?: { blockReason?: string; safetyRatings?: SafetyRating[] };
 }
+
+/**
+ * The only finish reasons that come with usable content. Everything else — `SAFETY`,
+ * `IMAGE_SAFETY`, `PROHIBITED_CONTENT`, `BLOCKLIST`, `RECITATION`, and whatever Google adds next —
+ * means the model declined.
+ *
+ * An allowlist of benign reasons, deliberately, not a denylist of refusals: `finishReason` is an
+ * open enum, and the previous check tested it against the single literal `"SAFETY"`. A refused
+ * *image* comes back as `IMAGE_SAFETY`, fell straight past that, and surfaced as "returned no image
+ * data" — a refusal misreported as a malformed response (issue #149). Guessing wrong in this
+ * direction produces a clear error about an unfamiliar reason; guessing wrong the other way loses
+ * the refusal entirely.
+ */
+const BENIGN_FINISH_REASONS = new Set(["STOP", "MAX_TOKENS"]);
+
+/** Why Gemini declined this response, or undefined if it didn't. */
+function refusalOf(data: GenerateContentResponse): GeminiRefusal | undefined {
+  const candidate = data.candidates?.[0];
+  const blockReason = data.promptFeedback?.blockReason;
+  const finishReason = candidate?.finishReason;
+  const reason =
+    blockReason ??
+    (finishReason !== undefined && !BENIGN_FINISH_REASONS.has(finishReason)
+      ? finishReason
+      : undefined);
+  if (reason === undefined) return undefined;
+  const categories = [
+    ...(candidate?.safetyRatings ?? []),
+    ...(data.promptFeedback?.safetyRatings ?? []),
+  ]
+    .filter((r) => r.blocked && r.category)
+    .map((r) => r.category as string);
+  return { reason, categories };
+}
+
+/** `IMAGE_SAFETY; HARM_CATEGORY_HARASSMENT` — the reason, then whatever tripped it. */
+const describeRefusal = (refusal: GeminiRefusal): string =>
+  [refusal.reason, ...refusal.categories].join("; ");
 
 const API_BASE = "https://generativelanguage.googleapis.com";
 const realSleep = (ms: number): Promise<void> =>
@@ -218,12 +278,12 @@ export class GeminiClient {
     };
 
     const data = await this.generateContent(opts.model ?? this.textModel, body);
-    const blocked =
-      data.promptFeedback?.blockReason ??
-      data.candidates?.[0]?.finishReason === "SAFETY";
-    if (blocked)
+    const refusal = refusalOf(data);
+    if (refusal)
       throw new GeminiError(
-        `Gemini blocked the request (${data.promptFeedback?.blockReason ?? "safety"})`,
+        `Gemini blocked the request (${describeRefusal(refusal)})`,
+        undefined,
+        refusal,
       );
 
     const text = (data.candidates?.[0]?.content?.parts ?? [])
@@ -264,12 +324,12 @@ export class GeminiClient {
       { contents: [{ role: "user", parts }] },
       signal,
     );
-    const blocked =
-      data.promptFeedback?.blockReason ??
-      data.candidates?.[0]?.finishReason === "SAFETY";
-    if (blocked)
+    const refusal = refusalOf(data);
+    if (refusal)
       throw new GeminiError(
-        `Gemini blocked the image request (${data.promptFeedback?.blockReason ?? "safety"})`,
+        `Gemini blocked the image request (${describeRefusal(refusal)})`,
+        undefined,
+        refusal,
       );
 
     const b64 = (data.candidates?.[0]?.content?.parts ?? []).find(
@@ -406,6 +466,13 @@ export class GeminiClient {
     const video = GeminiClient.videoPart(data);
     if (video?.data) return Buffer.from(video.data, "base64");
     if (video?.uri) return this.downloadVideo(video.uri, signal);
-    throw new GeminiError("Omni video: no video in the response");
+    // Carry the interaction status through (issue #149). Omni reports a declined generation here,
+    // and dropping it turned a refusal into an indistinguishable "malformed response" — the same
+    // defect the generateContent paths had. Its refusal vocabulary isn't documented, so this
+    // preserves whatever it says rather than classifying it; the first real refusal in the log is
+    // what should drive any classification.
+    throw new GeminiError(
+      `Omni video: no video in the response${data.status ? ` (status: ${data.status})` : ""}`,
+    );
   }
 }
