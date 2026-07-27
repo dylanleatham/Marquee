@@ -4,7 +4,7 @@ _Plays a card-scanned album's audio over the house Sonos. The audio leg of the f
 Conductor (lights) and Backdrop (video)._
 
 > **Status (2026-07-24): core built + tested; real Sonos driver pending LAN verification.** Decision
-> in [ADR 0023](../adrs/0023-amp-sonos-playback-and-card-uri.md); viability proven by the spikes under
+> in [ADR 0034](../adrs/0034-amp-sonos-playback-and-card-uri.md); viability proven by the spikes under
 > [`spikes/sonos-spotify`](../../spikes/sonos-spotify) (Path A, chosen) and
 > [`spikes/spotify-connect`](../../spikes/spotify-connect) (Path B, rejected for cold-start).
 > **Built** (`packages/amp`, milestones 1–4, 6–7): the `curator:card` contract change +
@@ -47,7 +47,7 @@ streaming-only records.
 - Multi-room / `readerId` → target mapping (single configured target for now)
 - Volume ducking / coordinating with a real turntable's audio
 - Spotify Connect ("resume on an already-casting device") — proven but rejected as the trigger path
-  (ADR 0023); the seam stays thin enough to add later
+  ([ADR 0034](../adrs/0034-amp-sonos-playback-and-card-uri.md)); the seam stays thin enough to add later
 - Its own UI — headless; the target is configured in Curator and pushed via `PUT /api/settings`
 - Choosing _what_ plays (that's the card) or track-level control — one album, plays through
 
@@ -59,7 +59,7 @@ These are properties of the **Sonos household**, not the code, and each degrades
 - **Spotify added as a service in the Sonos app** (Settings → Services), on a **Premium** account.
 - **At least one Spotify item saved as a Sonos Favorite** — Amp reads it to derive the account's real
   `sid`, `sn`, and `cdudn` token (modern Sonos hides these behind cloud auth; the favorite is the
-  authoritative local source — see ADR 0023 and the spike). Any one Spotify favorite unlocks playing
+  authoritative local source — see [ADR 0034](../adrs/0034-amp-sonos-playback-and-card-uri.md) and the spike). Any one Spotify favorite unlocks playing
   _any_ album.
 - The Amp host, the Sonos speakers, and the workstation share a LAN.
 

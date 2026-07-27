@@ -194,7 +194,7 @@ export interface TagObjectSection {
 
 export interface TagSection {
   /**
-   * The **sleeve** URI, `curator:album:<id>`. Since ADR 0023 the two stickers carry different URIs —
+   * The **sleeve** URI, `curator:album:<id>`. Since ADR 0034 the two stickers carry different URIs —
    * a card is `curator:card:<id>` (derived from the same curatorId) so Amp can tell them apart. This
    * field is the sleeve/album URI; the card URI comes from the `?object=card` tag download.
    */

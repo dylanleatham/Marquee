@@ -19,7 +19,7 @@ describe("generatePalette", () => {
   });
 });
 
-// Entry-point wiring for audioFeatures (ADR 0022): pattern.test.ts exercises selectDefaultPattern in
+// Entry-point wiring for audioFeatures (ADR 0033): pattern.test.ts exercises selectDefaultPattern in
 // isolation, but these assert generatePalette actually threads metadata.audioFeatures into *both* the
 // pattern choice and the echoed meta. Uses the Purple Rain fixture (a sufficient, vivid palette that
 // rotates by default), skipping if the art isn't present.

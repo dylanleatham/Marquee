@@ -64,7 +64,7 @@ describe("GET /api/albums/:curatorId/tag-payload", () => {
     expect(decodeSvg(res.json().qrDataUrl)).toContain("<svg");
   });
 
-  // A sleeve and a card carry deliberately different URIs (ADR 0023) — writing the wrong one is a
+  // A sleeve and a card carry deliberately different URIs (ADR 0034) — writing the wrong one is a
   // silent failure, so the route must never conflate them.
   it("returns the card URI for ?object=card", async () => {
     const res = await app().inject({

@@ -711,7 +711,7 @@ describe("TagWriteSection (issue #55)", () => {
     expect(run).toHaveBeenCalledTimes(1);
   });
 
-  it("offers a distinct card URI + card .nfc download (ADR 0023)", () => {
+  it("offers a distinct card URI + card .nfc download (ADR 0034)", () => {
     render(
       <MemoryRouter>
         <TagWriteSection
@@ -806,7 +806,7 @@ describe("TagWriteSection — payload + QR", () => {
 
     renderTag();
 
-    // Both objects are fetched independently — a sleeve and a card carry different URIs (ADR 0023).
+    // Both objects are fetched independently — a sleeve and a card carry different URIs (ADR 0034).
     await waitFor(() => expect(api.tagPayload).toHaveBeenCalledTimes(2));
     expect(await screen.findByText("curator:album:abcd1234")).toBeTruthy();
     expect(screen.getByText("curator:card:abcd1234")).toBeTruthy();

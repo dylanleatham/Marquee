@@ -1,13 +1,13 @@
 # ADR 0030 — A palette from the album's feeling, offered as a choice
 
-Status: accepted · Date: 2026-07-26 · Extends: [ADR 0022](0022-palette-derived-motion-energy.md)
+Status: accepted · Date: 2026-07-26 · Extends: [ADR 0033](0033-palette-derived-motion-energy.md)
 (energy from the palette), [ADR 0009](0009-llm-authored-grounded-prompts-via-gemini.md) (grounded
 research pass) · Constrained by: [ADR 0027](0027-generation-is-invoked-not-pipelined.md) (Gemini is
 invoked, never pipelined) · Supersedes: curator-spec's `POST /api/albums/:curatorId/pattern`
 
 ## Context
 
-A palette is a pure function of the **cover image**. Palette Press extracts swatches; ADR 0022
+A palette is a pure function of the **cover image**. Palette Press extracts swatches; [ADR 0033](0033-palette-derived-motion-energy.md)
 derives motion energy from those same swatches, after Spotify's audio-features endpoint was
 deprecated and automatic audio-feature fetching went out of scope.
 
@@ -63,7 +63,7 @@ hand`, and choosing anything other than the cover also sets `handEdited`. That i
   chosen, so "regenerate all palettes after a Palette Press upgrade" never spends a Gemini call and
   never quietly reverts a decision.
 
-**Pattern stays derived, and the manual override stays unbuilt.** ADR 0022's `paletteEnergy` runs on
+**Pattern stays derived, and the manual override stays unbuilt.** [ADR 0033](0033-palette-derived-motion-energy.md)'s `paletteEnergy` runs on
 whichever palette is in force, so choosing the feeling palette changes the motion too — which is the
 point, and is why a pattern editor was never the answer to this problem. The documented
 `POST /api/albums/:curatorId/pattern` route is formally dropped.
@@ -77,7 +77,7 @@ point, and is why a pattern editor was never the answer to this problem. The doc
 - **The stored palette stays a plain colour list.** Nothing downstream — Conductor, the runtime
   payload, the integration contract — learns about "feeling." The change is entirely in how colours
   are _arrived at_.
-- **ADR 0022's energy threshold becomes reachable a new way.** A muted sleeve on a fierce record can
+- **[ADR 0033](0033-palette-derived-motion-energy.md)'s energy threshold becomes reachable a new way.** A muted sleeve on a fierce record can
   cross 0.62 via the feeling palette and start rotating. Intended.
 - **The library sweep reports a chosen palette as a hand-edit**, because that is what the flag says.
   Accurate about the protection, slightly coarse about the provenance; `source` carries the finer

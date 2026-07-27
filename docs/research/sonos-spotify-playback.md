@@ -2,7 +2,7 @@
 
 _Status: **decided and specified** (updated 2026-07-24). Originally a research note dated 2026-07-23._
 _Outcome: **Path A (local UPnP) chosen**, built as the **Amp** service —
-[ADR 0023](../adrs/0023-amp-sonos-playback-and-card-uri.md), [amp-spec.md](../specs/amp-spec.md).
+[ADR 0034](../adrs/0034-amp-sonos-playback-and-card-uri.md), [amp-spec.md](../specs/amp-spec.md).
 Viability proven against real hardware by the two spikes under [`spikes/`](../../spikes). The original
 survey below stands; the "Proven — empirical results" section records what the spikes actually found._
 
@@ -24,7 +24,7 @@ Both paths were built as runnable spikes and tested on the real Sonos + Spotify 
   showed as devices, the Sonos never did. Structurally unable to start an idle speaker from a card
   scan. Kept as proven code for a possible future "resume on whatever's already casting" feature.
 
-**Decision:** build **Amp** on Path A. See ADR 0023 for the full rationale and the card-vs-sleeve
+**Decision:** build **Amp** on Path A. See [ADR 0034](../adrs/0034-amp-sonos-playback-and-card-uri.md) for the full rationale and the card-vs-sleeve
 (`curator:card:<id>`) design.
 
 **Question:** Does Sonos expose an API or SDK that would let Marquee play an album from Spotify over

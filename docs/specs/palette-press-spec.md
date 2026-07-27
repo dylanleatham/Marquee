@@ -20,7 +20,7 @@ Secondary: **the same album art produces the same palette every time.** Determin
 
 - Palette extraction from album art (via node-vibrant)
 - Hue-aware post-processing: gamut clamping, saturation and brightness floors, contrast filtering, role assignment
-- Default pattern selection (energy-aware: static/crossfade for muted palettes, rotate/pulse for vivid ones — [ADR 0022](../adrs/0022-palette-derived-motion-energy.md))
+- Default pattern selection (energy-aware: static/crossfade for muted palettes, rotate/pulse for vivid ones — [ADR 0033](../adrs/0033-palette-derived-motion-energy.md))
 - Emit a well-typed `PalettePayload` matching the integration contract
 - Export lower-level functions (raw swatch extraction, post-processing, pattern selection) for testing and advanced use
 - Graceful handling of album covers that produce insufficient color data
@@ -29,7 +29,7 @@ Secondary: **the same album art produces the same palette every time.** Determin
 
 - Album lookup or artwork fetching (caller provides bytes)
 - Persistence, caching, or memoization (caller's responsibility)
-- **Automatic** audio-feature fetching (Spotify's audio-features endpoint is deprecated). Pattern selection is instead driven by energy read from the palette itself; `audioFeatures` is honored only when a caller hand-authors it — see §7 and [ADR 0022](../adrs/0022-palette-derived-motion-energy.md)
+- **Automatic** audio-feature fetching (Spotify's audio-features endpoint is deprecated). Pattern selection is instead driven by energy read from the palette itself; `audioFeatures` is honored only when a caller hand-authors it — see §7 and [ADR 0033](../adrs/0033-palette-derived-motion-energy.md)
 - **Any signal that isn't the cover image.** Colours derived from how a record _sounds_ live in Curator, not here ([ADR 0030](../adrs/0030-palette-from-album-feeling.md) / issue #105): they come from a Gemini call, which is network I/O and non-deterministic, and this library's purity is what makes golden-file testing and downstream caching trustworthy. Curator offers such a palette as a **candidate** beside this one and validates it through the same hand-edit path; `selectDefaultPattern` then runs on whichever palette the user chose, so richer colour signals reach the room without ever reaching this package
 - Track-level or per-side palette variation
 - HTTP surface, UI, or hosting — this is a library
@@ -232,7 +232,7 @@ Each color also carries its `sourceSwatch` name (`"DarkVibrant"`, etc.) for debu
 ## 7. Pattern selection
 
 > **Updated 2026-07-23 (supersedes the original size-only, "no audio features" rules; see
-> [ADR 0022](../adrs/0022-palette-derived-motion-energy.md)).** Selection is now **energy-aware**:
+> [ADR 0033](../adrs/0033-palette-derived-motion-energy.md)).** Selection is now **energy-aware**:
 > a vivid palette earns lively motion, a muted one keeps the calm defaults it always had.
 
 Deterministic and pure — energy is read from the palette, so the same palette always selects the same

@@ -5,7 +5,7 @@ Status: accepted · Date: 2026-07-24 · Continues: [ADR 0023](0023-entertainment
 
 ## Context
 
-ADR 0023 shipped the pure streaming effect engine (aurora/shimmer/wave + `StreamEngine` over a
+[ADR 0023](0023-entertainment-streaming-effect-engine.md) shipped the pure streaming effect engine (aurora/shimmer/wave + `StreamEngine` over a
 `StreamTransport` port) and deferred the actual bridge transport, because it needs a DTLS library, the
 bridge `clientkey`, a configured entertainment area, and a real bridge to handshake with — none
 verifiable off-hardware. This ADR records the decisions made building that transport on the Pi.
@@ -42,7 +42,7 @@ pulse for a single colour) rather than a flat color — a
 scan must always do something visible (runtime-overview §9).
 
 **Streaming effects are opt-in, not auto-selected.** Palette Press still selects only CLIP patterns
-(ADR 0022); `aurora`/`shimmer`/`wave` reach an album via a Curator per-album override. Rationale: the
+([ADR 0033](0033-palette-derived-motion-energy.md)); `aurora`/`shimmer`/`wave` reach an album via a Curator per-album override. Rationale: the
 _producer_ can't know whether a given runtime has an entertainment area, so auto-selecting a streaming
 effect would hand CLIP-only setups the rotate _fallback_ instead of the calmer default they'd have
 gotten. Opt-in keeps the automatic path honest; the contract still carries the types so an override
@@ -50,7 +50,7 @@ gotten. Opt-in keeps the automatic path honest; the contract still carries the t
 
 ## Consequences
 
-- Streaming effects are now reachable from a real scan — ADR 0023's "not yet reachable" is resolved.
+- Streaming effects are now reachable from a real scan — [ADR 0023](0023-entertainment-streaming-effect-engine.md)'s "not yet reachable" is resolved.
 - New runtime dependency (`node-dtls-client`) on the Conductor. Pure-JS, so no build/deploy change.
 - New settings key `entertainmentAreaId` (pushed from Curator like `listeningRoomId`) and a
   `GET /api/entertainment/areas` discovery endpoint.

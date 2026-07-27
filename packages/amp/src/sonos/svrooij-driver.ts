@@ -1,7 +1,7 @@
 // The production SonosDriver: drives Sonos over local UPnP via @svrooij/sonos, exactly as the proven
 // spike (spikes/sonos-spotify/play-album.js) does. Cannot be unit-tested without hardware, so the
 // logic is deliberately thin and everything else routes through the SonosDriver port (FakeSonosDriver
-// covers the service logic). See ADR 0023 / amp-spec §10 for the why behind each step.
+// covers the service logic). See ADR 0034 / amp-spec §10 for the why behind each step.
 import { SonosManager, MetaDataHelper } from "@svrooij/sonos";
 import type { SonosDevice } from "@svrooij/sonos";
 import { SonosUnavailableError, type SonosDriver } from "./driver.js";

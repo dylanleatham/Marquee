@@ -40,7 +40,7 @@ export type StreamPatternType = "aurora" | "shimmer" | "wave";
  * Optional per-album audio descriptors (integration-contract §1 `meta.audioFeatures`). Present only
  * when a generator had access — Spotify's audio-features endpoint is deprecated, so today this is a
  * hand-authored / future-analyzer signal, not an automatic one. The producer uses it (when present)
- * to refine pattern params — tempo-locking motion, widening dynamics with energy (ADR 0022). All
+ * to refine pattern params — tempo-locking motion, widening dynamics with energy (ADR 0033). All
  * fields optional; consumers ignore what they don't understand.
  */
 export interface AudioFeatures {
@@ -84,7 +84,7 @@ export interface ScanStartEvent {
    * Curator URI, `curator:<kind>:<curatorId>` where kind is `album` (a record sleeve) or `card`
    * (a printed card for a streaming-only album). Conductor and Backdrop treat both kinds identically
    * (lights + video); only Amp acts on the difference — it streams over Sonos for `card`, stays
-   * silent for `album` (you drop the needle on the vinyl). See ADR 0023 / `parseCuratorUri`.
+   * silent for `album` (you drop the needle on the vinyl). See ADR 0034 / `parseCuratorUri`.
    */
   uri: string;
   /**
@@ -107,7 +107,7 @@ export interface ScanStopEvent {
 
 export type ScanEvent = ScanStartEvent | ScanStopEvent;
 
-/** The physical object a scan URI names: a record `sleeve` (`album`) or a `card` (ADR 0023). */
+/** The physical object a scan URI names: a record `sleeve` (`album`) or a `card` (ADR 0034). */
 export type CuratorUriKind = "album" | "card";
 
 export interface ParsedCuratorUri {
@@ -122,7 +122,7 @@ const CURATOR_URI = /^curator:(album|card):([a-z0-9]{8})$/;
  * Parse a Curator scan URI into its kind + id, or `null` if it isn't a well-formed
  * `curator:(album|card):<id>`. The one place every service (Conductor, Backdrop, Amp) should decode
  * a scan URI, so the accepted shape stays identical across the fan-out. `album` = sleeve, `card` =
- * card; the id is shared (same album, different physical object). See ADR 0023.
+ * card; the id is shared (same album, different physical object). See ADR 0034.
  */
 export function parseCuratorUri(uri: string): ParsedCuratorUri | null {
   const m = CURATOR_URI.exec(uri);
