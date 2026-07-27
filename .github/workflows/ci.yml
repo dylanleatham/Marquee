@@ -22,6 +22,13 @@ jobs:
           # stay Linux-only to keep the bill down (Windows runners bill at 2x on private repos).
           - os: windows-latest
             task: test:unit
+            # Serialize the packages here (issue #131). Turbo's default ~10 concurrent tasks each
+            # spawn a vitest fork pool sized to the CPU count; on a 4-core Windows runner that
+            # process storm got a worker killed mid-run ("Worker exited unexpectedly") rather than
+            # failing any assertion. Windows process overhead is far higher than Linux, which is why
+            # only this leg flaked. It's a platform-bug safety net, not a speed-critical gate, so
+            # wall-clock is the right thing to trade for determinism.
+            turboFlags: --concurrency=1
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -30,7 +37,7 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm turbo run ${{ matrix.task }}
+      - run: pnpm turbo run ${{ matrix.task }} ${{ matrix.turboFlags }}
 
   python:
     name: python (stylus)
