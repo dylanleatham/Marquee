@@ -741,9 +741,39 @@ export function CardArtSection({
                 src={cardArtCandidateUrl(curatorId, c.index)}
                 alt={c.nudge || `option ${c.index + 1}`}
               />
-              <span>{c.nudge || `Option ${c.index + 1}`}</span>
+              <span>
+                {c.nudge || `Option ${c.index + 1}`}
+                {/* A cover-anchored option that generated only without the cover no longer
+                    re-renders the sleeve — say so rather than leave it to be inferred from the
+                    picture looking off (ADR 0032). */}
+                {c.coverReferenceDropped && (
+                  <em
+                    className="muted"
+                    title="Gemini refused this prompt with the album cover attached; it generated without the cover reference, so it won't closely match the sleeve."
+                  >
+                    {" "}
+                    · without cover reference
+                  </em>
+                )}
+              </span>
             </button>
           ))}
+        </div>
+      )}
+
+      {/* A refused variant used to be an unexplained gap in the gallery (issue #152). */}
+      {(asset.cardArtRefusals ?? []).length > 0 && (
+        <div className="banner banner--warn">
+          <strong>Gemini declined some options.</strong>
+          <ul>
+            {(asset.cardArtRefusals ?? []).map((r) => (
+              <li key={r.index}>
+                {r.nudge || `Option ${r.index + 1}`} — {r.reason}
+                {r.retriedWithoutCover &&
+                  " (also refused without the cover reference)"}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

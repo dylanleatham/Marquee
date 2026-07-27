@@ -93,7 +93,14 @@ export function ingestCardArt(
  */
 export function ingestCardArtCandidate(
   deps: { paths: Paths; now?: () => string },
-  args: { buffer: Buffer; curatorId: string; index: number; nudge?: string },
+  args: {
+    buffer: Buffer;
+    curatorId: string;
+    index: number;
+    nudge?: string;
+    /** Set when this image only generated after the cover reference was dropped (ADR 0032). */
+    coverReferenceDropped?: boolean;
+  },
 ): CardArtCandidate {
   const ext = detectImage(args.buffer);
   if (!ext)
@@ -111,6 +118,7 @@ export function ingestCardArtCandidate(
     ext,
     generatedAt: now,
     ...(args.nudge ? { nudge: args.nudge } : {}),
+    ...(args.coverReferenceDropped ? { coverReferenceDropped: true } : {}),
     ...(size
       ? {
           resolution: `${size.width}x${size.height}`,

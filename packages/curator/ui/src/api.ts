@@ -165,7 +165,18 @@ export interface CardArtCandidate {
   resolution?: string;
   orientation?: "landscape" | "portrait";
   nudge?: string;
+  /** Generated only after the cover reference was dropped on a retry (ADR 0032). */
+  coverReferenceDropped?: boolean;
   generatedAt: string;
+}
+
+/** A variant Gemini refused outright, so a missing gallery slot explains itself (ADR 0032). */
+export interface CardArtRefusal {
+  index: number;
+  nudge?: string;
+  reason: string;
+  retriedWithoutCover: boolean;
+  at: string;
 }
 
 export type PromptType = "video" | "cardArt";
@@ -275,6 +286,7 @@ export interface AlbumAsset {
   videoClips?: VideoClip[];
   cardArt?: CardArt;
   cardArtCandidates?: CardArtCandidate[];
+  cardArtRefusals?: CardArtRefusal[];
   tag?: {
     payload: string;
     sleeve?: { written: boolean; writtenAt?: string; tagUid?: string };

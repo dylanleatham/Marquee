@@ -151,8 +151,12 @@ function refusalOf(data: GenerateContentResponse): GeminiRefusal | undefined {
   return { reason, categories };
 }
 
-/** `IMAGE_SAFETY; HARM_CATEGORY_HARASSMENT` — the reason, then whatever tripped it. */
-const describeRefusal = (refusal: GeminiRefusal): string =>
+/**
+ * `IMAGE_SAFETY; HARM_CATEGORY_HARASSMENT` — the reason, then whatever tripped it. Exported so the
+ * callers that persist a refusal (card-art candidates, ADR 0032) render it identically to the error
+ * message, rather than each inventing its own format for the same data.
+ */
+export const describeRefusal = (refusal: GeminiRefusal): string =>
   [refusal.reason, ...refusal.categories].join("; ");
 
 const API_BASE = "https://generativelanguage.googleapis.com";

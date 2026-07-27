@@ -135,7 +135,30 @@ export interface CardArtCandidate {
   orientation?: "landscape" | "portrait";
   /** The prompt variant's nudge label this image was generated from (for the gallery). */
   nudge?: string;
+  /**
+   * True when the first attempt was refused *with* the cover attached and the retry without it
+   * succeeded (ADR 0032). Recorded because a `coverAnchored` option quietly ceasing to be anchored
+   * changes what the image is — it no longer re-renders the sleeve — and that should be visible
+   * rather than inferred from the picture looking wrong.
+   */
+  coverReferenceDropped?: boolean;
   generatedAt: string;
+}
+
+/**
+ * A card-art variant Gemini declined on both attempts (ADR 0032). Kept so a missing slot in the
+ * gallery explains itself: before this, a refused variant simply wasn't there, with no log line and
+ * nothing on the asset (issue #152).
+ */
+export interface CardArtRefusal {
+  index: number;
+  /** The prompt variant's nudge label, so the refusal names the option a human recognizes. */
+  nudge?: string;
+  /** Gemini's own words — `IMAGE_RECITATION`, `SAFETY; HARM_CATEGORY_…` — never normalized. */
+  reason: string;
+  /** True when the retry without the cover reference was also refused. */
+  retriedWithoutCover: boolean;
+  at: string;
 }
 
 /**
@@ -224,6 +247,8 @@ export interface AlbumAsset {
   cardArt?: CardArtSection;
   /** Gemini-generated card-art candidates (curator-spec §Card art); the human picks one to attach. */
   cardArtCandidates?: CardArtCandidate[];
+  /** Variants Gemini refused outright, so an absent candidate explains itself (ADR 0032). */
+  cardArtRefusals?: CardArtRefusal[];
   /** Per-object tag-write status (step 11); `tag.payload` is the URI written to both stickers. */
   tag?: TagSection;
   /** Preview-approval and physical-verification timestamps (steps 7/11). */

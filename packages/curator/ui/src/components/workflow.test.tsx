@@ -608,6 +608,55 @@ describe("CardArtSection", () => {
     await waitFor(() => expect(gen).toHaveBeenCalledTimes(1));
   });
 
+  // Issue #152 / ADR 0032: a refused option used to be an unexplained gap in the gallery.
+  it("names each refused option and its reason", () => {
+    const asset = withCardPrompt({
+      cardArtCandidates: [
+        {
+          index: 1,
+          fileId: "abcd1234-c1",
+          ext: "png",
+          nudge: "shimmer",
+          generatedAt: "x",
+        },
+      ],
+      cardArtRefusals: [
+        {
+          index: 0,
+          nudge: "cover reimagining",
+          reason: "IMAGE_RECITATION",
+          retriedWithoutCover: true,
+          at: "x",
+        },
+      ],
+    });
+    render(<CardArtSection curatorId="abcd1234" asset={asset} run={vi.fn()} />);
+    expect(screen.getByText(/Gemini declined some options/)).toBeTruthy();
+    expect(screen.getByText(/cover reimagining/)).toBeTruthy();
+    expect(screen.getByText(/IMAGE_RECITATION/)).toBeTruthy();
+    // The retry is worth stating: it says the cover reference was already ruled out.
+    expect(
+      screen.getByText(/also refused without the cover reference/),
+    ).toBeTruthy();
+  });
+
+  it("marks a candidate that only generated without the cover reference", () => {
+    const asset = withCardPrompt({
+      cardArtCandidates: [
+        {
+          index: 0,
+          fileId: "abcd1234-c0",
+          ext: "png",
+          nudge: "cover reimagining",
+          coverReferenceDropped: true,
+          generatedAt: "x",
+        },
+      ],
+    });
+    render(<CardArtSection curatorId="abcd1234" asset={asset} run={vi.fn()} />);
+    expect(screen.getByText(/without cover reference/)).toBeTruthy();
+  });
+
   it("renders a clickable gallery of candidates and selects one", () => {
     const run = vi.fn();
     const asset = withCardPrompt({
