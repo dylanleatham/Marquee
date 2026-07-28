@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Marquee spike — Widevine probe (issue #93)</title>
+    <style>
+      body {
+        font:
+          15px/1.6 system-ui,
+          sans-serif;
+        margin: 2rem auto;
+        max-width: 46rem;
+        padding: 0 1rem;
+      }
+      h1 {
+        font-size: 1.2rem;
+      }
+      #out {
+        border: 1px solid currentColor;
+        border-radius: 6px;
+        padding: 1rem;
+        white-space: pre-wrap;
+        font-family: ui-monospace, monospace;
+        font-size: 13px;
+      }
+      .verdict {
+        font-weight: 700;
+        margin-top: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Route C probe — does this runtime have Widevine?</h1>
+    <p>
+      The Spotify Web Playback SDK plays DRM-protected streams, which needs the
+      Widevine CDM. Stock Electron does not ship it; a
+      <a href="https://github.com/castlabs/electron-releases">castlabs</a> build
+      does. Open this file in the runtime you care about — Marquee's desktop
+      window, or a plain Chrome tab as a control — and read the verdict.
+    </p>
+    <div id="out">running…</div>
+    <script>
+      const lines = [];
+      const out = document.getElementById("out");
+      const say = (s) => {
+        lines.push(s);
+        out.textContent = lines.join("\n");
+      };
+
+      // Prefix every result with a word, never colour alone.
+      const mark = (ok) => (ok ? "YES —" : "NO  —");
+
+      const config = [
+        {
+          initDataTypes: ["cenc"],
+          audioCapabilities: [{ contentType: 'audio/mp4; codecs="mp4a.40.2"' }],
+        },
+      ];
+
+      async function probe(keySystem) {
+        try {
+          const access = await navigator.requestMediaKeySystemAccess(
+            keySystem,
+            config,
+          );
+          say(`${mark(true)} ${keySystem} available (${access.keySystem})`);
+          return true;
+        } catch (err) {
+          say(`${mark(false)} ${keySystem} unavailable: ${err.name}`);
+          return false;
+        }
+      }
+
+      // Exposed as a promise so run-in-electron.cjs can read the same result
+      // this page displays, rather than re-implementing the probe.
+      window.widevineProbe = (async () => {
+        // Node integration is off in a default renderer, so read the version
+        // off the user agent rather than window.process.
+        const electron =
+          (navigator.userAgent.match(/Electron\/([\d.]+)/) || [])[1] ||
+          "not an Electron renderer";
+        say(`user agent: ${navigator.userAgent}`);
+        say(`electron: ${electron}`);
+        say("");
+        const widevine = await probe("com.widevine.alpha");
+        const clearkey = await probe("org.w3.clearkey"); // control: works everywhere
+
+        const text = widevine
+          ? "VERDICT C: Widevine present — the Web Playback SDK could run here."
+          : "VERDICT C: no Widevine — the Web Playback SDK cannot run here without a castlabs Electron build.";
+        const verdict = document.createElement("p");
+        verdict.className = "verdict";
+        verdict.textContent = text;
+        document.body.appendChild(verdict);
+        return { widevine, clearkey, electron, report: lines.join("\n"), text };
+      })();
+    </script>
+  </body>
+</html>

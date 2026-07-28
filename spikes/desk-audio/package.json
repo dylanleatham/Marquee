@@ -1,0 +1,10 @@
+{
+  "name": "marquee-spike-desk-audio",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Throwaway viability spike (#93): which route plays album audio at the workstation for bench preview. No deps.",
+  "scripts": {
+    "probe": "node probe.js",
+    "widevine": "node ../../packages/desktop/node_modules/electron/cli.js run-in-electron.cjs"
+  }
+}
