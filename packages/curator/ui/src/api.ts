@@ -534,6 +534,21 @@ export const api = {
       body: JSON.stringify({ curatorId }),
     }),
 
+  /**
+   * Desk audio for bench preview (ADR 0037): start the album on the workstation's own Spotify
+   * client. Everything that merely didn't happen — no session, no desktop client, not Premium —
+   * comes back as `played:false` + a reason to show, never a thrown error.
+   */
+  deskAudioPlay: (id: string) =>
+    req<{ played: boolean; device?: string; reason?: string }>(
+      `/api/albums/${id}/desk-audio`,
+      { method: "POST" },
+    ),
+  deskAudioPause: (id: string) =>
+    req<{ paused: boolean; reason?: string }>(`/api/albums/${id}/desk-audio`, {
+      method: "DELETE",
+    }),
+
   // --- room rehearsal (ADR 0028): the real runtime path minus the physical tag ---
   simulateScan: (id: string, audio = true) =>
     req<{ services: RehearsalLeg[] }>(`/api/albums/${id}/simulate-scan`, {

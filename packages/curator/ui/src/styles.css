@@ -1460,6 +1460,13 @@ em {
   font-size: 12px;
   margin-top: 10px;
 }
+/* Desk audio (ADR 0037): the bench's audio leg sits under the stage, with its state in words. */
+.desk-audio {
+  margin-top: 14px;
+}
+.desk-audio .preview__note {
+  margin-top: 6px;
+}
 
 /* --- prompt slot: drafting is on request (ADR 0027), so an undrafted section says so --- */
 .prompt-slot--empty {

@@ -4,7 +4,7 @@
 //
 //  - Bench  — everything in the window. Touches no hardware, ever. The default, always available.
 //  - Room   — the real runtime path minus the physical tag, behind the room-arm switch.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   api,
@@ -62,6 +62,124 @@ function LegReport({ legs }: { legs: RehearsalLeg[] }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+/**
+ * Bench preview's audio leg (ADR 0037, issue #93): the album on the workstation's own Spotify
+ * client, via a Connect transfer Curator proxies.
+ *
+ * Two things this control owes the producer, both from the ADR. It **says it takes over Spotify**
+ * rather than reading as an anonymous play button — the transfer really does replace whatever they
+ * were listening to. And it **pauses when the bench goes away** (leaving Preview, or switching to
+ * room rehearsal, unmounts this), so desk audio never outlives the screen that started it.
+ *
+ * Nothing here touches hardware: the server only ever targets a local `Computer` device.
+ */
+function DeskAudio({
+  curatorId,
+  spotifyUri,
+}: {
+  curatorId: string;
+  spotifyUri?: string;
+}) {
+  const [device, setDevice] = useState<string | null>(null);
+  const [reason, setReason] = useState<string | null>(null);
+  // Refs as well as state: the unmount cleanup below runs after the last render and would
+  // otherwise close over whatever `device` was when the effect was created.
+  const playing = useRef(false);
+  const mounted = useRef(true);
+
+  useEffect(
+    () => () => {
+      mounted.current = false;
+      if (playing.current) void api.deskAudioPause(curatorId).catch(() => {});
+    },
+    [curatorId],
+  );
+
+  /** Pause without touching state — for a desk that started after its screen was gone. */
+  const pauseDetached = () => {
+    playing.current = false;
+    void api.deskAudioPause(curatorId).catch(() => {});
+  };
+
+  // Both handlers catch: the server reports its own failures as `reason`, but a request that never
+  // reached it (Curator down, network) would otherwise leave the button idle with nothing said —
+  // and a failed action never silently reverts (§10).
+  const start = async () => {
+    try {
+      const r = await api.deskAudioPlay(curatorId);
+      playing.current = r.played;
+      // Navigating away while Spotify was still starting: the cleanup above already ran and saw
+      // nothing playing, so this is the only place left that can stop it.
+      if (!mounted.current) {
+        if (r.played) pauseDetached();
+        return;
+      }
+      setDevice(r.played ? (r.device ?? "this machine") : null);
+      setReason(
+        r.played ? null : (r.reason ?? "Spotify didn't start the album"),
+      );
+    } catch (err) {
+      playing.current = false;
+      if (!mounted.current) return;
+      setDevice(null);
+      setReason(`Couldn't reach Curator — ${(err as Error).message}`);
+    }
+  };
+
+  // A pause that didn't happen leaves the control showing "pause" and says why — reverting to the
+  // play button would claim silence that isn't there.
+  const stop = async () => {
+    try {
+      const r = await api.deskAudioPause(curatorId);
+      playing.current = !r.paused;
+      if (r.paused) {
+        setDevice(null);
+        setReason(null);
+      } else {
+        setReason(r.reason ?? "Spotify didn't pause");
+      }
+    } catch (err) {
+      setReason(`Couldn't reach Curator — ${(err as Error).message}`);
+    }
+  };
+
+  // An album that was never on Spotify has nothing to transfer. Say so up front rather than make
+  // the producer click to find out — a disabled control always carries its reason (§4).
+  if (!spotifyUri)
+    return (
+      <div className="desk-audio">
+        <button className="btn" disabled title="This album has no Spotify URI">
+          ▶ Play at the desk
+        </button>
+        <p className="muted preview__note">
+          This album isn't on Spotify, so there's nothing to play at the desk.
+        </p>
+      </div>
+    );
+
+  return (
+    <div className="desk-audio">
+      {device ? (
+        <AsyncButton className="btn" onClick={stop} pendingLabel="Pausing…">
+          ⏸ Pause desk audio
+        </AsyncButton>
+      ) : (
+        <AsyncButton className="btn" onClick={start} pendingLabel="Starting…">
+          ▶ Play at the desk — takes over Spotify
+        </AsyncButton>
+      )}
+      {/* State is text, never colour alone (curator-ui-ux §3.4). A reason wins over the state line:
+          a pause that failed must not be papered over by "playing on …". */}
+      <p className="muted preview__note">
+        {reason ??
+          (device
+            ? `Playing on ${device} — this replaced whatever Spotify was doing.`
+            : "Plays a track from the album on this machine's Spotify client. The room is untouched.")}
+      </p>
+    </div>
   );
 }
 
@@ -148,12 +266,10 @@ export function PreviewWorkstation({
               </div>
             )}
           </div>
-          {/* Audio is the one unresolved piece (curator-ui-ux §11): bench ships silent until the
-              Spotify desk-playback route is proven by a spike. Say so rather than hide it. */}
-          <p className="muted preview__note">
-            Bench preview is silent for now — desk audio is pending a spike on
-            the Spotify playback route.
-          </p>
+          <DeskAudio
+            curatorId={curatorId}
+            spotifyUri={asset.metadata.spotifyUri}
+          />
         </>
       ) : (
         <div className="rehearsal">
