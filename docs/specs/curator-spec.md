@@ -420,7 +420,6 @@ to know when Curator is ready to show ([ADR 0008](../adrs/0008-desktop-app-super
 | POST     | `/api/albums/:curatorId/prompts/:type/draft`         | **Draft this prompt type on request** — the lazy replacement for Roadie's old `drafting_prompts` step ([ADR 0027](../adrs/0027-generation-is-invoked-not-pipelined.md)). Prefers the grounded Gemini path, silently falls back to templates, so it cannot fail on a missing key. Drafts **only** the requested type. `400` if no palette yet. |
 | POST     | `/api/albums/:curatorId/prompts/:type/select`        | Choose which of the five drafted variants is active (the one Copy hands off and generation uses). Body: `{ index }`.                                                                                                                                                                                                                          |
 | POST     | `/api/albums/:curatorId/prompts/:type/regenerate-ai` | Redraft as a fresh grounded LLM variant set. Unlike `draft` there is **no template fallback** — a failure surfaces and the existing draft is left untouched. `400` without a Gemini key.                                                                                                                                                      |
-| POST     | `/api/albums/:curatorId/prompts/:type/redraft`       | Regenerate a prompt. `type` is `video` or `cardArt`. Body: `{ template?: string }`.                                                                                                                                                                                                                                                           |
 | POST     | `/api/albums/:curatorId/prompts/:type/copied`        | Marks a prompt as copied — sent by the UI's Copy Prompt button itself (ADR 0005). For `video`, transitions from `awaiting_review` toward `awaiting_video`. For `cardArt`, marks the card side as "prompt ready to generate art."                                                                                                              |
 | ~~GET~~  | ~~`/api/prompt-templates/:type`~~                    | **Never implemented; superseded 2026-07-25.** A user-authored template registry was overtaken by the five fixed metaprompt angles ([ADRs 0021](../adrs/0021-card-art-five-option-prompt-strategy.md) / [0022](../adrs/0022-video-prompt-parity-narrative-and-per-prompt.md)). The remaining style templates are a fixed client-side list.     |
 | ~~POST~~ | ~~`/api/prompt-templates/:type`~~                    | **Never implemented; superseded 2026-07-25.** See above.                                                                                                                                                                                                                                                                                      |
@@ -748,13 +747,15 @@ independently routable (`/albums/:curatorId/video`) and **always reachable**:
 
 - **Video prompts** — five, default `narrative` style ([ADR 0022](../adrs/0022-video-prompt-parity-narrative-and-per-prompt.md)),
   each shown in full with its own **Copy** and, when API generation is on, its own **Generate clip**
-  button (one Omni clip from that prompt, into the clip gallery + splice) + Regenerate + template
-  selector. Copying any prompt records the copy itself (moving the album to `awaiting_video` at
+  button (one Omni clip from that prompt, into the clip gallery + splice), plus **Regenerate with
+  AI** — the only re-draft control ([issue #140](https://github.com/dylanleatham/Marquee/issues/140)
+  removed the template style selector). Copying any prompt records the copy itself (moving the album to `awaiting_video` at
   review); there is no separate "mark as copied" button ([ADR 0005](../adrs/0005-video-attach-does-not-require-copying-the-prompt.md)).
 - **Card-art prompts** — the five fixed angles ([ADR 0021](../adrs/0021-card-art-five-option-prompt-strategy.md)),
   each with its own **Copy** (to take to Google Flow / Midjourney) and, when API generation is
-  enabled, its own **Generate art** button (one Nano Banana image) + Regenerate + template selector
-  (independent from the video prompt template).
+  enabled, its own **Generate art** button (one Nano Banana image), plus **Regenerate with AI** —
+  the only re-draft control ([issue #140](https://github.com/dylanleatham/Marquee/issues/140)
+  removed the template style selector; templates are the fallback only).
 - **Prompts are drafted on request, not on arrival** ([ADR 0027](../adrs/0027-generation-is-invoked-not-pipelined.md)).
   An undrafted section shows a **Draft prompts** button; a section whose artifact is already attached
   leads with the artifact and never auto-drafts.

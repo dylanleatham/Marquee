@@ -106,7 +106,6 @@ returns a `413` naming the limit (spec §9).
 | Method | Path                                                                     | Purpose                                                                                           |
 | ------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
 | POST   | `/api/albums/:id/prompts/:type/copied`                                   | Mark a prompt copied. Video → advances `awaiting_review → awaiting_video`.                        |
-| POST   | `/api/albums/:id/prompts/:type/redraft`                                  | Regenerate a prompt (`{ template? }`). `type` is `video` or `cardArt`.                            |
 | POST   | `/api/videos/upload`                                                     | Multipart. With `curatorId` → ingest + attach (`→ awaiting_preview`); else stash in `/incoming/`. |
 | GET    | `/api/incoming`                                                          | List unclaimed files in `/incoming/`.                                                             |
 | POST   | `/api/albums/:id/attach-video`                                           | Claim an `/incoming/` file by `{ fileId }` and attach it.                                         |

@@ -854,28 +854,6 @@ export function buildServer(opts: BuildOptions = {}) {
 
   // --- Prompt actions (curator-spec §Prompts) ---
   app.post(
-    "/api/albums/:curatorId/prompts/:type/redraft",
-    async (req, reply) => {
-      const { curatorId, type } = req.params as {
-        curatorId: string;
-        type: PromptType;
-      };
-      const { template } = (req.body ?? {}) as { template?: string };
-      try {
-        const asset = actions.redraftPrompt(
-          actionDeps,
-          curatorId,
-          type,
-          template,
-        );
-        return { promptDrafts: asset.promptDrafts };
-      } catch (err) {
-        return actionError(err, reply, req);
-      }
-    },
-  );
-
-  app.post(
     "/api/albums/:curatorId/prompts/:type/copied",
     async (req, reply) => {
       const { curatorId, type } = req.params as {

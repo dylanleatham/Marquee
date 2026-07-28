@@ -32,8 +32,6 @@ vi.mock("../api", () => ({
   cardArtUrl: () => "",
   cardArtPrintUrl: () => "",
   cardArtCandidateUrl: () => "",
-  VIDEO_TEMPLATES: [],
-  CARD_ART_TEMPLATES: [],
 }));
 
 import { api } from "../api";

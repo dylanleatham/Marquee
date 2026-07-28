@@ -228,8 +228,8 @@ Sync failures never move albums backward through the state machine. They're reco
 > deterministic templates below only when Gemini is unavailable. The "no external dependencies /
 > pure function" property described in this section now holds for the **template fallback only**,
 > not the primary path. See the ADR for the two-pass design and the LLM/fallback split; the sections
-> below describe the deterministic templates, which remain the fallback and the on-demand style
-> `redraft`.
+> below describe the deterministic templates, which remain the fallback **only** (the on-demand
+> style `redraft` was removed — see the 2026-07-28 amendment under "Common properties").
 
 Roadie drafts two prompts per album: one for the visualizer video that plays on Backdrop, and one for the business-card art that gets printed and stuck onto the physical card. Both use the same inputs — album metadata + palette — but have different templates suited to their output medium.
 
@@ -255,7 +255,7 @@ call, hence the two passes.
 > ported into motion — with `photo` and `abstract` kept as the two `videoStyle` alternates. The detail
 > UI surfaces all five prompts, each individually copyable and generatable (per-prompt "Generate
 > clip", a background job keyed on the prompt index). The deterministic **template** shape below
-> remains the fallback and the on-demand style `redraft`.
+> remains the fallback **only** (see the 2026-07-28 amendment under "Common properties").
 
 The **template fallback** emits this shape (its "3 minutes" line is the template's text, not a
 system guarantee). The **LLM path** (ADR 0009) authors the prompt from the metaprompt + research
@@ -264,7 +264,7 @@ instead. And per [ADR 0011](../adrs/0011-auto-generate-visualizer-clips.md), whe
 splices into the loop — so the visualizer is a short spliced loop, not a single 3-minute render.
 
 ```
-[Video style template preamble — user-selectable]
+[Video style template preamble — fallback default; not user-selectable since #140]
 For the album "{title}" by {artist} ({year}).
 Genre context: {genres}.
 Color palette to draw from:
@@ -292,8 +292,8 @@ Video style templates (motion-oriented):
 > Signature Motif, Visual Artist Provenance, Live Performance Era, Album Lore & Narrative Artifact —
 > and the drafter asks for those in order (each labelled by its option title), not generic variance
 > nudges. The detail UI surfaces all five prompts, each individually copyable and generatable
-> (per-prompt "Generate art"). The deterministic **template** shape below remains the fallback and the
-> on-demand style `redraft`.
+> (per-prompt "Generate art"). The deterministic **template** shape below remains the fallback
+> **only** (see the 2026-07-28 amendment under "Common properties").
 >
 > **Amended 2026-07-26 by [ADR 0031](../adrs/0031-card-art-cover-reference-image.md).** Each drafted
 > variant also carries **`coverAnchored`** (boolean): true for the options that directly re-render the
@@ -309,7 +309,7 @@ Video style templates (motion-oriented):
 > text-only. See [curator-spec §Card art](curator-spec.md).
 
 ```
-[Card art style template preamble — user-selectable]
+[Card art style template preamble — fallback default; not user-selectable since #140]
 Business-card sized art for the album "{title}" by {artist} ({year}).
 Genre context: {genres}.
 Color palette to draw from:
@@ -331,7 +331,20 @@ Card art style templates (static, emblem-oriented):
 
 ### Common properties
 
-Users pick templates independently for each type on the album's detail page — you might want a `psychedelic` video paired with a `typographic` card. Roadie's defaults when unspecified: `abstract_flow` for video, `iconic_emblem` for card art. These templates remain available on the detail page as the on-demand `redraft` (a deterministic style switch), independent of the LLM path.
+Roadie's defaults when unspecified: `abstract_flow` for video, `iconic_emblem` for card art.
+
+> **Amended 2026-07-28 ([issue #140](https://github.com/dylanleatham/Marquee/issues/140)): templates
+> are the fallback only — they are no longer user-selectable.** The detail page's template style
+> `<select>`, and the `POST /api/albums/:curatorId/prompts/:type/redraft` route behind it, are both
+> removed. The picker listed five _template_ names beside five _metaprompt angle_ prompts — same
+> count, unrelated vocabulary, no correspondence — and changing it silently replaced the grounded AI
+> prompts with a template draft, immediately beside the "AI · grounded" badge.
+>
+> Templates are unchanged and still reached two ways: Roadie's pipeline fallback, and
+> `POST /api/albums/:curatorId/prompts/:type/draft`, which re-runs on demand and falls back — so a
+> run with no Gemini key still gets prompts. The provenance badge stays, so a template draft remains
+> identifiable after the fact. What's gone is _choosing a style_, which nothing in the workflow
+> wanted.
 
 The **template path** has no external dependencies — pure function of album metadata + palette + template, fast and deterministic given inputs (goldens cover it). The **LLM path** (ADR 0009, the default) is an external, non-deterministic Gemini call; it's tested structurally (variant count, provenance, grounded/structured call shape) against `@marquee/fake-gemini`, not by golden-exact text.
 

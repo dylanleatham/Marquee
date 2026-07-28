@@ -109,45 +109,17 @@ function load(store: AssetStore, curatorId: string): AlbumAsset {
 
 const PROMPT_TYPES: PromptType[] = ["video", "cardArt"];
 
-/** Regenerate one prompt from the current palette + a chosen template (curator-spec §Prompts). */
-export function redraftPrompt(
-  deps: ActionDeps,
-  curatorId: string,
-  type: PromptType,
-  template: string | undefined,
-): AlbumAsset {
-  if (!PROMPT_TYPES.includes(type))
-    throw new ValidationError(`unknown prompt type ${type}`);
-  const asset = load(deps.store, curatorId);
-  if (!asset.palette)
-    throw new ValidationError(
-      "palette isn't generated yet — nothing to draft from",
-    );
-
-  const colors = asset.palette.colors.map((c) => ({
-    hex: c.hex,
-    role: c.role,
-  }));
-  const opts: DraftOptions = { now: clock(deps) };
-  if (type === "video") opts.videoTemplate = template;
-  else opts.cardArtTemplate = template;
-
-  const drafted = draftPrompts(asset.metadata, colors, opts);
-  asset.promptDrafts = { ...asset.promptDrafts, [type]: drafted[type] };
-  deps.store.save(asset);
-  return asset;
-}
-
 /**
  * Draft one prompt type on demand — the lazy replacement for Roadie's old `drafting_prompts`
  * pipeline step (ADR 0027). Prefers the grounded LLM path and silently falls back to the
  * deterministic templates, so like the pipeline step it *cannot fail*: the caller always gets
  * prompts, LLM-authored or templated.
  *
- * Distinct from its two neighbours on purpose:
- *  - `redraftPrompt` is templates-only with an explicit template choice ("try a different style").
+ * Distinct from its one neighbour on purpose:
  *  - `regeneratePromptWithAI` requires Gemini and never falls back ("I specifically want AI").
- *  - this one is "I have no prompts yet, get me the best available" — the first-visit action.
+ *  - this one is "I have no prompts yet, get me the best available" — the first-visit action, and
+ *    the only way back to a template draft now that the style selector is gone (issue #140): it
+ *    re-runs on demand and falls back, so a run without a Gemini key still reaches the templates.
  *
  * Idempotent by intent, not by guard: drafting again simply replaces that type's draft.
  */

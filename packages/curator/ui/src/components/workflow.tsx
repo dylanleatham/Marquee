@@ -13,8 +13,6 @@ import {
   cardArtUrl,
   cardArtPrintUrl,
   cardArtCandidateUrl,
-  VIDEO_TEMPLATES,
-  CARD_ART_TEMPLATES,
   type AlbumAsset,
   type DraftedPrompt,
   type PromptType,
@@ -54,7 +52,16 @@ function pickFile(onFile: (f: File) => void) {
   };
 }
 
-/** Shared prompt header: provenance badge, "Regenerate with AI", and the template style <select>. */
+/**
+ * Shared prompt header: provenance badge + "Regenerate with AI".
+ *
+ * The template style `<select>` that used to sit here is gone (issue #140). It listed five
+ * *deterministic template* names beside five *metaprompt angle* prompts — same count, unrelated
+ * vocabulary, no correspondence — so it read as a menu for something you weren't doing. Worse, it
+ * was quietly destructive: changing it re-ran the deterministic drafter server-side, replacing five
+ * grounded AI prompts with a template draft, with no warning, immediately beside the "AI · grounded"
+ * badge. The templates remain as the pipeline's fallback; they are simply no longer a control.
+ */
 function PromptHead({
   curatorId,
   type,
@@ -69,11 +76,6 @@ function PromptHead({
   /** Type-specific trailing control(s) — e.g. the video "Copy prompt" button. */
   children?: React.ReactNode;
 }) {
-  // A template change re-runs the deterministic drafter server-side; disable the <select> (not a
-  // button, so no AsyncButton) while that round-trips so it can't be spammed (issue #62).
-  const [redrafting, wrapRedraft] = usePending();
-  const templates = type === "video" ? VIDEO_TEMPLATES : CARD_ART_TEMPLATES;
-  const defaultTemplate = templates[0];
   const isAI = prompt.generator === "gemini";
   return (
     <div className="prompt__head">
@@ -95,23 +97,6 @@ function PromptHead({
       >
         Regenerate with AI
       </AsyncButton>
-      <select
-        className="select"
-        value={prompt.template ?? defaultTemplate}
-        aria-label="prompt template"
-        disabled={redrafting}
-        onChange={(e) =>
-          wrapRedraft(() =>
-            run(() => api.redraftPrompt(curatorId, type, e.target.value)),
-          )
-        }
-      >
-        {templates.map((t) => (
-          <option key={t} value={t}>
-            {t}
-          </option>
-        ))}
-      </select>
       {children}
     </div>
   );
@@ -222,8 +207,8 @@ function PromptList({
 /**
  * A drafted prompt set — every variant surfaced with its own Copy and, when API generation is on, its
  * own generate button: card art → one Nano Banana image per prompt (synchronous, into the candidate
- * gallery); video → one Omni clip per prompt (background job, into the clip gallery + splice). The
- * template <select> reruns the deterministic template; "Regenerate with AI" re-runs the LLM drafter.
+ * gallery); video → one Omni clip per prompt (background job, into the clip gallery + splice).
+ * "Regenerate with AI" re-runs the LLM drafter — the only re-draft control (issue #140).
  */
 export function PromptBlock({
   curatorId,

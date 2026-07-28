@@ -199,20 +199,27 @@ describe("onboarding workflow", () => {
     expect(store.read(curatorId)!.visualizer).toBeUndefined();
   });
 
-  it("redrafts a prompt with a chosen template", async () => {
-    const { app, store, curatorId } = await serverWithReviewedAlbum();
+  // Issue #140: the on-demand template `redraft` route is gone with the selector that drove it.
+  // The templates survive as the pipeline fallback, reachable through `draft` (which re-runs and
+  // falls back), so a run without a Gemini key still gets prompts — that is asserted below.
+  it("no longer exposes the on-demand template redraft route", async () => {
+    const { app, curatorId } = await serverWithReviewedAlbum();
     const res = await post(
       app,
       `/api/albums/${curatorId}/prompts/video/redraft`,
-      {
-        template: "psychedelic",
-      },
+      { template: "psychedelic" },
     );
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("still reaches the deterministic templates via draft when Gemini isn't configured", async () => {
+    const { app, store, curatorId } = await serverWithReviewedAlbum();
+    const res = await post(app, `/api/albums/${curatorId}/prompts/video/draft`);
     expect(res.statusCode).toBe(200);
-    expect(res.json().promptDrafts.video.template).toBe("psychedelic");
-    expect(
-      activePromptText(store.read(curatorId)!.promptDrafts!.video!),
-    ).toContain("Kaleidoscopic");
+    const draft = store.read(curatorId)!.promptDrafts!.video!;
+    // No Gemini in this server, so the fallback ran — provenance says so, and there are prompts.
+    expect(draft.generator).toBe("template");
+    expect(activePromptText(draft).length).toBeGreaterThan(0);
   });
 
   it("attaches and serves card art independently of the state machine", async () => {
