@@ -569,6 +569,37 @@ describe("hue-conductor HTTP API", () => {
         );
       });
 
+      it("forwards the album's tuning to the session (ADR 0036)", async () => {
+        const ss = fakeStream();
+        const store = seededStore();
+        store.setListeningRoom("1");
+        store.setEntertainmentArea(AREA_ID);
+        const fake = livingRoom();
+        const { app } = buildServer({
+          config: { sharedSecret: SECRET },
+          store,
+          driver: fake.driver,
+          timers: new FakeTimers(),
+          assets: {
+            read: async () =>
+              ({
+                ...OPTED_IN,
+                streamingEffect: "aurora",
+                streamingParams: { speed: 0.2, scale: 3 },
+              }) as never,
+          },
+          streamSession: ss,
+        });
+        await scan(app);
+        expect(ss.start).toHaveBeenCalledWith(
+          "1",
+          AREA_ID,
+          "aurora",
+          ["#7867A0", "#D98D40"],
+          { speed: 0.2, scale: 3 },
+        );
+      });
+
       it("falls back to the album's own derived pattern, not a generic rotate", async () => {
         // The reason the opt-in rides beside `pattern` instead of overwriting it. A CLIP-only room
         // must keep the energy-aware motion ADR 0033 derived for this album.

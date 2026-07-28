@@ -184,6 +184,40 @@ describe("streaming-effect route", () => {
     expect((await put(app, "zzzz9999", "aurora")).statusCode).toBe(404);
   });
 
+  it("accepts params and returns them alongside the effect (ADR 0036)", async () => {
+    const { app, store, curatorId } = await reviewedServer();
+    const res = await app.inject({
+      method: "PUT",
+      url: `/api/albums/${curatorId}/streaming-effect`,
+      payload: { effect: "aurora", params: { speed: 0.2 } },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      streamingEffect: "aurora",
+      streamingParams: { speed: 0.2 },
+    });
+    expect(store.read(curatorId)!.streamingParams).toEqual({ speed: 0.2 });
+  });
+
+  it("400s on a knob outside its range or belonging to another effect", async () => {
+    const { app, curatorId } = await reviewedServer();
+    const bad = (payload: unknown) =>
+      app.inject({
+        method: "PUT",
+        url: `/api/albums/${curatorId}/streaming-effect`,
+        payload: payload as never,
+      });
+    expect(
+      (await bad({ effect: "aurora", params: { speed: 99 } })).statusCode,
+    ).toBe(400);
+    expect(
+      (await bad({ effect: "wave", params: { scale: 2 } })).statusCode,
+    ).toBe(400);
+    expect(
+      (await bad({ effect: "aurora", params: { speed: "fast" } })).statusCode,
+    ).toBe(400);
+  });
+
   it("409s while Roadie is still processing the album", async () => {
     // Same rule as a palette edit (ADR 0025): the pipeline is still writing the asset. Asserted at
     // the route, not just the action, because the status code is the part a caller depends on.

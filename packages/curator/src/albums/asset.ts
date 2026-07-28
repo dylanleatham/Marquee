@@ -247,6 +247,12 @@ export interface AlbumAsset {
    * for a room with no entertainment area configured.
    */
   streamingEffect?: StreamPatternType | null;
+  /**
+   * Tuning for `streamingEffect` (ADR 0036). Only the knobs moved off their renderer default are
+   * stored, and they belong to the *current* effect — switching effects clears them, since
+   * `aurora.scale` means nothing to `wave`.
+   */
+  streamingParams?: Record<string, number>;
   /** Present once Roadie has drafted the video + card-art prompts. */
   promptDrafts?: PromptDrafts;
   /** Present once a video is attached (step 7). */

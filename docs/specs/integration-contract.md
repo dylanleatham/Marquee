@@ -41,6 +41,9 @@ type PalettePayload = {
   // the album's own derived pattern rather than a generic guess — see the note below.
   streaming?: {
     effect: "aurora" | "shimmer" | "wave";
+    // That effect's own knobs, per album (ADR 0036). Absent keys use the renderer's default, so
+    // `{}` and absent mean the same thing. Ranges live in STREAM_PARAM_SPECS.
+    params?: Record<string, number>;
   };
 
   meta?: {
@@ -207,7 +210,13 @@ Sketch:
       "type": "object",
       "required": ["effect"],
       "additionalProperties": false,
-      "properties": { "effect": { "enum": ["aurora", "shimmer", "wave"] } }
+      "properties": {
+        "effect": { "enum": ["aurora", "shimmer", "wave"] },
+        "params": {
+          "type": "object",
+          "additionalProperties": { "type": "number" }
+        }
+      }
     },
     "meta": { "type": "object" }
   }

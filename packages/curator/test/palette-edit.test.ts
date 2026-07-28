@@ -332,3 +332,70 @@ describe("setStreamingEffect", () => {
     );
   });
 });
+
+// ADR 0036: tuning the chosen effect's own knobs.
+describe("setStreamingEffect — params", () => {
+  it("stores only the knobs moved off their default", () => {
+    const store = tmpStore();
+    seed(store);
+    const asset = setStreamingEffect(deps(store), "aaaa1111", "aurora", {
+      speed: 0.2,
+      scale: 1.2, // the default — not stored
+    });
+    expect(asset.streamingParams).toEqual({ speed: 0.2 });
+  });
+
+  it("clears tuning when the effect changes", () => {
+    // `aurora.scale` means nothing to `wave`; carrying it over would silently reinterpret it.
+    const store = tmpStore();
+    seed(store);
+    setStreamingEffect(deps(store), "aaaa1111", "aurora", { scale: 3 });
+    const switched = setStreamingEffect(deps(store), "aaaa1111", "wave");
+    expect(switched.streamingParams).toBeUndefined();
+  });
+
+  it("leaves tuning alone when params are omitted for the same effect", () => {
+    const store = tmpStore();
+    seed(store);
+    setStreamingEffect(deps(store), "aaaa1111", "aurora", { speed: 0.2 });
+    const again = setStreamingEffect(deps(store), "aaaa1111", "aurora");
+    expect(again.streamingParams).toEqual({ speed: 0.2 });
+  });
+
+  it("resets tuning when params are an empty object", () => {
+    const store = tmpStore();
+    seed(store);
+    setStreamingEffect(deps(store), "aaaa1111", "aurora", { speed: 0.2 });
+    const reset = setStreamingEffect(deps(store), "aaaa1111", "aurora", {});
+    expect(reset.streamingParams).toBeUndefined();
+  });
+
+  it("drops tuning when the opt-in is cleared", () => {
+    const store = tmpStore();
+    seed(store);
+    setStreamingEffect(deps(store), "aaaa1111", "aurora", { speed: 0.2 });
+    const off = setStreamingEffect(deps(store), "aaaa1111", null);
+    expect(off.streamingEffect).toBeUndefined();
+    expect(off.streamingParams).toBeUndefined();
+  });
+
+  it("rejects an out-of-range or foreign knob as a ValidationError", () => {
+    const store = tmpStore();
+    seed(store);
+    expect(() =>
+      setStreamingEffect(deps(store), "aaaa1111", "aurora", { speed: 99 }),
+    ).toThrow(ValidationError);
+    expect(() =>
+      setStreamingEffect(deps(store), "aaaa1111", "wave", { scale: 2 }),
+    ).toThrow(ValidationError);
+  });
+
+  it("still leaves the derived pattern untouched", () => {
+    const store = tmpStore();
+    const before = seed(store).pattern;
+    const asset = setStreamingEffect(deps(store), "aaaa1111", "aurora", {
+      speed: 0.2,
+    });
+    expect(asset.pattern).toEqual(before);
+  });
+});

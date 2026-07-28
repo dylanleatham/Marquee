@@ -197,6 +197,14 @@ and it never replaces the derived pattern, which remains what plays without an a
 ([ADR 0035](../adrs/0035-streaming-effect-is-a-per-album-opt-in.md)). Per §10 the control says so
 rather than degrading silently.
 
+Choosing an effect reveals **its own knobs** as sliders
+([ADR 0036](../adrs/0036-streaming-effect-params-are-tunable.md)) — tunable precisely because they
+are not derived from anything, so there is no computed value to fight with. Each shows its number
+beside the slider, since a slider alone can't be read back or reproduced, and saves on release
+rather than on every drag frame. Ranges come from `STREAM_PARAM_SPECS` in `@marquee/contracts`, the
+same source the server validates against. Judge the result in **Room rehearsal** (§6.2) — bench
+preview never drives the lights.
+
 ## 6. Preview — bench and room
 
 Preview has **two modes** ([ADR 0028](../adrs/0028-preview-bench-and-room-modes.md)). The split is

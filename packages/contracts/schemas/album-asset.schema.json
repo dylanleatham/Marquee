@@ -32,6 +32,11 @@
       "description": "Per-album opt-in to an Entertainment streaming effect (ADR 0035). Absent or null means the derived `pattern` plays.",
       "oneOf": [{ "enum": ["aurora", "shimmer", "wave"] }, { "type": "null" }]
     },
+    "streamingParams": {
+      "description": "Tuning for `streamingEffect` (ADR 0036). Only knobs moved off their default are stored; cleared when the effect changes.",
+      "type": "object",
+      "additionalProperties": { "type": "number" }
+    },
     "promptDrafts": { "type": "object" },
     "visualizer": { "type": ["object", "null"] },
     "videoClips": { "type": "array", "items": { "type": "object" } },

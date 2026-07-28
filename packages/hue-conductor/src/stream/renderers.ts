@@ -22,6 +22,20 @@ const scale255 = (
   b: Math.round(rgb.b * mul),
 });
 
+/**
+ * Each effect's parameter defaults, in one exported place (ADR 0036).
+ *
+ * The renderers below read from here rather than repeating literals, and `STREAM_PARAM_SPECS` in
+ * `@marquee/contracts` mirrors these so Curator's sliders start at the right position. A test in
+ * this package diffs the two — the mirror is what would otherwise rot silently, and a slider showing
+ * the wrong "untouched" position for every album is not the kind of bug anyone reports.
+ */
+export const STREAM_RENDERER_DEFAULTS = {
+  aurora: { speed: 0.06, scale: 1.2, brightness: 1 },
+  shimmer: { speed: 1.5, intensity: 0.35 },
+  wave: { speed: 0.25, angleDeg: 0 },
+} as const;
+
 export interface AuroraParams {
   /** Field units drifted per second — how fast the colors morph. Default 0.06. */
   speed?: number;
@@ -41,9 +55,11 @@ export function aurora(
   hexes: string[],
   params: AuroraParams = {},
 ): StreamRenderer {
-  const speed = params.speed ?? 0.06;
-  const spatial = params.scale ?? 1.2;
-  const bri = clamp01(params.brightness ?? 1);
+  const speed = params.speed ?? STREAM_RENDERER_DEFAULTS.aurora.speed;
+  const spatial = params.scale ?? STREAM_RENDERER_DEFAULTS.aurora.scale;
+  const bri = clamp01(
+    params.brightness ?? STREAM_RENDERER_DEFAULTS.aurora.brightness,
+  );
   return {
     frame(tMs: number): StreamFrame {
       const t = tMs / 1000;
@@ -76,8 +92,10 @@ export function shimmer(
   hexes: string[],
   params: ShimmerParams = {},
 ): StreamRenderer {
-  const speed = params.speed ?? 1.5;
-  const intensity = clamp01(params.intensity ?? 0.35);
+  const speed = params.speed ?? STREAM_RENDERER_DEFAULTS.shimmer.speed;
+  const intensity = clamp01(
+    params.intensity ?? STREAM_RENDERER_DEFAULTS.shimmer.intensity,
+  );
   const n = lights.length;
   return {
     frame(tMs: number): StreamFrame {
@@ -109,8 +127,10 @@ export function wave(
   hexes: string[],
   params: WaveParams = {},
 ): StreamRenderer {
-  const speed = params.speed ?? 0.25;
-  const angle = ((params.angleDeg ?? 0) * Math.PI) / 180;
+  const speed = params.speed ?? STREAM_RENDERER_DEFAULTS.wave.speed;
+  const angle =
+    ((params.angleDeg ?? STREAM_RENDERER_DEFAULTS.wave.angleDeg) * Math.PI) /
+    180;
   const dx = Math.cos(angle);
   const dy = Math.sin(angle);
   return {

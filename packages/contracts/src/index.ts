@@ -43,6 +43,140 @@ export const STREAM_PATTERN_TYPES: readonly StreamPatternType[] = [
   "wave",
 ];
 
+/** One tunable knob on a streaming effect: what it's called, what it means, and its legal range. */
+export interface StreamParamSpec {
+  key: string;
+  label: string;
+  min: number;
+  max: number;
+  /** Slider granularity, and the precision a stored value is expected to have. */
+  step: number;
+  /** The renderer's own default. A param at its default is not stored. */
+  default: number;
+  /** Plain-language effect of turning it up — the UI shows this, not the units. */
+  hint: string;
+}
+
+/**
+ * The knobs each streaming effect exposes (ADR 0036), mirroring the renderers' own parameters and
+ * defaults in `hue-conductor/src/stream/renderers.ts`.
+ *
+ * Declared here, once, because two places have to agree exactly: Curator's server rejects a value
+ * outside these bounds, and Curator's UI draws the slider. Two copies of a range is a bug waiting to
+ * happen — a UI that offers a value the server refuses is worse than no slider.
+ *
+ * Bounds are usable ranges rather than everything a renderer tolerates. `aurora.speed` accepts any
+ * positive number; past ~0.5 it stops reading as an aurora.
+ */
+export const STREAM_PARAM_SPECS: Record<StreamPatternType, StreamParamSpec[]> =
+  {
+    aurora: [
+      {
+        key: "speed",
+        label: "Speed",
+        min: 0.01,
+        max: 0.5,
+        step: 0.01,
+        default: 0.06,
+        hint: "How fast the colours drift and morph.",
+      },
+      {
+        key: "scale",
+        label: "Spread",
+        min: 0.2,
+        max: 4,
+        step: 0.1,
+        default: 1.2,
+        hint: "Higher spreads more distinct colours across the room.",
+      },
+      {
+        key: "brightness",
+        label: "Brightness",
+        min: 0.1,
+        max: 1,
+        step: 0.05,
+        default: 1,
+        hint: "Overall level. Lower for a dimmer room.",
+      },
+    ],
+    shimmer: [
+      {
+        key: "speed",
+        label: "Twinkle speed",
+        min: 0.1,
+        max: 6,
+        step: 0.1,
+        default: 1.5,
+        hint: "How fast each light flickers.",
+      },
+      {
+        key: "intensity",
+        label: "Depth",
+        min: 0,
+        max: 1,
+        step: 0.05,
+        default: 0.35,
+        hint: "How far the brightness dips. 0 is steady.",
+      },
+    ],
+    wave: [
+      {
+        key: "speed",
+        label: "Sweep speed",
+        min: 0.05,
+        max: 2,
+        step: 0.05,
+        default: 0.25,
+        hint: "Gradient cycles swept per second.",
+      },
+      {
+        key: "angleDeg",
+        label: "Direction",
+        min: 0,
+        max: 355,
+        step: 5,
+        default: 0,
+        hint: "0° sweeps left→right, 90° rear→front.",
+      },
+    ],
+  };
+
+/**
+ * Validate a params object for one effect. Returns the accepted params, or throws with a message
+ * naming what was wrong — callers map that to a 400.
+ *
+ * Values equal to the renderer's default are dropped rather than stored: an album that has been
+ * left alone should carry no params at all, so "untouched" and "explicitly set to the default" don't
+ * become two states that look identical but diverge if a default ever changes.
+ */
+export function validateStreamParams(
+  effect: StreamPatternType,
+  params: unknown,
+): Record<string, number> {
+  if (params == null) return {};
+  if (typeof params !== "object" || Array.isArray(params))
+    throw new Error("params must be an object");
+  const specs = STREAM_PARAM_SPECS[effect];
+  const out: Record<string, number> = {};
+  for (const [key, value] of Object.entries(
+    params as Record<string, unknown>,
+  )) {
+    const spec = specs.find((s) => s.key === key);
+    if (!spec)
+      throw new Error(
+        `unknown param "${key}" for ${effect} — expected ${specs.map((s) => s.key).join(", ")}`,
+      );
+    if (typeof value !== "number" || !Number.isFinite(value))
+      throw new Error(`param "${key}" must be a finite number`);
+    if (value < spec.min || value > spec.max)
+      throw new Error(
+        `param "${key}" must be between ${spec.min} and ${spec.max}`,
+      );
+    if (value !== spec.default) out[key] = value;
+  }
+  return out;
+}
+
 /**
  * Optional per-album audio descriptors (integration-contract §1 `meta.audioFeatures`). Present only
  * when a generator had access — Spotify's audio-features endpoint is deprecated, so today this is a
@@ -82,7 +216,12 @@ export interface PalettePayload {
    * `pattern.type` to a streaming effect directly still works (the Demo Room and manual `curl` do
    * that); it just cannot express what to play instead when there's no area.
    */
-  streaming?: { effect: StreamPatternType };
+  streaming?: {
+    effect: StreamPatternType;
+    /** Per-album overrides for that effect's knobs (ADR 0036). Absent keys use the renderer's own
+     * default, so `{}` and absent mean the same thing. */
+    params?: Record<string, number>;
+  };
   meta?: {
     generatedAt?: string;
     generator?: string;
@@ -193,6 +332,8 @@ export interface AlbumPaletteInput {
    * effect, because the producer can't know whether a given runtime has an entertainment area.
    */
   streamingEffect?: string | null;
+  /** Tuning for `streamingEffect` (ADR 0036). Belongs to the current effect; cleared when it changes. */
+  streamingParams?: Record<string, number>;
 }
 
 /** The album isn't far enough along to drive a light show (no palette/pattern yet). Callers → 409. */
@@ -256,7 +397,16 @@ export function buildPalettePayload(asset: AlbumPaletteInput): PalettePayload {
     // — same best-effort posture as the role/pattern-type coercion above.
     ...(asset.streamingEffect &&
     (STREAM_PATTERN_TYPES as string[]).includes(asset.streamingEffect)
-      ? { streaming: { effect: asset.streamingEffect as StreamPatternType } }
+      ? {
+          streaming: {
+            effect: asset.streamingEffect as StreamPatternType,
+            // Only when there's something to say — an untuned album carries no params key.
+            ...(asset.streamingParams &&
+            Object.keys(asset.streamingParams).length > 0
+              ? { params: asset.streamingParams }
+              : {}),
+          },
+        }
       : {}),
   };
 }

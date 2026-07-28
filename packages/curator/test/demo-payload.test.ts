@@ -59,6 +59,25 @@ describe("buildPalettePayload", () => {
       expect(p.pattern.type).toBe("crossfade");
     });
 
+    it("carries tuning through to the payload (ADR 0036)", () => {
+      const asset = makeAsset("abc12345");
+      asset.streamingEffect = "aurora";
+      asset.streamingParams = { speed: 0.2 };
+      expect(buildPalettePayload(asset).streaming).toEqual({
+        effect: "aurora",
+        params: { speed: 0.2 },
+      });
+    });
+
+    it("omits the params key entirely for an untuned album", () => {
+      const asset = makeAsset("abc12345");
+      asset.streamingEffect = "aurora";
+      asset.streamingParams = {};
+      expect(buildPalettePayload(asset).streaming).toEqual({
+        effect: "aurora",
+      });
+    });
+
     it("treats null as not opted in", () => {
       const asset = makeAsset("abc12345");
       asset.streamingEffect = null;

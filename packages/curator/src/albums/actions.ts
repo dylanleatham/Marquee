@@ -12,6 +12,7 @@ import { writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import {
   STREAM_PATTERN_TYPES,
+  validateStreamParams,
   type StreamPatternType,
 } from "@marquee/contracts";
 import type { AssetStore } from "../store/asset-store.js";
@@ -312,6 +313,7 @@ export function setStreamingEffect(
   deps: ActionDeps,
   curatorId: string,
   effect: StreamPatternType | null,
+  params?: unknown,
 ): AlbumAsset {
   const asset = load(deps.store, curatorId);
   assertNotProcessing(asset);
@@ -319,8 +321,27 @@ export function setStreamingEffect(
     throw new ValidationError(
       `unknown streaming effect — expected one of ${STREAM_PATTERN_TYPES.join(", ")}, or null to clear`,
     );
-  if (effect === null) delete asset.streamingEffect;
-  else asset.streamingEffect = effect;
+  if (effect === null) {
+    delete asset.streamingEffect;
+    delete asset.streamingParams;
+  } else {
+    // Switching effects drops the old tuning rather than carrying it: the knobs are per-effect, and
+    // silently reinterpreting `aurora.scale` as something on `wave` would be worse than losing it.
+    const switching = asset.streamingEffect !== effect;
+    let clean: Record<string, number>;
+    try {
+      clean = validateStreamParams(effect, params);
+    } catch (err) {
+      throw new ValidationError((err as Error).message);
+    }
+    asset.streamingEffect = effect;
+    // `params` omitted entirely on a re-save of the same effect means "leave the tuning alone";
+    // omitted while switching means "start from this effect's defaults".
+    if (params !== undefined || switching) {
+      if (Object.keys(clean).length > 0) asset.streamingParams = clean;
+      else delete asset.streamingParams;
+    }
+  }
   deps.store.save(asset);
   return asset;
 }

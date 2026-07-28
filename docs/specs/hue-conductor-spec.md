@@ -239,7 +239,10 @@ once. Built across [ADR 0023](../adrs/0023-entertainment-streaming-effect-engine
   A payload's optional `streaming.effect` opts that album in while `pattern` keeps its derived CLIP
   value; with an entertainment area Conductor plays the effect, without one it plays `pattern` — the
   album's own energy-aware motion, not a guess. Curator writes it via
-  `PUT /api/albums/:curatorId/streaming-effect`. Setting `pattern.type` to an effect directly still
+  `PUT /api/albums/:curatorId/streaming-effect`. The block's optional `params` carries that
+  album's tuning for the effect's own knobs
+  ([ADR 0036](../adrs/0036-streaming-effect-params-are-tunable.md)); absent keys fall to the
+  renderer defaults documented below. Setting `pattern.type` to an effect directly still
   works (Demo Room, manual `curl`) but has only `clipFallback`'s guess to fall back on, since there
   is no other pattern in the payload.
 - **The effects (`src/stream/renderers.ts`).** Pure, deterministic, unit-tested:
