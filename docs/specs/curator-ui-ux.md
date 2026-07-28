@@ -219,8 +219,15 @@ Everything in the window. **Touches no hardware, ever.** Always available, canno
 - The **video** loop, with Backdrop-accurate crossfade timing
 - The **palette** animating as CSS, driven by the same pattern the runtime will use — paused
   whenever the tab is hidden or the stage is off screen (§3.3)
-- **Audio** — a track from the album, played at the workstation (see §11; ships silent until the
-  route is proven)
+- **Audio** — a track from the album, played at the workstation by transferring Spotify Connect to
+  the desktop Spotify client, proxied through Curator
+  ([ADR 0037](../adrs/0037-bench-preview-audio-via-spotify-connect.md), built 2026-07-27, issue
+  #93). Only a local device of type `Computer` is ever targeted: bench must not be able to take over
+  a room speaker, so the device filter is part of "touches no hardware", not a convenience. The
+  control **says it takes over Spotify** before it does — the transfer really does replace whatever
+  the producer was listening to — and leaving the bench pauses what it started. Premium and a
+  running desktop client are required; per §10 the control names whichever is missing instead of
+  degrading silently, and the bench stays usable without audio
 
 This is the early-preparation mode: judging composition for albums you're preparing now and will
 play later, with the room untouched.
@@ -403,22 +410,27 @@ Specified once here rather than improvised per component:
 
 ## 11. Open questions
 
-**Desk audio for bench preview.** Bench preview needs a track playing at the workstation, and the
-route is not yet decided. Three candidates, none free:
+**None open.**
 
-- **Spotify Web Playback SDK** — needs Widevine; stock Electron does not ship it, so this implies a
-  castlabs Electron build and a real packaging change.
-- **30-second `preview_url` clips** — trivial if available, but the field's availability for this app
-  needs verifying before anything is designed on it.
-- **Connect transfer** to an already-running desktop Spotify client — anticipated by
-  [ADR 0014](../adrs/0014-spotify-user-oauth-pkce.md) ("the foundation for Spotify Connect playback
-  later"); needs Premium and the client running. Note that
-  [ADR 0034](../adrs/0034-amp-sonos-playback-and-card-uri.md) rejected Connect for **Amp**
-  specifically because it cannot wake an idle speaker — a workstation client is already awake, so
-  that rejection does not transfer here.
+**Resolved 2026-07-27 — desk audio for bench preview.** Bench preview needs a track playing at the
+workstation (§6.1), and the route sat undecided between three candidates, none free. The spike under
+[`spikes/desk-audio`](../../spikes/desk-audio) measured all three against real credentials on the
+target platform, as [ADR 0034](../adrs/0034-amp-sonos-playback-and-card-uri.md) did for Amp's
+transport:
 
-Resolve with a spike under [`spikes/`](../../spikes), as [ADR 0034](../adrs/0034-amp-sonos-playback-and-card-uri.md) did for Amp's transport, and record
-the outcome in an ADR.
+- **30-second `preview_url` clips** — **dead on availability.** The field is not issued to this app's
+  client id: 0/14 album tracks, `null` on the full track object, 0/5 search hits.
+- **Spotify Web Playback SDK** — **dead as packaged.** Stock Electron 33.4.11 has no Widevine
+  (`NotSupportedError`; ClearKey succeeds in the same run, so the probe is sound). Viable only behind
+  a castlabs Electron build — kept as the named fallback, not the route.
+- **Connect transfer** to the desktop Spotify client — **works**, on the scopes
+  [ADR 0014](../adrs/0014-spotify-user-oauth-pkce.md) already grants. Adopted.
 
-**This does not block bench preview.** Sleeve + video + palette animation carries most of the
-judgment; bench preview ships silent and gains audio when the spike resolves.
+The choice, the constraint that stops bench from reaching a room speaker, and what killed the
+alternatives are recorded in
+[ADR 0037](../adrs/0037-bench-preview-audio-via-spotify-connect.md).
+
+**This never blocked bench preview.** Sleeve + video + palette animation carried most of the
+judgment while the route was open; the Connect leg was built the same day the spike settled it
+([#93](https://github.com/dylanleatham/Marquee/issues/93)), and bench preview still works — silent
+— for anyone without Premium or a running desktop client.

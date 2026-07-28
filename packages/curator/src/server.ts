@@ -31,6 +31,7 @@ import {
 import { addDiscogsAlbum } from "./albums/add-discogs.js";
 import { SpotifyClient, SpotifyError } from "./spotify/client.js";
 import { SpotifyAuth, SpotifyAuthError } from "./spotify/auth.js";
+import { DeskAudio } from "./spotify/desk-audio.js";
 import { DiscogsClient, DiscogsError } from "./discogs/client.js";
 import { DiscogsOAuth, DiscogsOAuthError } from "./discogs/oauth.js";
 import { GeminiClient } from "./gemini/client.js";
@@ -106,6 +107,8 @@ export interface BuildOptions {
   jobs?: GenerationJobs;
   /** Injected Amp client (tests pass one with a fake fetch); prod builds one from config.amp. */
   amp?: AmpClient;
+  /** Injected desk audio (tests point it at a stub Spotify); prod builds one from the user session. */
+  deskAudio?: DeskAudio;
 }
 
 const summary = (a: AlbumAsset) => ({
@@ -329,6 +332,14 @@ export function buildServer(opts: BuildOptions = {}) {
     opts.spotify ??
     (config.spotify
       ? new SpotifyClient({ ...config.spotify, getUserToken: userTokenOrNull })
+      : undefined);
+  // Desk audio for bench preview (ADR 0037): the same user session, used for Connect transport
+  // rather than catalog reads. Built whenever a session *could* exist — "not connected" is a reason
+  // the route reports, not a reason to omit the feature.
+  const deskAudio =
+    opts.deskAudio ??
+    (spotifyAuth
+      ? new DeskAudio({ getUserToken: userTokenOrNull })
       : undefined);
   // Discogs OAuth 1.0a "log in with Discogs" (issue #59): built whenever consumer creds are
   // configured. The client prefers a connected OAuth session's signed header and falls back to the
@@ -1471,6 +1482,41 @@ export function buildServer(opts: BuildOptions = {}) {
         .code(200)
         .send({ played: false, reason: (err as Error).message });
     }
+  });
+
+  // --- Desk audio for bench preview (ADR 0037, issue #93) ---
+  // Bench preview's audio leg. Proxied here for the same reason as the runtime services: the browser
+  // never holds the Spotify token. Unlike the rehearsal rows this touches no hardware — DeskAudio
+  // only ever targets a local `Computer` device, and the browser cannot name one.
+  //
+  // 200 with `played:false` + a reason for anything that merely didn't happen (no session, no
+  // desktop client, not Premium, album not on Spotify, Spotify down): bench preview degrades to
+  // silent, which is what it shipped as. Only an unknown album is a 4xx.
+  app.post("/api/albums/:curatorId/desk-audio", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const asset = store.read(curatorId);
+    if (!asset) return reply.code(404).send({ error: "not found" });
+    if (!deskAudio)
+      return {
+        played: false,
+        reason:
+          "Spotify isn't set up — add credentials in Settings to hear desk audio",
+      };
+    const uri = asset.metadata.spotifyUri;
+    if (!uri)
+      return {
+        played: false,
+        reason: "This album has no Spotify URI, so there's nothing to play",
+      };
+    return deskAudio.play(uri);
+  });
+
+  app.delete("/api/albums/:curatorId/desk-audio", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    if (!store.read(curatorId))
+      return reply.code(404).send({ error: "not found" });
+    if (!deskAudio) return { paused: true };
+    return deskAudio.pause();
   });
 
   // --- Room rehearsal: the real runtime path minus the physical tag (ADR 0028) ---
