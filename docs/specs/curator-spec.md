@@ -573,6 +573,13 @@ live in Curator's config (`[conductor] url`, `shared_secret`, or env `CONDUCTOR_
 > roots the projection's `filePath` and `sync_media_locally` opts into an in-process file copy for a
 > single-workstation setup (the Pi uses out-of-band rsync). Sync is best-effort — failures record on
 > the album as `roadie.syncIssues`, never a state change.
+>
+> **`media_dir` is a path on Backdrop's host, and is taken verbatim** (2026-07-28, issue #166). It is
+> resolved against Curator's own filesystem **only** when `sync_media_locally` is set — the one case
+> where that host is this machine. In the split deployment resolving it is meaningless, and on Windows
+> destructive: `resolve("/home/pi/…")` returns `C:\home\pi\…`, which reaches Backdrop as
+> `C:/home/pi/…` and fails its "must sit under `media_dir`" check (backdrop-spec §5), so no album
+> plays. Give it Backdrop's real POSIX path; Curator will not rewrite it.
 
 | Method | Path                        | Purpose                                                                                                |
 | ------ | --------------------------- | ------------------------------------------------------------------------------------------------------ |
