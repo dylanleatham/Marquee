@@ -57,7 +57,11 @@ import type { PaletteEditColor } from "./albums/palette.js";
 import { GenerationJobs, FileJobStore } from "./jobs/manager.js";
 import { flipperNfcFile } from "./tags/flipper-nfc.js";
 import { tagQrDataUrl } from "./tags/qr.js";
-import { curatorUri, type StreamPatternType } from "@marquee/contracts";
+import {
+  curatorUri,
+  scanIgnoredReason,
+  type StreamPatternType,
+} from "@marquee/contracts";
 import {
   ffmpegProber,
   ffmpegAvailable,
@@ -1562,13 +1566,8 @@ export function buildServer(opts: BuildOptions = {}) {
     });
     if (!res.ok) throw new Error(`${res.status}`);
     // A non-JSON or unreadable body is not evidence of a no-op — only an explicit `ignored` is.
-    const result = (await res.json().catch(() => null)) as {
-      action?: string;
-      reason?: string;
-    } | null;
-    if (result?.action === "ignored") {
-      throw new Error(result.reason ?? "the scan was ignored");
-    }
+    const ignored = scanIgnoredReason(await res.json().catch(() => null));
+    if (ignored) throw new Error(ignored);
   };
 
   /**

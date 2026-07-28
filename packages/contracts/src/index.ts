@@ -264,6 +264,40 @@ export interface ScanStopEvent {
 
 export type ScanEvent = ScanStartEvent | ScanStopEvent;
 
+/**
+ * A service's answer to a scan. **A 2xx is not proof the room did anything**: Conductor accepts a
+ * scan it cannot act on and says so in the body — `action:"ignored"` with the reason, for
+ * `no listening room`, `album not synced` and `album not ready` (ADR 0019). A service that simply
+ * accepts, as Backdrop does with `{accepted:true}`, carries no `action` at all.
+ *
+ * The fields are optional because this describes what a caller may rely on across services, not one
+ * service's exact payload — Conductor adds `roomId`/`playbackId`, Backdrop adds nothing.
+ */
+export interface ScanResponse {
+  ok?: boolean;
+  action?: "playing" | "streaming" | "stopped" | "ignored";
+  reason?: string;
+  accepted?: boolean;
+}
+
+/**
+ * The reason a service explicitly ignored a scan, or `null` if it acted on it.
+ *
+ * The one place the "accepted but did nothing" shape is decoded, so a caller cannot mistake a
+ * documented no-op for success — which is exactly what happened in issue #164, where Curator's
+ * rehearsal reported "Lights running" over a dark room for every one of Conductor's ignored
+ * outcomes. Anything that is not an explicit `ignored` is treated as having run: an unreadable or
+ * unfamiliar body is not evidence of a no-op.
+ */
+export function scanIgnoredReason(body: unknown): string | null {
+  if (!body || typeof body !== "object") return null;
+  const { action, reason } = body as ScanResponse;
+  if (action !== "ignored") return null;
+  return typeof reason === "string" && reason.length > 0
+    ? reason
+    : "the scan was ignored";
+}
+
 /** The physical object a scan URI names: a record `sleeve` (`album`) or a `card` (ADR 0034). */
 export type CuratorUriKind = "album" | "card";
 
