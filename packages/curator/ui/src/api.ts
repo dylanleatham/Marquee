@@ -583,11 +583,6 @@ export const api = {
       `/api/albums/${id}/prompts/${type}/draft`,
       { method: "POST" },
     ),
-  redraftPrompt: (id: string, type: PromptType, template: string) =>
-    req<{ promptDrafts: AlbumAsset["promptDrafts"] }>(
-      `/api/albums/${id}/prompts/${type}/redraft`,
-      { method: "POST", body: JSON.stringify({ template }) },
-    ),
   markPromptCopied: (id: string, type: PromptType) =>
     req<{ state: RoadieState }>(`/api/albums/${id}/prompts/${type}/copied`, {
       method: "POST",
@@ -809,20 +804,3 @@ export const cardArtPrintUrl = (id: string) =>
   `/api/albums/${id}/card-art/print`;
 export const cardArtCandidateUrl = (id: string, index: number) =>
   `/api/albums/${id}/card-art/candidate/${index}`;
-
-/** Prompt-template options (roadie-spec §7), for the redraft dropdowns. */
-export const VIDEO_TEMPLATES = [
-  "abstract_flow",
-  "particle_drift",
-  "geometric_pulse",
-  "analog_film",
-  "psychedelic",
-  "minimal_gradient",
-];
-export const CARD_ART_TEMPLATES = [
-  "iconic_emblem",
-  "abstract_scene",
-  "typographic",
-  "photograph_style",
-  "collage",
-];

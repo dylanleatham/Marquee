@@ -125,7 +125,7 @@ Between "you added an album" and "you're reviewing it," Roadie has:
 - Fetched Spotify metadata (title, artist, year, genres)
 - Downloaded album art
 - Run Palette Press to extract a Hue-safe palette
-- Drafted a video generation prompt tailored to this album (using the palette, metadata, and the album's active style template)
+- Drafted a video generation prompt tailored to this album (grounded in its palette and metadata; a deterministic template only if the LLM path was unavailable)
 
 For a well-behaved Spotify album, this takes about 30 seconds. You'll usually see the album transition from Roadie's queue into your queue while you're still deciding what to do next.
 
@@ -142,9 +142,9 @@ Each state has a shape: what the album needs from you, what you do, how the UI s
 **What you do**:
 
 1. Land on album detail from the queue
-2. Look at the palette next to the album art. Feels right? Great. Something off? Edit the colors, reorder them (the top swatch is the dominant/primary), tweak roles, or re-extract from the cover ("Reset to auto"). Hand-edits set `handEdited`, which protects them from batch regenerates. If you change the palette _after_ the prompts were drafted, Curator flags those prompts as stale — their embedded colors are now out of date — so you can redraft them to match.
-3. Look at the drafted **video prompts** — five fixed-angle options in the default `narrative` style ([ADR 0022](../adrs/0022-video-prompt-parity-narrative-and-per-prompt.md)). Copy any of them to take to Google Flow (copying moves the album to Awaiting Video, no confirmation step), or hit a prompt's **Generate clip** to run just that one through Omni into the clip gallery below. Optionally regenerate with a different style template.
-4. Look at the drafted **card art prompts** — five fixed-angle options ([ADR 0021](../adrs/0021-card-art-five-option-prompt-strategy.md)). Copy any/all to take to Google Flow (or hit a prompt's **Generate art** to run just that one through Nano Banana), or defer if you're not making a card. Same template picker + Regenerate. In-app generation attaches the album cover as a reference image for the prompts that re-render it (Option 1), the same way you'd attach the sleeve by hand in Flow ([ADR 0031](../adrs/0031-card-art-cover-reference-image.md)); the options that deliberately depart from the cover stay text-only.
+2. Look at the palette next to the album art. Feels right? Great. Something off? Edit the colors, reorder them (the top swatch is the dominant/primary), tweak roles, or re-extract from the cover ("Reset to auto"). Hand-edits set `handEdited`, which protects them from batch regenerates. If you change the palette _after_ the prompts were drafted, Curator flags those prompts as stale — their embedded colors are now out of date — so you can re-draft them to match with **Regenerate with AI**.
+3. Look at the drafted **video prompts** — five fixed-angle options in the default `narrative` style ([ADR 0022](../adrs/0022-video-prompt-parity-narrative-and-per-prompt.md)). Copy any of them to take to Google Flow (copying moves the album to Awaiting Video, no confirmation step), or hit a prompt's **Generate clip** to run just that one through Omni into the clip gallery below. Not what you wanted? **Regenerate with AI** re-drafts the set.
+4. Look at the drafted **card art prompts** — five fixed-angle options ([ADR 0021](../adrs/0021-card-art-five-option-prompt-strategy.md)). Copy any/all to take to Google Flow (or hit a prompt's **Generate art** to run just that one through Nano Banana), or defer if you're not making a card. Same **Regenerate with AI**. In-app generation attaches the album cover as a reference image for the prompts that re-render it (Option 1), the same way you'd attach the sleeve by hand in Flow ([ADR 0031](../adrs/0031-card-art-cover-reference-image.md)); the options that deliberately depart from the cover stay text-only.
 
 **Or skip the prompt entirely.** If you already have the video — you made it by hand, it predates the album, you generated it somewhere Curator never saw — drag it onto the video drop zone right here. The album goes straight to Awaiting Preview, skipping Awaiting Video. Copying the prompt was never a precondition for having a video; it's just the usual way you get one ([ADR 0005](../adrs/0005-video-attach-does-not-require-copying-the-prompt.md)).
 
@@ -181,7 +181,7 @@ confirm to advance to Awaiting Preview.
 
 **Time per album (in Curator itself)**: 30 seconds. Time in the video tool: variable, that's where the actual clock goes.
 
-**Non-happy path**: you generated a video and hate it. Regenerate the prompt (maybe try a different template), send back to the video tool, try again. No Curator state change — the album stays in awaiting-video until you attach something.
+**Non-happy path**: you generated a video and hate it. **Regenerate with AI** to re-draft the prompt, send back to the video tool, try again. No Curator state change — the album stays in awaiting-video until you attach something.
 
 ### Awaiting preview
 
@@ -303,7 +303,7 @@ Real workflows have interruptions. Some to design for:
 
 **Session interrupted mid-flow.** You approve a palette and close the browser before copying the prompt. Album stays in `awaiting_review`. Coming back, the state is unchanged; the prompt is still there to copy, and the video drop zone is still open if you turn out not to need it. No lost work; no confusion.
 
-**Video generation failed / you hate the result.** Regenerate the prompt (potentially with a different template), send back to the video tool, try again. Album stays in awaiting-video the whole time. No state churn.
+**Video generation failed / you hate the result.** **Regenerate with AI** to re-draft the prompt, send back to the video tool, try again. Album stays in awaiting-video the whole time. No state churn.
 
 **Attached wrong video.** "Detach" button on the video panel returns the album to `awaiting_video`. File stays on disk (it might be right for a different album).
 

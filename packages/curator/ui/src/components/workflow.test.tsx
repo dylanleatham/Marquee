@@ -135,7 +135,24 @@ describe("PromptBlock", () => {
     await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
   });
 
-  it("routes a template change through run (redraft)", () => {
+  // Issue #140: the template style selector is gone. It listed deterministic template names beside
+  // metaprompt-angle prompts (unrelated vocabularies, same count), and changing it silently replaced
+  // five grounded AI prompts with a template draft — a destructive control dressed as a style picker,
+  // sitting right next to the "AI · grounded" badge. This asserts it stays gone.
+  it("offers no template style selector", () => {
+    render(
+      <PromptBlock
+        curatorId="abcd1234"
+        type="video"
+        prompt={prompt}
+        run={vi.fn()}
+      />,
+    );
+    expect(screen.queryByLabelText("prompt template")).toBeNull();
+    expect(document.querySelector("select")).toBeNull();
+  });
+
+  it("leaves 'Regenerate with AI' as the only re-draft control", () => {
     const run = vi.fn();
     render(
       <PromptBlock
@@ -145,9 +162,9 @@ describe("PromptBlock", () => {
         run={run}
       />,
     );
-    fireEvent.change(screen.getByLabelText("prompt template"), {
-      target: { value: "psychedelic" },
-    });
+    // The provenance badge stays — a template fallback must still be identifiable after the fact.
+    expect(screen.getByText(/AI · grounded|Template/)).toBeTruthy();
+    fireEvent.click(screen.getByText("Regenerate with AI"));
     expect(run).toHaveBeenCalledTimes(1);
   });
 
