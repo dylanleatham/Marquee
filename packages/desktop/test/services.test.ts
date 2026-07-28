@@ -87,8 +87,42 @@ describe("serviceSpecs / devEntries", () => {
     const curator = specs.find((s) => s.name === "curator")!;
     expect(curator.env.FFMPEG_PATH).toBe("/ff/ffmpeg.exe");
     expect(curator.env.FFPROBE_PATH).toBe("/ff/ffprobe.exe");
-    // Conductor doesn't need ffmpeg.
-    expect(specs.find((s) => s.name === "hue-conductor")!.env).toEqual({});
+    // Conductor doesn't need ffmpeg — but it does need the asset store (below).
+    expect(
+      specs.find((s) => s.name === "hue-conductor")!.env.FFMPEG_PATH,
+    ).toBeUndefined();
+  });
+
+  /**
+   * Issue #164. On the Pi deployment an rsync puts Curator's asset store where Conductor reads it
+   * (runbook A4.3). The desktop app is one box with no rsync, so if the two services disagree about
+   * where that store lives, Conductor answers every scan `202 ignored: album not synced` and the
+   * lights never move. The app already pins CONDUCTOR_URL for exactly this reason; the store is the
+   * other half of the same "single box" contract.
+   */
+  it("gives Conductor the album-assets store its co-located Curator writes to", () => {
+    const specs = serviceSpecs(devEntries("/repo"), undefined, "/data/marquee");
+    const conductor = specs.find((s) => s.name === "hue-conductor")!;
+    const curator = specs.find((s) => s.name === "curator")!;
+
+    expect(conductor.env.ALBUM_ASSETS_DIR?.replace(/\\/g, "/")).toBe(
+      "/data/marquee/album-assets",
+    );
+    // Pinned on Curator's side too, so the pair agree by construction rather than by coincidence.
+    expect(curator.env.MARQUEE_DATA_DIR?.replace(/\\/g, "/")).toBe(
+      "/data/marquee",
+    );
+  });
+
+  it("defaults both services to the same store when no data dir is given", () => {
+    const specs = serviceSpecs(devEntries("/repo"));
+    const conductor = specs.find((s) => s.name === "hue-conductor")!;
+    const curator = specs.find((s) => s.name === "curator")!;
+
+    const assets = conductor.env.ALBUM_ASSETS_DIR!.replace(/\\/g, "/");
+    const data = curator.env.MARQUEE_DATA_DIR!.replace(/\\/g, "/");
+    expect(assets).toBe(`${data}/album-assets`);
+    expect(data).toMatch(/\/marquee$/);
   });
 });
 

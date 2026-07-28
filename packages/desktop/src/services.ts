@@ -1,10 +1,25 @@
 // The backend services the desktop app supervises, plus the health-poll used to gate the window on
 // them being up. Kept separate from main.ts (which is all Electron glue) so this logic is unit-
 // testable without launching Electron.
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 export const CURATOR_PORT = 4739;
 export const CONDUCTOR_PORT = 4737;
+
+/**
+ * The data root both services must agree on, resolved the way Curator's own config does
+ * (`MARQUEE_DATA_DIR`, else `~/marquee`). Exported so the caller can override it and so the
+ * agreement is testable without reaching into the environment.
+ *
+ * Not covered: a `config.toml` with `[storage].data_dir`, which outranks the env var inside Curator
+ * but is invisible from here. A packaged install has no `config.toml`, so this only bites a dev
+ * running the desktop app over a customised repo config — narrow enough to leave, loud enough to
+ * write down.
+ */
+export function resolveDataDir(): string {
+  return process.env.MARQUEE_DATA_DIR ?? join(homedir(), "marquee");
+}
 
 export interface ServiceSpec {
   name: string;
@@ -32,13 +47,19 @@ export interface FfmpegPaths {
 export function serviceSpecs(
   entries: { curator: string; conductor: string },
   ffmpeg?: FfmpegPaths,
+  dataDir: string = resolveDataDir(),
 ): ServiceSpec[] {
   // Pin Curator at the co-located Conductor. The repo `.env` points CONDUCTOR_URL at the Pi
   // (`conductor.local`) for real deployment; on one box that host doesn't resolve, so the Demo Room
   // would read "offline". Setting it here wins — Node's loadEnvFile won't override an already-set
   // var, so the `.env` Spotify creds still load.
+  //
+  // MARQUEE_DATA_DIR is pinned to the same resolved value that roots Conductor's ALBUM_ASSETS_DIR
+  // below, so the pair agree by construction instead of by both happening to compute the same
+  // default.
   const curatorEnv: Record<string, string> = {
     CONDUCTOR_URL: `http://localhost:${CONDUCTOR_PORT}`,
+    MARQUEE_DATA_DIR: dataDir,
   };
   if (ffmpeg) {
     curatorEnv.FFMPEG_PATH = ffmpeg.ffmpeg;
@@ -49,7 +70,12 @@ export function serviceSpecs(
       name: "hue-conductor",
       entry: entries.conductor,
       healthUrl: `http://localhost:${CONDUCTOR_PORT}/healthz`,
-      env: {},
+      // On the Pi an rsync lands Curator's asset store where Conductor reads it (runbook A4.3).
+      // The desktop app is one box with no rsync, so Conductor must be pointed straight at the
+      // store Curator writes — otherwise it reads its own empty dir beside the install and answers
+      // every scan `202 ignored: album not synced` while Preview claims the lights are running
+      // (issue #164).
+      env: { ALBUM_ASSETS_DIR: join(dataDir, "album-assets") },
     },
     {
       name: "curator",

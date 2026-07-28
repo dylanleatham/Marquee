@@ -336,17 +336,17 @@ The page/NDEF bytes are the tested part (they're pinned to exactly what Stylus r
 
 ### Debug matrix
 
-| Symptom                                        | Look at                                         | Likely cause                                                               |
-| ---------------------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------- |
-| `/api/test/color` does nothing                 | Conductor logs; `GET /api/bridge/status`        | Not paired / bridge unreachable — re-run pairing (A2.2)                    |
-| Any scan → 401                                 | the `X-Trigger-Secret` on every hop             | Secret mismatch between Stylus/Curator and Conductor/Backdrop              |
-| Scan `202 ignored: no listening room`          | `GET /api/settings`                             | Listening room not set (A2.4)                                              |
-| Scan `202 ignored: album not synced`           | the Pi's `album_assets_dir`                     | rsync didn't land `{curatorId}.json` (A4.3)                                |
-| Scan `202 ignored: album not ready`            | the album's Roadie state in Curator             | No palette/pattern yet — advance to `awaiting_review` (A4.2)               |
-| Lights work, no video                          | Backdrop logs; `POST /api/backdrop/verify-sync` | Library not synced / video file not on Backdrop's SD (A4.3)                |
-| `current` empty but scan returned `playing`    | Conductor logs                                  | Bridge call failed mid-apply (409 not paired / 502)                        |
-| Sleeve on stand does nothing, but A5/A6 worked | Stylus logs; LED                                | NFC read/mount tuning, or Stylus can't reach the Pi 5                      |
-| Effect stays after lifting the sleeve          | —                                               | Missed `stop`; the 90-min idle timeout is the backstop, or stop it by hand |
+| Symptom                                        | Look at                                         | Likely cause                                                                                                                                                                                 |
+| ---------------------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/api/test/color` does nothing                 | Conductor logs; `GET /api/bridge/status`        | Not paired / bridge unreachable — re-run pairing (A2.2)                                                                                                                                      |
+| Any scan → 401                                 | the `X-Trigger-Secret` on every hop             | Secret mismatch between Stylus/Curator and Conductor/Backdrop                                                                                                                                |
+| Scan `202 ignored: no listening room`          | `GET /api/settings`                             | Listening room not set (A2.4)                                                                                                                                                                |
+| Scan `202 ignored: album not synced`           | the Pi's `album_assets_dir`                     | rsync didn't land `{curatorId}.json` (A4.3). **Desktop app:** Conductor and Curator disagree on the store — see [ADR 0008](adrs/0008-desktop-app-supervises-services.md)'s 2026-07-27 update |
+| Scan `202 ignored: album not ready`            | the album's Roadie state in Curator             | No palette/pattern yet — advance to `awaiting_review` (A4.2)                                                                                                                                 |
+| Lights work, no video                          | Backdrop logs; `POST /api/backdrop/verify-sync` | Library not synced / video file not on Backdrop's SD (A4.3)                                                                                                                                  |
+| `current` empty but scan returned `playing`    | Conductor logs                                  | Bridge call failed mid-apply (409 not paired / 502)                                                                                                                                          |
+| Sleeve on stand does nothing, but A5/A6 worked | Stylus logs; LED                                | NFC read/mount tuning, or Stylus can't reach the Pi 5                                                                                                                                        |
+| Effect stays after lifting the sleeve          | —                                               | Missed `stop`; the 90-min idle timeout is the backstop, or stop it by hand                                                                                                                   |
 
 Full failure-mode table: `docs/specs/runtime-overview.md §9`. During bring-up, the scan response's
 `action`/`reason` plus Conductor's `/api/playback/current` are your fastest signal for which layer is
