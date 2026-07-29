@@ -158,6 +158,34 @@ describe("PUT /api/media/:fileId", () => {
     expect(existsSync(join(mediaDir, `${FILE_ID}.mp4`))).toBe(false);
   });
 
+  /**
+   * Two uploads of the same album in flight at once — a re-push racing a retry, or two Curators.
+   * The temp file must be unique per request: sharing one name lets the two streams interleave into
+   * it, and the rename then publishes a file that is neither upload — a corrupt video that looks
+   * complete, defeating the exact guarantee temp-then-rename exists to provide.
+   *
+   * Honest limitation: this is a guard, not a reproduction. `app.inject` delivers each body fast
+   * enough that the two writes do not actually overlap, and reverting the fix to a shared temp name
+   * leaves it passing (checked). Provoking a real interleave needs two genuinely slow socket streams.
+   * The fix rests on inspection — one path, two concurrent writers — and this pins the outcome so a
+   * future change that reintroduces blending is caught if it ever does overlap.
+   */
+  it("does not interleave concurrent uploads of the same fileId", async () => {
+    const { app, mediaDir } = build();
+    const a = Buffer.alloc(200_000, 0xaa);
+    const b = Buffer.alloc(200_000, 0xbb);
+
+    await Promise.all([put(app, FILE_ID, a), put(app, FILE_ID, b)]);
+
+    const landed = readFileSync(join(mediaDir, `${FILE_ID}.mp4`));
+    // Whichever won, the file must be exactly one of them — never a blend of both.
+    const isA = landed.equals(a);
+    const isB = landed.equals(b);
+    expect(isA || isB).toBe(true);
+    // And no temp files left over from the loser.
+    expect(readdirSync(mediaDir)).toEqual([`${FILE_ID}.mp4`]);
+  });
+
   it("accepts an upload for an album that has no library entry yet", async () => {
     // File-then-metadata is the order Curator syncs in; the upload must not require the entry.
     const { app } = build();

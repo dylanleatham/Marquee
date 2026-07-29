@@ -2,6 +2,7 @@ import { pathToFileURL, fileURLToPath } from "node:url";
 import { dirname, resolve, join } from "node:path";
 import { createWriteStream, mkdirSync, renameSync, rmSync } from "node:fs";
 import { once } from "node:events";
+import { randomUUID } from "node:crypto";
 import type { Readable } from "node:stream";
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
@@ -168,7 +169,10 @@ export function buildServer(opts: BuildOptions = {}) {
     // Write beside the destination so the rename is same-filesystem, and therefore atomic. The real
     // filename must never exist in a half-written state: a truncated mp4 that *looks* whole is worse
     // than a missing one, because Backdrop would hand it to the kiosk as a valid video.
-    const tmp = join(config.mediaDir, `.${fileId}.${process.pid}.part`);
+    // Unique per request, not just per process: two uploads of the same album can be in flight at
+    // once (a re-push racing a retry, or two Curators), and a shared temp name lets their streams
+    // interleave into one file — which the rename would then publish as a video that is neither.
+    const tmp = join(config.mediaDir, `.${fileId}.${randomUUID()}.part`);
     const dest = join(config.mediaDir, `${fileId}.mp4`);
     let bytes = 0;
 
@@ -189,7 +193,7 @@ export function buildServer(opts: BuildOptions = {}) {
       out.end();
       await once(out, "finish");
       renameSync(tmp, dest);
-      req.log.info(`media: received ${fileId}.mp4 (${bytes} bytes)`);
+      req.log.info({ fileId, bytes }, "media upload received");
       return reply.code(201).send({ fileId, bytes });
     } catch (err) {
       out.destroy(); // release the handle before unlinking, or Windows keeps the file locked
@@ -199,7 +203,7 @@ export function buildServer(opts: BuildOptions = {}) {
           .code(413)
           .send({ error: `upload exceeds ${config.maxUploadBytes} bytes` });
       }
-      req.log.error(`media: upload of ${fileId} failed — ${String(err)}`);
+      req.log.error({ fileId, err }, "media upload failed");
       return reply.code(500).send({ error: "upload failed" });
     }
   });
