@@ -41,11 +41,20 @@ pip install pytest ruff mypy jsonschema freezegun hypothesis   # what CI install
 pytest -q && ruff check stylus tests && mypy stylus
 ```
 
-## Deferred to step 11 (physical / hardware)
+## On the Pi (step 11 — physical)
 
-- The live PN532 read loop + mount + range tuning (`create_pn532_reader` is stubbed for the Pi).
-- The real GPIO/PWM LED driver (bench logs the pattern).
-- The `systemd` unit + boot integration (`Wants=network-online.target`, restart-on-hang, §12).
+Deploy runbook: **[DEPLOY.md](DEPLOY.md)** (wiring, I²C, venv install, systemd, mount tuning).
+
+- `create_pn532_reader` drives the real reader over I²C, caching the decoded URI per UID so the slow
+  NDEF read happens once per sleeve rather than every poll.
+- `create_led(enabled, gpio_pin)` drives a real LED through Blinka — PWM where available (so IDLE
+  actually breathes), degrading to on/off, and to logging when the hardware libs are absent.
+- `marquee-stylus.service` — the systemd unit (`Wants=network-online.target`, restart-on-hang, §12).
+- Install the hardware seams with `pip install '.[hardware]'` (adafruit-pn532 + Blinka). They're
+  imported **lazily**, so none of this is needed off-Pi.
+
+Still open until the stand exists: the **mount + range tuning** (spec §11 milestone #6) — that's
+bench-untestable by definition, and DEPLOY.md §11 covers the knobs.
 
 ## Known dependency: Conductor `/api/scan`
 

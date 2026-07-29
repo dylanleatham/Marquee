@@ -43,7 +43,8 @@ def main() -> None:  # pragma: no cover - entrypoint glue
     else:
         reader = create_pn532_reader()
 
-    app = StylusApp(config, reader, Publisher(config.downstreams), create_led(config.led.enabled))
+    led = create_led(config.led.enabled, config.led.gpio_pin)
+    app = StylusApp(config, reader, Publisher(config.downstreams), led)
 
     server = serve(StatusService(app, sim), config.status_listen_port)
     threading.Thread(target=server.serve_forever, daemon=True).start()

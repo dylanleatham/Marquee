@@ -160,6 +160,15 @@ Rationale: fast enough that placing a sleeve feels instant, slow enough that a h
 - Fast blink (100ms): error posting to downstream (visible signal something is wrong on the network)
 - Two short blinks then off: successful `start` published (nice touch, gives you a visual "I heard you")
 
+> **Implementation note (2026-07-28, build step 11):** patterns are frames of
+> `(brightness, duration)` played on a background thread (`stylus/led.py`); the frame tables are pure
+> and unit-tested, only the driver touches GPIO. Two deliberate deviations: the IDLE breathe is a
+> **20-step ramp**, not a continuous fade (indistinguishable at arm's length, and it keeps the player
+> a simple frame list); and where Blinka can't give us PWM the driver **falls back to on/off**, which
+> degrades breathe to a slow blink rather than failing. The start-ack is modelled as a _one-shot_ —
+> it plays to completion before the steady pattern resumes, because the app sets START_ACK and
+> PLAYING within the same tick and the ack would otherwise never be visible.
+
 ## 8. HTTP behavior
 
 ### Outbound events
@@ -260,6 +269,13 @@ If you find range is insufficient with a chosen stand geometry, PN532 modules wi
 > tag), #6 (mount), #7 (systemd) are **deferred to step 11** (hardware), behind injectable seams.
 > #5/#9 (real Conductor/Backdrop): Backdrop's `/api/scan` works today; Conductor's scan handler is a
 > filed follow-up (it currently only takes a pre-built palette on `/api/playback`, ADR 0007).
+>
+> **Update (2026-07-28, build step 11):** the deferred hardware pieces are now **written** —
+> `create_pn532_reader` (#1/#2), the GPIO LED driver (§7 patterns), and `marquee-stylus.service`
+> (#7), installed via a new `hardware` pip extra. #5/#9 are unblocked: Conductor's scan handler
+> landed ([ADR 0019](../adrs/0019-conductor-scan-reads-asset-store.md)). **#6 (mount + range tuning)
+> is the only milestone left**, and it is bench-untestable by construction. Deploy procedure and the
+> debounce knobs: [`packages/stylus/DEPLOY.md`](../../packages/stylus/DEPLOY.md).
 
 1. **Basic PN532 read.** Wire it up, get the CircuitPython example to print tag UIDs when you tap a random NTAG. Success: any tag prints its UID.
 2. **NDEF read.** Write a Spotify URI to a test NTAG using your phone. Success: your script reads the URI back out.
