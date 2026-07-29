@@ -1908,3 +1908,45 @@ em {
   width: 100%;
   accent-color: var(--amber);
 }
+
+/* Media transfer to Backdrop (issue #177). A transfer can run for an hour over a poor link, so it
+   gets real estate and real numbers rather than a spinner — see MediaTransfer.tsx. */
+.transfer {
+  margin: 0.75rem 0 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--panel);
+}
+.transfer__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.transfer__label {
+  font-size: 0.9rem;
+}
+.transfer__bar {
+  margin-top: 0.5rem;
+  height: 0.4rem;
+  border-radius: 0.2rem;
+  background: var(--line);
+  overflow: hidden;
+}
+.transfer__fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.4s ease;
+}
+.transfer__note {
+  display: block;
+  margin-top: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+/* Failure is never colour alone (curator-ui-ux §3.4) — the copy leads with what happened. */
+.transfer--failed {
+  border-color: var(--bad, var(--line));
+}

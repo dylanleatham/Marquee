@@ -435,3 +435,131 @@ describe("BackdropClient.putMedia", () => {
     }
   });
 });
+
+/**
+ * Backgrounding the transfer (issue #177) inverts the old order: the library entry now lands before
+ * the bytes. That is safe only because the entry carries no `contentHash` until the file is actually
+ * there — Backdrop tolerates an entry pointing at a missing file (backdrop-spec §10), but an entry
+ * advertising a hash for a file it does not have would make skip-if-unchanged skip it forever.
+ *
+ * That is the worst failure this whole feature can produce: permanently broken, and silent.
+ */
+describe("metadata lands before the bytes, without claiming they arrived", () => {
+  let backdrop: ReturnType<typeof stubBackdrop>;
+  let url: string;
+  let store: AssetStore;
+
+  const start = async (opts: { failMedia?: number } = {}) => {
+    backdrop = stubBackdrop(opts);
+    await backdrop.app.listen({ port: 0, host: "127.0.0.1" });
+    url = `http://127.0.0.1:${(backdrop.app.server.address() as AddressInfo).port}`;
+  };
+
+  beforeEach(() => {
+    store = new AssetStore(mkdtempSync(join(tmpdir(), "curator-order-")));
+  });
+  afterEach(async () => {
+    await backdrop?.app.close();
+  });
+
+  const seed = (id: string, contents: Buffer) => {
+    store.save(withVideo(id));
+    const p = store.paths.visualizerFile(id);
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, contents);
+    return store.read(id)!;
+  };
+
+  const sync = () =>
+    new BackdropSync({
+      store,
+      client: new BackdropClient({ url, sharedSecret: SECRET }),
+      backdropMediaDir: "/home/pi/media/visualizers",
+      mediaTransfer: httpPushTransfer(
+        new BackdropClient({ url, sharedSecret: SECRET }),
+      ),
+    });
+
+  const remoteEntry = () =>
+    backdrop.entries["curator:album:abc12345"] as { contentHash?: string };
+
+  it("publishes the entry with no contentHash, and says a transfer is owed", async () => {
+    await start();
+    const asset = seed("abc12345", Buffer.from("bytes"));
+
+    const res = await sync().syncMetadata(asset);
+
+    expect(res.ok).toBe(true);
+    expect(res.transferNeeded).toBe(true);
+    expect(remoteEntry()).toBeDefined();
+    expect(remoteEntry().contentHash).toBeUndefined();
+    expect(backdrop.uploads).toEqual([]); // nothing sent yet — that is the point
+  });
+
+  it("adds the contentHash only once the bytes have landed", async () => {
+    await start();
+    const asset = seed("abc12345", Buffer.from("bytes"));
+    await sync().syncMetadata(asset);
+
+    const res = await sync().transferMediaInBackground(asset);
+
+    expect(res.ok).toBe(true);
+    expect(backdrop.uploads).toEqual(["abc12345"]);
+    expect(remoteEntry().contentHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+  });
+
+  /**
+   * The one that matters. If a failed transfer left a hash behind, the next sync would compare it,
+   * match, and skip — and the album would never get its video, with sync reporting success forever.
+   */
+  it("leaves no contentHash when the transfer fails, so a retry still sends the file", async () => {
+    await start({ failMedia: 507 });
+    const asset = seed("abc12345", Buffer.from("bytes"));
+    await sync().syncMetadata(asset);
+
+    const failed = await sync().transferMediaInBackground(asset);
+    expect(failed.ok).toBe(false);
+    expect(remoteEntry().contentHash).toBeUndefined();
+
+    // A later attempt against a healthy Backdrop must actually re-send.
+    await backdrop.app.close();
+    await start();
+    await sync().syncMetadata(asset);
+    const retried = await sync().transferMediaInBackground(asset);
+
+    expect(retried.ok).toBe(true);
+    expect(backdrop.uploads).toEqual(["abc12345"]);
+  });
+
+  it("reports progress in bytes as the file goes", async () => {
+    await start();
+    const body = Buffer.alloc(512 * 1024, 9);
+    const asset = seed("abc12345", body);
+    const seen: Array<{ sent: number; total: number }> = [];
+
+    await sync().transferMediaInBackground(asset, {
+      onProgress: (sent, total) => seen.push({ sent, total }),
+    });
+
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((p) => p.total === body.length)).toBe(true);
+    // Monotonic, and it reaches the end.
+    expect(seen.at(-1)!.sent).toBe(body.length);
+    for (let i = 1; i < seen.length; i++)
+      expect(seen[i]!.sent).toBeGreaterThanOrEqual(seen[i - 1]!.sent);
+  });
+
+  it("stops when the job is cancelled, and does not claim the file arrived", async () => {
+    await start();
+    const asset = seed("abc12345", Buffer.alloc(256 * 1024, 3));
+    const controller = new AbortController();
+    controller.abort(); // cancelled before it starts — the deterministic case
+
+    const res = await sync().transferMediaInBackground(asset, {
+      signal: controller.signal,
+    });
+
+    expect(res.ok).toBe(false);
+    expect(remoteEntry()?.contentHash).toBeUndefined();
+  });
+});

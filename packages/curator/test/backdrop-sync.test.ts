@@ -248,6 +248,29 @@ describe("server routes trigger Backdrop sync", () => {
     });
   };
 
+  /**
+   * The file transfer is a background job now (issue #177) — the upload response returns as soon as
+   * the metadata is pushed, so a test that wants to see the file must wait for the job, exactly as
+   * the UI does. Polls the same `GET /api/jobs` the client polls rather than reaching into internals.
+   */
+  const awaitTransfers = async (
+    app: ReturnType<typeof server>,
+    curatorId: string,
+  ) => {
+    for (let i = 0; i < 100; i++) {
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/albums/${curatorId}/jobs?kind=mediaTransfer`,
+      });
+      const running = (
+        res.json().jobs as Array<{ kind: string; status: string }>
+      ).filter((j) => j.status === "running");
+      if (running.length === 0) return;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    throw new Error("media transfer job did not finish");
+  };
+
   it("uploading + attaching a video pushes it to Backdrop and copies the file", async () => {
     // Seed a reviewed album so the video can attach.
     const a = makeAsset("route123");
@@ -255,9 +278,14 @@ describe("server routes trigger Backdrop sync", () => {
     a.roadie.history = [{ state: "awaiting_review", at: a.createdAt }];
     store.save(a);
 
-    const up = await uploadVideo(server(), "route123");
+    const app = server();
+    const up = await uploadVideo(app, "route123");
     expect(up.statusCode).toBe(201);
+    // Metadata lands on the request path; the file follows in the background.
     expect(backdrop.entries["curator:album:route123"]).toBeTruthy();
+    expect(up.json().transferJobId).toBeTruthy();
+
+    await awaitTransfers(app, "route123");
     expect(existsSync(join(mediaDir, "route123.mp4"))).toBe(true);
   });
 
@@ -292,6 +320,8 @@ describe("server routes trigger Backdrop sync", () => {
     });
     expect(attach.statusCode).toBe(200);
     expect(backdrop.entries["curator:album:claim001"]).toBeTruthy();
+
+    await awaitTransfers(app, "claim001");
     expect(existsSync(join(mediaDir, "claim001.mp4"))).toBe(true);
   });
 

@@ -30,8 +30,20 @@ const noopLogger: Logger = { info: () => {}, warn: () => {} };
 
 /** Moves the visualizer mp4 onto Backdrop's media dir. Injectable so tests don't touch a real FS. */
 export interface MediaTransfer {
-  /** Copy Curator's local `srcPath` to Backdrop's media dir as `{fileId}.mp4`. Throws on failure. */
-  copyVisualizer(srcPath: string, fileId: string): Promise<void>;
+  /**
+   * Copy Curator's local `srcPath` to Backdrop's media dir as `{fileId}.mp4`. Throws on failure.
+   *
+   * `ctx` is optional throughout: a local copy has nothing useful to report and nothing to cancel,
+   * so it ignores it. Only the HTTP push, which can take an hour over a bad link, uses it (#177).
+   */
+  copyVisualizer(
+    srcPath: string,
+    fileId: string,
+    ctx?: {
+      onProgress?: (sent: number, total: number) => void;
+      signal?: AbortSignal;
+    },
+  ): Promise<void>;
 }
 
 /** A same-filesystem copy into `backdropMediaDir` — the single-workstation transfer (see header). */
@@ -54,8 +66,8 @@ export function localCopyTransfer(backdropMediaDir: string): MediaTransfer {
  */
 export function httpPushTransfer(client: BackdropClient): MediaTransfer {
   return {
-    async copyVisualizer(srcPath, fileId) {
-      await client.putMedia(fileId, srcPath);
+    async copyVisualizer(srcPath, fileId, ctx) {
+      await client.putMedia(fileId, srcPath, ctx ?? {});
     },
   };
 }
@@ -148,6 +160,92 @@ export class BackdropSync {
       this.log.warn(`Backdrop sync failed for ${asset.curatorId}: ${message}`);
       this.recordSyncIssues(asset.curatorId, [
         `Backdrop sync failed: ${message}`,
+      ]);
+      return { ok: false, error: message };
+    }
+  }
+
+  /**
+   * The metadata half of a sync, run on the request path (issue #177). Fast and small: it is what
+   * makes the album resolvable at all, so it stays synchronous.
+   *
+   * **It deliberately publishes no `contentHash`.** The bytes have not moved yet. An entry that
+   * advertised a hash for a file Backdrop does not have would make every future sync skip the
+   * upload — permanently, silently — which is the exact failure ADR 0038 set out to remove. The hash
+   * is written only by `transferMediaInBackground`, after the file has actually landed. Backdrop
+   * tolerates an entry pointing at a file not yet present (backdrop-spec §10), so this intermediate
+   * state is legal and already specified.
+   *
+   * Returns whether a file transfer is still owed, so the caller knows whether to start a job.
+   */
+  async syncMetadata(
+    asset: AlbumAsset,
+  ): Promise<SyncResult & { transferNeeded: boolean }> {
+    const entry = buildLibraryEntry(asset, this.backdropMediaDir);
+    if (!entry)
+      return {
+        ...(await this.removeAlbum(asset.curatorId)),
+        transferNeeded: false,
+      };
+    try {
+      await this.client.updateEntry(entry);
+      this.recordSyncIssues(asset.curatorId, []);
+      this.log.info(`Backdrop: entry synced ${entry.uri} → ${entry.filePath}`);
+      return { ok: true, transferNeeded: Boolean(this.mediaTransfer) };
+    } catch (err) {
+      const message = (err as Error).message;
+      this.log.warn(`Backdrop sync failed for ${asset.curatorId}: ${message}`);
+      this.recordSyncIssues(asset.curatorId, [
+        `Backdrop sync failed: ${message}`,
+      ]);
+      return { ok: false, error: message, transferNeeded: false };
+    }
+  }
+
+  /**
+   * The file half, driven by a background job so the request never waits on it (issue #177). Reports
+   * bytes sent, honours cancellation, and only on success re-upserts the entry **with** the hash —
+   * see `syncMetadata` for why that ordering is load-bearing.
+   */
+  async transferMediaInBackground(
+    asset: AlbumAsset,
+    ctx: {
+      onProgress?: (sent: number, total: number) => void;
+      signal?: AbortSignal;
+    } = {},
+  ): Promise<SyncResult> {
+    const entry = buildLibraryEntry(asset, this.backdropMediaDir);
+    if (!entry || !this.mediaTransfer || !asset.visualizer)
+      return { ok: true, skipped: true };
+
+    try {
+      const contentHash = await this.hashVisualizer(asset);
+      if (await this.remoteHasSameFile(entry.uri, contentHash)) {
+        this.log.info(
+          `Backdrop: ${entry.uri} already up to date, skipping upload`,
+        );
+      } else {
+        const src = this.store.paths.visualizerFile(asset.visualizer.fileId);
+        if (!existsSync(src))
+          throw new Error(`local visualizer file missing at ${src}`);
+        await this.mediaTransfer.copyVisualizer(
+          src,
+          asset.visualizer.fileId,
+          ctx,
+        );
+      }
+      // Only now that the bytes are there does the hash become true.
+      if (contentHash) await this.client.updateEntry({ ...entry, contentHash });
+      this.recordSyncIssues(asset.curatorId, []);
+      this.log.info(`Backdrop: media transferred for ${entry.uri}`);
+      return { ok: true };
+    } catch (err) {
+      const message = (err as Error).message;
+      this.log.warn(
+        `Backdrop media transfer failed for ${asset.curatorId}: ${message}`,
+      );
+      this.recordSyncIssues(asset.curatorId, [
+        `Backdrop media transfer failed: ${message}`,
       ]);
       return { ok: false, error: message };
     }
@@ -313,6 +411,12 @@ export const disabledBackdropSync = {
   async syncAlbum(): Promise<SyncResult> {
     return { ok: true, skipped: true };
   },
+  async syncMetadata(): Promise<SyncResult & { transferNeeded: boolean }> {
+    return { ok: true, skipped: true, transferNeeded: false };
+  },
+  async transferMediaInBackground(): Promise<SyncResult> {
+    return { ok: true, skipped: true };
+  },
   async removeAlbum(): Promise<SyncResult> {
     return { ok: true, skipped: true };
   },
@@ -333,5 +437,11 @@ export const disabledBackdropSync = {
 /** Either a live sync or the disabled no-op — the type the routes depend on. */
 export type BackdropSyncLike = Pick<
   BackdropSync,
-  "syncAlbum" | "removeAlbum" | "resyncAll" | "verify" | "verifyAlbum"
+  | "syncAlbum"
+  | "syncMetadata"
+  | "transferMediaInBackground"
+  | "removeAlbum"
+  | "resyncAll"
+  | "verify"
+  | "verifyAlbum"
 > & { enabled: boolean };

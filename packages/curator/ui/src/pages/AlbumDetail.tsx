@@ -15,6 +15,7 @@ import { ArtworkSection } from "../components/ArtworkSection";
 import { PeerNav } from "../components/PeerNav";
 import { FeelingPalette } from "../components/FeelingPalette";
 import { StreamingEffectPicker } from "../components/StreamingEffectPicker";
+import { MediaTransfer } from "../components/MediaTransfer";
 import { useConfirm } from "../components/Confirm";
 import { PreviewWorkstation } from "../components/PreviewWorkstation";
 import {
@@ -299,6 +300,9 @@ export function AlbumDetail() {
               refresh={refresh}
               canGenerate={gemini?.generateVideo ?? false}
             />
+            {/* The transfer runs after the attach returns (#177) — show it here, beside the video
+                it belongs to, rather than letting a long upload look like nothing happened. */}
+            <MediaTransfer curatorId={curatorId} />
           </>
         )}
 

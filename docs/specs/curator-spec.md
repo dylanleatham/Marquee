@@ -594,6 +594,19 @@ live in Curator's config (`[conductor] url`, `shared_secret`, or env `CONDUCTOR_
 > costs time, a wrongly-skipped one leaves a black screen. **A failed transfer fails the sync**;
 > before this, sync reported success for pushing metadata whether or not the video ever arrived.
 >
+> **The transfer runs as a background job** (2026-07-29, issue #177). A video attach/upload/splice
+> pushes the metadata on the request path and returns immediately with a `transferJobId`; the file
+> follows as a `mediaTransfer` job, polled at `GET /api/albums/:curatorId/jobs?kind=mediaTransfer`
+> and cancellable at `POST /api/jobs/:id/cancel`, with progress in **bytes sent / total**. Holding
+> the request open instead meant a ~90-minute upload with no progress and no cancel, which reads as a
+> frozen app.
+>
+> The ordering is load-bearing: the entry published on the request path carries **no `contentHash`**,
+> because the bytes have not moved. An entry advertising a hash for a file Backdrop does not have
+> would make skip-if-unchanged skip it forever — permanently and silently. The hash is written only
+> after the transfer succeeds. Backdrop already tolerates an entry pointing at a missing file
+> (backdrop-spec §10), so the intermediate state is legal.
+>
 > **`media_dir` is a path on Backdrop's host, and is taken verbatim** (2026-07-28, issue #166). It is
 > resolved against Curator's own filesystem **only** when `sync_media_locally` is set — the one case
 > where that host is this machine. In the split deployment resolving it is meaningless, and on Windows
