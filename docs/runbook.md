@@ -167,7 +167,11 @@ a CLIP pattern; check `journalctl -u marquee-conductor` for `streaming … faile
 3. **Sync to the Pi:**
    - **Asset store → Conductor:** `rsync -a ~/marquee/album-assets/ pi@marquee-pi5:/home/pi/marquee-data/album-assets/`
      (must equal Conductor's `album_assets_dir`).
-   - **Videos → Backdrop:** `rsync -a ~/marquee/media/visualizers/ pi@marquee-pi5:/home/pi/marquee-data/media/visualizers/`.
+   - **Videos → Backdrop:** set Curator's `media_transfer = "push"` and it streams each video as part
+     of the sync ([ADR 0038](adrs/0038-curator-pushes-media-over-http.md)) — nothing to run by hand.
+     Otherwise (`media_transfer = "none"`, the default) move them yourself:
+     `rsync -a ~/marquee/media/visualizers/ pi@marquee-pi5:/home/pi/marquee-data/media/visualizers/`.
+     rsync is still the faster choice for a first bulk load over a good link.
    - **Library projection → Backdrop:** `POST /api/backdrop/sync` on Curator pushes the URI→file map.
    - **Check:** `POST /api/backdrop/verify-sync` on Curator reports no drift.
 
@@ -328,8 +332,10 @@ The page/NDEF bytes are the tested part (they're pinned to exactly what Stylus r
   bridge link button when prompted.
 - **Force a service back to idle:** `POST http://<pi>:4737/api/playback/stop` (Conductor) /
   `POST http://<pi>:4740/api/admin/stop` (Backdrop).
-- **Re-sync after adding/attaching:** Curator → `POST /api/backdrop/sync` (library projection) + rsync
-  the asset store and videos to the Pi (A4.3); `POST /api/backdrop/verify-sync` to confirm.
+- **Re-sync after adding/attaching:** Curator → `POST /api/backdrop/sync`. With
+  `media_transfer = "push"` that carries the videos too, skipping any whose `contentHash` already
+  matches; otherwise rsync them yourself (A4.3). The asset store → Conductor rsync is unaffected.
+  `POST /api/backdrop/verify-sync` to confirm.
 - **See what's playing / recently played:** `GET /api/playback/current` and
   `GET /api/playback/history?limit=50` on Conductor (issue #54).
 - **Check logs:** `journalctl -u marquee-<service> -f` on the Pi.

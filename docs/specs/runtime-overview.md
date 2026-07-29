@@ -32,7 +32,7 @@ Plus one internal agent, two libraries, and two data stores:
 - **Palette Press** — a library (not a service) used by Roadie to generate palettes from album art.
 - **Observability** — a library (not a service) giving every service one log-record shape and a stable fingerprint per error, so occurrences of one bug group together across restarts and machines. Stage 2 of the error pipeline ([#142](https://github.com/dylanleatham/Marquee/issues/142) / [#144](https://github.com/dylanleatham/Marquee/issues/144)); currently used by each service's boot-failure path.
 - **Album-assets store** — JSON files, one per album, produced by Curator. Contains the palette, pattern, video reference, metadata, tag payload, and Roadie state.
-- **Media store** — video files on the Backdrop Pi's SD card, populated by Curator + rsync.
+- **Media store** — video files on the Backdrop Pi's SD card. Populated by Curator streaming them to Backdrop (`media_transfer = "push"`, [ADR 0038](../adrs/0038-curator-pushes-media-over-http.md)), or by an out-of-band rsync (the default).
 
 ## 3. System at a glance
 

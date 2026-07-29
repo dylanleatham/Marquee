@@ -8,7 +8,8 @@
 // Sync is a *side effect*, never a state change: a failure is recorded on the album as a syncIssue
 // (surfaced in the derived status) and the album never moves backward (roadie-spec §6). So every
 // public method is best-effort and resolves with a result rather than throwing into its caller.
-import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, createReadStream } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import type { AssetStore } from "../store/asset-store.js";
 import type { AlbumAsset } from "../albums/asset.js";
@@ -41,6 +42,37 @@ export function localCopyTransfer(backdropMediaDir: string): MediaTransfer {
       copyFileSync(srcPath, join(backdropMediaDir, `${fileId}.mp4`));
     },
   };
+}
+
+/**
+ * Stream the file to Backdrop over HTTP — the split-deployment transfer (ADR 0038). This is the case
+ * the runbook used to hand to a manual `rsync`, which meant an album could be fully prepared, synced,
+ * reported healthy, and still have no video on the other end.
+ *
+ * A second implementation of the interface `localCopyTransfer` already satisfies; nothing in the
+ * calling path changes.
+ */
+export function httpPushTransfer(client: BackdropClient): MediaTransfer {
+  return {
+    async copyVisualizer(srcPath, fileId) {
+      await client.putMedia(fileId, srcPath);
+    },
+  };
+}
+
+/**
+ * Which transfer a Backdrop config asks for. One rule, in one place, because the setting can arrive
+ * two ways: the explicit `mediaTransfer` mode (ADR 0038) or the legacy `syncMediaLocally` boolean it
+ * replaced. The explicit mode always wins; the boolean is the fallback, so an older config keeps its
+ * behaviour instead of silently transferring nothing.
+ */
+export function effectiveMediaTransferMode(backdrop: {
+  mediaTransfer?: "none" | "local" | "push";
+  syncMediaLocally?: boolean;
+}): "none" | "local" | "push" {
+  return (
+    backdrop.mediaTransfer ?? (backdrop.syncMediaLocally ? "local" : "none")
+  );
 }
 
 export interface BackdropSyncOptions {
@@ -90,10 +122,23 @@ export class BackdropSync {
    * syncIssues so a failure surfaces in the UI without blocking the human action that triggered it.
    */
   async syncAlbum(asset: AlbumAsset): Promise<SyncResult> {
-    const entry = buildLibraryEntry(asset, this.backdropMediaDir);
-    if (!entry) return this.removeAlbum(asset.curatorId);
+    const baseEntry = buildLibraryEntry(asset, this.backdropMediaDir);
+    if (!baseEntry) return this.removeAlbum(asset.curatorId);
     try {
-      await this.transferMedia(asset, entry.filePath);
+      // Hash first: it decides both whether the upload can be skipped and what the entry advertises,
+      // so the value Backdrop stores is always the one that was actually sent.
+      const contentHash = this.mediaTransfer
+        ? await this.hashVisualizer(asset)
+        : undefined;
+      const entry = contentHash ? { ...baseEntry, contentHash } : baseEntry;
+
+      if (await this.remoteHasSameFile(entry.uri, contentHash)) {
+        this.log.info(
+          `Backdrop: ${entry.uri} already up to date, skipping upload`,
+        );
+      } else {
+        await this.transferMedia(asset, entry.filePath);
+      }
       await this.client.updateEntry(entry);
       this.recordSyncIssues(asset.curatorId, []);
       this.log.info(`Backdrop: synced ${entry.uri} → ${entry.filePath}`);
@@ -132,11 +177,31 @@ export class BackdropSync {
   }> {
     const entries: LibraryEntryWithUri[] = [];
     const failures: Array<{ curatorId: string; error: string }> = [];
+    // Read the remote library once rather than per album: this is the path that walks the whole
+    // library, and it is exactly where re-uploading everything would hurt most.
+    const remote = this.mediaTransfer
+      ? await this.client.getLibrary().catch(() => undefined)
+      : undefined;
+
     for (const asset of assets) {
-      const entry = buildLibraryEntry(asset, this.backdropMediaDir);
-      if (!entry) continue;
+      const baseEntry = buildLibraryEntry(asset, this.backdropMediaDir);
+      if (!baseEntry) continue;
       try {
-        await this.transferMedia(asset, entry.filePath);
+        const contentHash = this.mediaTransfer
+          ? await this.hashVisualizer(asset)
+          : undefined;
+        const entry = contentHash ? { ...baseEntry, contentHash } : baseEntry;
+
+        const unchanged =
+          contentHash !== undefined &&
+          remote?.entries[entry.uri]?.contentHash === contentHash;
+        if (unchanged) {
+          this.log.info(
+            `Backdrop: ${entry.uri} already up to date, skipping upload`,
+          );
+        } else {
+          await this.transferMedia(asset, entry.filePath);
+        }
         entries.push(entry);
       } catch (err) {
         failures.push({
@@ -194,6 +259,43 @@ export class BackdropSync {
     if (!existsSync(src))
       throw new Error(`local visualizer file missing at ${src}`);
     await this.mediaTransfer.copyVisualizer(src, asset.visualizer.fileId);
+  }
+
+  /**
+   * The content hash of an album's visualizer, or undefined when there is nothing to hash.
+   *
+   * Measured at ~470 MB/s, so a 228 MB visualizer costs ~0.5s — against a transfer that took ~90
+   * minutes over a real link to a Pi. That ratio is the entire argument for computing it every sync
+   * rather than persisting it: recomputing is free next to re-uploading, and there is no stored value
+   * to go stale or need backfilling for albums that predate this.
+   */
+  private async hashVisualizer(asset: AlbumAsset): Promise<string | undefined> {
+    if (!asset.visualizer) return undefined;
+    const src = this.store.paths.visualizerFile(asset.visualizer.fileId);
+    if (!existsSync(src)) return undefined;
+    const hash = createHash("sha256");
+    for await (const chunk of createReadStream(src)) hash.update(chunk);
+    return `sha256:${hash.digest("hex")}`;
+  }
+
+  /**
+   * Whether Backdrop already holds this exact file, so the upload can be skipped.
+   *
+   * Only ever answers true on a hash match. An entry without a `contentHash` — anything synced before
+   * this, or moved by rsync — is treated as unknown and re-pushed: a needless upload is a cost, a
+   * skipped one that was actually needed is a black screen.
+   */
+  private async remoteHasSameFile(
+    uri: string,
+    contentHash?: string,
+  ): Promise<boolean> {
+    if (!contentHash) return false;
+    try {
+      const library = await this.client.getLibrary();
+      return library.entries[uri]?.contentHash === contentHash;
+    } catch {
+      return false; // can't tell → send it
+    }
   }
 
   /** Replace the album's syncIssues (re-reading first so a concurrent write isn't clobbered, #38). */

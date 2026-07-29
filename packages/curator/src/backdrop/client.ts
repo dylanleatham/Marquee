@@ -2,6 +2,8 @@
 // Backdrop's library.json; it pushes updates over the LAN with the shared `X-Trigger-Secret`. Mirrors
 // the Conductor call pattern in server.ts: `fetch` (a Node 22 global) with an AbortSignal timeout so a
 // wedged Backdrop can't hang the caller. `fetchImpl` is injectable for unit tests.
+import { createReadStream } from "node:fs";
+import { Readable } from "node:stream";
 import type { LibraryEntry } from "@marquee/contracts";
 import type { LibraryEntryWithUri } from "./projection.js";
 
@@ -14,6 +16,16 @@ export interface BackdropClientOptions {
   sharedSecret?: string;
   /** Per-request timeout (ms). Default 5s, matching the Conductor proxy. */
   timeoutMs?: number;
+  /**
+   * How long a media upload may make **no progress** before it is abandoned (ms, default 60s).
+   *
+   * Deliberately a stall timeout rather than a deadline. A visualizer is a few hundred MB and the
+   * link to a Pi can be poor — one measured at ~44 KB/s, where a real 239 MB file needs ~90 minutes.
+   * Any fixed deadline generous enough for that would take an hour to notice a wedged peer, and any
+   * deadline short enough to be useful would kill working transfers. What actually distinguishes
+   * "slow" from "dead" is whether bytes are still moving (ADR 0038).
+   */
+  uploadStallMs?: number;
   /** Injected fetch (tests). Defaults to the global. */
   fetchImpl?: FetchImpl;
 }
@@ -40,12 +52,14 @@ export class BackdropClient {
   private readonly url: string;
   private readonly sharedSecret?: string;
   private readonly timeoutMs: number;
+  private readonly uploadStallMs: number;
   private readonly fetchImpl: FetchImpl;
 
   constructor(opts: BackdropClientOptions) {
     this.url = opts.url.replace(/\/+$/, ""); // no trailing slash so path joins are clean
     this.sharedSecret = opts.sharedSecret;
     this.timeoutMs = opts.timeoutMs ?? 5000;
+    this.uploadStallMs = opts.uploadStallMs ?? 60_000;
     this.fetchImpl = opts.fetchImpl ?? fetch;
   }
 
@@ -96,5 +110,65 @@ export class BackdropClient {
     return (await this.call("/api/library", {
       method: "GET",
     })) as BackdropLibrary;
+  }
+
+  /**
+   * Stream a visualizer file to Backdrop (`PUT /api/media/:fileId`, ADR 0038).
+   *
+   * Separate from `call` because everything about it differs: the body is a file stream rather than
+   * JSON, and the bound is a stall timeout rather than the 5s deadline the metadata calls use — 5s
+   * would abort every real upload. The file is never read into memory; `Readable.toWeb` hands fetch
+   * a stream, which is what `duplex: "half"` is required for.
+   */
+  async putMedia(
+    fileId: string,
+    localPath: string,
+  ): Promise<{ bytes: number }> {
+    const source = createReadStream(localPath);
+    const controller = new AbortController();
+
+    // Reset on every chunk: the upload dies only if it stops making progress, not if it is merely
+    // slow. Cleared in `finally` so a completed upload never leaves a timer holding the event loop.
+    let stallTimer: NodeJS.Timeout | undefined;
+    const armStallTimer = () => {
+      clearTimeout(stallTimer);
+      stallTimer = setTimeout(
+        () =>
+          controller.abort(
+            new Error(`upload stalled for ${this.uploadStallMs}ms`),
+          ),
+        this.uploadStallMs,
+      );
+    };
+    source.on("data", armStallTimer);
+    armStallTimer();
+
+    const headers: Record<string, string> = {
+      "content-type": "application/octet-stream",
+    };
+    if (this.sharedSecret) headers["x-trigger-secret"] = this.sharedSecret;
+
+    try {
+      const res = await this.fetchImpl(`${this.url}/api/media/${fileId}`, {
+        method: "PUT",
+        headers,
+        body: Readable.toWeb(source) as ReadableStream,
+        duplex: "half",
+        signal: controller.signal,
+      } as RequestInit & { duplex: "half" });
+
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        throw new BackdropError(
+          res.status,
+          `Backdrop PUT /api/media/${fileId} → ${res.status}${detail ? `: ${detail}` : ""}`,
+        );
+      }
+      const body = (await res.json().catch(() => ({}))) as { bytes?: number };
+      return { bytes: body.bytes ?? 0 };
+    } finally {
+      clearTimeout(stallTimer);
+      source.destroy(); // release the handle whether we finished, threw, or aborted
+    }
   }
 }

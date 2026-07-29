@@ -8,6 +8,15 @@ import { readSettings } from "./settings.js";
 // Resolve config.toml next to the package (matches hue-conductor), not the process cwd.
 const pkgDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
+/** How the visualizer mp4 gets onto Backdrop's host (ADR 0038). */
+export type MediaTransferMode = "none" | "local" | "push";
+
+const MEDIA_TRANSFER_MODES: readonly MediaTransferMode[] = [
+  "none",
+  "local",
+  "push",
+];
+
 export interface Config {
   port: number;
   host: string;
@@ -67,6 +76,17 @@ export interface Config {
     url: string;
     sharedSecret?: string;
     mediaDir: string;
+    /**
+     * How the visualizer file reaches Backdrop's host (ADR 0038):
+     * - `none`   — it doesn't; an out-of-band rsync moves it (the Pi default, and today's behaviour)
+     * - `local`  — same machine, copied in-process
+     * - `push`   — streamed to Backdrop over HTTP
+     *
+     * Always set by `loadConfig`. Optional only so a caller constructing this object directly can
+     * still express the mode with the legacy `syncMediaLocally` alone; the wiring falls back to it.
+     */
+    mediaTransfer?: MediaTransferMode;
+    /** Derived from `mediaTransfer === "local"`. Kept because it also gates path resolution (#166). */
     syncMediaLocally: boolean;
   };
   /**
@@ -208,9 +228,24 @@ export function loadConfig(override: Partial<Config> = {}): Config {
   const backdropSecret =
     (backdropFile.shared_secret as string | undefined) ??
     process.env.TRIGGER_SHARED_SECRET;
-  const backdropSyncLocal = asBool(
+  // Transfer mode (ADR 0038). `media_transfer` wins; the legacy `sync_media_locally` boolean is still
+  // honoured so an existing config.toml keeps its behaviour on upgrade — silently changing how an
+  // operator's media moves would be the worst way to ship this. An unrecognised mode falls back to
+  // `none` rather than guessing: doing nothing is the safe wrong answer, pushing is not.
+  const rawMode = String(
+    backdropFile.media_transfer ?? process.env.BACKDROP_MEDIA_TRANSFER ?? "",
+  ) as MediaTransferMode;
+  const legacyLocal = asBool(
     backdropFile.sync_media_locally ?? process.env.BACKDROP_SYNC_MEDIA_LOCALLY,
   );
+  const mediaTransfer: MediaTransferMode = MEDIA_TRANSFER_MODES.includes(
+    rawMode,
+  )
+    ? rawMode
+    : legacyLocal
+      ? "local"
+      : "none";
+  const backdropSyncLocal = mediaTransfer === "local";
   const backdropMediaDirRaw = String(
     backdropFile.media_dir ??
       process.env.BACKDROP_MEDIA_DIR ??
@@ -275,6 +310,7 @@ export function loadConfig(override: Partial<Config> = {}): Config {
           backdrop: {
             url: backdropUrl,
             mediaDir: backdropMediaDir,
+            mediaTransfer,
             syncMediaLocally: backdropSyncLocal,
             ...(backdropSecret ? { sharedSecret: backdropSecret } : {}),
           },

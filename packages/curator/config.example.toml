@@ -26,3 +26,24 @@ data_dir = "~/marquee"
 # [conductor]
 # url = "http://localhost:4737"
 # shared_secret = "change-me-lan-only-secret"
+
+# Backdrop — the video half. Absent → sync disabled. Env: BACKDROP_URL / BACKDROP_MEDIA_DIR /
+# BACKDROP_MEDIA_TRANSFER.
+# [backdrop]
+# url = "http://backdrop.local:4740"
+# shared_secret = "change-me-lan-only-secret"
+#
+# media_dir is the path ON BACKDROP'S HOST that roots the projection's filePath. It is taken
+# verbatim — do not give it a Windows path unless Backdrop runs on this machine (issue #166).
+# media_dir = "/home/pi/marquee-data/media/visualizers"
+#
+# How the .mp4 itself gets there (ADR 0038):
+#   "none"  — it doesn't; you rsync it. Default, and what every existing setup does.
+#   "local" — same machine, copied in-process. (The old sync_media_locally = true.)
+#   "push"  — Curator streams it to Backdrop over HTTP, skipping files whose hash already matches.
+# media_transfer = "push"
+
+# Amp — the room rehearsal's audio leg (ADR 0028). Env: AMP_URL.
+# [amp]
+# url = "http://runtime-pi.local:4741"
+# shared_secret = "change-me-lan-only-secret"

@@ -180,8 +180,23 @@ Response is 202 (accepted) — Backdrop doesn't block the trigger while it does 
 | POST   | `/api/library/update` | Body: `{ uri, filePath?, durationSec?, contentHash? }`. Single-entry upsert.                         |
 | DELETE | `/api/library/:uri`   | Remove one entry. Does not delete the video file.                                                    |
 | GET    | `/api/library`        | Read current library map.                                                                            |
+| PUT    | `/api/media/:fileId`  | Upload a visualizer. Body streams to `{media_dir}/{fileId}.mp4`. `201 { fileId, bytes }`.            |
 
-The video files themselves get synced separately (rsync, syncthing, whatever) — Backdrop is only in charge of the metadata mapping. Rationale: metadata is small, easy to push atomically; video files are large and want a bulk-file sync tool built for the job. Curator can fire off the sync in either order; Backdrop is tolerant of library entries pointing at files not yet present (§10 covers the UX).
+Curator can fire off metadata and media in either order; Backdrop is tolerant of library entries
+pointing at files not yet present (§10 covers the UX).
+
+> **Backdrop accepts the video file itself as of 2026-07-29** ([ADR 0038](../adrs/0038-curator-pushes-media-over-http.md)).
+> This section previously said video files "get synced separately (rsync, syncthing, whatever)" and
+> that Backdrop was "only in charge of the metadata mapping". That remains a supported deployment —
+> Curator's `media_transfer = "none"` — but it is no longer the only one, because the gap was silent:
+> an album could be prepared, synced, and reported healthy with no video on the Pi at all.
+>
+> `PUT /api/media/:fileId` is the only route that writes to Backdrop's disk from the network, so:
+> `fileId` must match `^[a-z0-9]{8}$` (it becomes a filename in the directory Backdrop serves videos
+> from — rejected outright, never sanitised); the body streams and is capped by
+> `[storage].max_upload_mb` (default 2048, env `BACKDROP_MAX_UPLOAD_MB`); and the write goes to a
+> temp file renamed into place only on a clean finish, so the real filename never exists truncated.
+> A half-written mp4 that _looks_ whole is worse than a missing one — Backdrop would play it.
 
 ### For local operations and debugging
 
