@@ -1937,8 +1937,8 @@ em {
 .transfer__fill {
   display: block;
   height: 100%;
-  background: var(--accent);
-  transition: width 0.4s ease;
+  background: var(--amber);
+  transition: width 240ms ease; /* matches .batch__fill — one progress-bar idiom, not two */
 }
 .transfer__note {
   display: block;
@@ -1948,5 +1948,5 @@ em {
 }
 /* Failure is never colour alone (curator-ui-ux §3.4) — the copy leads with what happened. */
 .transfer--failed {
-  border-color: var(--bad, var(--line));
+  border-color: var(--alert);
 }

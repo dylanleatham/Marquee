@@ -109,6 +109,31 @@ describe("MediaTransfer", () => {
     expect(status.textContent).toMatch(/lights still work/i);
   });
 
+  /**
+   * Attaching a second video without leaving the page must still show progress. Stopping the poll at
+   * a terminal status looked harmless — the component never remounts, so nothing would restart it.
+   */
+  it("keeps watching after a transfer ends, so the next one is seen", async () => {
+    vi.useFakeTimers();
+    const albumJobs = vi
+      .spyOn(api, "albumJobs")
+      .mockResolvedValue({ jobs: [job({ status: "done" })] });
+    try {
+      render(<MediaTransfer curatorId="abc12345" />);
+      await vi.waitFor(() => expect(albumJobs).toHaveBeenCalledTimes(1));
+
+      // A later transfer starts; the panel must pick it up without a remount.
+      albumJobs.mockResolvedValue({ jobs: [job()] });
+      await vi.advanceTimersByTimeAsync(6000);
+
+      await vi.waitFor(() =>
+        expect(albumJobs.mock.calls.length).toBeGreaterThan(1),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("survives a polling failure rather than taking the page down", async () => {
     vi.spyOn(api, "albumJobs").mockRejectedValue(new Error("network"));
     const { container } = render(<MediaTransfer curatorId="abc12345" />);

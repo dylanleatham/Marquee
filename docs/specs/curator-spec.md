@@ -591,8 +591,11 @@ live in Curator's config (`[conductor] url`, `shared_secret`, or env `CONDUCTOR_
 > hash (~0.5s for a 228 MB file, measured at 469 MB/s) and saves a copy either way, and scoping it
 > would leave `local`-mode entries with no `contentHash` for `verify-sync` to compare. An entry with
 > no `contentHash` (synced before this, or moved by rsync) is always re-sent — a needless transfer
-> costs time, a wrongly-skipped one leaves a black screen. **A failed transfer fails the sync**;
-> before this, sync reported success for pushing metadata whether or not the video ever arrived.
+> costs time, a wrongly-skipped one leaves a black screen. **A failed transfer is a failed
+> transfer** — it fails its job, records a `syncIssue` on the album, and leaves no `contentHash`, so
+> the next attempt re-sends. It does not fail the metadata push, which already succeeded on the
+> request path. What it must never do is what the old behaviour did: report success for pushing
+> metadata whether or not the video ever arrived.
 >
 > **The transfer runs as a background job** (2026-07-29, issue #177). A video attach/upload/splice
 > pushes the metadata on the request path and returns immediately with a `transferJobId`; the file

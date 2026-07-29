@@ -59,7 +59,11 @@ export function MediaTransfer({ curatorId }: { curatorId: string }) {
           startedAt.current ??= Date.now();
           timer.current = setTimeout(tick, 1000);
         } else {
+          // Keep watching, slowly. Stopping at a terminal status would mean a *second* video
+          // attached without leaving the page shows no progress at all — the component never
+          // remounts, so nothing would restart the loop.
           startedAt.current = null;
+          timer.current = setTimeout(tick, 5000);
         }
       } catch {
         // A transfer panel must never be the thing that breaks the page; try again next tick.
