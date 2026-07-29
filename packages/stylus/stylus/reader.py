@@ -60,11 +60,42 @@ def assemble_ntag_ndef(
     return bytes(out)
 
 
+class UriCache:
+    """Per-UID cache of decoded URIs: the slow NDEF read happens once per sleeve, not every poll.
+
+    **Only successful decodes are cached.** A tag's UID does not change when you write NDEF to it, so
+    caching a miss means a tag that was blank the first time we saw it stays blank to us forever —
+    you write the sleeve, hold it to the reader, and nothing happens until the service restarts.
+    That cost a real debugging session during the step-11 bring-up: the UID was in the log every
+    poll, so the reader looked perfect while serving a `None` decided minutes earlier.
+
+    Re-reading NDEF on every poll of an genuinely unwritten tag is the deliberate trade: it's a
+    handful of I²C page reads against a tag nobody is waiting on, versus a working sleeve that
+    silently never fires.
+    """
+
+    def __init__(self, max_size: int = 8) -> None:
+        self._max_size = max_size
+        self._hits: dict[str, str] = {}
+
+    def get_or_read(self, uid: str, read_ndef: Callable[[], bytes]) -> str | None:
+        """Return the cached URI for ``uid``, else decode one via ``read_ndef`` (cached if found)."""
+        cached = self._hits.get(uid)
+        if cached is not None:
+            return cached
+        uri = parse_uri(read_ndef())
+        if uri is not None:
+            if len(self._hits) >= self._max_size:
+                self._hits.clear()
+            self._hits[uid] = uri
+        return uri
+
+
 def create_pn532_reader(uid_cache_size: int = 8):  # pragma: no cover - hardware path (step 11)
     """Build the real PN532 reader. Raises a clear error off-Pi (no ``adafruit_pn532``).
 
-    Caches the decoded URI per UID so the slow NDEF read happens once per new sleeve, not every poll
-    (§7: "tag UID detected → read NDEF"). Wiring/mount/range tuning is step 11.
+    Decoding and caching live in :class:`UriCache` and :func:`assemble_ntag_ndef`, both pure and
+    tested — this factory is only the hardware wiring. Mount/range tuning is step 11.
     """
     try:
         import board  # type: ignore
@@ -80,7 +111,7 @@ def create_pn532_reader(uid_cache_size: int = 8):  # pragma: no cover - hardware
     pn532 = PN532_I2C(i2c, debug=False)
     pn532.SAM_configuration()
 
-    cache: dict[str, str | None] = {}
+    cache = UriCache(uid_cache_size)
 
     class _Pn532Reader:
         def poll(self) -> TagRead | None:
@@ -88,11 +119,9 @@ def create_pn532_reader(uid_cache_size: int = 8):  # pragma: no cover - hardware
             if raw is None:
                 return None
             uid = ":".join(f"{b:02X}" for b in raw)
-            if uid not in cache:
-                if len(cache) >= uid_cache_size:
-                    cache.clear()
-                ndef = assemble_ntag_ndef(lambda p: pn532.ntag2xx_read_block(p))
-                cache[uid] = parse_uri(ndef)
-            return TagRead(uid=uid, uri=cache[uid])
+            uri = cache.get_or_read(
+                uid, lambda: assemble_ntag_ndef(lambda p: pn532.ntag2xx_read_block(p))
+            )
+            return TagRead(uid=uid, uri=uri)
 
     return _Pn532Reader()
