@@ -98,12 +98,18 @@ tools and add yourself to the hardware groups (the `-a` matters — without it y
 groups and lock yourself out of `sudo`):
 
 ```
-$ sudo apt install -y i2c-tools python3-venv git
+$ sudo apt install -y i2c-tools python3-venv python3-dev build-essential git
 $ sudo usermod -aG i2c,gpio pi
 $ sudo reboot
 ```
 
 Group changes only take effect on a fresh login, hence the reboot.
+
+> **Why `python3-dev` and `build-essential`?** Blinka depends on `RPi.GPIO` and `rpi_ws281x`, both C
+> extensions with no aarch64 wheels — pip compiles them from source. Pi OS Lite ships a compiler but
+> not the Python headers, so without these the install dies on
+> `fatal error: Python.h: No such file or directory` after several minutes of downloading. (`rpi_ws281x`
+> is NeoPixel support Stylus never uses; it's a hard dependency of Blinka, so it still has to build.)
 
 ## 5. Wire the reader — **power the Pi off first**
 
@@ -286,20 +292,21 @@ That's issue #52 done.
 
 ## 12. Troubleshooting
 
-| Symptom                                                                       | Likely cause / fix                                                                                                                                                                                                                          |
-| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `i2cdetect -y 1` grid is **empty**                                            | In order: module not switched to I²C (silkscreen), SDA/SCL swapped or off pins 3/5, VCC not on **3.3V pin 1**, I²C not enabled (step 4). Nothing downstream can work until `24` appears.                                                    |
-| `i2cdetect` shows `24`, but Stylus logs `No module named 'board'`             | The hardware extra didn't install, or systemd is running the system Python. Confirm `ExecStart` points at `.venv/bin/python` and re-run `.venv/bin/pip install '.[hardware]'`.                                                              |
-| `pip install` fails `externally-managed-environment`                          | You're outside the venv. Use `.venv/bin/pip`, not `pip` / `sudo pip` (step 6).                                                                                                                                                              |
-| Service dies instantly, `journalctl` shows a Permission error on `/dev/i2c-1` | The user isn't in the `i2c` group. `sudo usermod -aG i2c,gpio pi`, then **reboot** — group changes don't apply to an existing login.                                                                                                        |
-| Tag reads (UID in the logs) but nothing happens downstream                    | Read the log line: `carried no valid curator:(album\|card) URI` = the tag holds the wrong text — re-read it with a phone/Flipper and compare to the album's `curatorId`. Otherwise check `curl localhost:4741/status` → `downstreamHealth`. |
-| Any scan → **401** in the logs                                                | `X-Trigger-Secret` mismatch. The secret in `config.toml` must equal Conductor's `[auth].shared_secret` **and** Backdrop's — all four services share one value.                                                                              |
-| `/simulate` returns **409**                                                   | Working as intended: you're running the real reader. It only works under `python -m stylus --simulate` (step 9).                                                                                                                            |
-| Sleeve does nothing, but GATE 5 and 6b both passed                            | Isolated to the antenna or the mount. Range first (move the reader to the tag), then `insertion_debounce_polls`. Confirm the tag is readable at all by reading it with your phone.                                                          |
-| Works, then stops after hours; `journalctl` shows repeated read failures      | stylus-spec §12 "PN532 hangs" — the module locked up. The unit's `Restart=always` recovers it; if it recurs often, shorten the poll rate or check the module's power.                                                                       |
-| Service is `active (running)` but the log is silent and no tag ever reads     | A hang inside the one-time PN532 init (`busio.I2C` / `SAM_configuration`) doesn't exit, so `Restart=` can't catch it. `sudo systemctl restart marquee-stylus`; if it recurs, power-cycle the module.                                        |
-| Nothing after a reboot until you SSH in                                       | Wi-Fi came up after Stylus. The unit has `Wants=network-online.target`, but confirm `systemctl is-enabled systemd-networkd-wait-online` (or NetworkManager's equivalent) is on.                                                             |
-| The LED never lights                                                          | It's optional and Stylus degrades to logging when GPIO isn't available — `journalctl` will say `LED disabled: …`. Check the 330Ω resistor and that the **long** leg goes to GPIO 17 (pin 11). `[led].enabled = false` silences it entirely. |
+| Symptom                                                                                                                  | Likely cause / fix                                                                                                                                                                                                                           |
+| ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `i2cdetect -y 1` grid is **empty**                                                                                       | In order: module not switched to I²C (silkscreen), SDA/SCL swapped or off pins 3/5, VCC not on **3.3V pin 1**, I²C not enabled (step 4). Nothing downstream can work until `24` appears.                                                     |
+| `i2cdetect` shows `24`, but Stylus logs `No module named 'board'`                                                        | The hardware extra didn't install, or systemd is running the system Python. Confirm `ExecStart` points at `.venv/bin/python` and re-run `.venv/bin/pip install '.[hardware]'`.                                                               |
+| `pip install` fails `externally-managed-environment`                                                                     | You're outside the venv. Use `.venv/bin/pip`, not `pip` / `sudo pip` (step 6).                                                                                                                                                               |
+| `pip install '.[hardware]'` fails building `RPi.GPIO` / `rpi_ws281x`: `fatal error: Python.h: No such file or directory` | Missing Python headers. `sudo apt install -y python3-dev build-essential`, then re-run — the downloads are cached, so it's quick. Pi OS Lite ships a compiler but not the headers, and these two Blinka dependencies have no aarch64 wheels. |
+| Service dies instantly, `journalctl` shows a Permission error on `/dev/i2c-1`                                            | The user isn't in the `i2c` group. `sudo usermod -aG i2c,gpio pi`, then **reboot** — group changes don't apply to an existing login.                                                                                                         |
+| Tag reads (UID in the logs) but nothing happens downstream                                                               | Read the log line: `carried no valid curator:(album\|card) URI` = the tag holds the wrong text — re-read it with a phone/Flipper and compare to the album's `curatorId`. Otherwise check `curl localhost:4741/status` → `downstreamHealth`.  |
+| Any scan → **401** in the logs                                                                                           | `X-Trigger-Secret` mismatch. The secret in `config.toml` must equal Conductor's `[auth].shared_secret` **and** Backdrop's — all four services share one value.                                                                               |
+| `/simulate` returns **409**                                                                                              | Working as intended: you're running the real reader. It only works under `python -m stylus --simulate` (step 9).                                                                                                                             |
+| Sleeve does nothing, but GATE 5 and 6b both passed                                                                       | Isolated to the antenna or the mount. Range first (move the reader to the tag), then `insertion_debounce_polls`. Confirm the tag is readable at all by reading it with your phone.                                                           |
+| Works, then stops after hours; `journalctl` shows repeated read failures                                                 | stylus-spec §12 "PN532 hangs" — the module locked up. The unit's `Restart=always` recovers it; if it recurs often, shorten the poll rate or check the module's power.                                                                        |
+| Service is `active (running)` but the log is silent and no tag ever reads                                                | A hang inside the one-time PN532 init (`busio.I2C` / `SAM_configuration`) doesn't exit, so `Restart=` can't catch it. `sudo systemctl restart marquee-stylus`; if it recurs, power-cycle the module.                                         |
+| Nothing after a reboot until you SSH in                                                                                  | Wi-Fi came up after Stylus. The unit has `Wants=network-online.target`, but confirm `systemctl is-enabled systemd-networkd-wait-online` (or NetworkManager's equivalent) is on.                                                              |
+| The LED never lights                                                                                                     | It's optional and Stylus degrades to logging when GPIO isn't available — `journalctl` will say `LED disabled: …`. Check the 330Ω resistor and that the **long** leg goes to GPIO 17 (pin 11). `[led].enabled = false` silences it entirely.  |
 
 ## 13. Updating Stylus later
 
