@@ -27,6 +27,15 @@ export interface Config {
    * would fill it.
    */
   maxUploadBytes: number;
+  /**
+   * How long an inbound upload may make **no progress** before it is abandoned (ms, default 60s).
+   *
+   * A stall timeout, not a deadline, for the same reason as the client's: a real visualizer over a
+   * poor link legitimately takes many minutes, so only "bytes stopped moving" separates slow from
+   * dead. Without it a dropped Wi-Fi connection that never closes the socket leaves the read loop
+   * waiting forever, holding a file descriptor and a temp file on the Pi's SD card.
+   */
+  uploadStallMs: number;
 }
 
 /** Default upload ceiling, in MB. Comfortably above a real visualizer, well under the Pi's card. */
@@ -66,6 +75,9 @@ export function loadConfig(override: Partial<Config> = {}): Config {
     idleTimeoutMinutes: Number(runtime.idle_timeout_minutes ?? 90),
     // A malformed value falls back to the default rather than silently wedging every upload behind
     // a nonsense ceiling (same reasoning as Curator's own upload cap).
+    uploadStallMs: Number(
+      runtime.upload_stall_ms ?? process.env.BACKDROP_UPLOAD_STALL_MS ?? 60_000,
+    ),
     maxUploadBytes: (() => {
       const mb = Number(
         storage.max_upload_mb ??

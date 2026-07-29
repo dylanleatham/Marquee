@@ -9,6 +9,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, existsSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { Readable } from "node:stream";
 import { buildServer } from "../src/server.js";
 import { Library } from "../src/library.js";
 import { FakeTimers, tempMedia, tempDataDir } from "./fakes.js";
@@ -184,6 +185,34 @@ describe("PUT /api/media/:fileId", () => {
     expect(isA || isB).toBe(true);
     // And no temp files left over from the loser.
     expect(readdirSync(mediaDir)).toEqual([`${FILE_ID}.mp4`]);
+  });
+
+  /**
+   * The read loop waits on the network. Without a bound, a client that drops off without closing its
+   * socket parks it forever, holding a file descriptor and a temp file on the Pi's SD card — the
+   * "unbounded loop over external state" the working agreement calls out. Bounded by inactivity
+   * rather than a deadline, because a real visualizer over a poor link is legitimately slow.
+   */
+  it("abandons an upload whose bytes stop arriving, cleaning up after itself", async () => {
+    const { app, mediaDir } = build({ uploadStallMs: 120 });
+    // A body that sends one chunk and then never ends — a stalled client, not a slow one.
+    const stalled = new Readable({ read() {} });
+    stalled.push(Buffer.from("first chunk"));
+
+    // The request settles one way or the other; what must not happen is hanging forever. A truly
+    // dead connection cannot receive a reply, so the 408 is best-effort and the assertion here is
+    // the durable property: the handler let go, and left nothing behind on the SD card.
+    await app
+      .inject({
+        method: "PUT",
+        url: `/api/media/${FILE_ID}`,
+        headers: { ...AUTH, "content-type": "application/octet-stream" },
+        payload: stalled,
+      })
+      .catch(() => undefined);
+
+    expect(existsSync(join(mediaDir, `${FILE_ID}.mp4`))).toBe(false);
+    expect(readdirSync(mediaDir)).toEqual([]); // no temp file left holding space
   });
 
   it("accepts an upload for an album that has no library entry yet", async () => {

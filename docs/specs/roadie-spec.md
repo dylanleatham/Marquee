@@ -6,7 +6,7 @@ _Does the setup work behind the scenes before you take the stage. Lives inside C
 
 A background worker inside Curator that picks up newly-added albums and runs them through every step it can complete autonomously — fetching metadata, downloading art, generating palettes, and drafting the video and card art prompts. When it hits a step that requires a human (subjective review, running the external art or video tools, physical actions), it parks the album in a specific queue state and stops.
 
-Roadie also keeps Backdrop in sync with Curator's committed state, triggering the video file rsync when an album's video is attached, and doing a final sync verification when the album reaches `verified`. This closes the loop: by the time the human confirms an album is done, the runtime Pi has everything it needs.
+Roadie also keeps Backdrop in sync with Curator's committed state, getting the video file across when an album's video is attached — streamed over HTTP or copied locally by Curator, or left to an out-of-band rsync ([ADR 0038](../adrs/0038-curator-pushes-media-over-http.md); see §6) — and doing a final sync verification when the album reaches `verified`. This closes the loop: by the time the human confirms an album is done, the runtime Pi has everything it needs.
 
 The result: you add 40 albums on Friday night; over the next several minutes, Roadie processes each one and leaves them in states like "awaiting your review" or "awaiting your prompt." When you sit down Saturday morning, you have a queue of albums ready for the parts only you can do.
 

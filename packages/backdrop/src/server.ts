@@ -26,6 +26,22 @@ export interface BuildOptions {
   timers?: Timers;
 }
 
+/** A media upload exceeded `maxUploadBytes` (ADR 0038) — answered as 413. */
+export class UploadTooLarge extends Error {
+  constructor() {
+    super("upload exceeds the configured cap");
+    this.name = "UploadTooLarge";
+  }
+}
+
+/** A media upload stopped sending bytes for `uploadStallMs` — answered as 408. */
+export class UploadStalled extends Error {
+  constructor() {
+    super("upload stalled");
+    this.name = "UploadStalled";
+  }
+}
+
 /** Narrow an untrusted body to a ScanEvent, or return null (→ 400). */
 function parseScan(body: unknown): ScanEvent | null {
   if (typeof body !== "object" || body === null) return null;
@@ -155,8 +171,6 @@ export function buildServer(opts: BuildOptions = {}) {
    */
   const MEDIA_FILE_ID = /^[a-z0-9]{8}$/;
 
-  class UploadTooLarge extends Error {}
-
   app.put("/api/media/:fileId", async (req, reply) => {
     const { fileId } = req.params as { fileId: string };
     if (!MEDIA_FILE_ID.test(fileId)) {
@@ -179,29 +193,51 @@ export function buildServer(opts: BuildOptions = {}) {
     const source = req.body as Readable;
     const out = createWriteStream(tmp);
 
+    // The read loop below waits on the network, so it needs a bound or a dropped connection that
+    // never closes its socket parks it forever — holding a file descriptor and a temp file on the
+    // Pi's SD card. A stall timeout, not a deadline: a real visualizer over a poor link takes many
+    // minutes legitimately, so only "bytes stopped arriving" distinguishes slow from dead.
+    let stallTimer: NodeJS.Timeout | undefined;
+    const armStall = () => {
+      clearTimeout(stallTimer);
+      stallTimer = setTimeout(
+        () => source.destroy(new UploadStalled()),
+        config.uploadStallMs,
+      );
+    };
+
     try {
       // Consumed explicitly rather than piped, so the cap is checked *before* each chunk is written
       // — the point of a cap is to stop writing, not to discover afterwards that we shouldn't have.
       // `write()` returning false means the buffer is full; awaiting "drain" is what keeps a 240 MB
       // upload from being held in memory on a Pi.
+      armStall();
       for await (const chunk of source) {
+        armStall();
         const buf = chunk as Buffer;
         bytes += buf.length;
         if (bytes > config.maxUploadBytes) throw new UploadTooLarge();
         if (!out.write(buf)) await once(out, "drain");
       }
+      clearTimeout(stallTimer);
       out.end();
       await once(out, "finish");
       renameSync(tmp, dest);
       req.log.info({ fileId, bytes }, "media upload received");
       return reply.code(201).send({ fileId, bytes });
     } catch (err) {
+      clearTimeout(stallTimer);
       out.destroy(); // release the handle before unlinking, or Windows keeps the file locked
       rmSync(tmp, { force: true }); // no partial file, and no orphan filling the SD card
       if (err instanceof UploadTooLarge) {
         return reply
           .code(413)
           .send({ error: `upload exceeds ${config.maxUploadBytes} bytes` });
+      }
+      if (err instanceof UploadStalled) {
+        return reply
+          .code(408)
+          .send({ error: `upload stalled for ${config.uploadStallMs}ms` });
       }
       req.log.error({ fileId, err }, "media upload failed");
       return reply.code(500).send({ error: "upload failed" });
