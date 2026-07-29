@@ -973,6 +973,19 @@ export function buildServer(opts: BuildOptions = {}) {
   const syncVideoChange = async (asset: AlbumAsset) => {
     const res = await backdrop.syncMetadata(asset);
     if (!res.transferNeeded) return undefined;
+
+    // Supersede any transfer still in flight for this album before starting the new one.
+    //
+    // `jobs.start` dedups on album+kind, which is right for generation — pressing generate twice
+    // should reattach, not run twice. It is wrong here: a second video attached while the first is
+    // still going is not the same work. Without this, `start` would hand back the *stale* job, the
+    // new file would never be scheduled, and the old job would go on to publish a contentHash for a
+    // file the album no longer uses — after which skip-if-unchanged skips the correct one forever.
+    // A newer attach always wins; the older transfer is obsolete the moment it is replaced.
+    for (const stale of jobs.forAlbum(asset.curatorId, "mediaTransfer")) {
+      if (stale.status === "running") jobs.cancel(stale.id);
+    }
+
     return jobs.start("mediaTransfer", asset.curatorId, async (ctx) => {
       const out = await backdrop.transferMediaInBackground(asset, ctx);
       if (!out.ok) throw new Error(out.error ?? "media transfer failed");
@@ -1033,8 +1046,12 @@ export function buildServer(opts: BuildOptions = {}) {
       );
       // ★sync (roadie-spec §6): the album now has a playable video — push it to Backdrop. Best-effort;
       // a sync failure is recorded on the album, not raised, so the attach still succeeds.
-      await syncVideoChange(asset);
-      return { state: asset.roadie.state, visualizer: asset.visualizer };
+      const transfer = await syncVideoChange(asset);
+      return {
+        state: asset.roadie.state,
+        visualizer: asset.visualizer,
+        ...(transfer ? { transferJobId: transfer.id } : {}),
+      };
     } catch (err) {
       return actionError(err, reply, req);
     }
@@ -1077,8 +1094,12 @@ export function buildServer(opts: BuildOptions = {}) {
         },
       );
       // ★sync (roadie-spec §6): the album now has a playable video — push it to Backdrop.
-      await syncVideoChange(asset);
-      return { state: asset.roadie.state, visualizer: asset.visualizer };
+      const transfer = await syncVideoChange(asset);
+      return {
+        state: asset.roadie.state,
+        visualizer: asset.visualizer,
+        ...(transfer ? { transferJobId: transfer.id } : {}),
+      };
     } catch (err) {
       return actionError(err, reply, req);
     }

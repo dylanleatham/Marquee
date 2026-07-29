@@ -42,7 +42,18 @@ const humanEta = (s: number): string =>
       ? `about ${Math.round(s / 60)} min left`
       : `about ${(s / 3600).toFixed(1)} h left`;
 
-export function MediaTransfer({ curatorId }: { curatorId: string }) {
+/**
+ * Watch the album's media-transfer job, reattaching by polling rather than being handed an id — so a
+ * reload, or arriving while a transfer from an earlier session runs, still finds it.
+ *
+ * Kept as a hook so the component stays presentational, matching `useGenerationJob` and
+ * `useBatchJob`. Polling continues after a terminal status (slowly): the component never remounts,
+ * so stopping would mean a second video attached on the same page showed no progress at all.
+ */
+export function useMediaTransferJob(curatorId: string): {
+  job: GenerationJob | null;
+  startedAt: number | null;
+} {
   const [job, setJob] = useState<GenerationJob | null>(null);
   const startedAt = useRef<number | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout>>();
@@ -59,9 +70,6 @@ export function MediaTransfer({ curatorId }: { curatorId: string }) {
           startedAt.current ??= Date.now();
           timer.current = setTimeout(tick, 1000);
         } else {
-          // Keep watching, slowly. Stopping at a terminal status would mean a *second* video
-          // attached without leaving the page shows no progress at all — the component never
-          // remounts, so nothing would restart the loop.
           startedAt.current = null;
           timer.current = setTimeout(tick, 5000);
         }
@@ -76,6 +84,12 @@ export function MediaTransfer({ curatorId }: { curatorId: string }) {
       if (timer.current) clearTimeout(timer.current);
     };
   }, [curatorId]);
+
+  return { job, startedAt: startedAt.current };
+}
+
+export function MediaTransfer({ curatorId }: { curatorId: string }) {
+  const { job, startedAt } = useMediaTransferJob(curatorId);
 
   // Nothing to say unless a transfer is running or the last one failed — a quiet success needs no UI.
   if (!job) return null;
@@ -92,8 +106,8 @@ export function MediaTransfer({ curatorId }: { curatorId: string }) {
 
   const { done, total } = job.progress;
   const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
-  const eta = startedAt.current
-    ? etaSeconds(done, total, Date.now() - startedAt.current)
+  const eta = startedAt
+    ? etaSeconds(done, total, Date.now() - startedAt)
     : null;
 
   return (

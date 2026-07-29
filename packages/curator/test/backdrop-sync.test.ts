@@ -289,6 +289,40 @@ describe("server routes trigger Backdrop sync", () => {
     expect(existsSync(join(mediaDir, "route123.mp4"))).toBe(true);
   });
 
+  /**
+   * A second video attached while the first is still transferring is *not* the same work, but
+   * `jobs.start` dedups on album+kind and would hand back the stale job — the new file would never
+   * be sent, and the old job would go on to publish a contentHash for a file the album no longer
+   * uses, after which skip-if-unchanged skips the correct one forever. A newer attach supersedes.
+   */
+  it("supersedes an in-flight transfer when a new video is attached", async () => {
+    const a = makeAsset("super001");
+    a.roadie.state = "awaiting_review";
+    a.roadie.history = [{ state: "awaiting_review", at: a.createdAt }];
+    store.save(a);
+    const app = server();
+
+    const first = await uploadVideo(app, "super001");
+    const firstJob = first.json().transferJobId as string;
+    expect(firstJob).toBeTruthy();
+
+    const second = await uploadVideo(app, "super001");
+    const secondJob = second.json().transferJobId as string;
+
+    // A distinct job — not the first one handed back.
+    expect(secondJob).toBeTruthy();
+    expect(secondJob).not.toBe(firstJob);
+
+    await awaitTransfers(app, "super001");
+    const jobsRes = await app.inject({
+      method: "GET",
+      url: "/api/albums/super001/jobs?kind=mediaTransfer",
+    });
+    const all = jobsRes.json().jobs as Array<{ id: string; status: string }>;
+    // The superseded one is not left running forever.
+    expect(all.find((j) => j.id === firstJob)?.status).not.toBe("running");
+  });
+
   it("claiming an /incoming/ video via attach-video pushes it to Backdrop", async () => {
     const a = makeAsset("claim001");
     a.roadie.state = "awaiting_review";
