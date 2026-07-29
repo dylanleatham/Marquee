@@ -96,7 +96,8 @@ shows Backdrop's idle gradient. (The video-plays check comes after A4's sync, in
 - [ ] One album prepared to **at least `awaiting_review`** (has palette + pattern) — else scans give `202 album not ready`
 - [ ] A visualizer video attached/spliced to that album — else lights work but no video
 - [ ] `rsync` asset store → Pi's `album_assets_dir`
-- [ ] `rsync` videos → Pi's media dir
+- [ ] Videos on the Pi: either Curator `media_transfer = "push"` (streams them during sync, ADR 0038)
+      or `rsync` videos → Pi's media dir
 - [ ] `POST /api/backdrop/sync` (library projection)
 
 **GATE 4:** `POST http://<workstation-curator>/api/backdrop/verify-sync` reports **no drift**.

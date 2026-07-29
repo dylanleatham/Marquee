@@ -32,7 +32,7 @@ Plus one internal agent, two libraries, and two data stores:
 - **Palette Press** — a library (not a service) used by Roadie to generate palettes from album art.
 - **Observability** — a library (not a service) giving every service one log-record shape and a stable fingerprint per error, so occurrences of one bug group together across restarts and machines. Stage 2 of the error pipeline ([#142](https://github.com/dylanleatham/Marquee/issues/142) / [#144](https://github.com/dylanleatham/Marquee/issues/144)); currently used by each service's boot-failure path.
 - **Album-assets store** — JSON files, one per album, produced by Curator. Contains the palette, pattern, video reference, metadata, tag payload, and Roadie state.
-- **Media store** — video files on the Backdrop Pi's SD card, populated by Curator + rsync.
+- **Media store** — video files on the Backdrop Pi's SD card. Populated by Curator streaming them to Backdrop (`media_transfer = "push"`, [ADR 0038](../adrs/0038-curator-pushes-media-over-http.md)), or by an out-of-band rsync (the default).
 
 ## 3. System at a glance
 
@@ -220,7 +220,7 @@ Both Conductor and Backdrop implement an idle timeout: if no scan event has arri
 ### Sync strategies
 
 - **Curator → Backdrop metadata**: HTTP push after each save **that changes what Backdrop plays** — a video attach (upsert), detach, or album delete (remove) — via `POST /api/library/update` / `DELETE /api/library/:uri`, plus a full-reconcile `POST /api/library/sync`. Small, atomic, fast. (Not a literal every-save hook: an album still in Roadie's pipeline has no video to project — [ADR 0015](../adrs/0015-backdrop-sync-triggered-at-projection-changes.md), build step 9.)
-- **Curator → Backdrop videos**: `rsync` or `syncthing`, triggered by Curator after upload or run on a schedule. Big files, tolerant of long-running transfer.
+- **Curator → Backdrop videos**: streamed by Curator over HTTP (`PUT /api/media/:fileId`, `media_transfer = "push"` — [ADR 0038](../adrs/0038-curator-pushes-media-over-http.md)), skipping files whose `contentHash` Backdrop already reports; or `rsync`/`syncthing` out of band (`media_transfer = "none"`, the default). Big files, tolerant of long-running transfer.
 - **Curator → Conductor asset store**: `rsync` push from workstation to runtime Pi. Curator handles this as an automatic post-save action so it feels the same as the Backdrop HTTP push.
 - **Spotify Web API → Curator**: called by Roadie during the album-onboarding pipeline (metadata + art). Read-only. Uses existing OAuth credentials (reuse from your Conflicted Lineup app if convenient).
 

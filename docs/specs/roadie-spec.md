@@ -6,7 +6,7 @@ _Does the setup work behind the scenes before you take the stage. Lives inside C
 
 A background worker inside Curator that picks up newly-added albums and runs them through every step it can complete autonomously — fetching metadata, downloading art, generating palettes, and drafting the video and card art prompts. When it hits a step that requires a human (subjective review, running the external art or video tools, physical actions), it parks the album in a specific queue state and stops.
 
-Roadie also keeps Backdrop in sync with Curator's committed state, triggering the video file rsync when an album's video is attached, and doing a final sync verification when the album reaches `verified`. This closes the loop: by the time the human confirms an album is done, the runtime Pi has everything it needs.
+Roadie also keeps Backdrop in sync with Curator's committed state, getting the video file across when an album's video is attached — streamed over HTTP or copied locally by Curator, or left to an out-of-band rsync ([ADR 0038](../adrs/0038-curator-pushes-media-over-http.md); see §6) — and doing a final sync verification when the album reaches `verified`. This closes the loop: by the time the human confirms an album is done, the runtime Pi has everything it needs.
 
 The result: you add 40 albums on Friday night; over the next several minutes, Roadie processes each one and leaves them in states like "awaiting your review" or "awaiting your prompt." When you sit down Saturday morning, you have a queue of albums ready for the parts only you can do.
 
@@ -118,7 +118,8 @@ The album onboarding workflow already defined per-album states. Roadie doesn't i
                             └─────────────────────┘
 
   ★ = Roadie sync triggers on human-driven transitions (see §6):
-      ★sync   = rsync video file to Backdrop's SD card
+      ★sync   = get the video file onto Backdrop's SD card — pushed over HTTP,
+                copied locally, or left to rsync, per media_transfer (§6, ADR 0038)
       ★verify = verify this album is in Backdrop's library, log any discrepancies
 ```
 
@@ -203,11 +204,18 @@ the two triggers stand, but the sync fires at the action/route layer, not via a 
 hook", and there is one push per change carrying both the metadata and, on a single workstation, the
 file. The file rsync to a Pi stays out-of-band.)_
 
+> **Superseded in part (2026-07-29, [ADR 0038](../adrs/0038-curator-pushes-media-over-http.md)):** the
+> file transfer to a Pi no longer has to be out-of-band. With `media_transfer = "push"` Curator
+> streams it to Backdrop over HTTP as part of the same sync, and a failed transfer fails the sync
+> rather than being invisible. `rsync` remains supported (`media_transfer = "none"`, still the
+> default) for bulk or offline moves.
+
 **On video attach** (→ `awaiting_preview`, from either `awaiting_video` or — when you already had
 the video — `awaiting_review`; [ADR 0005](../adrs/0005-video-attach-does-not-require-copying-the-prompt.md)):
 the newly attached video's entry is upserted into Backdrop's `library.json` (metadata), and the file
-is made available under Backdrop's media dir — by out-of-band rsync on the Pi, or an in-process copy
-(`syncMediaLocally`) on a single workstation. Syncing eagerly at attach time means the preview and
+is made available under Backdrop's media dir — streamed to Backdrop over HTTP (`media_transfer =
+"push"`), copied in-process on a single workstation (`"local"`), or left to an out-of-band rsync
+(`"none"`, the default). Syncing eagerly at attach time means the preview and
 simulate-scan flows have the real file available when the user tries them.
 
 **On verified** (any → `verified`): a final sync verification (`POST /api/backdrop/verify-sync`)

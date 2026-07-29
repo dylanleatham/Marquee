@@ -1,5 +1,9 @@
 import { pathToFileURL, fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
+import { dirname, resolve, join } from "node:path";
+import { createWriteStream, mkdirSync, renameSync, rmSync } from "node:fs";
+import { once } from "node:events";
+import { randomUUID } from "node:crypto";
+import type { Readable } from "node:stream";
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
@@ -20,6 +24,22 @@ export interface BuildOptions {
   library?: Library;
   /** Injected timers for the idle-timeout (tests step it deterministically). */
   timers?: Timers;
+}
+
+/** A media upload exceeded `maxUploadBytes` (ADR 0038) — answered as 413. */
+export class UploadTooLargeError extends Error {
+  constructor() {
+    super("upload exceeds the configured cap");
+    this.name = "UploadTooLargeError";
+  }
+}
+
+/** A media upload stopped sending bytes for `uploadStallMs` — answered as 408. */
+export class UploadStalledError extends Error {
+  constructor() {
+    super("upload stalled");
+    this.name = "UploadStalledError";
+  }
 }
 
 /** Narrow an untrusted body to a ScanEvent, or return null (→ 400). */
@@ -131,6 +151,106 @@ export function buildServer(opts: BuildOptions = {}) {
     }
     controller.handleScan(scan);
     return reply.code(202).send({ accepted: true });
+  });
+
+  // --- Media upload (from Curator, ADR 0038) -----------------------------------------------------
+  // Curator streams the visualizer here instead of relying on an out-of-band rsync. This is the only
+  // route that writes to Backdrop's disk from the network, so the guards below are load-bearing.
+  //
+  // The body is handed over as a raw stream rather than parsed: these files run to hundreds of MB and
+  // Backdrop runs on a Pi, so buffering one would be fatal. Fastify's `bodyLimit` does not apply to a
+  // pass-through parser, which is why the cap is counted explicitly below.
+  app.addContentTypeParser("application/octet-stream", (_req, payload, done) =>
+    done(null, payload),
+  );
+
+  /**
+   * A `fileId` becomes a filename inside the directory Backdrop serves videos from. Only the
+   * curatorId shape is accepted — rejected outright rather than sanitised, because sanitising
+   * invites the next bypass and Curator has no reason to send anything else.
+   */
+  const MEDIA_FILE_ID = /^[a-z0-9]{8}$/;
+
+  app.put("/api/media/:fileId", async (req, reply) => {
+    const { fileId } = req.params as { fileId: string };
+    if (!MEDIA_FILE_ID.test(fileId)) {
+      return reply
+        .code(400)
+        .send({ error: "fileId must match /^[a-z0-9]{8}$/" });
+    }
+
+    mkdirSync(config.mediaDir, { recursive: true });
+    // Write beside the destination so the rename is same-filesystem, and therefore atomic. The real
+    // filename must never exist in a half-written state: a truncated mp4 that *looks* whole is worse
+    // than a missing one, because Backdrop would hand it to the kiosk as a valid video.
+    // Unique per request, not just per process: two uploads of the same album can be in flight at
+    // once (a re-push racing a retry, or two Curators), and a shared temp name lets their streams
+    // interleave into one file — which the rename would then publish as a video that is neither.
+    const tmp = join(config.mediaDir, `.${fileId}.${randomUUID()}.part`);
+    const dest = join(config.mediaDir, `${fileId}.mp4`);
+    let bytes = 0;
+
+    const source = req.body as Readable;
+    const out = createWriteStream(tmp);
+
+    // The read loop below waits on the network, so it needs a bound or a dropped connection that
+    // never closes its socket parks it forever — holding a file descriptor and a temp file on the
+    // Pi's SD card. A stall timeout, not a deadline: a real visualizer over a poor link takes many
+    // minutes legitimately, so only "bytes stopped arriving" distinguishes slow from dead.
+    let stallTimer: NodeJS.Timeout | undefined;
+    const armStall = () => {
+      clearTimeout(stallTimer);
+      stallTimer = setTimeout(
+        () => source.destroy(new UploadStalledError()),
+        config.uploadStallMs,
+      );
+    };
+
+    // A write can fail between the moments we await — a full SD card is the realistic case on a Pi.
+    // Without a listener that is an uncaught 'error' event, which takes down the whole service
+    // rather than this one upload, so every await below races against it.
+    const writeFailed = new Promise<never>((_, reject) => {
+      out.once("error", reject);
+    });
+    writeFailed.catch(() => {}); // never an unhandled rejection when the upload succeeds
+
+    try {
+      // Consumed explicitly rather than piped, so the cap is checked *before* each chunk is written
+      // — the point of a cap is to stop writing, not to discover afterwards that we shouldn't have.
+      // `write()` returning false means the buffer is full; awaiting "drain" is what keeps a 240 MB
+      // upload from being held in memory on a Pi.
+      armStall();
+      for await (const chunk of source) {
+        armStall();
+        const buf = chunk as Buffer;
+        bytes += buf.length;
+        if (bytes > config.maxUploadBytes) throw new UploadTooLargeError();
+        if (!out.write(buf))
+          await Promise.race([once(out, "drain"), writeFailed]);
+      }
+      clearTimeout(stallTimer);
+      out.end();
+      await Promise.race([once(out, "finish"), writeFailed]);
+      renameSync(tmp, dest);
+      req.log.info({ fileId, bytes }, "media upload received");
+      return reply.code(201).send({ fileId, bytes });
+    } catch (err) {
+      clearTimeout(stallTimer);
+      out.destroy(); // release the handle before unlinking, or Windows keeps the file locked
+      rmSync(tmp, { force: true }); // no partial file, and no orphan filling the SD card
+      if (err instanceof UploadTooLargeError) {
+        return reply
+          .code(413)
+          .send({ error: `upload exceeds ${config.maxUploadBytes} bytes` });
+      }
+      if (err instanceof UploadStalledError) {
+        return reply
+          .code(408)
+          .send({ error: `upload stalled for ${config.uploadStallMs}ms` });
+      }
+      req.log.error({ fileId, err }, "media upload failed");
+      return reply.code(500).send({ error: "upload failed" });
+    }
   });
 
   // --- Library sync (from Curator) ---------------------------------------------------------------

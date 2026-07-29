@@ -226,10 +226,12 @@ describe("loadConfig", () => {
     process.env.TRIGGER_SHARED_SECRET = "shh";
     delete process.env.BACKDROP_MEDIA_DIR;
     delete process.env.BACKDROP_SYNC_MEDIA_LOCALLY;
+    delete process.env.BACKDROP_MEDIA_TRANSFER;
     expect(loadConfig().backdrop).toEqual({
       url: "http://backdrop-pi:4740",
       sharedSecret: "shh",
       mediaDir: resolve(join(dir, "media", "visualizers")),
+      mediaTransfer: "none",
       syncMediaLocally: false,
     });
   });
@@ -263,6 +265,59 @@ describe("loadConfig", () => {
     // The failure this guards is specifically a drive letter appearing on a POSIX path.
     expect(backdrop?.mediaDir).not.toMatch(/^[A-Za-z]:/);
     expect(backdrop?.mediaDir).not.toContain("\\");
+  });
+
+  /**
+   * ADR 0038. There were two states (rsync / local copy) so a boolean sufficed; there are now three,
+   * because Curator can push the file over HTTP. `sync_media_locally` stays honoured so an existing
+   * config.toml keeps working — a silent change of transfer mode on upgrade would be the worst
+   * possible failure here.
+   */
+  it("reads the media transfer mode from config.toml", () => {
+    withFile('[backdrop]\nurl = "http://pi:4740"\nmedia_transfer = "push"\n');
+    expect(loadConfig().backdrop).toMatchObject({
+      mediaTransfer: "push",
+      syncMediaLocally: false,
+    });
+  });
+
+  it("defaults to no transfer, preserving the out-of-band rsync deployment", () => {
+    withFile('[backdrop]\nurl = "http://pi:4740"\n');
+    expect(loadConfig().backdrop).toMatchObject({
+      mediaTransfer: "none",
+      syncMediaLocally: false,
+    });
+  });
+
+  it("still honours the legacy sync_media_locally boolean", () => {
+    withFile('[backdrop]\nurl = "http://pi:4740"\nsync_media_locally = true\n');
+    expect(loadConfig().backdrop).toMatchObject({
+      mediaTransfer: "local",
+      syncMediaLocally: true,
+    });
+  });
+
+  it("lets an explicit media_transfer win over the legacy boolean", () => {
+    withFile(
+      '[backdrop]\nurl = "http://pi:4740"\nsync_media_locally = true\nmedia_transfer = "push"\n',
+    );
+    expect(loadConfig().backdrop).toMatchObject({
+      mediaTransfer: "push",
+      syncMediaLocally: false,
+    });
+  });
+
+  it("falls back to none for an unrecognised mode rather than guessing", () => {
+    withFile('[backdrop]\nurl = "http://pi:4740"\nmedia_transfer = "ftp"\n');
+    expect(loadConfig().backdrop?.mediaTransfer).toBe("none");
+  });
+
+  it("reads the media transfer mode from the environment", () => {
+    noFile();
+    process.env.BACKDROP_URL = "http://backdrop-pi:4740";
+    process.env.BACKDROP_MEDIA_TRANSFER = "push";
+    delete process.env.BACKDROP_SYNC_MEDIA_LOCALLY;
+    expect(loadConfig().backdrop?.mediaTransfer).toBe("push");
   });
 
   it("keeps a remote POSIX media dir verbatim when it comes from the environment", () => {

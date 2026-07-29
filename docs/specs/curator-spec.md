@@ -570,9 +570,29 @@ live in Curator's config (`[conductor] url`, `shared_secret`, or env `CONDUCTOR_
 > a detach (`/api/albums/:id/detach-video`) or album delete removes it. There is no separate
 > `push-album` route (the earlier speculative name); the routes below are the _manual_ controls.
 > Configured only when a Backdrop URL is set (`[backdrop] url` / env `BACKDROP_URL`); `mediaDir`
-> roots the projection's `filePath` and `sync_media_locally` opts into an in-process file copy for a
-> single-workstation setup (the Pi uses out-of-band rsync). Sync is best-effort — failures record on
-> the album as `roadie.syncIssues`, never a state change.
+> roots the projection's `filePath`. Sync is best-effort — failures record on the album as
+> `roadie.syncIssues`, never a state change.
+>
+> **`media_transfer` chooses how the video file itself reaches Backdrop** (2026-07-29,
+> [ADR 0038](../adrs/0038-curator-pushes-media-over-http.md); env `BACKDROP_MEDIA_TRANSFER`):
+>
+> | Mode    | Meaning                                                                           |
+> | ------- | --------------------------------------------------------------------------------- |
+> | `none`  | Curator pushes metadata only; an out-of-band `rsync` moves the file. **Default.** |
+> | `local` | Same machine — copied in-process into `media_dir`.                                |
+> | `push`  | Streamed to Backdrop over HTTP (`PUT /api/media/:fileId`).                        |
+>
+> The former `sync_media_locally` boolean is still honoured and means `local`, so an existing config
+> keeps its behaviour.
+>
+> **Whenever Curator moves the file itself** — `local` or `push`, i.e. any mode but `none` — it
+> computes the visualizer's `sha256` and sends it as the entry's `contentHash`, and skips the
+> transfer when Backdrop already reports that hash. It is not scoped to `push`: the check costs one
+> hash (~0.5s for a 228 MB file, measured at 469 MB/s) and saves a copy either way, and scoping it
+> would leave `local`-mode entries with no `contentHash` for `verify-sync` to compare. An entry with
+> no `contentHash` (synced before this, or moved by rsync) is always re-sent — a needless transfer
+> costs time, a wrongly-skipped one leaves a black screen. **A failed transfer fails the sync**;
+> before this, sync reported success for pushing metadata whether or not the video ever arrived.
 >
 > **`media_dir` is a path on Backdrop's host, and is taken verbatim** (2026-07-28, issue #166). It is
 > resolved against Curator's own filesystem **only** when `sync_media_locally` is set — the one case

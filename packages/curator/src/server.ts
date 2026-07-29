@@ -78,6 +78,8 @@ import {
   BackdropSync,
   disabledBackdropSync,
   localCopyTransfer,
+  httpPushTransfer,
+  effectiveMediaTransferMode,
   type BackdropSyncLike,
 } from "./backdrop/sync.js";
 import { AmpClient } from "./amp/client.js";
@@ -421,23 +423,38 @@ export function buildServer(opts: BuildOptions = {}) {
   const backdrop: BackdropSyncLike =
     opts.backdrop ??
     (config.backdrop
-      ? new BackdropSync({
-          store,
-          client: new BackdropClient({
+      ? (() => {
+          const backdropClient = new BackdropClient({
             url: config.backdrop.url,
             ...(config.backdrop.sharedSecret
               ? { sharedSecret: config.backdrop.sharedSecret }
               : {}),
-          }),
-          backdropMediaDir: config.backdrop.mediaDir,
-          ...(config.backdrop.syncMediaLocally
-            ? { mediaTransfer: localCopyTransfer(config.backdrop.mediaDir) }
-            : {}),
-          logger: {
-            info: (m) => app.log.info(m),
-            warn: (m) => app.log.warn(m),
-          },
-        })
+          });
+          // ADR 0038: `none` leaves the file to an out-of-band rsync (unchanged), `local` copies it
+          // on this machine, `push` streams it to Backdrop.
+          //
+          // `loadConfig` always sets `mediaTransfer`, but a caller building a config object directly
+          // (tests, embedders) may still set only the legacy `syncMediaLocally`. Falling back to it
+          // keeps the ADR's promise that the boolean goes on working — a config that says "copy
+          // locally" and is silently ignored is worse than one that is rejected.
+          const mode = effectiveMediaTransferMode(config.backdrop);
+          const transfer =
+            mode === "local"
+              ? localCopyTransfer(config.backdrop.mediaDir)
+              : mode === "push"
+                ? httpPushTransfer(backdropClient)
+                : undefined;
+          return new BackdropSync({
+            store,
+            client: backdropClient,
+            backdropMediaDir: config.backdrop.mediaDir,
+            ...(transfer ? { mediaTransfer: transfer } : {}),
+            logger: {
+              info: (m) => app.log.info(m),
+              warn: (m) => app.log.warn(m),
+            },
+          });
+        })()
       : disabledBackdropSync);
   // Amp — the room rehearsal's audio leg (ADR 0028). Absent unless an Amp URL is configured; the
   // rehearsal then reports audio as unconfigured rather than failing (lights + video still run).
