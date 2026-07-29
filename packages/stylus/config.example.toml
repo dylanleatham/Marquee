@@ -6,14 +6,23 @@ insertion_debounce_polls = 2
 removal_debounce_polls = 10
 swap_debounce_polls = 1
 
+# Conductor and Backdrop both run on the Pi 5 (runbook §Topology) — same host, different ports.
+# Prefer its IP over a `.local` name: mDNS resolves inconsistently across clients, and a name that
+# works from one machine and not another is harder to debug than one that never works.
 [downstream.conductor]
-url = "http://conductor.local:4737/api/scan"
-timeout_ms = 1000
+url = "http://192.168.1.50:4737/api/scan"
+# 5s, not 1s: /api/scan doesn't just accept the event, it resolves the album and drives the Hue
+# bridge over the network before replying. Measured at ~3s on real hardware. A timeout under that
+# fails every scan AND burns all three retries — so Conductor applies the palette three times while
+# Stylus reports total failure.
+timeout_ms = 5000
 shared_secret = "change-me-lan-only-secret"
 
 [downstream.backdrop]
-url = "http://backdrop.local:4740/api/scan"
-timeout_ms = 1000
+url = "http://192.168.1.50:4740/api/scan"
+# Backdrop just accepts and signals the kiosk, so it answers fast. Keep this tight — a downstream
+# that is genuinely down should fail quickly rather than stall the poll loop.
+timeout_ms = 2000
 shared_secret = "change-me-lan-only-secret"
 
 [status]

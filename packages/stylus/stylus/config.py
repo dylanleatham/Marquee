@@ -42,7 +42,11 @@ class Downstream:
 
     name: str
     url: str
-    timeout_ms: int = 1000
+    # 3s, not 1s. Conductor's /api/scan resolves the album and drives the Hue bridge before it
+    # replies — measured at ~3s on real hardware — so a 1s default failed every scan and burned all
+    # three retries doing it. This default has to clear the *slowest* downstream; Conductor's own
+    # config should raise it further (see config.example.toml).
+    timeout_ms: int = 3000
     shared_secret: str | None = None
 
 
@@ -83,7 +87,7 @@ def _downstreams_from(section: dict[str, Any]) -> tuple[Downstream, ...]:
             Downstream(
                 name=name,
                 url=str(url),
-                timeout_ms=int(d.get("timeout_ms", 1000)),
+                timeout_ms=int(d.get("timeout_ms", 3000)),
                 shared_secret=d.get("shared_secret"),
             )
         )

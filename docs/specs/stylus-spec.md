@@ -173,7 +173,7 @@ Rationale: fast enough that placing a sleeve feels instant, slow enough that a h
 
 ### Outbound events
 
-To Conductor (`http://conductor.local:4737/api/scan`):
+To Conductor (`http://<pi5>:4737/api/scan`):
 
 ```json
 {
@@ -185,7 +185,7 @@ To Conductor (`http://conductor.local:4737/api/scan`):
 }
 ```
 
-To Backdrop (`http://backdrop.local:4740/api/scan`):
+To Backdrop (`http://<pi5>:4740/api/scan` — same host as Conductor, see §9):
 Same payload shape. Backdrop and Conductor both get identical events; they're not synchronized, just fan-out. (Renamed from "Player" — Backdrop is the committed name, runtime-overview §12. The config key `[downstream.player]` is still accepted as a legacy alias; [ADR 0016](../adrs/0016-stylus-stdlib-core-and-hardware-seams.md).)
 
 Also fires:
@@ -209,6 +209,21 @@ Fire-and-forget with a short retry window:
 
 Rationale: a scan event that arrives 30 seconds late is worse than no event at all — the record is halfway through and the lights suddenly change. Better to log and move on. Downstream services should be idempotent enough that a missed `stop` isn't catastrophic (they can time out their own state after some idle threshold).
 
+> **Per-downstream timeouts (2026-07-29, measured during step-11 bring-up).** The retry window above
+> only makes sense if a single attempt is given long enough to succeed. Conductor's `/api/scan`
+> resolves the album **and drives the Hue bridge** before replying — **~2.9s measured** on a Pi Zero
+> 2 W over Wi-Fi. The original `timeout_ms = 1000` default therefore failed _every_ scan, and worse,
+> spent all three retries doing it: Conductor received and applied the same `start` three times while
+> Stylus reported `downstreamHealth: false` for a request that had actually worked. Defaults are now
+> **3000ms** (`config.py`), with `config.example.toml` suggesting **5000** for Conductor and **2000**
+> for Backdrop, which only accepts and signals the kiosk.
+>
+> Two consequences worth naming rather than burying. §2's "lights change within 500ms" is **not met
+> by the current Conductor** — the bridge round-trip dominates, and that's a Conductor latency
+> question, not a Stylus one. And because `Publisher.publish` is synchronous inside the poll loop, a
+> slow or dead downstream stalls tag polling for the whole retry window; raising timeouts widens that
+> stall. Tracked as a follow-up, not fixed here.
+
 ### Inbound status (optional)
 
 Small local HTTP server on port 4741:
@@ -229,14 +244,16 @@ insertion_debounce_polls = 2
 removal_debounce_polls = 10
 swap_debounce_polls = 1
 
+# Conductor and Backdrop both run on the Pi 5 — same host, different ports. Prefer its IP over a
+# `.local` name: mDNS resolves inconsistently across clients.
 [downstream.conductor]
-url = "http://conductor.local:4737/api/scan"
-timeout_ms = 1000
+url = "http://192.168.1.50:4737/api/scan"
+timeout_ms = 5000                    # drives the Hue bridge before replying — see §8
 shared_secret = "..."
 
 [downstream.backdrop]                # "player" is still accepted as a legacy alias (ADR 0016)
-url = "http://backdrop.local:4740/api/scan"
-timeout_ms = 1000
+url = "http://192.168.1.50:4740/api/scan"
+timeout_ms = 2000                    # only accepts and signals the kiosk, so it answers fast
 shared_secret = "..."
 
 [status]
