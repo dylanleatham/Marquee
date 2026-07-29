@@ -118,7 +118,8 @@ The album onboarding workflow already defined per-album states. Roadie doesn't i
                             └─────────────────────┘
 
   ★ = Roadie sync triggers on human-driven transitions (see §6):
-      ★sync   = rsync video file to Backdrop's SD card
+      ★sync   = get the video file onto Backdrop's SD card — pushed over HTTP,
+                copied locally, or left to rsync, per media_transfer (§6, ADR 0038)
       ★verify = verify this album is in Backdrop's library, log any discrepancies
 ```
 
