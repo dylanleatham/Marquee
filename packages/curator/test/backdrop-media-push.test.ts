@@ -562,4 +562,23 @@ describe("metadata lands before the bytes, without claiming they arrived", () =>
     expect(res.ok).toBe(false);
     expect(remoteEntry()?.contentHash).toBeUndefined();
   });
+
+  /**
+   * Cancelling is not failing. Two things cancel a transfer: the user pressing Stop, and a newer
+   * attach superseding it — and in the second case a replacement is already running, so writing
+   * "transfer failed" onto the album would be a scary, wrong message sitting there while the real
+   * transfer succeeds behind it.
+   */
+  it("records no syncIssue when a transfer is cancelled", async () => {
+    await start();
+    const asset = seed("abc12345", Buffer.alloc(64 * 1024, 3));
+    const controller = new AbortController();
+    controller.abort();
+
+    await sync().transferMediaInBackground(asset, {
+      signal: controller.signal,
+    });
+
+    expect(store.read("abc12345")!.roadie.syncIssues).toEqual([]);
+  });
 });

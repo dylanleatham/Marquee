@@ -241,6 +241,19 @@ export class BackdropSync {
       return { ok: true };
     } catch (err) {
       const message = (err as Error).message;
+
+      // A cancellation is not a failure, and must not leave one written on the album. Two things
+      // cancel: the user pressing Stop, and a newer attach superseding this transfer — in the second
+      // case a replacement is already running, so a "transfer failed" syncIssue would be actively
+      // wrong, sitting on the album while the real transfer succeeds behind it. Existing issues are
+      // left untouched: this attempt learned nothing about them either way.
+      if (ctx.signal?.aborted) {
+        this.log.info(
+          `Backdrop: media transfer for ${asset.curatorId} cancelled`,
+        );
+        return { ok: false, skipped: true, error: "cancelled" };
+      }
+
       this.log.warn(
         `Backdrop media transfer failed for ${asset.curatorId}: ${message}`,
       );
