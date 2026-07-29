@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { albumUri, buildLibraryEntry } from "../src/backdrop/projection.js";
+import { loadConfig } from "../src/config.js";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { makeAsset } from "./helpers.js";
 import type { AlbumAsset } from "../src/albums/asset.js";
 
@@ -60,5 +63,37 @@ describe("backdrop projection", () => {
       filePath: "/m/nodur123.mp4",
     });
     expect("durationSec" in entry!).toBe(false);
+  });
+
+  /**
+   * Issue #166, end to end. The defect lived in config resolution and only became visible in the
+   * projection's output, so neither layer's own tests could catch it — this one spans both, using
+   * the real `loadConfig` rather than a hand-written media dir.
+   *
+   * The property that matters to Backdrop: the filePath must sit under the media dir it was
+   * configured with, because Backdrop refuses to load anything outside it (backdrop-spec §5).
+   */
+  it("produces a filePath under the configured remote media dir (config → projection)", () => {
+    const mediaDir = "/home/pi/marquee-data/media/visualizers";
+    // Drive the real resolution path — an `override` would bypass the very code under test.
+    const saved = { ...process.env };
+    process.env.CURATOR_CONFIG = join(tmpdir(), "no-such-curator-config.toml");
+    process.env.BACKDROP_URL = "http://pi:4740";
+    process.env.BACKDROP_MEDIA_DIR = mediaDir;
+    delete process.env.BACKDROP_SYNC_MEDIA_LOCALLY;
+
+    try {
+      const config = loadConfig();
+      const entry = buildLibraryEntry(
+        withVideo("abc12345"),
+        config.backdrop!.mediaDir,
+      );
+
+      expect(entry!.filePath).toBe(`${mediaDir}/abc12345.mp4`);
+      expect(entry!.filePath.startsWith(mediaDir)).toBe(true);
+      expect(entry!.filePath).not.toMatch(/^[A-Za-z]:/);
+    } finally {
+      process.env = saved;
+    }
   });
 });

@@ -205,19 +205,30 @@ export function loadConfig(override: Partial<Config> = {}): Config {
   // meant to be overridden with Backdrop's real media path on a split (Pi) deployment.
   const backdropUrl =
     (backdropFile.url as string | undefined) ?? process.env.BACKDROP_URL;
-  const backdropMediaDir = resolve(
-    String(
-      backdropFile.media_dir ??
-        process.env.BACKDROP_MEDIA_DIR ??
-        join(dataDir, "media", "visualizers"),
-    ),
-  );
   const backdropSecret =
     (backdropFile.shared_secret as string | undefined) ??
     process.env.TRIGGER_SHARED_SECRET;
   const backdropSyncLocal = asBool(
     backdropFile.sync_media_locally ?? process.env.BACKDROP_SYNC_MEDIA_LOCALLY,
   );
+  const backdropMediaDirRaw = String(
+    backdropFile.media_dir ??
+      process.env.BACKDROP_MEDIA_DIR ??
+      join(dataDir, "media", "visualizers"),
+  );
+  /**
+   * `media_dir` names a location on **Backdrop's** host, and in the split deployment (runbook
+   * §Topology) that is a different machine. Resolving it against Curator's filesystem is meaningless
+   * there and destructive on Windows: `resolve("/home/pi/x")` yields `C:\home\pi\x`, which the
+   * projection emits as `C:/home/pi/x` — a path that fails Backdrop's "must sit under media_dir"
+   * check, so no album can play (issue #166).
+   *
+   * Resolve it only when `syncMediaLocally` says Backdrop's host *is* this machine, which is the
+   * one case where it is a local path this process will itself write to.
+   */
+  const backdropMediaDir = backdropSyncLocal
+    ? resolve(backdropMediaDirRaw)
+    : backdropMediaDirRaw;
 
   // Amp (ADR 0028) — the room rehearsal's audio leg. Configured only when a URL is present; absent
   // → the rehearsal reports audio as unconfigured rather than failing (lights + video still run).

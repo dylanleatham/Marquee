@@ -240,9 +240,39 @@ describe("loadConfig", () => {
     );
     expect(loadConfig().backdrop).toMatchObject({
       url: "http://pi:4740",
+      // Local sync means the media dir really is on *this* filesystem, so resolving it is right.
       mediaDir: resolve("/srv/vis"),
       syncMediaLocally: true,
     });
+  });
+
+  /**
+   * Issue #166. In the split deployment (runbook §Topology: Curator on the workstation, Backdrop on
+   * the Pi) `media_dir` is a path on *another host*. Resolving it against Curator's own filesystem is
+   * meaningless there, and on Windows it is destructive: `resolve("/home/pi/x")` returns
+   * `C:\home\pi\x`, which the projection turns into a `C:/home/pi/x` filePath that fails Backdrop's
+   * "must sit under media_dir" check — so no album can ever play.
+   */
+  it("keeps a remote POSIX media dir verbatim, drive letter and all platforms", () => {
+    withFile(
+      '[backdrop]\nurl = "http://pi:4740"\nmedia_dir = "/home/pi/marquee-data/media/visualizers"\n',
+    );
+    const { backdrop } = loadConfig();
+    expect(backdrop?.syncMediaLocally).toBe(false);
+    expect(backdrop?.mediaDir).toBe("/home/pi/marquee-data/media/visualizers");
+    // The failure this guards is specifically a drive letter appearing on a POSIX path.
+    expect(backdrop?.mediaDir).not.toMatch(/^[A-Za-z]:/);
+    expect(backdrop?.mediaDir).not.toContain("\\");
+  });
+
+  it("keeps a remote POSIX media dir verbatim when it comes from the environment", () => {
+    noFile();
+    process.env.BACKDROP_URL = "http://backdrop-pi:4740";
+    process.env.BACKDROP_MEDIA_DIR = "/home/pi/marquee-data/media/visualizers";
+    delete process.env.BACKDROP_SYNC_MEDIA_LOCALLY;
+    expect(loadConfig().backdrop?.mediaDir).toBe(
+      "/home/pi/marquee-data/media/visualizers",
+    );
   });
 
   it("derives the Spotify OAuth redirect URI from host + port by default", () => {
