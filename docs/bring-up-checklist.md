@@ -140,6 +140,8 @@ Full command-by-command version: [`packages/stylus/DEPLOY.md`](../packages/stylu
 - [ ] 4 wires: VCC→**3.3V pin 1** (not 5V!), GND→pin 6, SDA→**GPIO2 pin 3**, SCL→**GPIO3 pin 5**
 - [ ] (optional) LED: anode → 330Ω → **GPIO17 pin 11**; cathode → GND
 - [ ] I²C enabled (`raspi-config` → Interface → I2C → reboot); user in the `i2c`/`gpio` groups
+- [ ] Build prerequisites present: `python3-venv python3-dev build-essential` — Blinka's C extensions
+      compile from source, and without the headers the install dies on `Python.h: No such file`
 - [ ] Stylus installed in a **venv** with the **hardware extra**: `.venv/bin/pip install '.[hardware]'`
       (`adafruit-circuitpython-pn532`, `Adafruit-Blinka`) — Bookworm refuses a plain `pip install`
 - [ ] Config: Conductor + Backdrop URLs + shared secret; `[led].gpio_pin = 17`

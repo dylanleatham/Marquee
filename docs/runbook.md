@@ -242,7 +242,9 @@ page. **Power off the Pi before wiring.**
    `python3 -m venv .venv && .venv/bin/pip install '.[hardware]'` — that's
    `adafruit-circuitpython-pn532` + `Adafruit-Blinka` (for `board`/`busio`/`digitalio`), imported
    lazily so they're only ever needed on the Pi (ADR 0016). The venv isn't optional: Bookworm's
-   system Python is "externally managed" and refuses a plain `pip install`.
+   system Python is "externally managed" and refuses a plain `pip install`. Install
+   `python3-dev` + `build-essential` **first** — Blinka's C extensions build from source and fail on
+   `Python.h: No such file or directory` without the headers.
 2. **Config** (`packages/stylus/config.example.toml` → your `config.toml`): Conductor + Backdrop URLs and
    the shared secret; keep `[led].gpio_pin = 17` unless you wired the LED elsewhere.
 3. Run the real reader: `.venv/bin/python -m stylus` (the default builds `create_pn532_reader`;
