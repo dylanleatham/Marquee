@@ -40,11 +40,16 @@ def test_delivers_on_first_2xx_no_retry():
 
 
 def test_sends_shared_secret_header_and_timeout():
-    pub, transport, _ = make(200)
+    # The point here is the ms→seconds conversion, so set it explicitly rather than pinning the
+    # default a second time — test_config owns that (it moved 1000→3000 for the Hue round-trip).
+    pub, transport, _ = make(
+        200,
+        downstreams=[Downstream("conductor", "http://c/api/scan", timeout_ms=1500, shared_secret="s")],
+    )
     pub.publish(EVENT)
     call = transport.calls[0]
     assert call["headers"]["X-Trigger-Secret"] == "s"
-    assert call["timeout_s"] == 1.0  # 1000ms default
+    assert call["timeout_s"] == 1.5
 
 
 def test_omits_secret_header_when_unset():

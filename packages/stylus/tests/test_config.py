@@ -30,6 +30,14 @@ def test_reads_downstreams_in_fanout_order():
     assert c.downstreams[1].timeout_ms == 500
 
 
+def test_default_timeout_clears_conductors_measured_latency():
+    # Conductor's /api/scan drives the Hue bridge before replying — ~3s on real hardware. The old
+    # 1000ms default failed every scan and spent all three retries doing it, so an omitted
+    # timeout_ms must not sit under that. Regression guard for the step-11 bring-up (#52).
+    c = config_from_dict({"downstream": {"conductor": {"url": "http://c:4737/api/scan"}}})
+    assert c.downstreams[0].timeout_ms >= 3000
+
+
 def test_player_is_a_legacy_alias_for_backdrop():
     c = config_from_dict({"downstream": {"player": {"url": "http://b:4740/api/scan"}}})
     assert [d.name for d in c.downstreams] == ["backdrop"]

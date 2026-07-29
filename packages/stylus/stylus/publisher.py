@@ -58,7 +58,14 @@ class Publisher:
         self._retry_delays = tuple(retry_delays)
 
     def publish(self, event: dict[str, Any]) -> dict[str, bool]:
-        """Send ``event`` to every downstream. Returns ``{name: delivered?}``; never raises."""
+        """Send ``event`` to every downstream. Returns ``{name: delivered?}``; never raises.
+
+        Sequential and synchronous — the caller is ``StylusApp.tick()``, i.e. the poll loop, so the
+        reader is blind for however long this takes. With the current timeouts (5s Conductor, 2s
+        Backdrop) and the §8 retry window, a total outage stalls polling for ~26s. Tracked as
+        `#173 <https://github.com/dylanleatham/Marquee/issues/173>`_ (parallel fan-out or a shared
+        timeout budget); acceptable while both services are up, since a success costs one round trip.
+        """
         return {d.name: self._send_with_retry(d, event) for d in self._downstreams}
 
     def _send_with_retry(self, d: Downstream, event: dict[str, Any]) -> bool:
