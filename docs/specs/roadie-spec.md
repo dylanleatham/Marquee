@@ -206,8 +206,9 @@ file. The file rsync to a Pi stays out-of-band.)_
 
 > **Superseded in part (2026-07-29, [ADR 0038](../adrs/0038-curator-pushes-media-over-http.md)):** the
 > file transfer to a Pi no longer has to be out-of-band. With `media_transfer = "push"` Curator
-> streams it to Backdrop over HTTP as part of the same sync, and a failed transfer fails the sync
-> rather than being invisible. `rsync` remains supported (`media_transfer = "none"`, still the
+> streams it to Backdrop over HTTP. Since 2026-07-29 (issue #177) that runs as a background
+> `mediaTransfer` job rather than on the request path, so attaching a video returns immediately; a
+> failed transfer fails that job and records a `syncIssue` rather than being invisible. `rsync` remains supported (`media_transfer = "none"`, still the
 > default) for bulk or offline moves.
 
 **On video attach** (→ `awaiting_preview`, from either `awaiting_video` or — when you already had

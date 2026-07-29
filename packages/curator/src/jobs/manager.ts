@@ -14,7 +14,7 @@ import { dirname } from "node:path";
 import type { VideoClip, CardArtCandidate } from "../albums/asset.js";
 import type { BatchPaletteReport } from "../albums/batch.js";
 
-export type JobKind = "video" | "cardArt" | "paletteBatch";
+export type JobKind = "video" | "cardArt" | "paletteBatch" | "mediaTransfer";
 export type JobStatus = "running" | "done" | "failed" | "cancelled";
 
 /** What a finished job produced — the same payloads the synchronous routes used to return. */

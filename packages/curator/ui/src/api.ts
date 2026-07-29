@@ -181,7 +181,12 @@ export interface CardArtRefusal {
 
 export type PromptType = "video" | "cardArt";
 
-export type JobKind = "video" | "cardArt" | "paletteBatch";
+export type JobKind =
+  | "video"
+  | "cardArt"
+  | "paletteBatch"
+  /** Streaming a visualizer to Backdrop (issue #177). Progress is bytes, not items. */
+  | "mediaTransfer";
 export type JobStatus = "running" | "done" | "failed" | "cancelled";
 
 /** A background generation job (issue #30 / ADR 0018). Mirrors GenerationJob on the server. */

@@ -248,6 +248,29 @@ describe("server routes trigger Backdrop sync", () => {
     });
   };
 
+  /**
+   * The file transfer is a background job now (issue #177) — the upload response returns as soon as
+   * the metadata is pushed, so a test that wants to see the file must wait for the job, exactly as
+   * the UI does. Polls the same `GET /api/jobs` the client polls rather than reaching into internals.
+   */
+  const awaitTransfers = async (
+    app: ReturnType<typeof server>,
+    curatorId: string,
+  ) => {
+    for (let i = 0; i < 100; i++) {
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/albums/${curatorId}/jobs?kind=mediaTransfer`,
+      });
+      const running = (
+        res.json().jobs as Array<{ kind: string; status: string }>
+      ).filter((j) => j.status === "running");
+      if (running.length === 0) return;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    throw new Error("media transfer job did not finish");
+  };
+
   it("uploading + attaching a video pushes it to Backdrop and copies the file", async () => {
     // Seed a reviewed album so the video can attach.
     const a = makeAsset("route123");
@@ -255,10 +278,78 @@ describe("server routes trigger Backdrop sync", () => {
     a.roadie.history = [{ state: "awaiting_review", at: a.createdAt }];
     store.save(a);
 
-    const up = await uploadVideo(server(), "route123");
+    const app = server();
+    const up = await uploadVideo(app, "route123");
     expect(up.statusCode).toBe(201);
+    // Metadata lands on the request path; the file follows in the background.
     expect(backdrop.entries["curator:album:route123"]).toBeTruthy();
+    expect(up.json().transferJobId).toBeTruthy();
+
+    await awaitTransfers(app, "route123");
     expect(existsSync(join(mediaDir, "route123.mp4"))).toBe(true);
+  });
+
+  /**
+   * A second video attached while the first is still transferring is *not* the same work, but
+   * `jobs.start` dedups on album+kind and would hand back the stale job — the new file would never
+   * be sent, and the old job would go on to publish a contentHash for a file the album no longer
+   * uses, after which skip-if-unchanged skips the correct one forever. A newer attach supersedes.
+   */
+  it("supersedes an in-flight transfer when a new video is attached", async () => {
+    const a = makeAsset("super001");
+    a.roadie.state = "awaiting_review";
+    a.roadie.history = [{ state: "awaiting_review", at: a.createdAt }];
+    store.save(a);
+    const app = server();
+
+    const first = await uploadVideo(app, "super001");
+    const firstJob = first.json().transferJobId as string;
+    expect(firstJob).toBeTruthy();
+
+    const second = await uploadVideo(app, "super001");
+    const secondJob = second.json().transferJobId as string;
+
+    // A distinct job — not the first one handed back.
+    expect(secondJob).toBeTruthy();
+    expect(secondJob).not.toBe(firstJob);
+
+    await awaitTransfers(app, "super001");
+    const jobsRes = await app.inject({
+      method: "GET",
+      url: "/api/albums/super001/jobs?kind=mediaTransfer",
+    });
+    const all = jobsRes.json().jobs as Array<{ id: string; status: string }>;
+    // The superseded one is not left running forever.
+    expect(all.find((j) => j.id === firstJob)?.status).not.toBe("running");
+  });
+
+  /**
+   * Detaching while a transfer is still in flight. The job holds a snapshot of the album taken when
+   * it started — one that still has a visualizer — so on completion it re-upserts the entry that
+   * detach just removed, and Backdrop goes on playing a video the user deliberately took away.
+   *
+   * The cancellation must therefore run for *any* video change, not only ones that owe a transfer:
+   * detach owes nothing, which is exactly why it used to skip the cancel.
+   */
+  it("cancels an in-flight transfer on detach, so it cannot resurrect the entry", async () => {
+    const a = makeAsset("detach99");
+    a.roadie.state = "awaiting_review";
+    a.roadie.history = [{ state: "awaiting_review", at: a.createdAt }];
+    store.save(a);
+    const app = server();
+
+    await uploadVideo(app, "detach99");
+    expect(backdrop.entries["curator:album:detach99"]).toBeTruthy();
+
+    const detach = await app.inject({
+      method: "POST",
+      url: "/api/albums/detach99/detach-video",
+    });
+    expect(detach.statusCode).toBe(200);
+
+    // Let anything still running settle, then the entry must stay gone.
+    await awaitTransfers(app, "detach99");
+    expect(backdrop.entries["curator:album:detach99"]).toBeUndefined();
   });
 
   it("claiming an /incoming/ video via attach-video pushes it to Backdrop", async () => {
@@ -292,6 +383,8 @@ describe("server routes trigger Backdrop sync", () => {
     });
     expect(attach.statusCode).toBe(200);
     expect(backdrop.entries["curator:album:claim001"]).toBeTruthy();
+
+    await awaitTransfers(app, "claim001");
     expect(existsSync(join(mediaDir, "claim001.mp4"))).toBe(true);
   });
 

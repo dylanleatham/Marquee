@@ -286,3 +286,48 @@ export function useGenerationJob(
 
   return { status, progress, error, start, cancel };
 }
+
+/**
+ * Watch the album's media-transfer job, reattaching by polling rather than being handed an id — so a
+ * reload, or arriving while a transfer from an earlier session runs, still finds it.
+ *
+ * Lives here beside `useGenerationJob` so the component stays presentational. Polling continues after a terminal status (slowly): the component never remounts,
+ * so stopping would mean a second video attached on the same page showed no progress at all.
+ */
+export function useMediaTransferJob(curatorId: string): {
+  job: GenerationJob | null;
+  startedAt: number | null;
+} {
+  const [job, setJob] = useState<GenerationJob | null>(null);
+  const startedAt = useRef<number | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => {
+    let live = true;
+    const tick = async () => {
+      try {
+        const { jobs } = await api.albumJobs(curatorId, "mediaTransfer");
+        const latest = jobs[0] ?? null;
+        if (!live) return;
+        setJob(latest);
+        if (latest?.status === "running") {
+          startedAt.current ??= Date.now();
+          timer.current = setTimeout(tick, 1000);
+        } else {
+          startedAt.current = null;
+          timer.current = setTimeout(tick, 5000);
+        }
+      } catch {
+        // A transfer panel must never be the thing that breaks the page; try again next tick.
+        if (live) timer.current = setTimeout(tick, 3000);
+      }
+    };
+    void tick();
+    return () => {
+      live = false;
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, [curatorId]);
+
+  return { job, startedAt: startedAt.current };
+}

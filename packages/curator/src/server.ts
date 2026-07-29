@@ -961,6 +961,43 @@ export function buildServer(opts: BuildOptions = {}) {
   );
 
   // --- Video: upload / incoming / attach / detach ---
+  /**
+   * ★sync after a video change (roadie-spec §6), split so the request never waits on the file
+   * (issue #177). The metadata goes now — it is small and it is what makes the album resolvable —
+   * and the transfer, which can take an hour over a poor link to a Pi, runs as a background job the
+   * UI can watch and cancel. Returns that job so the route can hand back its id.
+   *
+   * Best-effort throughout: a sync failure is recorded on the album as a syncIssue, never a 5xx on
+   * the human action that triggered it.
+   */
+  const syncVideoChange = async (asset: AlbumAsset) => {
+    // Cancel any transfer still in flight for this album, **before** anything else and regardless of
+    // whether this change owes a new one.
+    //
+    // Two distinct bugs live here. `jobs.start` dedups on album+kind — right for generation, where
+    // pressing the button twice should reattach — but wrong for a transfer: a second video attached
+    // while the first is still going is not the same work, and `start` would hand back the stale job
+    // so the new file never got scheduled.
+    //
+    // And a running job holds a *snapshot* of the album from when it started. On **detach** there is
+    // no new transfer to owe, so an early return would leave that job running — and on completion it
+    // re-upserts the entry detach just removed, leaving Backdrop playing a video the user
+    // deliberately took away. Either way the in-flight transfer is obsolete the moment the album's
+    // video changes, so it is cancelled first and unconditionally.
+    for (const stale of jobs.forAlbum(asset.curatorId, "mediaTransfer")) {
+      if (stale.status === "running") jobs.cancel(stale.id);
+    }
+
+    const res = await backdrop.syncMetadata(asset);
+    if (!res.transferNeeded) return undefined;
+
+    return jobs.start("mediaTransfer", asset.curatorId, async (ctx) => {
+      const out = await backdrop.transferMediaInBackground(asset, ctx);
+      if (!out.ok) throw new Error(out.error ?? "media transfer failed");
+      return {};
+    });
+  };
+
   app.post("/api/videos/upload", async (req, reply) => {
     if (!req.isMultipart())
       return reply.code(400).send({ error: "expected multipart/form-data" });
@@ -976,11 +1013,14 @@ export function buildServer(opts: BuildOptions = {}) {
             file.path,
             file.filename,
           );
-          // ★sync (roadie-spec §6): a playable video just landed — push it to Backdrop (best-effort).
-          await backdrop.syncAlbum(asset);
-          return reply
-            .code(201)
-            .send({ curatorId: fields.curatorId, state: asset.roadie.state });
+          // ★sync (roadie-spec §6): a playable video just landed. Metadata now, file in the
+          // background (#177) — attaching a video must not block on a 240 MB transfer.
+          const transfer = await syncVideoChange(asset);
+          return reply.code(201).send({
+            curatorId: fields.curatorId,
+            state: asset.roadie.state,
+            ...(transfer ? { transferJobId: transfer.id } : {}),
+          });
         }
         const { name } = actions.saveIncoming(store, file.filename, file.path);
         return reply.code(201).send({ incoming: name });
@@ -1011,8 +1051,12 @@ export function buildServer(opts: BuildOptions = {}) {
       );
       // ★sync (roadie-spec §6): the album now has a playable video — push it to Backdrop. Best-effort;
       // a sync failure is recorded on the album, not raised, so the attach still succeeds.
-      await backdrop.syncAlbum(asset);
-      return { state: asset.roadie.state, visualizer: asset.visualizer };
+      const transfer = await syncVideoChange(asset);
+      return {
+        state: asset.roadie.state,
+        visualizer: asset.visualizer,
+        ...(transfer ? { transferJobId: transfer.id } : {}),
+      };
     } catch (err) {
       return actionError(err, reply, req);
     }
@@ -1024,7 +1068,7 @@ export function buildServer(opts: BuildOptions = {}) {
     try {
       const asset = actions.detachVideo(actionDeps, curatorId, del);
       // No visualizer left → drop the album from Backdrop's library so a scan degrades to "not synced".
-      await backdrop.syncAlbum(asset);
+      await syncVideoChange(asset);
       return { state: asset.roadie.state };
     } catch (err) {
       return actionError(err, reply, req);
@@ -1055,8 +1099,12 @@ export function buildServer(opts: BuildOptions = {}) {
         },
       );
       // ★sync (roadie-spec §6): the album now has a playable video — push it to Backdrop.
-      await backdrop.syncAlbum(asset);
-      return { state: asset.roadie.state, visualizer: asset.visualizer };
+      const transfer = await syncVideoChange(asset);
+      return {
+        state: asset.roadie.state,
+        visualizer: asset.visualizer,
+        ...(transfer ? { transferJobId: transfer.id } : {}),
+      };
     } catch (err) {
       return actionError(err, reply, req);
     }
@@ -1248,7 +1296,13 @@ export function buildServer(opts: BuildOptions = {}) {
   app.get("/api/albums/:curatorId/jobs", async (req) => {
     const { curatorId } = req.params as { curatorId: string };
     const kind = (req.query as { kind?: string }).kind;
-    const filter = kind === "video" || kind === "cardArt" ? kind : undefined;
+    // Whitelisted rather than cast: an unknown ?kind must mean "no filter", not a filter that
+    // silently matches nothing. `mediaTransfer` joined the list with issue #177 — leaving it out
+    // would have made the transfer job invisible to a UI asking for it by name.
+    const filter =
+      kind === "video" || kind === "cardArt" || kind === "mediaTransfer"
+        ? kind
+        : undefined;
     return { jobs: jobs.forAlbum(curatorId, filter) };
   });
 

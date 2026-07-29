@@ -2,7 +2,7 @@
 // Backdrop's library.json; it pushes updates over the LAN with the shared `X-Trigger-Secret`. Mirrors
 // the Conductor call pattern in server.ts: `fetch` (a Node 22 global) with an AbortSignal timeout so a
 // wedged Backdrop can't hang the caller. `fetchImpl` is injectable for unit tests.
-import { createReadStream } from "node:fs";
+import { createReadStream, statSync } from "node:fs";
 import { Readable } from "node:stream";
 import type { LibraryEntry } from "@marquee/contracts";
 import type { LibraryEntryWithUri } from "./projection.js";
@@ -123,9 +123,27 @@ export class BackdropClient {
   async putMedia(
     fileId: string,
     localPath: string,
+    opts: {
+      /**
+       * Called as bytes leave, so a background job can report real progress (issue #177). Driven off
+       * the source stream rather than anything the server tells us — over a slow link the only
+       * honest signal is how much has actually gone.
+       */
+      onProgress?: (sent: number, total: number) => void;
+      /** Cancels the upload from outside — the job manager's AbortSignal. */
+      signal?: AbortSignal;
+    } = {},
   ): Promise<{ bytes: number }> {
+    const total = statSync(localPath).size;
     const source = createReadStream(localPath);
     const controller = new AbortController();
+
+    // An outside cancel (the job was cancelled) aborts the same controller the stall timer uses, so
+    // there is one teardown path rather than two.
+    const onAbort = () =>
+      controller.abort(opts.signal?.reason ?? new Error("upload cancelled"));
+    if (opts.signal?.aborted) onAbort();
+    opts.signal?.addEventListener("abort", onAbort, { once: true });
 
     // Reset on every chunk: the upload dies only if it stops making progress, not if it is merely
     // slow. Cleared in `finally` so a completed upload never leaves a timer holding the event loop.
@@ -140,7 +158,13 @@ export class BackdropClient {
         this.uploadStallMs,
       );
     };
-    source.on("data", armStallTimer);
+    let sent = 0;
+    source.on("data", (chunk: string | Buffer) => {
+      armStallTimer();
+      sent +=
+        typeof chunk === "string" ? Buffer.byteLength(chunk) : chunk.length;
+      opts.onProgress?.(sent, total);
+    });
     armStallTimer();
 
     const headers: Record<string, string> = {
@@ -168,6 +192,7 @@ export class BackdropClient {
       return { bytes: body.bytes ?? 0 };
     } finally {
       clearTimeout(stallTimer);
+      opts.signal?.removeEventListener("abort", onAbort);
       source.destroy(); // release the handle whether we finished, threw, or aborted
     }
   }
