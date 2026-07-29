@@ -1,5 +1,8 @@
 import { pathToFileURL, fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
+import { dirname, resolve, join } from "node:path";
+import { createWriteStream, mkdirSync, renameSync, rmSync } from "node:fs";
+import { once } from "node:events";
+import type { Readable } from "node:stream";
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
@@ -131,6 +134,74 @@ export function buildServer(opts: BuildOptions = {}) {
     }
     controller.handleScan(scan);
     return reply.code(202).send({ accepted: true });
+  });
+
+  // --- Media upload (from Curator, ADR 0038) -----------------------------------------------------
+  // Curator streams the visualizer here instead of relying on an out-of-band rsync. This is the only
+  // route that writes to Backdrop's disk from the network, so the guards below are load-bearing.
+  //
+  // The body is handed over as a raw stream rather than parsed: these files run to hundreds of MB and
+  // Backdrop runs on a Pi, so buffering one would be fatal. Fastify's `bodyLimit` does not apply to a
+  // pass-through parser, which is why the cap is counted explicitly below.
+  app.addContentTypeParser("application/octet-stream", (_req, payload, done) =>
+    done(null, payload),
+  );
+
+  /**
+   * A `fileId` becomes a filename inside the directory Backdrop serves videos from. Only the
+   * curatorId shape is accepted — rejected outright rather than sanitised, because sanitising
+   * invites the next bypass and Curator has no reason to send anything else.
+   */
+  const MEDIA_FILE_ID = /^[a-z0-9]{8}$/;
+
+  class UploadTooLarge extends Error {}
+
+  app.put("/api/media/:fileId", async (req, reply) => {
+    const { fileId } = req.params as { fileId: string };
+    if (!MEDIA_FILE_ID.test(fileId)) {
+      return reply
+        .code(400)
+        .send({ error: "fileId must match /^[a-z0-9]{8}$/" });
+    }
+
+    mkdirSync(config.mediaDir, { recursive: true });
+    // Write beside the destination so the rename is same-filesystem, and therefore atomic. The real
+    // filename must never exist in a half-written state: a truncated mp4 that *looks* whole is worse
+    // than a missing one, because Backdrop would hand it to the kiosk as a valid video.
+    const tmp = join(config.mediaDir, `.${fileId}.${process.pid}.part`);
+    const dest = join(config.mediaDir, `${fileId}.mp4`);
+    let bytes = 0;
+
+    const source = req.body as Readable;
+    const out = createWriteStream(tmp);
+
+    try {
+      // Consumed explicitly rather than piped, so the cap is checked *before* each chunk is written
+      // — the point of a cap is to stop writing, not to discover afterwards that we shouldn't have.
+      // `write()` returning false means the buffer is full; awaiting "drain" is what keeps a 240 MB
+      // upload from being held in memory on a Pi.
+      for await (const chunk of source) {
+        const buf = chunk as Buffer;
+        bytes += buf.length;
+        if (bytes > config.maxUploadBytes) throw new UploadTooLarge();
+        if (!out.write(buf)) await once(out, "drain");
+      }
+      out.end();
+      await once(out, "finish");
+      renameSync(tmp, dest);
+      req.log.info(`media: received ${fileId}.mp4 (${bytes} bytes)`);
+      return reply.code(201).send({ fileId, bytes });
+    } catch (err) {
+      out.destroy(); // release the handle before unlinking, or Windows keeps the file locked
+      rmSync(tmp, { force: true }); // no partial file, and no orphan filling the SD card
+      if (err instanceof UploadTooLarge) {
+        return reply
+          .code(413)
+          .send({ error: `upload exceeds ${config.maxUploadBytes} bytes` });
+      }
+      req.log.error(`media: upload of ${fileId} failed — ${String(err)}`);
+      return reply.code(500).send({ error: "upload failed" });
+    }
   });
 
   // --- Library sync (from Curator) ---------------------------------------------------------------
