@@ -230,13 +230,21 @@ page. **Power off the Pi before wiring.**
 
 #### A6.2 Install + run Stylus
 
-1. Clone the repo on the Pi Zero; install Python 3 + the Stylus package **with hardware extras**
-   (`adafruit-circuitpython-pn532`, `Adafruit-Blinka` for `board`/`busio`) per `packages/stylus/README.md`
-   / `pyproject.toml`. These are imported lazily, only on the Pi (ADR 0016).
+> **Step-by-step version: [`packages/stylus/DEPLOY.md`](../packages/stylus/DEPLOY.md)** — the same
+> ground with every command spelled out, plus a troubleshooting table. The summary below is the shape
+> of it.
+
+1. Clone the repo on the Pi Zero and install into a **venv** with the **hardware extra**:
+   `python3 -m venv .venv && .venv/bin/pip install '.[hardware]'` — that's
+   `adafruit-circuitpython-pn532` + `Adafruit-Blinka` (for `board`/`busio`/`digitalio`), imported
+   lazily so they're only ever needed on the Pi (ADR 0016). The venv isn't optional: Bookworm's
+   system Python is "externally managed" and refuses a plain `pip install`.
 2. **Config** (`packages/stylus/config.example.toml` → your `config.toml`): Conductor + Backdrop URLs and
    the shared secret; keep `[led].gpio_pin = 17` unless you wired the LED elsewhere.
-3. Run the real reader: `python -m stylus` (the default builds `create_pn532_reader`; `--simulate` uses
-   the fake). Then a `marquee-stylus` **systemd** unit with `Wants=network-online.target` +
+3. Run the real reader: `.venv/bin/python -m stylus` (the default builds `create_pn532_reader`;
+   `--simulate` uses the fake). Then install the shipped **systemd** unit —
+   `sudo cp packages/stylus/marquee-stylus.service /etc/systemd/system/` +
+   `systemctl enable --now marquee-stylus` — which carries `Wants=network-online.target` and
    restart-on-hang (stylus-spec §12).
    - **Check:** logs show it polling; hold a written NTAG213 near the antenna → it reads the UID + URI and
      POSTs a `start`.

@@ -134,12 +134,15 @@ everything past here is antenna/mount, and you want the software ruled out first
 
 **Power off the Pi Zero before wiring.** PN532 must be in **I²C mode** (DIP/jumper per the board's silkscreen).
 
+Full command-by-command version: [`packages/stylus/DEPLOY.md`](../packages/stylus/DEPLOY.md).
+
 - [ ] 4 wires: VCC→**3.3V pin 1** (not 5V!), GND→pin 6, SDA→**GPIO2 pin 3**, SCL→**GPIO3 pin 5**
 - [ ] (optional) LED: anode → 330Ω → **GPIO17 pin 11**; cathode → GND
-- [ ] I²C enabled (`raspi-config` → Interface → I2C → reboot)
-- [ ] Stylus installed with **hardware extras** (`adafruit-circuitpython-pn532`, `Adafruit-Blinka`)
+- [ ] I²C enabled (`raspi-config` → Interface → I2C → reboot); user in the `i2c`/`gpio` groups
+- [ ] Stylus installed in a **venv** with the **hardware extra**: `.venv/bin/pip install '.[hardware]'`
+      (`adafruit-circuitpython-pn532`, `Adafruit-Blinka`) — Bookworm refuses a plain `pip install`
 - [ ] Config: Conductor + Backdrop URLs + shared secret; `[led].gpio_pin = 17`
-- [ ] `marquee-stylus.service` up
+- [ ] `marquee-stylus.service` installed from `packages/stylus/` + `systemctl enable --now`
 
 **GATE 6a (bus sees the reader):** `i2cdetect -y 1` shows a device at **0x24**. Empty grid → re-check the
 4 wires and the I²C DIP/jumper _before_ anything else.

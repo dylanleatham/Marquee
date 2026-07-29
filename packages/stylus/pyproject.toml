@@ -3,15 +3,20 @@ name = "marquee-stylus"
 version = "0.0.0"
 description = "Reads NFC-tagged sleeves and publishes scan events to Conductor + Backdrop. Runs on a Pi Zero 2 W."
 requires-python = ">=3.11"
-dependencies = [
-    # Hardware + protocol (installed on the Pi, not needed for pure-logic dev on your workstation)
-    "adafruit-circuitpython-pn532",
-    "ndeflib",
-    # HTTP + config
-    "httpx",
-]
+# The core is stdlib-only by design ([ADR 0016]): HTTP over `urllib`, NDEF parsed by hand, config via
+# `tomllib`. That's what lets CI (and your workstation) run the whole service with zero runtime deps.
+# Everything hardware lives in the `hardware` extra below — see `docs/adrs/0016-*.md`.
+dependencies = []
 
 [project.optional-dependencies]
+# Install on the Pi Zero only: `pip install '.[hardware]'`. These are imported lazily, at the two
+# hardware seams (`reader.create_pn532_reader`, `led.create_led`), so importing `stylus` off-Pi is
+# still safe. Blinka is what provides the `board` / `busio` / `digitalio` modules both seams use —
+# without it the PN532 driver has nothing to talk to.
+hardware = [
+    "adafruit-circuitpython-pn532",
+    "Adafruit-Blinka",
+]
 dev = [
     "pytest",
     "pytest-cov",

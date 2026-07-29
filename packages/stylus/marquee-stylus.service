@@ -1,0 +1,35 @@
+[Unit]
+Description=Marquee Stylus — NFC sleeve reader
+Documentation=https://github.com/dylanleatham/Marquee/blob/main/packages/stylus/DEPLOY.md
+# stylus-spec §12: the Pi Zero 2 W regularly finishes booting before Wi-Fi is up. Without
+# network-online the first POSTs after every reboot fail against an unroutable LAN.
+After=network-online.target
+Wants=network-online.target
+# Don't give up after the default 5-starts-in-10s: a PN532 that needs a few power-cycle attempts, or
+# a boot where the I2C bus isn't ready yet, would otherwise leave the stand dead until you SSH in.
+# (Belongs in [Unit], not [Service] — systemd 229+ moved it, and it's silently ignored in [Service].)
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+# The reader needs the I2C bus and (if you wired the status LED) the GPIO lines. Both are group-
+# gated on Raspberry Pi OS; `usermod -aG i2c,gpio pi` is what actually grants them, these just make
+# the requirement explicit if you run as a different user.
+SupplementaryGroups=i2c gpio
+WorkingDirectory=/home/pi/Marquee/packages/stylus
+ExecStart=/home/pi/Marquee/packages/stylus/.venv/bin/python -m stylus --config /home/pi/Marquee/packages/stylus/config.toml
+
+# stylus-spec §12 "PN532 hangs": the documented recovery is to let the process die and be restarted.
+# `always` (not `on-failure`) so a clean exit from an unrecoverable reader state also comes back.
+Restart=always
+RestartSec=3
+
+# Journald is bounded and rotates; a log file on the SD card grows forever and wears the card out.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=stylus
+
+[Install]
+WantedBy=multi-user.target
