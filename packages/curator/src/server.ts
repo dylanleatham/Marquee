@@ -971,20 +971,25 @@ export function buildServer(opts: BuildOptions = {}) {
    * the human action that triggered it.
    */
   const syncVideoChange = async (asset: AlbumAsset) => {
-    const res = await backdrop.syncMetadata(asset);
-    if (!res.transferNeeded) return undefined;
-
-    // Supersede any transfer still in flight for this album before starting the new one.
+    // Cancel any transfer still in flight for this album, **before** anything else and regardless of
+    // whether this change owes a new one.
     //
-    // `jobs.start` dedups on album+kind, which is right for generation — pressing generate twice
-    // should reattach, not run twice. It is wrong here: a second video attached while the first is
-    // still going is not the same work. Without this, `start` would hand back the *stale* job, the
-    // new file would never be scheduled, and the old job would go on to publish a contentHash for a
-    // file the album no longer uses — after which skip-if-unchanged skips the correct one forever.
-    // A newer attach always wins; the older transfer is obsolete the moment it is replaced.
+    // Two distinct bugs live here. `jobs.start` dedups on album+kind — right for generation, where
+    // pressing the button twice should reattach — but wrong for a transfer: a second video attached
+    // while the first is still going is not the same work, and `start` would hand back the stale job
+    // so the new file never got scheduled.
+    //
+    // And a running job holds a *snapshot* of the album from when it started. On **detach** there is
+    // no new transfer to owe, so an early return would leave that job running — and on completion it
+    // re-upserts the entry detach just removed, leaving Backdrop playing a video the user
+    // deliberately took away. Either way the in-flight transfer is obsolete the moment the album's
+    // video changes, so it is cancelled first and unconditionally.
     for (const stale of jobs.forAlbum(asset.curatorId, "mediaTransfer")) {
       if (stale.status === "running") jobs.cancel(stale.id);
     }
+
+    const res = await backdrop.syncMetadata(asset);
+    if (!res.transferNeeded) return undefined;
 
     return jobs.start("mediaTransfer", asset.curatorId, async (ctx) => {
       const out = await backdrop.transferMediaInBackground(asset, ctx);

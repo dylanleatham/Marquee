@@ -323,6 +323,35 @@ describe("server routes trigger Backdrop sync", () => {
     expect(all.find((j) => j.id === firstJob)?.status).not.toBe("running");
   });
 
+  /**
+   * Detaching while a transfer is still in flight. The job holds a snapshot of the album taken when
+   * it started — one that still has a visualizer — so on completion it re-upserts the entry that
+   * detach just removed, and Backdrop goes on playing a video the user deliberately took away.
+   *
+   * The cancellation must therefore run for *any* video change, not only ones that owe a transfer:
+   * detach owes nothing, which is exactly why it used to skip the cancel.
+   */
+  it("cancels an in-flight transfer on detach, so it cannot resurrect the entry", async () => {
+    const a = makeAsset("detach99");
+    a.roadie.state = "awaiting_review";
+    a.roadie.history = [{ state: "awaiting_review", at: a.createdAt }];
+    store.save(a);
+    const app = server();
+
+    await uploadVideo(app, "detach99");
+    expect(backdrop.entries["curator:album:detach99"]).toBeTruthy();
+
+    const detach = await app.inject({
+      method: "POST",
+      url: "/api/albums/detach99/detach-video",
+    });
+    expect(detach.statusCode).toBe(200);
+
+    // Let anything still running settle, then the entry must stay gone.
+    await awaitTransfers(app, "detach99");
+    expect(backdrop.entries["curator:album:detach99"]).toBeUndefined();
+  });
+
   it("claiming an /incoming/ video via attach-video pushes it to Backdrop", async () => {
     const a = makeAsset("claim001");
     a.roadie.state = "awaiting_review";
