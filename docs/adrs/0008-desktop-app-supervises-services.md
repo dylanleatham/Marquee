@@ -67,3 +67,22 @@ runtime-overview §7 changes; this is only a new way to launch the config side.
 > - **ffmpeg**: the app bundles `ffmpeg-static` + `ffprobe-static`; the desktop main points Curator's
 >   `FFMPEG_PATH`/`FFPROBE_PATH` at them (`resources/ffmpeg/*` packaged, the static packages in dev),
 >   so no system ffmpeg is required. It adds ~145 MB to the installer — the cost of self-containment.
+
+> **Update (2026-07-27, issue #164):** decision 3 ("Pin Curator local") was **half a pin**, and the
+> missing half silently severed the runtime path.
+>
+> `CONDUCTOR_URL` was pinned because on one box the Pi hostname doesn't resolve. The same "one box"
+> reasoning applies to the **album-assets store**, and it was not applied: Conductor reads
+> `ALBUM_ASSETS_DIR` (default `{pkgDir}/data/album-assets`, i.e. beside the install), while Curator
+> writes `~/marquee/album-assets`. On the Pi an rsync bridges those two paths (runbook A4.3); in a
+> packaged desktop install there is no rsync and no Pi, so Conductor read an empty directory and
+> answered every scan `202 ignored: album not synced` while Preview reported "Lights running".
+>
+> `serviceSpecs()` now pins **both** halves from one resolved data dir — `MARQUEE_DATA_DIR` on
+> Curator and `ALBUM_ASSETS_DIR` on Conductor — so the two services agree by construction rather than
+> by both happening to compute the same default. The general rule this encodes: **anything the Pi
+> deployment bridges with an out-of-band sync needs an explicit in-process equivalent on the desktop
+> app**, because the desktop app is the deployment where that sync does not exist.
+>
+> The reporting half of the same bug (Curator treating a 2xx `action:"ignored"` as a successful leg)
+> is recorded in [curator-spec §Preview and verification](../specs/curator-spec.md).

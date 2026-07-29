@@ -57,7 +57,11 @@ import type { PaletteEditColor } from "./albums/palette.js";
 import { GenerationJobs, FileJobStore } from "./jobs/manager.js";
 import { flipperNfcFile } from "./tags/flipper-nfc.js";
 import { tagQrDataUrl } from "./tags/qr.js";
-import { curatorUri, type StreamPatternType } from "@marquee/contracts";
+import {
+  curatorUri,
+  scanIgnoredReason,
+  type StreamPatternType,
+} from "@marquee/contracts";
 import {
   ffmpegProber,
   ffmpegAvailable,
@@ -1532,7 +1536,19 @@ export function buildServer(opts: BuildOptions = {}) {
     at: new Date().toISOString(),
   });
 
-  /** POST a scan event to a sibling service. Bounded like every other outbound call (5s). */
+  /**
+   * POST a scan event to a sibling service. Bounded like every other outbound call (5s).
+   *
+   * A 2xx is not proof the room did anything. Conductor accepts a scan it cannot act on and says so
+   * in the body — `202 {ok:true, action:"ignored", reason}` for `no listening room`,
+   * `album not synced` and `album not ready` (ADR 0019). Treating that as success reported
+   * "Lights running" over a dark room and sent every diagnosis down the wrong path (issue #164), so
+   * an explicitly-ignored scan throws its own reason and lands on the leg as a failure.
+   *
+   * The check lives here, in the shared helper, rather than at the Conductor call site: Backdrop
+   * posts through the same function and may grow the same degrade shape. A service that simply
+   * accepts (Backdrop's `202 {accepted:true}`) has no `action` and stays a success.
+   */
   const callScan = async (
     base: string,
     secret: string | undefined,
@@ -1549,6 +1565,9 @@ export function buildServer(opts: BuildOptions = {}) {
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) throw new Error(`${res.status}`);
+    // A non-JSON or unreadable body is not evidence of a no-op — only an explicit `ignored` is.
+    const ignored = scanIgnoredReason(await res.json().catch(() => null));
+    if (ignored) throw new Error(ignored);
   };
 
   /**

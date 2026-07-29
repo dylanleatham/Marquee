@@ -30,6 +30,21 @@ function stubScanService() {
   return { app, received };
 }
 
+/**
+ * A stand-in service that accepts a scan and then explicitly does nothing with it — Conductor's
+ * documented degrade shape (ADR 0019 / hue-conductor-spec): a 2xx whose body says the scan was
+ * ignored and why. `no listening room`, `album not synced` and `album not ready` all take this form.
+ */
+function stubIgnoringScanService(reason: string) {
+  const received: Array<{ body: unknown }> = [];
+  const app = Fastify();
+  app.post("/api/scan", async (req, reply) => {
+    received.push({ body: req.body });
+    return reply.code(202).send({ ok: true, action: "ignored", reason });
+  });
+  return { app, received };
+}
+
 /** A stand-in Amp exposing the admin override rows from amp-spec. */
 function stubAmp() {
   const played: Array<{ spotifyUri?: string }> = [];
@@ -385,5 +400,125 @@ describe("POST /api/albums/:curatorId/simulate-scan", () => {
     expect(conductor.received[0]!.body).toMatchObject({ event: "stop" });
     expect(conductor.received[0]!.body).not.toHaveProperty("uri");
     expect(amp.stopCount()).toBe(1);
+  });
+});
+
+/**
+ * A service can accept a scan (2xx) and still deliberately do nothing with it — Conductor answers
+ * `202 {ok:true, action:"ignored", reason}` for a scan it can't act on. Reporting that as a
+ * successful leg is what let issue #164 hide: Preview said "Lights running" while the room stayed
+ * dark, so every diagnosis started from a false premise.
+ *
+ * A leg that was ignored did not run. That is exactly what `leg()`'s `skip` already expresses for
+ * the reasons Curator knows up front; these are the same class of outcome, decided by the service.
+ */
+describe("a scan a service accepted but ignored", () => {
+  let conductor: ReturnType<typeof stubIgnoringScanService>;
+  let conductorUrl: string;
+  let store: AssetStore;
+
+  beforeEach(async () => {
+    conductor = stubIgnoringScanService("album not synced");
+    conductorUrl = await listen(conductor.app);
+    store = new AssetStore(mkdtempSync(join(tmpdir(), "curator-ignored-")));
+    store.save(spotifyAlbum("scan0002"));
+  });
+  afterEach(async () => {
+    await conductor.app.close();
+  });
+
+  const curator = () =>
+    buildServer({
+      store,
+      roadie: fakeRoadie(store),
+      prober: fakeProber(),
+      config: { conductor: { url: conductorUrl } },
+    }).app;
+
+  const legs = (body: string): Leg[] => JSON.parse(body).services;
+  const conductorLeg = (body: string) =>
+    legs(body).find((l) => l.service === "conductor")!;
+
+  it("reports the leg as not ok, carrying the service's own reason", async () => {
+    const res = await curator().inject({
+      method: "POST",
+      url: "/api/albums/scan0002/simulate-scan",
+      payload: { audio: false },
+    });
+
+    expect(res.statusCode).toBe(200);
+    // The request genuinely reached Conductor — this is not a transport failure.
+    expect(conductor.received).toHaveLength(1);
+    expect(conductorLeg(res.body)).toEqual({
+      service: "conductor",
+      ok: false,
+      reason: "album not synced",
+    });
+  });
+
+  it("reports an ignored stop the same way, so a stuck room is visible", async () => {
+    const res = await curator().inject({
+      method: "POST",
+      url: "/api/albums/scan0002/simulate-scan/stop",
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(conductorLeg(res.body).ok).toBe(false);
+    expect(conductorLeg(res.body).reason).toBe("album not synced");
+  });
+
+  // The whole family, not just the one that bit us (bug-fix workflow: widen to the bug's family).
+  it.each(["no listening room", "album not synced", "album not ready"])(
+    "treats %s as a leg that did not run",
+    async (reason) => {
+      const svc = stubIgnoringScanService(reason);
+      const url = await listen(svc.app);
+      try {
+        const res = await buildServer({
+          store,
+          roadie: fakeRoadie(store),
+          prober: fakeProber(),
+          config: { conductor: { url } },
+        }).app.inject({
+          method: "POST",
+          url: "/api/albums/scan0002/simulate-scan",
+          payload: { audio: false },
+        });
+        expect(conductorLeg(res.body)).toEqual({
+          service: "conductor",
+          ok: false,
+          reason,
+        });
+      } finally {
+        await svc.app.close();
+      }
+    },
+  );
+
+  // Backdrop answers `202 {accepted:true}` — an accepted scan with no `action` is still a success.
+  it("still reports a plain 202 acceptance as ok", async () => {
+    const accepting = Fastify();
+    accepting.post("/api/scan", async (_req, reply) =>
+      reply.code(202).send({ accepted: true }),
+    );
+    const url = await listen(accepting);
+    try {
+      const res = await buildServer({
+        store,
+        roadie: fakeRoadie(store),
+        prober: fakeProber(),
+        config: { conductor: { url } },
+      }).app.inject({
+        method: "POST",
+        url: "/api/albums/scan0002/simulate-scan",
+        payload: { audio: false },
+      });
+      expect(conductorLeg(res.body)).toEqual({
+        service: "conductor",
+        ok: true,
+      });
+    } finally {
+      await accepting.close();
+    }
   });
 });
