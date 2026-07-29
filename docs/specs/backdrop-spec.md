@@ -192,11 +192,21 @@ pointing at files not yet present (§10 covers the UX).
 > an album could be prepared, synced, and reported healthy with no video on the Pi at all.
 >
 > `PUT /api/media/:fileId` is the only route that writes to Backdrop's disk from the network, so:
-> `fileId` must match `^[a-z0-9]{8}$` (it becomes a filename in the directory Backdrop serves videos
-> from — rejected outright, never sanitised); the body streams and is capped by
-> `[storage].max_upload_mb` (default 2048, env `BACKDROP_MAX_UPLOAD_MB`); and the write goes to a
-> temp file renamed into place only on a clean finish, so the real filename never exists truncated.
-> A half-written mp4 that _looks_ whole is worse than a missing one — Backdrop would play it.
+>
+> - **`fileId` must match `^[a-z0-9]{8}$`** — it becomes a filename in the directory Backdrop serves
+>   videos from, so it is rejected outright, never sanitised.
+> - **The body streams and is capped** by `[storage].max_upload_mb` (default 2048, env
+>   `BACKDROP_MAX_UPLOAD_MB`) → `413`.
+> - **The upload is bounded by inactivity**, not a deadline: `[runtime].upload_stall_ms` (default
+>   60000, env `BACKDROP_UPLOAD_STALL_MS`) → `408`. A real visualizer over a poor link is
+>   legitimately slow, so only "bytes stopped arriving" separates slow from dead. Without it a client
+>   that vanishes without closing its socket parks the read loop forever, holding a file descriptor
+>   and a temp file.
+> - **Temp file, renamed into place only on a clean finish**, with a name unique per request so two
+>   concurrent uploads of the same album cannot interleave. A half-written mp4 that _looks_ whole is
+>   worse than a missing one — Backdrop would play it.
+> - **A write failure fails the request, not the process.** A full SD card raises an `error` on the
+>   write stream; unhandled, that would take down all of Backdrop rather than one upload.
 
 ### For local operations and debugging
 

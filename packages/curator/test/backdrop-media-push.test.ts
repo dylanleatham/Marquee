@@ -2,7 +2,13 @@
 // (ADR 0038 / issue #169). Exercised against a real HTTP server that behaves like Backdrop's
 // PUT /api/media/:fileId, so the stream, the headers and the failure paths are the real ones.
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, readFileSync, mkdirSync } from "node:fs";
+import {
+  mkdtempSync,
+  writeFileSync,
+  readFileSync,
+  mkdirSync,
+  existsSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import type { AddressInfo } from "node:net";
@@ -10,7 +16,8 @@ import Fastify from "fastify";
 import { AssetStore } from "../src/store/asset-store.js";
 import { BackdropClient } from "../src/backdrop/client.js";
 import { BackdropSync, httpPushTransfer } from "../src/backdrop/sync.js";
-import { makeAsset } from "./helpers.js";
+import { buildServer } from "../src/server.js";
+import { makeAsset, fakeRoadie, fakeProber } from "./helpers.js";
 import type { AlbumAsset } from "../src/albums/asset.js";
 
 const SECRET = "s3cr3t";
@@ -302,6 +309,71 @@ describe("legacy syncMediaLocally still selects a transfer", () => {
         syncMediaLocally: true,
       }),
     ).toBe("none");
+  });
+});
+
+/**
+ * Everything above builds BackdropSync directly. That leaves the wiring inside `buildServer` —
+ * which config mode selects which transfer — untested, and that is precisely where this change
+ * already went wrong once: keying only off the new enum silently ignored a config that set only
+ * `syncMediaLocally`, so a config saying "move the file" moved nothing while sync reported success.
+ * These drive a real server through a real route.
+ */
+describe("buildServer wires the configured transfer mode", () => {
+  let backdrop: ReturnType<typeof stubBackdrop>;
+  let url: string;
+  let store: AssetStore;
+
+  beforeEach(async () => {
+    backdrop = stubBackdrop();
+    await backdrop.app.listen({ port: 0, host: "127.0.0.1" });
+    url = `http://127.0.0.1:${(backdrop.app.server.address() as AddressInfo).port}`;
+    store = new AssetStore(mkdtempSync(join(tmpdir(), "curator-wire-")));
+    store.save(withVideo("abc12345"));
+    const p = store.paths.visualizerFile("abc12345");
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, Buffer.from("the video bytes"));
+  });
+  afterEach(async () => {
+    await backdrop.app.close();
+  });
+
+  const server = (backdropConfig: Record<string, unknown>) =>
+    buildServer({
+      store,
+      roadie: fakeRoadie(store),
+      prober: fakeProber(),
+      config: {
+        backdrop: {
+          url,
+          sharedSecret: SECRET,
+          mediaDir: "/home/pi/media/visualizers",
+          ...backdropConfig,
+        } as never,
+      },
+    }).app;
+
+  const resync = (app: ReturnType<typeof server>) =>
+    app.inject({ method: "POST", url: "/api/backdrop/sync" });
+
+  it('uploads over HTTP in "push" mode', async () => {
+    await resync(server({ mediaTransfer: "push", syncMediaLocally: false }));
+    expect(backdrop.uploads).toEqual(["abc12345"]);
+  });
+
+  it('sends no upload in "none" mode, leaving the file to rsync', async () => {
+    await resync(server({ mediaTransfer: "none", syncMediaLocally: false }));
+    expect(backdrop.uploads).toEqual([]);
+    // The metadata still goes — that half was never the problem.
+    expect(backdrop.entries["curator:album:abc12345"]).toBeDefined();
+  });
+
+  it("honours a legacy config that only sets syncMediaLocally", async () => {
+    // "local" copies rather than uploads, so no HTTP upload — but it must not be treated as "none".
+    const localDir = mkdtempSync(join(tmpdir(), "wire-local-"));
+    await resync(server({ mediaDir: localDir, syncMediaLocally: true }));
+    expect(backdrop.uploads).toEqual([]);
+    expect(existsSync(join(localDir, "abc12345.mp4"))).toBe(true);
   });
 });
 

@@ -27,18 +27,18 @@ export interface BuildOptions {
 }
 
 /** A media upload exceeded `maxUploadBytes` (ADR 0038) — answered as 413. */
-export class UploadTooLarge extends Error {
+export class UploadTooLargeError extends Error {
   constructor() {
     super("upload exceeds the configured cap");
-    this.name = "UploadTooLarge";
+    this.name = "UploadTooLargeError";
   }
 }
 
 /** A media upload stopped sending bytes for `uploadStallMs` — answered as 408. */
-export class UploadStalled extends Error {
+export class UploadStalledError extends Error {
   constructor() {
     super("upload stalled");
-    this.name = "UploadStalled";
+    this.name = "UploadStalledError";
   }
 }
 
@@ -201,10 +201,18 @@ export function buildServer(opts: BuildOptions = {}) {
     const armStall = () => {
       clearTimeout(stallTimer);
       stallTimer = setTimeout(
-        () => source.destroy(new UploadStalled()),
+        () => source.destroy(new UploadStalledError()),
         config.uploadStallMs,
       );
     };
+
+    // A write can fail between the moments we await — a full SD card is the realistic case on a Pi.
+    // Without a listener that is an uncaught 'error' event, which takes down the whole service
+    // rather than this one upload, so every await below races against it.
+    const writeFailed = new Promise<never>((_, reject) => {
+      out.once("error", reject);
+    });
+    writeFailed.catch(() => {}); // never an unhandled rejection when the upload succeeds
 
     try {
       // Consumed explicitly rather than piped, so the cap is checked *before* each chunk is written
@@ -216,12 +224,13 @@ export function buildServer(opts: BuildOptions = {}) {
         armStall();
         const buf = chunk as Buffer;
         bytes += buf.length;
-        if (bytes > config.maxUploadBytes) throw new UploadTooLarge();
-        if (!out.write(buf)) await once(out, "drain");
+        if (bytes > config.maxUploadBytes) throw new UploadTooLargeError();
+        if (!out.write(buf))
+          await Promise.race([once(out, "drain"), writeFailed]);
       }
       clearTimeout(stallTimer);
       out.end();
-      await once(out, "finish");
+      await Promise.race([once(out, "finish"), writeFailed]);
       renameSync(tmp, dest);
       req.log.info({ fileId, bytes }, "media upload received");
       return reply.code(201).send({ fileId, bytes });
@@ -229,12 +238,12 @@ export function buildServer(opts: BuildOptions = {}) {
       clearTimeout(stallTimer);
       out.destroy(); // release the handle before unlinking, or Windows keeps the file locked
       rmSync(tmp, { force: true }); // no partial file, and no orphan filling the SD card
-      if (err instanceof UploadTooLarge) {
+      if (err instanceof UploadTooLargeError) {
         return reply
           .code(413)
           .send({ error: `upload exceeds ${config.maxUploadBytes} bytes` });
       }
-      if (err instanceof UploadStalled) {
+      if (err instanceof UploadStalledError) {
         return reply
           .code(408)
           .send({ error: `upload stalled for ${config.uploadStallMs}ms` });
