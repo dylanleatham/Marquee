@@ -336,6 +336,122 @@ The page/NDEF bytes are the tested part (they're pinned to exactly what Stylus r
 
 ## Part B — Operate the live system
 
+### B0. Updating a Pi after a code change
+
+The setup in Part A happens once. **This is the part you repeat.** Nothing here needs the Imager, the
+keyboard, or any of the one-time config — it's `git pull`, rebuild what changed, restart what changed.
+
+#### Who runs what
+
+| Host                               | Services                                                          | Language                   |
+| ---------------------------------- | ----------------------------------------------------------------- | -------------------------- |
+| **Pi 5** — hostname `backdrop`     | Conductor (:4737), Backdrop (:4740), Amp (:4741, if you added it) | Node — **needs a build**   |
+| **Pi Zero 2 W** — `marquee-pizero` | Stylus                                                            | Python — **no build step** |
+| **Workstation**                    | Curator (:4739)                                                   | Node — not a Pi, no SSH    |
+
+Confirm your own unit names before restarting anything — this guide and
+[backdrop/DEPLOY.md](../packages/backdrop/DEPLOY.md) have named the Backdrop unit both
+`marquee-backdrop` and `backdrop` at different times, so yours depends on which one you followed:
+
+```
+$ systemctl list-units --all 'marquee*' 'backdrop*' 'amp*' --no-pager
+```
+
+Use IPs, not `*.local` — mDNS resolves for `ssh` from Windows but not reliably for `curl`/undici, and
+`marquee-pizero.local` often doesn't resolve at all.
+
+#### The Pi 5 (Conductor + Backdrop)
+
+```
+$ cd ~/Marquee && git pull && pnpm install
+$ pnpm --filter @marquee/backdrop build && pnpm --filter @marquee/hue-conductor build
+$ sudo systemctl restart marquee-conductor marquee-backdrop
+$ sudo reboot        # only if the kiosk SPA changed — see the table below
+```
+
+#### The Pi Zero (Stylus)
+
+No build — the core is stdlib-only Python ([ADR 0016](adrs/0016-stylus-stdlib-core-and-hardware-seams.md)):
+
+```
+$ cd ~/Marquee && git pull
+$ sudo systemctl restart marquee-stylus
+```
+
+Only re-run `pip install -e '.[hardware]'` if the hardware extra itself changed — not on every pull.
+
+#### What actually needs what
+
+Restarting the wrong thing is the usual reason an update "didn't take". Match the change to the action:
+
+| What changed                                               | What you do                                                                                                                                                                                                                         |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/backdrop/src/**` (server, API, state machine)    | `build` + `systemctl restart` the Backdrop unit                                                                                                                                                                                     |
+| `packages/backdrop/public/**` (the kiosk SPA)              | **No build** — it's vanilla JS/CSS loaded as `file://` straight from the working tree, so `git pull` changes it on disk instantly. But Chromium already has the old copy in memory: **reload the browser**, simplest `sudo reboot`. |
+| `packages/hue-conductor/src/**`                            | `build` + `systemctl restart marquee-conductor`                                                                                                                                                                                     |
+| `packages/stylus/**`                                       | `systemctl restart marquee-stylus` — no build                                                                                                                                                                                       |
+| `packages/contracts/**`                                    | Rebuild **every** Node service on the Pi — they each compile contracts in as a dependency                                                                                                                                           |
+| Any `package.json` / lockfile                              | `pnpm install` before building, or the build fails on a missing dep                                                                                                                                                                 |
+| Curator-side only (palette, prompts, video ingest, the UI) | **Nothing on the Pi.** Curator runs on the workstation. If media or library entries changed, push them: `POST /api/backdrop/sync` on Curator (see Common operations)                                                                |
+
+#### What `git pull` will never update
+
+These live outside the repo or are gitignored, so they are yours to maintain by hand. When a doc
+changes one, pulling does nothing — you have to apply it yourself:
+
+- **`~/kiosk.sh`** — in your home directory, not the repo. Every Chromium flag lives here.
+- **`~/.config/autostart/backdrop-kiosk.desktop`** — the kiosk autostart entry.
+- **`packages/*/config.toml`** — gitignored (only `config.example.toml` is tracked). Shared secret,
+  ports, `album_assets_dir`, `media_dir`. If an example file gains a new key you want, copy it across.
+- **`/etc/systemd/system/*.service`** — after editing any unit, `sudo systemctl daemon-reload` first.
+
+> ⚠️ **Do not add Chromium flags to `~/kiosk.sh` speculatively.** GPU flags in particular
+> (`--ignore-gpu-blocklist`, `--enable-gpu-rasterization`, `--enable-zero-copy`) boot the kiosk to a
+> solid black screen on this board — the vc4/V3D driver is on Chromium's blocklist for reasons.
+> [#180](https://github.com/dylanleatham/Marquee/issues/180) shipped them as a recommendation and had
+> to take them straight back out. One flag at a time, reboot between, back it out if the screen goes
+> black.
+
+#### The workstation (Curator)
+
+Not a Pi, but it updates the same way and has one trap of its own:
+
+```
+$ cd <repo> && git pull && pnpm install
+$ pnpm --filter @marquee/curator build      # compiles the API *and* Vite-builds the UI into dist-ui/
+```
+
+**Then restart Curator — always.** Quit and relaunch the desktop app (`Marquee.exe`), or stop and
+restart `pnpm curator`. A Curator server that keeps running across a UI build serves a **stale** UI:
+`@fastify/static` is registered with `wildcard: false`, so it enumerates `dist-ui` once at startup, and
+Vite renames every bundle on each build. Until [#183](https://github.com/dylanleatham/Marquee/issues/183)
+that failed **silently** — the missing bundle fell through the SPA fallback to `index.html`, the browser
+executed HTML as a script, React never mounted, and Curator showed a **solid black window** with
+nothing in `%APPDATA%\Marquee\logs\marquee.log`. It now returns a 404 that names the file, but the
+restart is still what you actually need.
+
+If you ever see a black Curator window, that's the check:
+
+```
+$ curl.exe -sS -D - -o NUL http://localhost:4739/
+```
+
+Then open the app's devtools console. A 404 for `/assets/index-*.js` means "you didn't restart"; the
+old symptom was a `200 text/html` for that same URL.
+
+#### Confirm the update landed
+
+```
+$ systemctl status marquee-conductor marquee-backdrop --no-pager   # "active (running)", recent start time
+$ git -C ~/Marquee log --oneline -1                                 # the commit you expected
+$ curl -s -o /dev/null -w '%{http_code}\n' localhost:4740/healthz   # 200 = backend up AND kiosk connected
+```
+
+`/healthz` returning **503 means no browser is attached** — the backend is fine and the kiosk isn't.
+That is the single most useful check after a Backdrop update, because a stale or crashed Chromium is
+invisible from the service status. For a colour-free read of the kiosk's own view, open the SPA with
+`?debug=1` and look for the `ws online` pill.
+
 ### Common operations
 
 - **Pair / re-pair the Hue bridge:** on the Pi, `pnpm --filter @marquee/hue-conductor pair`, press the

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createFakeSpotify, type FakeAlbum } from "@marquee/fake-spotify";
 import { AssetStore } from "../src/store/asset-store.js";
 import { SpotifyClient } from "../src/spotify/client.js";
-import { buildServer } from "../src/server.js";
+import { buildServer, servesSpaFallback } from "../src/server.js";
 import { fakeGenerate, fakeRoadie, buildMultipart } from "./helpers.js";
 
 // Credential resolution is isolated globally in test/setup-env.ts (issue #32), so the "unconfigured"
@@ -354,5 +354,37 @@ describe("Curator Spotify API", () => {
     expect(res.statusCode).toBe(201);
     await roadie.drain();
     expect(store.read(res.json().curatorId)!.roadie.state).toBe("needs_manual");
+  });
+});
+
+// Issue #183: Curator rendered a solid black window with nothing in any log. `wildcard: false` makes
+// @fastify/static enumerate `dist-ui` once at boot, so a server that outlives a UI rebuild has no
+// route for Vite's new content-hashed bundle — and the SPA fallback turned that miss into a 200 of
+// `index.html`. The browser executed HTML as a module script, React never mounted, blank screen.
+//
+// The predicate is pure precisely so it has coverage: the `if (existsSync(uiDir))` block it lives in
+// is skipped entirely under test (there is no `dist-ui` in a test run), which is why this shipped.
+describe("servesSpaFallback (issue #183)", () => {
+  it("serves index.html for client-side routes, so deep links and reloads work", () => {
+    expect(servesSpaFallback("GET", "/")).toBe(true);
+    expect(servesSpaFallback("GET", "/albums/j8rv0vgc")).toBe(true);
+    expect(servesSpaFallback("GET", "/queue?filter=awaiting_video")).toBe(true);
+  });
+
+  it("404s a missing asset instead of answering it with HTML", () => {
+    // The actual failure: a stale server had no route for this filename.
+    expect(servesSpaFallback("GET", "/assets/index-DIJDiAN5.js")).toBe(false);
+    expect(servesSpaFallback("GET", "/assets/index-CuaJIrLj.css")).toBe(false);
+    expect(servesSpaFallback("GET", "/favicon.ico")).toBe(false);
+    // Query strings must not disguise an asset as a route.
+    expect(servesSpaFallback("GET", "/assets/index-DIJDiAN5.js?v=2")).toBe(
+      false,
+    );
+  });
+
+  it("never hijacks the API namespace or a non-GET", () => {
+    expect(servesSpaFallback("GET", "/api/albums/nope")).toBe(false);
+    expect(servesSpaFallback("POST", "/albums/j8rv0vgc")).toBe(false);
+    expect(servesSpaFallback("DELETE", "/")).toBe(false);
   });
 });

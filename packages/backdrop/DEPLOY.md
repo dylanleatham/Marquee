@@ -267,6 +267,12 @@ when it auto-starts. A `{"updated":"curator:album:demo"}` reply means it took.
 $ sudo nano /etc/systemd/system/backdrop.service
 ```
 
+> **Unit naming.** This guide calls it `backdrop`; [docs/runbook.md](../../docs/runbook.md) A3 calls it
+> `marquee-backdrop`, matching `marquee-conductor` and `marquee-stylus`. Both exist on real installs.
+> Either works — just use the name you actually created in every `systemctl` command, and if you're
+> unsure which one you have:
+> `systemctl list-units --all 'marquee*' 'backdrop*' --no-pager`.
+
 Paste this exactly (it assumes username `pi` — change the paths if you used a different username):
 
 ```ini
