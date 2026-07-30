@@ -6,6 +6,13 @@ Specs: [curator](../../docs/specs/curator-spec.md) ·
 [roadie](../../docs/specs/roadie-spec.md) ·
 [onboarding workflow](../../docs/specs/album-onboarding-workflow.md).
 
+> **Restart Curator after every UI build.** `dist-ui` is served by `@fastify/static` with
+> `wildcard: false`, which enumerates the directory **once at startup**, and Vite renames every bundle
+> on each build — so a server that outlives `pnpm --filter @marquee/curator build` serves a stale UI.
+> It used to do that silently as a black window; it now 404s the missing bundle
+> ([#183](https://github.com/dylanleatham/Marquee/issues/183)). Update procedure for every host:
+> [runbook §B0](../../docs/runbook.md).
+
 ## Status — build step 7 (video upload + attachment + preview)
 
 The onboarding workflow now runs through the human steps. From the album detail you can copy the

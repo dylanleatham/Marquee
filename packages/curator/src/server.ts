@@ -300,6 +300,31 @@ function queueCounts(store: AssetStore) {
   return { counts, needsYou };
 }
 
+/**
+ * Should an unmatched request be answered with `index.html` (a client-side route) or a real 404?
+ *
+ * Only client routes get the fallback. Anything that looks like a **file** must 404, because the
+ * alternative is silent and catastrophic: `wildcard: false` above makes `@fastify/static` enumerate
+ * `dist-ui` once at registration, so a Curator process that outlives a UI rebuild has no route for
+ * Vite's new content-hashed bundle. Answering that miss with `index.html` made the browser execute
+ * HTML as a module script — React never mounted and Curator rendered a solid black window with
+ * nothing in any log ([#183](https://github.com/dylanleatham/Marquee/issues/183)). A 404 puts the real
+ * filename in the console instead.
+ *
+ * Pure and exported so it is actually tested: the `if (existsSync(uiDir))` block it serves is skipped
+ * entirely under test (no `dist-ui` in a test run), which is how the old behaviour shipped uncaught.
+ *
+ * Restarting Curator after a UI build is still required — this only makes forgetting it obvious.
+ */
+export function servesSpaFallback(method: string, url: string): boolean {
+  if (method !== "GET") return false;
+  const path = url.split("?")[0] ?? "";
+  if (path.startsWith("/api")) return false;
+  // A client route never carries a file extension; every static asset does.
+  if (/\.[a-z0-9]+$/i.test(path)) return false;
+  return true;
+}
+
 export function buildServer(opts: BuildOptions = {}) {
   const config = loadConfig(opts.config);
   const store = opts.store ?? new AssetStore(config.dataDir);
@@ -2260,11 +2285,11 @@ export function buildServer(opts: BuildOptions = {}) {
   const uiDir = fileURLToPath(new URL("../dist-ui", import.meta.url));
   if (existsSync(uiDir)) {
     app.register(fastifyStatic, { root: uiDir, wildcard: false });
-    // SPA fallback: a non-/api GET that isn't a real asset returns index.html so client-side
-    // routes (e.g. /albums/:id) deep-link and reload correctly.
+    // SPA fallback: a non-/api GET for a *client route* returns index.html so routes like
+    // /albums/:id deep-link and reload correctly. An asset miss must 404 — see `servesSpaFallback`.
     const indexHtml = readFileSync(join(uiDir, "index.html"));
     app.setNotFoundHandler((req, reply) => {
-      if (req.method === "GET" && !req.url.startsWith("/api")) {
+      if (servesSpaFallback(req.method, req.url)) {
         return reply.type("text/html").send(indexHtml);
       }
       return reply.code(404).send({ error: "not found" });
