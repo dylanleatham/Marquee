@@ -22,6 +22,7 @@
   let active = document.getElementById("video-a");
   let inactive = document.getElementById("video-b");
   let currentPath = null;
+  let stopTimer = null; // pending PLAYING → IDLE cleanup; a new play cancels it
 
   function fileUrl(p) {
     let s = String(p).replace(/\\/g, "/");
@@ -58,6 +59,14 @@
       return; // duplicate scan
     currentPath = filePath;
 
+    // Cancel any in-flight stop cleanup. It pauses BOTH layers, so left to fire it would freeze the
+    // clip we're about to start — on a physical stand, remove-then-place happens well inside its
+    // 650ms window. Cancelling it means we own clearing `is-leaving` ourselves.
+    clearTimeout(stopTimer);
+    stopTimer = null;
+    active.classList.remove("is-leaving");
+    inactive.classList.remove("is-leaving");
+
     inactive.src = fileUrl(filePath);
     inactive.currentTime = 0;
 
@@ -66,9 +75,13 @@
       inactive.classList.add("is-visible");
       active.classList.remove("is-visible");
       idle.classList.remove("is-visible");
+      // Pause the outgoing video NOW, not after the fade (issue #180). The Pi decodes H.264 in
+      // software, so letting both layers decode through a 450ms crossfade doubles the decode load at
+      // exactly the moment a new clip is also starting up. A paused element still renders its last
+      // frame, so the fade looks identical.
+      active.pause();
       // After the fade, free the outgoing element and swap roles.
       setTimeout(() => {
-        active.pause();
         active.removeAttribute("src");
         active.load();
         const tmp = active;
@@ -93,15 +106,26 @@
   }
 
   function stop() {
-    const leaving = active;
-    leaving.classList.add("is-leaving"); // 600ms fade-out on PLAYING → IDLE (spec §7)
-    leaving.classList.remove("is-visible");
+    // Act on BOTH layers, not just `active`. The role swap after a play sits behind a 450ms timer, so
+    // a stop landing inside that window used to fade out the *outgoing* element and leave the
+    // just-started video playing indefinitely behind the idle overlay — invisible, and still burning
+    // software-decode budget on the Pi (issue #180). Only one layer is ever visible, so marking both
+    // is harmless and immune to a pending swap.
+    const leaving = [active, inactive];
+    for (const el of leaving) {
+      el.classList.add("is-leaving"); // 600ms fade-out on PLAYING → IDLE (spec §7)
+      el.classList.remove("is-visible");
+    }
     idle.classList.add("is-visible");
     currentPath = null;
     if (DEBUG) uriLabel.textContent = "";
-    setTimeout(() => {
-      leaving.pause();
-      leaving.classList.remove("is-leaving");
+    clearTimeout(stopTimer);
+    stopTimer = setTimeout(() => {
+      stopTimer = null;
+      for (const el of leaving) {
+        el.pause();
+        el.classList.remove("is-leaving");
+      }
     }, 650);
   }
 

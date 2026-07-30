@@ -693,10 +693,30 @@ with the filename as `fileId`.
 
 **Video processing on ingest:**
 
-1. Probe with `ffprobe` — get duration, resolution, codec, container.
-2. Validate: H.264 in MP4 required (or H.265 in MP4 if targeting Pi 5). Reject with a clear error otherwise.
-3. Generate thumbnails — first frame and midpoint, 320px wide, jpg.
-4. Move to final location if attaching now, or leave in `/incoming/`.
+1. Probe with `ffprobe` — get duration, resolution, codec, container, **bitrate, frame rate, and
+   whether an audio stream is present**.
+2. Validate: H.264 or H.265 in MP4. Reject with a clear error otherwise.
+3. **Enforce the decode budget** — normalize anything outside it, copy verbatim anything inside it.
+4. Generate thumbnails — first frame and midpoint, 320px wide, jpg.
+5. Move to final location if attaching now, or leave in `/incoming/`.
+
+> **Decode budget (2026-07-29, [ADR 0040](../adrs/0040-visualizers-carry-a-decode-budget.md),
+> [issue #180](https://github.com/dylanleatham/Marquee/issues/180)).** Step 3 is new. Ingest used to
+> validate the container/codec and then copy the file through untouched, which is how ~20 Mbps 1080p30
+> visualizers reached Backdrop's Pi — **which has no hardware H.264 decoder** (see
+> [backdrop-spec §4](backdrop-spec.md)) — and flickered and stuttered continuously while playing
+> perfectly in Curator's own preview, because a workstation has a hardware decoder and doesn't care.
+>
+> `DECODE_BUDGET` in `media/video.ts` is the single source of that limit: **≤1920x1080, ≤30 fps,
+> ≤10 Mbps, H.264, no audio track**. Over-budget files are re-encoded to 8 Mbps (High/4.0, 2 s GOP,
+> `-an`, `+faststart`); a file already inside the budget is copied bit-for-bit, so nothing re-encodes
+> on re-ingest. When a muted audio track is the _only_ violation the video stream is copied rather
+> than re-encoded. `/api/albums/:curatorId/video/splice` encodes to the same budget, which is what
+> stops a spliced loop being encoded a second time on the way in.
+>
+> Consequence worth knowing: `POST /api/videos/upload` now holds the request through an encode
+> (~0.6x the clip's duration) where it used to be a file copy. Moving that behind the job manager is
+> the tracked follow-up.
 
 **Upload ceiling.** A single multipart upload is capped at `storage.max_upload_mb` in
 `config.toml` (env `CURATOR_MAX_UPLOAD_MB`), default **2048 MB**. Visualizer videos are the only

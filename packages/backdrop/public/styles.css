@@ -41,17 +41,32 @@ body {
 }
 
 /* Idle overlay sits above the videos when visible. Two near-black shades drifting slowly — just
-   enough to prove the panel is alive without any burn-in risk on OLED. */
+   enough to prove the panel is alive without any burn-in risk on OLED.
+
+   The animation is PARKED unless the overlay is actually visible (issue #180). `background-position`
+   is not a compositor-accelerated property, so animating it repaints this whole full-screen layer
+   every frame — and it used to keep doing that underneath a playing video, because the layer was only
+   dropped to `opacity: 0` and left in the compositing path. On a Pi that repaint competes with a
+   software H.264 decode ([ADR 0040](../../../docs/adrs/0040-visualizers-carry-a-decode-budget.md)),
+   which is a large part of why playback stuttered. `visibility` also takes the layer out of
+   compositing entirely, and is transitioned so it flips only after the fade finishes. */
 .idle {
   z-index: 2;
   opacity: 0;
-  transition: opacity 400ms ease;
+  visibility: hidden;
+  transition:
+    opacity 400ms ease,
+    visibility 0s linear 400ms;
   background: linear-gradient(120deg, #050507, #0c0c12, #060608);
   background-size: 200% 200%;
   animation: idle-drift 24s ease-in-out infinite;
+  animation-play-state: paused;
 }
 .idle.is-visible {
   opacity: 1;
+  visibility: visible;
+  transition-delay: 0s, 0s;
+  animation-play-state: running;
 }
 
 @keyframes idle-drift {

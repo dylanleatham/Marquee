@@ -81,6 +81,16 @@ describe("buildConcatArgs", () => {
     expect(args[args.length - 1]).toBe("/out.mp4");
   });
 
+  // Issue #180: the splice used to re-encode at libx264's bare defaults — no bitrate ceiling — which
+  // is how ~20 Mbps loops reached a Pi that decodes H.264 in software.
+  it("encodes the spliced loop inside the decode budget", () => {
+    const args = buildConcatArgs(["/a.mp4", "/b.mp4"], "/out.mp4");
+    expect(args[args.indexOf("-maxrate") + 1]).toBe("8000000");
+    expect(args[args.indexOf("-profile:v") + 1]).toBe("high");
+    expect(args[args.indexOf("-g") + 1]).toBe("60");
+    expect(args[args.indexOf("-movflags") + 1]).toBe("+faststart");
+  });
+
   // Issue #56: mismatched clip dimensions are scaled-to-fit + padded to a common frame before the
   // join, so a differing set doesn't fail or corrupt.
   it("normalizes every input to a common frame when a size is given", () => {
@@ -120,6 +130,9 @@ describe("resolveConcatBuild (issue #56)", () => {
     durationSec,
     codec: "h264",
     container: "mp4",
+    bitRateBps: 7_300_000,
+    fps: 30,
+    hasAudio: false,
   });
 
   it("adds no normalization for same-size clips with no crossfade (keeps the minimal graph)", () => {
@@ -130,6 +143,13 @@ describe("resolveConcatBuild (issue #56)", () => {
 
   it("normalizes to the largest frame when clips differ in size", () => {
     const build = resolveConcatBuild([info(1920, 1080), info(1280, 720)]);
+    expect(build.size).toEqual({ width: 1920, height: 1080 });
+  });
+
+  it("clamps an oversize clip set down to the decode budget (issue #180)", () => {
+    // 4K clips must not join into a 4K loop — the Pi decodes this in software, and ingest would
+    // otherwise have to re-encode the result straight back down.
+    const build = resolveConcatBuild([info(3840, 2160), info(3840, 2160)]);
     expect(build.size).toEqual({ width: 1920, height: 1080 });
   });
 

@@ -5,8 +5,11 @@ _The visual companion to the record spinning — it's the backdrop, not the show
 > **Implementation status (2026-07-20).** The workstation-testable core is built in
 > `packages/backdrop` (milestones 2–9): config, `library.json` store, the IDLE⇄PLAYING controller
 > with the idle-timeout safety net, the WebSocket hub, the full §8 HTTP API, and the vanilla kiosk
-> SPA. 39 tests; verified live in a browser (WS connect, `/healthz` gating, scan→play→idle, the
-> `show-message` path). Milestones 1/10/11 (kiosk launcher, systemd, real NFC) are hardware and are
+> SPA. 71 tests; verified live in a browser (WS connect, `/healthz` gating, scan→play→idle, the
+> `show-message` path). The kiosk SPA itself gained its first tests in
+> [ADR 0040](../adrs/0040-visualizers-carry-a-decode-budget.md) — driven by shadowing
+> `document`/`location`/`WebSocket`, which covers playback ordering and state but not rendering (see
+> §"Playwright vs jsdom" in [testing-strategy](testing-strategy.md) for the browser tests still owed). Milestones 1/10/11 (kiosk launcher, systemd, real NFC) are hardware and are
 > documented as a step-by-step runbook in
 > [packages/backdrop/DEPLOY.md](../../packages/backdrop/DEPLOY.md), not yet automated.
 >
@@ -55,22 +58,34 @@ The "feels intentional" part is doing a lot of work in that sentence. Loading sp
 
 ## 4. Hardware BOM
 
-| Item                                          | Purpose                                          | Cost          |
-| --------------------------------------------- | ------------------------------------------------ | ------------- |
-| Raspberry Pi 5 (4GB or 8GB)                   | Main compute, HDMI output, hardware video decode | ~$60-80       |
-| Pi 5 official power supply (27W USB-C)        | Stable power under video load                    | ~$12          |
-| Micro HDMI to HDMI cable                      | Display connection                               | ~$5           |
-| High-endurance microSD card (128GB, A2 rated) | OS + videos + assets                             | ~$20-25       |
-| Active cooling case (fan or heatsink)         | Pi 5 gets warm decoding video                    | ~$10-15       |
-| **Total**                                     |                                                  | **~$110-140** |
+| Item                                          | Purpose                                              | Cost          |
+| --------------------------------------------- | ---------------------------------------------------- | ------------- |
+| Raspberry Pi 5 (4GB or 8GB)                   | Main compute, HDMI output, **software** H.264 decode | ~$60-80       |
+| Pi 5 official power supply (27W USB-C)        | Stable power under video load                        | ~$12          |
+| Micro HDMI to HDMI cable                      | Display connection                                   | ~$5           |
+| High-endurance microSD card (128GB, A2 rated) | OS + videos + assets                                 | ~$20-25       |
+| Active cooling case (fan or heatsink)         | Pi 5 gets warm decoding video                        | ~$10-15       |
+| **Total**                                     |                                                      | **~$110-140** |
 
-**Why Pi 5 over Pi 4:** Hardware-accelerated H.264 decode with headroom to spare, plus meaningful CPU improvements. Pi 4 works for 1080p H.264 loops but has zero headroom for anything else, and the browser stack you're running eats CPU.
+**Why Pi 5 over Pi 4:** Meaningful CPU improvements, which is what actually carries video playback here — see the decode correction immediately below.
+
+> ### ⚠️ Correction (2026-07-29, [ADR 0040](../adrs/0040-visualizers-carry-a-decode-budget.md), [issue #180](https://github.com/dylanleatham/Marquee/issues/180))
+>
+> **This section used to claim "Hardware-accelerated H.264 decode with headroom to spare" as the reason to pick a Pi 5. That is wrong, and it was wrong from the day it was written.**
+>
+> The Pi 5's VideoCore VII **dropped** the Pi 4's H.264 decode block and kept only an HEVC decoder. Every H.264 frame Backdrop plays is decoded **on the CPU**, inside Chromium, while that same CPU composites the page. For this codec the Pi 5 is the _worse_ of the two boards — the A76 cores are what make it work at all, not a video block.
+>
+> The error propagated. `ALLOWED_CODECS` in Curator was commented "H.265 for Pi 5"; DEPLOY.md told operators to re-encode HEVC **into** H.264 — converting the one codec this board has silicon for into the one it doesn't. And because nothing bounded what a visualizer could be, ~20 Mbps 1080p30 files with dead AAC tracks reached the display and flickered and stuttered continuously, while playing perfectly in Curator's preview (a workstation, with a hardware decoder, that doesn't care).
+>
+> **What changed:** Curator now enforces a **decode budget** on ingest — ≤1080p30, ≤10 Mbps, H.264, no audio — and encodes anything outside it down to 8 Mbps. See [curator-spec §9](curator-spec.md) for the mechanism. §6 and §13 below are corrected to match.
+>
+> **Still open, deliberately:** whether Chromium on Pi OS will use the Pi 5's HEVC hardware decoder for a `file://` `<video>`. If it does, that inverts the codec policy and is the one real step change available here. It is an experiment, not an assumption, so the pipeline stays on H.264 until someone runs it.
 
 **Why "high-endurance" microSD:** Regular microSD cards wear out under repeated writes, and while you're mostly reading, occasional writes (logs, library sync) add up over a year of always-on operation. High-endurance cards are rated for the video-surveillance duty cycle and are only marginally more expensive. A2 rating gives you better random-read performance which helps Chromium.
 
 **Storage sizing:** 500 albums × ~100MB average visualizer = 50GB. Plus OS and headroom, 128GB is comfortable. Go 256GB if you're being generous, don't overpay for 512GB.
 
-**Display:** Whatever's convenient. HDMI is HDMI. Baseline is 1080p; 4K works on Pi 5 for H.264 content but obviously more storage and more expensive to generate.
+**Display:** Whatever's convenient. HDMI is HDMI. **1080p is the ceiling, not the baseline** — this line used to say "4K works on Pi 5 for H.264 content," which the §4 correction above contradicts: H.264 decode is software here, and Curator's decode budget caps ingest at 1080p30 and downscales anything larger ([ADR 0040](../adrs/0040-visualizers-carry-a-decode-budget.md)). A 4K _panel_ is fine, but set its mode to 1920x1080 — left at 4K, Chromium renders the page at 3840x2160 and rescales every decoded frame, which costs more than the decode.
 
 ## 5. Where it fits
 
@@ -122,7 +137,7 @@ The Node backend and Chromium both run on the same Pi. Chromium loads a local SP
 - **Frontend**: Vanilla HTML/CSS/JS. Genuinely doesn't need a framework — one video element, one overlay, one WebSocket connection. Vanilla is lighter and easier to debug in a kiosk context.
 - **Browser**: Chromium (from apt), launched via `chromium-browser --kiosk --app=http://localhost:4740`.
 - **Process management**: systemd — one unit for the Node backend, one for the browser launcher.
-- **Video codecs**: H.264 in MP4. Chromium supports this natively; no additional codec install needed.
+- **Video codecs**: H.264 in MP4. Chromium supports this natively; no additional codec install needed. **Decoded in software on a Pi 5** (§4 correction), so the clips are held to a decode budget by Curator on ingest — ≤1080p30, ≤10 Mbps, no audio track ([ADR 0040](../adrs/0040-visualizers-carry-a-decode-budget.md)).
 
 ## 7. Playback state machine
 
@@ -316,6 +331,7 @@ Ship the gradient as the default. The SPA is structured so the idle overlay is i
 
 ## 13. Known gotchas
 
+- **Decode headroom is the scarce resource, not bandwidth or storage.** Because H.264 decode is software on a Pi 5 (§4 correction), anything else the CPU does during playback competes with it directly. Three real instances, all fixed in [ADR 0040](../adrs/0040-visualizers-carry-a-decode-budget.md): the idle overlay's `background-position` animation is not compositor-accelerated, so it repainted the full screen every frame — and kept doing it _underneath a playing video_, because the layer was only dropped to `opacity: 0` and left in the compositing path (it is now parked and `visibility: hidden` while playing); a crossfade left the outgoing video decoding for the whole 450ms fade, running two software decodes at the moment a new clip was also starting (it is now paused when the fade starts); and `stop` acted on `active` while the role swap sat behind a 450ms timer, so a removal landing mid-crossfade left the just-started video playing forever behind the idle overlay, invisible and still decoding (`stop` now acts on both layers). **What did _not_ work: GPU flags.** ADR 0040 also had the launcher pass `--ignore-gpu-blocklist --enable-gpu-rasterization --enable-zero-copy`, on the reasoning that compositing the CPU doesn't do is headroom the software decoder gets back. That reasoning was never measured, the Pi's vc4/V3D driver is on Chromium's blocklist for reasons, and overriding it booted the kiosk to a solid black screen. They are removed; DEPLOY.md step 11b now warns against re-adding them. The decode budget is where the win actually came from. When diagnosing "the video looks rough," check `vcgencmd get_throttled` and the panel's actual mode before suspecting the file: a 4K panel makes Chromium render the page at 3840x2160 and rescale every frame, which costs more than the decode.
 - **Chromium autoplay policy.** Chromium blocks autoplay of videos with audio _unless muted or after a user gesture_. Since Backdrop videos are always muted, this shouldn't bite — but if you want to unmute someday, you'll need to launch Chromium with `--autoplay-policy=no-user-gesture-required`. Bake this into the launcher unit now so future-you doesn't have to remember.
 - **Seamless looping.** MP4 loop transitions in HTML5 sometimes show a one-frame black flash. If it's noticeable, options are: encode videos with H.264 in fragmented MP4, or use two video elements alternating (play A, when A hits 200ms from end fade to B, restart A when B ends, etc.). Default approach: single-element loop first; only escalate if it looks bad.
 - **microSD wear over time.** Even with high-endurance cards, keep the write volume low. Log to journald with a max size, not to a flat file that grows forever. Consider mounting `/tmp` as tmpfs.

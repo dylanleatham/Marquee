@@ -217,6 +217,16 @@ The trickiest to test because it involves a browser, and browsers introduce a wh
 
 **Playwright vs jsdom**: use Playwright. jsdom won't run HTML5 video. The overhead is worth it for this component.
 
+> **Note (2026-07-29, [ADR 0040](../adrs/0040-visualizers-carry-a-decode-budget.md)).** The Playwright
+> suite above is still owed, and while it was outstanding the kiosk SPA had **no** tests at all — which
+> is how two playback bugs reached the hardware ([#180](https://github.com/dylanleatham/Marquee/issues/180)).
+> There is now a middle tier: `packages/backdrop/test/kiosk-spa.test.ts` drives `app.js` by shadowing
+> `document`/`location`/`WebSocket` as function parameters — no jsdom, no new dependency. It covers what
+> is really _logic_ (which layer plays, which is paused, when roles swap, what is reported upstream) and
+> deliberately does not pretend to cover rendering. "jsdom won't run HTML5 video" remains true; the
+> lesson is that it was being used to justify testing _nothing_, when the orderings that actually broke
+> needed no video decode to assert.
+
 ## 5. Shared infrastructure
 
 Concretely, what to build once and reuse everywhere.
