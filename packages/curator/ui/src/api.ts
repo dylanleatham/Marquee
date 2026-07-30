@@ -1,6 +1,11 @@
 // Typed client for Curator's HTTP API. Kept deliberately small — the UI reads the queue/status and
 // performs the handful of actions that exist today (add, delete, Roadie controls). Editing/video/
 // preview/tag flows arrive with their own build steps.
+import type { PatternType } from "@marquee/contracts";
+
+/** Every motion an album can be set to — the four CLIP patterns plus the three streaming effects
+ * (ADR 0039). Re-exported so the UI has one name for it, alongside the shapes declared here. */
+export type { PatternType };
 
 export type RoadieState =
   | "fresh"
@@ -252,9 +257,6 @@ export interface BatchPaletteReport {
   items: BatchPaletteOutcome[];
 }
 
-/** The Entertainment streaming effects an album can opt into (ADR 0023/0024/0035). */
-export type StreamingEffect = "aurora" | "shimmer" | "wave";
-
 export interface AlbumAsset {
   curatorId: string;
   createdAt: string;
@@ -289,12 +291,12 @@ export interface AlbumAsset {
   /** Proposals from the feeling pass, awaiting a choice (ADR 0030). */
   paletteCandidates?: PaletteCandidates;
   /**
-   * Per-album opt-in to an Entertainment streaming effect (ADR 0035). Absent/null means the derived
-   * `pattern` plays — which is also what plays on a room with no entertainment area configured.
+   * The human's motion override (ADR 0039). Absent/null means the derived `pattern` plays — which is
+   * also what a streaming pick falls back to on a room with no entertainment area configured.
    */
-  streamingEffect?: StreamingEffect | null;
-  /** Tuning for `streamingEffect` (ADR 0036). Only knobs moved off their default are stored. */
-  streamingParams?: Record<string, number>;
+  patternOverride?: PatternType | null;
+  /** Tuning for `patternOverride` (ADR 0036/0039). Only knobs moved off their default are stored. */
+  patternOverrideParams?: Record<string, number>;
   pattern?: { type: string; params: Record<string, unknown> };
   promptDrafts?: { video?: DraftedPrompt; cardArt?: DraftedPrompt };
   visualizer?: Visualizer;
@@ -483,23 +485,22 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ colors }),
     }),
-  // Opt an album into a streaming effect, or pass null to clear it (ADR 0035). The derived pattern
-  // is untouched — it stays the fallback for a room with no entertainment area.
-  // `params` omitted leaves existing tuning alone; `{}` resets it to the renderer defaults.
-  setStreamingEffect: (
+  // Override an album's motion, or pass null to return it to the derived pattern (ADR 0039). The
+  // derived pattern is untouched either way — a streaming pick falls back to it, a CLIP pick
+  // displaces it only in the payload.
+  // `params` omitted leaves existing tuning alone; `{}` resets it to the spec defaults.
+  setPatternOverride: (
     id: string,
-    effect: StreamingEffect | null,
+    type: PatternType | null,
     params?: Record<string, number>,
   ) =>
     req<{
-      streamingEffect: StreamingEffect | null;
-      streamingParams: Record<string, number>;
+      patternOverride: PatternType | null;
+      patternOverrideParams: Record<string, number>;
       pattern: AlbumAsset["pattern"];
-    }>(`/api/albums/${id}/streaming-effect`, {
+    }>(`/api/albums/${id}/pattern-override`, {
       method: "PUT",
-      body: JSON.stringify(
-        params === undefined ? { effect } : { effect, params },
-      ),
+      body: JSON.stringify(params === undefined ? { type } : { type, params }),
     }),
   // Drop the hand-edit flag (keeps the colors) so a later re-extract/batch may replace it.
   resetPalette: (id: string) =>

@@ -12,6 +12,31 @@ import { isCuratorId } from "../ids.js";
 import type { AlbumAsset } from "../albums/asset.js";
 
 /**
+ * Bring a stored asset up to the current field names. Applied on every read, so the rest of Curator
+ * only ever sees today's shape and the rewrite happens on whatever save comes next.
+ *
+ * ADR 0039 renamed `streamingEffect`/`streamingParams` to `patternOverride`/`patternOverrideParams`
+ * when the streaming opt-in generalised into a picker over all seven pattern types. The legacy names
+ * are read-only: nothing writes them, and they're dropped here so an album can't end up carrying two
+ * answers that disagree.
+ */
+function migrate(asset: AlbumAsset): AlbumAsset {
+  if (asset.streamingEffect !== undefined || asset.streamingParams) {
+    asset.patternOverride ??= asset.streamingEffect;
+    asset.patternOverrideParams ??= asset.streamingParams;
+    delete asset.streamingEffect;
+    delete asset.streamingParams;
+    if (asset.patternOverride == null) delete asset.patternOverride;
+    if (
+      asset.patternOverrideParams &&
+      Object.keys(asset.patternOverrideParams).length === 0
+    )
+      delete asset.patternOverrideParams;
+  }
+  return asset;
+}
+
+/**
  * The album-assets store: one {curatorId}.json per album under {dataDir}/album-assets. Human-
  * readable, git-friendly, `.bak` on every overwrite (curator-spec §6/§7). Source of truth.
  */
@@ -33,7 +58,7 @@ export class AssetStore {
     if (!isCuratorId(curatorId)) return null;
     const file = this.paths.assetFile(curatorId);
     if (!existsSync(file)) return null;
-    return JSON.parse(readFileSync(file, "utf8")) as AlbumAsset;
+    return migrate(JSON.parse(readFileSync(file, "utf8")) as AlbumAsset);
   }
 
   /** Write the asset. Keeps a `.bak` of the previous version before overwriting. */
@@ -79,11 +104,13 @@ export class AssetStore {
       if (!name.endsWith(".json") || name.endsWith(".bak")) continue;
       try {
         assets.push(
-          JSON.parse(
-            readFileSync(
-              this.paths.assetFile(name.replace(/\.json$/, "")),
-              "utf8",
-            ),
+          migrate(
+            JSON.parse(
+              readFileSync(
+                this.paths.assetFile(name.replace(/\.json$/, "")),
+                "utf8",
+              ),
+            ) as AlbumAsset,
           ),
         );
       } catch {

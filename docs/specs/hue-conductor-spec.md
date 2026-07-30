@@ -239,8 +239,11 @@ once. Built across [ADR 0023](../adrs/0023-entertainment-streaming-effect-engine
   A payload's optional `streaming.effect` opts that album in while `pattern` keeps its derived CLIP
   value; with an entertainment area Conductor plays the effect, without one it plays `pattern` — the
   album's own energy-aware motion, not a guess. Curator writes it via
-  `PUT /api/albums/:curatorId/streaming-effect`. The block's optional `params` carries that
-  album's tuning for the effect's own knobs
+  `PUT /api/albums/:curatorId/pattern-override` (renamed from `/streaming-effect` by
+  [ADR 0039](../adrs/0039-one-motion-picker-clip-patterns-are-selectable.md), which widened the same
+  field to cover the CLIP patterns as well — a CLIP override arrives as the payload's `pattern` and
+  emits no `streaming` block, so nothing changes on this side). The block's optional `params` carries
+  that album's tuning for the effect's own knobs
   ([ADR 0036](../adrs/0036-streaming-effect-params-are-tunable.md)); absent keys fall to the
   renderer defaults documented below. Setting `pattern.type` to an effect directly still
   works (Demo Room, manual `curl`) but has only `clipFallback`'s guess to fall back on, since there
@@ -276,11 +279,13 @@ once. Built across [ADR 0023](../adrs/0023-entertainment-streaming-effect-engine
 
 Streaming effects are **opt-in via a Curator per-album override**, not auto-selected — Palette Press
 still defaults to CLIP patterns (the producer can't know whether a runtime has an entertainment area;
-ADR 0024). That override is `PUT /api/albums/:curatorId/streaming-effect`, which sets
-`asset.streamingEffect` and reaches Conductor as the payload's `streaming` block
-([ADR 0035](../adrs/0035-streaming-effect-is-a-per-album-opt-in.md)); it was named by ADR 0024 but
-not built until 2026-07-27, so until then the effects were reachable only from the Demo Room or a
-manual `curl`.
+ADR 0024). That override is `PUT /api/albums/:curatorId/pattern-override`, which sets
+`asset.patternOverride` and reaches Conductor as the payload's `streaming` block
+([ADR 0035](../adrs/0035-streaming-effect-is-a-per-album-opt-in.md); renamed from
+`/streaming-effect` and `asset.streamingEffect` on 2026-07-29 by
+[ADR 0039](../adrs/0039-one-motion-picker-clip-patterns-are-selectable.md), which made the same field
+carry a CLIP choice too). It was named by ADR 0024 but not built until 2026-07-27, so until then the
+effects were reachable only from the Demo Room or a manual `curl`.
 
 ### Palette transitions within a session
 

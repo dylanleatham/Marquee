@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { AssetStore } from "../src/store/asset-store.js";
 import {
   editPalette,
-  setStreamingEffect,
+  setPatternOverride,
   resetPalette,
   regeneratePalette,
   PaletteConflictError,
@@ -281,40 +281,58 @@ describe("regeneratePalette", () => {
   });
 });
 
-// ADR 0035: a per-album opt-in to an Entertainment streaming effect. The point of the design is
-// that it is a switch, not a pattern editor — the derived pattern must survive it untouched.
-describe("setStreamingEffect", () => {
-  it("opts the album in and persists it", () => {
+// ADR 0039: a per-album motion override over all seven pattern types. The point of the design is
+// that it is a choice stored beside the derived pattern, not an edit of it — the derived pattern
+// must survive it untouched, whichever half was chosen.
+describe("setPatternOverride", () => {
+  it("stores the override and persists it", () => {
     const store = tmpStore();
     seed(store);
-    const asset = setStreamingEffect(deps(store), "aaaa1111", "aurora");
-    expect(asset.streamingEffect).toBe("aurora");
-    expect(store.read("aaaa1111")!.streamingEffect).toBe("aurora");
+    const asset = setPatternOverride(deps(store), "aaaa1111", "aurora");
+    expect(asset.patternOverride).toBe("aurora");
+    expect(store.read("aaaa1111")!.patternOverride).toBe("aurora");
   });
 
+  it.each(["static", "rotate", "pulse", "crossfade"] as const)(
+    "accepts the CLIP pattern %s, which ADR 0030 had left unreachable",
+    (type) => {
+      const store = tmpStore();
+      seed(store);
+      expect(
+        setPatternOverride(deps(store), "aaaa1111", type).patternOverride,
+      ).toBe(type);
+    },
+  );
+
   it("leaves the derived pattern exactly as Palette Press produced it", () => {
-    // The whole reason this is a sibling field: the pattern is the no-entertainment-area fallback.
+    // The whole reason this is a sibling field: clearing the override is a delete, not a restore.
     const store = tmpStore();
     const before = seed(store).pattern;
-    const asset = setStreamingEffect(deps(store), "aaaa1111", "wave");
+    const asset = setPatternOverride(deps(store), "aaaa1111", "wave");
     expect(asset.pattern).toEqual(before);
   });
 
-  it("clears the opt-in with null, restoring the default", () => {
+  it("leaves it alone for a CLIP override too, which displaces it only in the payload", () => {
     const store = tmpStore();
-    seed(store);
-    setStreamingEffect(deps(store), "aaaa1111", "shimmer");
-    const cleared = setStreamingEffect(deps(store), "aaaa1111", null);
-    expect(cleared.streamingEffect).toBeUndefined();
-    expect(store.read("aaaa1111")!.streamingEffect).toBeUndefined();
+    const before = seed(store).pattern;
+    const asset = setPatternOverride(deps(store), "aaaa1111", "rotate");
+    expect(asset.pattern).toEqual(before);
   });
 
-  it("rejects an effect that isn't a streaming effect", () => {
-    // `rotate` is a real pattern type but a CLIP one — it is derived, never opted into.
+  it("clears the override with null, restoring the default", () => {
+    const store = tmpStore();
+    seed(store);
+    setPatternOverride(deps(store), "aaaa1111", "shimmer");
+    const cleared = setPatternOverride(deps(store), "aaaa1111", null);
+    expect(cleared.patternOverride).toBeUndefined();
+    expect(store.read("aaaa1111")!.patternOverride).toBeUndefined();
+  });
+
+  it("rejects a type that isn't a pattern at all", () => {
     const store = tmpStore();
     seed(store);
     expect(() =>
-      setStreamingEffect(deps(store), "aaaa1111", "rotate" as never),
+      setPatternOverride(deps(store), "aaaa1111", "disco" as never),
     ).toThrow(ValidationError);
   });
 
@@ -327,73 +345,93 @@ describe("setStreamingEffect", () => {
         now: () => NOW,
       }),
     );
-    expect(() => setStreamingEffect(deps(store), "bbbb2222", "aurora")).toThrow(
+    expect(() => setPatternOverride(deps(store), "bbbb2222", "aurora")).toThrow(
       PaletteConflictError,
     );
   });
 });
 
-// ADR 0036: tuning the chosen effect's own knobs.
-describe("setStreamingEffect — params", () => {
+// ADR 0036, widened to every pattern type by ADR 0039: tuning the chosen override's own knobs.
+describe("setPatternOverride — params", () => {
   it("stores only the knobs moved off their default", () => {
     const store = tmpStore();
     seed(store);
-    const asset = setStreamingEffect(deps(store), "aaaa1111", "aurora", {
+    const asset = setPatternOverride(deps(store), "aaaa1111", "aurora", {
       speed: 0.2,
       scale: 1.2, // the default — not stored
     });
-    expect(asset.streamingParams).toEqual({ speed: 0.2 });
+    expect(asset.patternOverrideParams).toEqual({ speed: 0.2 });
   });
 
-  it("clears tuning when the effect changes", () => {
+  it("clears tuning when the type changes", () => {
     // `aurora.scale` means nothing to `wave`; carrying it over would silently reinterpret it.
     const store = tmpStore();
     seed(store);
-    setStreamingEffect(deps(store), "aaaa1111", "aurora", { scale: 3 });
-    const switched = setStreamingEffect(deps(store), "aaaa1111", "wave");
-    expect(switched.streamingParams).toBeUndefined();
+    setPatternOverride(deps(store), "aaaa1111", "aurora", { scale: 3 });
+    const switched = setPatternOverride(deps(store), "aaaa1111", "wave");
+    expect(switched.patternOverrideParams).toBeUndefined();
   });
 
-  it("leaves tuning alone when params are omitted for the same effect", () => {
+  it("stores a CLIP knob the same way, and drops it at the spec default", () => {
     const store = tmpStore();
     seed(store);
-    setStreamingEffect(deps(store), "aaaa1111", "aurora", { speed: 0.2 });
-    const again = setStreamingEffect(deps(store), "aaaa1111", "aurora");
-    expect(again.streamingParams).toEqual({ speed: 0.2 });
+    const asset = setPatternOverride(deps(store), "aaaa1111", "crossfade", {
+      transitionMs: 2000,
+      holdMs: 30000, // the default — not stored
+    });
+    expect(asset.patternOverrideParams).toEqual({ transitionMs: 2000 });
+  });
+
+  it("clears tuning when switching between the two halves", () => {
+    const store = tmpStore();
+    seed(store);
+    setPatternOverride(deps(store), "aaaa1111", "rotate", { intervalMs: 900 });
+    expect(
+      setPatternOverride(deps(store), "aaaa1111", "aurora")
+        .patternOverrideParams,
+    ).toBeUndefined();
+  });
+
+  it("leaves tuning alone when params are omitted for the same type", () => {
+    const store = tmpStore();
+    seed(store);
+    setPatternOverride(deps(store), "aaaa1111", "aurora", { speed: 0.2 });
+    const again = setPatternOverride(deps(store), "aaaa1111", "aurora");
+    expect(again.patternOverrideParams).toEqual({ speed: 0.2 });
   });
 
   it("resets tuning when params are an empty object", () => {
     const store = tmpStore();
     seed(store);
-    setStreamingEffect(deps(store), "aaaa1111", "aurora", { speed: 0.2 });
-    const reset = setStreamingEffect(deps(store), "aaaa1111", "aurora", {});
-    expect(reset.streamingParams).toBeUndefined();
+    setPatternOverride(deps(store), "aaaa1111", "aurora", { speed: 0.2 });
+    const reset = setPatternOverride(deps(store), "aaaa1111", "aurora", {});
+    expect(reset.patternOverrideParams).toBeUndefined();
   });
 
-  it("drops tuning when the opt-in is cleared", () => {
+  it("drops tuning when the override is cleared", () => {
     const store = tmpStore();
     seed(store);
-    setStreamingEffect(deps(store), "aaaa1111", "aurora", { speed: 0.2 });
-    const off = setStreamingEffect(deps(store), "aaaa1111", null);
-    expect(off.streamingEffect).toBeUndefined();
-    expect(off.streamingParams).toBeUndefined();
+    setPatternOverride(deps(store), "aaaa1111", "aurora", { speed: 0.2 });
+    const off = setPatternOverride(deps(store), "aaaa1111", null);
+    expect(off.patternOverride).toBeUndefined();
+    expect(off.patternOverrideParams).toBeUndefined();
   });
 
   it("rejects an out-of-range or foreign knob as a ValidationError", () => {
     const store = tmpStore();
     seed(store);
     expect(() =>
-      setStreamingEffect(deps(store), "aaaa1111", "aurora", { speed: 99 }),
+      setPatternOverride(deps(store), "aaaa1111", "aurora", { speed: 99 }),
     ).toThrow(ValidationError);
     expect(() =>
-      setStreamingEffect(deps(store), "aaaa1111", "wave", { scale: 2 }),
+      setPatternOverride(deps(store), "aaaa1111", "wave", { scale: 2 }),
     ).toThrow(ValidationError);
   });
 
   it("still leaves the derived pattern untouched", () => {
     const store = tmpStore();
     const before = seed(store).pattern;
-    const asset = setStreamingEffect(deps(store), "aaaa1111", "aurora", {
+    const asset = setPatternOverride(deps(store), "aaaa1111", "aurora", {
       speed: 0.2,
     });
     expect(asset.pattern).toEqual(before);

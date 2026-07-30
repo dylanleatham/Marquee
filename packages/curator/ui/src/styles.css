@@ -1855,29 +1855,40 @@ em {
   display: block;
 }
 
-/* --- Streaming effect opt-in (ADR 0035): a switch in the Look tab, beside the derived pattern --- */
-.streaming {
+/* --- Motion picker (ADR 0039): the Look tab's one list of how this record moves the lights ------ */
+.motion {
   display: grid;
   gap: 8px;
   margin: 14px 0 4px;
 }
-.streaming__head {
+.motion__head {
   display: flex;
   align-items: baseline;
   gap: 10px;
   flex-wrap: wrap;
 }
-.streaming__options {
+.motion__options {
   display: flex;
+  align-items: center;
   gap: 8px;
   flex-wrap: wrap;
 }
-.streaming__note {
+/* The hardware-gated three, set apart by a rule rather than by colour — the label carries the
+   reason in words, so the grouping never has to be inferred from a hue (curator-ui-ux §3.4). */
+.motion__options--streaming {
+  border-top: 1px dashed var(--line);
+  padding-top: 8px;
+}
+.motion__group-label {
+  font-size: 12px;
+  width: 100%;
+}
+.motion__note {
   font-size: 12.5px;
   margin: 0;
 }
-/* The chosen effect's knobs (ADR 0036). Ranges come from STREAM_PARAM_SPECS, not from here. */
-.streaming__params {
+/* The chosen pattern's knobs (ADR 0036/0039). Ranges come from PATTERN_PARAM_SPECS, not from here. */
+.motion__params {
   display: grid;
   gap: 10px;
   padding: 10px 12px;
@@ -1886,25 +1897,25 @@ em {
   background: var(--panel-2);
   justify-items: start;
 }
-.streaming__param {
+.motion__param {
   display: grid;
   gap: 3px;
   width: 100%;
   max-width: 320px;
 }
-.streaming__param-label {
+.motion__param-label {
   display: flex;
   justify-content: space-between;
   gap: 10px;
   font-size: 12.5px;
   color: var(--muted);
 }
-.streaming__param-value {
+.motion__param-value {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
   color: var(--text);
 }
-.streaming__param input[type="range"] {
+.motion__param input[type="range"] {
   width: 100%;
   accent-color: var(--amber);
 }

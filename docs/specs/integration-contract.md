@@ -42,7 +42,7 @@ type PalettePayload = {
   streaming?: {
     effect: "aurora" | "shimmer" | "wave";
     // That effect's own knobs, per album (ADR 0036). Absent keys use the renderer's default, so
-    // `{}` and absent mean the same thing. Ranges live in STREAM_PARAM_SPECS.
+    // `{}` and absent mean the same thing. Ranges live in PATTERN_PARAM_SPECS.
     params?: Record<string, number>;
   };
 
@@ -87,6 +87,14 @@ type PatternParams =
 > `curl` path. Set `streaming.effect` instead and `pattern` stays the album's own derived,
 > energy-aware pattern, which is what plays with no area. **Prefer `streaming.effect`** — it is the
 > per-album override ADR 0024 called for, and it can't downgrade an album's motion.
+>
+> **A human's CLIP choice arrives as `pattern`, not as a third field
+> ([ADR 0039](../adrs/0039-one-motion-picker-clip-patterns-are-selectable.md)).** Curator's Motion
+> picker now covers all seven types, but only the streaming three need somewhere to fall back to —
+> every bridge speaks CLIP. So an overridden `rotate` is simply the payload's `pattern`, resolved to
+> the complete params this contract requires, with no `streaming` block. **This shape is unchanged
+> by ADR 0039**: a consumer cannot tell an overridden CLIP pattern from a derived one, and doesn't
+> need to.
 
 ## 2. JSON Schema
 

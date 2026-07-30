@@ -11,9 +11,9 @@ import {
 import { writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import {
-  STREAM_PATTERN_TYPES,
-  validateStreamParams,
-  type StreamPatternType,
+  PATTERN_TYPES,
+  validatePatternParams,
+  type PatternType,
 } from "@marquee/contracts";
 import type { AssetStore } from "../store/asset-store.js";
 import {
@@ -271,47 +271,49 @@ function assertNotProcessing(asset: AlbumAsset): void {
  * the human made it. Synchronous, so a plain load→save is race-safe (no await to interleave).
  */
 /**
- * Opt an album into an Entertainment streaming effect, or back out of it with `null` (ADR 0035).
+ * Override an album's motion with any of the seven pattern types, or return it to the derived
+ * pattern with `null` (ADR 0039; generalises ADR 0035's streaming-only opt-in).
  *
- * Not a pattern editor. The derived `pattern` is left exactly as Palette Press produced it — it is
- * what plays on a room with no entertainment area, so backing out is just clearing this field, and
- * an album never loses its energy-aware motion by opting in.
+ * Never a pattern *editor*: the derived `pattern` is left exactly as Palette Press produced it, so
+ * clearing the override is a delete rather than a restore, a palette regeneration re-derives
+ * underneath it, and an album can't lose its energy-aware motion by being overridden. Whether the
+ * override displaces `pattern` or rides beside it is decided at payload-build time, per half.
  *
  * Rejected while Roadie is processing, for the same reason a palette edit is
  * ([ADR 0025](../../../../docs/adrs/0025-palette-edit-rejected-during-processing.md)): the pipeline
  * is still writing the asset.
  */
-export function setStreamingEffect(
+export function setPatternOverride(
   deps: ActionDeps,
   curatorId: string,
-  effect: StreamPatternType | null,
+  type: PatternType | null,
   params?: unknown,
 ): AlbumAsset {
   const asset = load(deps.store, curatorId);
   assertNotProcessing(asset);
-  if (effect !== null && !STREAM_PATTERN_TYPES.includes(effect))
+  if (type !== null && !PATTERN_TYPES.includes(type))
     throw new ValidationError(
-      `unknown streaming effect — expected one of ${STREAM_PATTERN_TYPES.join(", ")}, or null to clear`,
+      `unknown pattern — expected one of ${PATTERN_TYPES.join(", ")}, or null for the derived pattern`,
     );
-  if (effect === null) {
-    delete asset.streamingEffect;
-    delete asset.streamingParams;
+  if (type === null) {
+    delete asset.patternOverride;
+    delete asset.patternOverrideParams;
   } else {
-    // Switching effects drops the old tuning rather than carrying it: the knobs are per-effect, and
+    // Switching type drops the old tuning rather than carrying it: the knobs are per-pattern, and
     // silently reinterpreting `aurora.scale` as something on `wave` would be worse than losing it.
-    const switching = asset.streamingEffect !== effect;
+    const switching = asset.patternOverride !== type;
     let clean: Record<string, number>;
     try {
-      clean = validateStreamParams(effect, params);
+      clean = validatePatternParams(type, params);
     } catch (err) {
       throw new ValidationError((err as Error).message);
     }
-    asset.streamingEffect = effect;
-    // `params` omitted entirely on a re-save of the same effect means "leave the tuning alone";
-    // omitted while switching means "start from this effect's defaults".
+    asset.patternOverride = type;
+    // `params` omitted entirely on a re-save of the same type means "leave the tuning alone";
+    // omitted while switching means "start from this pattern's defaults".
     if (params !== undefined || switching) {
-      if (Object.keys(clean).length > 0) asset.streamingParams = clean;
-      else delete asset.streamingParams;
+      if (Object.keys(clean).length > 0) asset.patternOverrideParams = clean;
+      else delete asset.patternOverrideParams;
     }
   }
   deps.store.save(asset);

@@ -14,7 +14,7 @@ import { PaletteEditor } from "../components/PaletteEditor";
 import { ArtworkSection } from "../components/ArtworkSection";
 import { PeerNav } from "../components/PeerNav";
 import { FeelingPalette } from "../components/FeelingPalette";
-import { StreamingEffectPicker } from "../components/StreamingEffectPicker";
+import { MotionPicker } from "../components/MotionPicker";
 import { MediaTransfer } from "../components/MediaTransfer";
 import { useConfirm } from "../components/Confirm";
 import { PreviewWorkstation } from "../components/PreviewWorkstation";
@@ -259,14 +259,11 @@ export function AlbumDetail() {
                 <code>{JSON.stringify(pattern.params)}</code>
               </div>
             )}
-            {/* Opting into a streaming effect (ADR 0035) sits directly under the derived pattern it
-                overrides, because the pattern above is exactly what it falls back to. */}
+            {/* Choosing the motion (ADR 0039) sits directly under the derived pattern it overrides,
+                because the pattern above is what it displaces — and what a streaming pick falls
+                back to on a room with no entertainment area. */}
             {pattern && (
-              <StreamingEffectPicker
-                curatorId={curatorId}
-                asset={asset}
-                run={run}
-              />
+              <MotionPicker curatorId={curatorId} asset={asset} run={run} />
             )}
             {/* Where the colours come from (ADR 0030) — below the palette itself, because the cover
                 is the default and this is the escape hatch, not the main event. */}

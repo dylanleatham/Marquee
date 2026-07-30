@@ -81,6 +81,60 @@ describe("AssetStore", () => {
     expect(() => s.save(bad)).toThrow(/invalid curatorId/i);
   });
 
+  // ADR 0039 renamed streamingEffect/streamingParams → patternOverride/patternOverrideParams. An
+  // album last saved under the old names must keep playing what its owner chose, so the rename is
+  // applied on read and the old keys are dropped — two answers that could disagree is worse than one.
+  describe("ADR 0039 field migration", () => {
+    const legacy = (id: string, extra: Record<string, unknown>) => {
+      const s = store();
+      const a = makeAsset(id) as Record<string, unknown>;
+      delete a.patternOverride;
+      Object.assign(a, extra);
+      s.save(a as never);
+      return s;
+    };
+
+    it("reads a pre-rename opt-in under the new names", () => {
+      const s = legacy("aaaa1111", {
+        streamingEffect: "aurora",
+        streamingParams: { speed: 0.2 },
+      });
+      const read = s.read("aaaa1111")!;
+      expect(read.patternOverride).toBe("aurora");
+      expect(read.patternOverrideParams).toEqual({ speed: 0.2 });
+      expect(read.streamingEffect).toBeUndefined();
+      expect(read.streamingParams).toBeUndefined();
+    });
+
+    it("migrates through list() too, not only read()", () => {
+      const s = legacy("aaaa1111", { streamingEffect: "wave" });
+      expect(s.list()[0]!.patternOverride).toBe("wave");
+    });
+
+    it("leaves an album that never opted in with no override at all", () => {
+      const s = legacy("aaaa1111", { streamingEffect: null });
+      const read = s.read("aaaa1111")!;
+      expect(read.patternOverride).toBeUndefined();
+      expect(read.streamingEffect).toBeUndefined();
+    });
+
+    it("prefers the new field when an asset somehow carries both", () => {
+      const s = legacy("aaaa1111", {
+        patternOverride: "rotate",
+        streamingEffect: "aurora",
+      });
+      expect(s.read("aaaa1111")!.patternOverride).toBe("rotate");
+    });
+
+    it("persists the new names on the next save", () => {
+      const s = legacy("aaaa1111", { streamingEffect: "shimmer" });
+      s.save(s.read("aaaa1111")!);
+      const raw = s.read("aaaa1111") as Record<string, unknown>;
+      expect(raw.patternOverride).toBe("shimmer");
+      expect("streamingEffect" in raw).toBe(false);
+    });
+  });
+
   it("rejects path-traversal / malformed ids in read, exists, and delete", () => {
     const s = store();
     s.save(makeAsset("aaaa1111"));
