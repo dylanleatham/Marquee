@@ -2,7 +2,7 @@
 // through the processing sub-states to an `awaiting_*` handoff, so palette/pattern/promptDrafts are
 // optional — they don't exist until Roadie generates them.
 // TODO: promote to @marquee/contracts (album-asset.schema.json) once the shape settles.
-import type { StreamPatternType } from "@marquee/contracts";
+import type { PatternType, StreamPatternType } from "@marquee/contracts";
 import type { GeneratedPalettePayload } from "@marquee/palette-press";
 import type { PromptDrafts } from "../roadie/prompts.js";
 
@@ -239,19 +239,26 @@ export interface AlbumAsset {
   /** Present once Palette Press has run (pattern travels with the palette payload). */
   pattern?: PatternSection;
   /**
-   * Opt this album into an Entertainment streaming effect (ADR 0035). Absent/null — the default for
-   * every album — means the derived `pattern` plays.
+   * The human's motion override for this album (ADR 0039) — any of the seven pattern types, CLIP or
+   * streaming. Absent/null, the default for every album, means the derived `pattern` plays.
    *
    * A sibling of `pattern`, not a field inside it, and deliberately so: `pattern` stays derived
-   * ([ADR 0030](../../../../docs/adrs/0030-palette-from-album-feeling.md)) and becomes the fallback
-   * for a room with no entertainment area configured.
+   * ([ADR 0033](../../../../docs/adrs/0033-palette-derived-motion-energy.md)), so a palette
+   * regeneration re-derives it underneath an override that still means what it said, and clearing
+   * the override is a delete rather than a restore. Which one the payload plays depends on the half:
+   * a streaming override rides beside `pattern` (the no-entertainment-area fallback, ADR 0035), a
+   * CLIP override replaces it — see `buildPalettePayload`.
    */
-  streamingEffect?: StreamPatternType | null;
+  patternOverride?: PatternType | null;
   /**
-   * Tuning for `streamingEffect` (ADR 0036). Only the knobs moved off their renderer default are
-   * stored, and they belong to the *current* effect — switching effects clears them, since
-   * `aurora.scale` means nothing to `wave`.
+   * Tuning for `patternOverride` (ADR 0036/0039). Only the knobs moved off their spec default are
+   * stored, and they belong to the *current* type — switching clears them, since `aurora.scale`
+   * means nothing to `wave`.
    */
+  patternOverrideParams?: Record<string, number>;
+  /** @deprecated ADR 0035's name for `patternOverride`; migrated on read in `AssetStore.read`. */
+  streamingEffect?: StreamPatternType | null;
+  /** @deprecated ADR 0036's name for `patternOverrideParams` (ADR 0039). */
   streamingParams?: Record<string, number>;
   /** Present once Roadie has drafted the video + card-art prompts. */
   promptDrafts?: PromptDrafts;

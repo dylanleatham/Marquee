@@ -158,13 +158,13 @@ rendered in full, the page became a document to scroll rather than a bench to wo
 workstations is the right unit because it matches how the work actually arrives: _I have the card
 art, let me go do card things._
 
-| #   | Rail item   | Contains                                                                                                                                                                                                                                                          |
-| --- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **Look**    | Palette (swatches, roles, reorder, reset-to-auto), the derived pattern **read-only**, the streaming-effect opt-in, artwork override _(built 2026-07-25, issue #100; opt-in added 2026-07-27, [ADR 0035](../adrs/0035-streaming-effect-is-a-per-album-opt-in.md))_ |
-| 2   | **Video**   | Five video prompts · clip gallery · splice · attach / detach / replace                                                                                                                                                                                            |
-| 3   | **Card**    | Five card-art prompts · candidate set · attach / detach / replace · download print version                                                                                                                                                                        |
-| 4   | **Preview** | Bench preview and room rehearsal (§6)                                                                                                                                                                                                                             |
-| 5   | **Ship**    | Tag payload + QR · `.nfc` download · mark written (sleeve / card) · verify physical                                                                                                                                                                               |
+| #   | Rail item   | Contains                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| --- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | **Look**    | Palette (swatches, roles, reorder, reset-to-auto), the derived pattern **read-only**, the Motion picker (Auto + all seven pattern types), artwork override _(built 2026-07-25, issue #100; streaming opt-in added 2026-07-27, [ADR 0035](../adrs/0035-streaming-effect-is-a-per-album-opt-in.md); widened to every pattern type 2026-07-29, [ADR 0039](../adrs/0039-one-motion-picker-clip-patterns-are-selectable.md))_ |
+| 2   | **Video**   | Five video prompts · clip gallery · splice · attach / detach / replace                                                                                                                                                                                                                                                                                                                                                   |
+| 3   | **Card**    | Five card-art prompts · candidate set · attach / detach / replace · download print version                                                                                                                                                                                                                                                                                                                               |
+| 4   | **Preview** | Bench preview and room rehearsal (§6)                                                                                                                                                                                                                                                                                                                                                                                    |
+| 5   | **Ship**    | Tag payload + QR · `.nfc` download · mark written (sleeve / card) · verify physical                                                                                                                                                                                                                                                                                                                                      |
 
 Notes on the grouping:
 
@@ -187,23 +187,32 @@ Notes on the grouping:
 - **No section is ever hidden.** Including for albums still in a Roadie processing state: if you have
   the video in hand while metadata is still fetching, Video accepts it.
 
-**Pattern is shown, not edited.** Motion is derived from palette energy
-([ADR 0033](../adrs/0033-palette-derived-motion-energy.md)), and the answer to "the motion doesn't
-suit this record" is to change where the colours come from, not to hand-tune a params blob
-([ADR 0030](../adrs/0030-palette-from-album-feeling.md)). The one thing a human _can_ set is the
-**streaming-effect opt-in**, because that decision depends on hardware the producer can't see — does
-this room have an entertainment area? It is a switch with four states (off, aurora, shimmer, wave),
-and it never replaces the derived pattern, which remains what plays without an area
-([ADR 0035](../adrs/0035-streaming-effect-is-a-per-album-opt-in.md)). Per §10 the control says so
-rather than degrading silently.
+**Pattern is derived, and shown as such — but it can be overridden.** Motion comes from palette
+energy ([ADR 0033](../adrs/0033-palette-derived-motion-energy.md)), and that stays the default for
+every album: the first answer to "the motion doesn't suit this record" is still to change where the
+colours come from ([ADR 0030](../adrs/0030-palette-from-album-feeling.md)). The derived pattern is
+displayed read-only above the picker, because it is never written by a choice made here.
 
-Choosing an effect reveals **its own knobs** as sliders
-([ADR 0036](../adrs/0036-streaming-effect-params-are-tunable.md)) — tunable precisely because they
-are not derived from anything, so there is no computed value to fight with. Each shows its number
-beside the slider, since a slider alone can't be read back or reproduced, and saves on release
-rather than on every drag frame. Ranges come from `STREAM_PARAM_SPECS` in `@marquee/contracts`, the
-same source the server validates against. Judge the result in **Room rehearsal** (§6.2) — bench
-preview never drives the lights.
+Beneath it, the **Motion picker** offers one list of eight
+([ADR 0039](../adrs/0039-one-motion-picker-clip-patterns-are-selectable.md)): **Auto** plus the four
+CLIP patterns (static, rotate, pulse, crossfade) and the three streaming effects (aurora, shimmer,
+wave). Auto is a peer chip, not a separate clear button — the album always has exactly one answer,
+and the default deserves to be visible as a choice. Selection carries a check glyph as well as the
+chip fill (§3.4), never colour alone.
+
+The two halves differ in one way, and the UI says which: the streaming three need an **entertainment
+area** on the bridge, so they sit in their own labelled group and the note names the derived pattern
+they fall back to without one. A CLIP pick plays on any bridge and simply displaces the derived
+pattern in the payload. Per §10 the control states this rather than degrading silently.
+
+Choosing anything but Auto and static reveals **its own knobs** as sliders
+([ADR 0036](../adrs/0036-streaming-effect-params-are-tunable.md),
+[ADR 0039](../adrs/0039-one-motion-picker-clip-patterns-are-selectable.md)) — tunable because they
+belong to the override, not to the derived pattern, so there is still no computed value being edited
+in place. Each shows its number beside the slider, since a slider alone can't be read back or
+reproduced, and saves on release rather than on every drag frame. Ranges come from
+`PATTERN_PARAM_SPECS` in `@marquee/contracts`, the same source the server validates against. Judge
+the result in **Room rehearsal** (§6.2) — bench preview never drives the lights.
 
 ## 6. Preview — bench and room
 

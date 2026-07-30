@@ -28,12 +28,34 @@
     "artwork": { "type": "object" },
     "palette": { "type": "object" },
     "pattern": { "type": "object" },
+    "patternOverride": {
+      "description": "The human's per-album motion override (ADR 0039). Absent or null means the derived `pattern` plays. A streaming value rides beside `pattern`; a CLIP value replaces it in the payload. `pattern` itself is never written by the override.",
+      "oneOf": [
+        {
+          "enum": [
+            "static",
+            "rotate",
+            "pulse",
+            "crossfade",
+            "aurora",
+            "shimmer",
+            "wave"
+          ]
+        },
+        { "type": "null" }
+      ]
+    },
+    "patternOverrideParams": {
+      "description": "Tuning for `patternOverride` (ADR 0036/0039). Only knobs moved off their spec default are stored; cleared when the override's type changes.",
+      "type": "object",
+      "additionalProperties": { "type": "number" }
+    },
     "streamingEffect": {
-      "description": "Per-album opt-in to an Entertainment streaming effect (ADR 0035). Absent or null means the derived `pattern` plays.",
+      "description": "Deprecated — ADR 0035's name for `patternOverride`, read (never written) for assets saved before ADR 0039 renamed it.",
       "oneOf": [{ "enum": ["aurora", "shimmer", "wave"] }, { "type": "null" }]
     },
     "streamingParams": {
-      "description": "Tuning for `streamingEffect` (ADR 0036). Only knobs moved off their default are stored; cleared when the effect changes.",
+      "description": "Deprecated — ADR 0036's name for `patternOverrideParams` (ADR 0039).",
       "type": "object",
       "additionalProperties": { "type": "number" }
     },

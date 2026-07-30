@@ -60,7 +60,7 @@ import { tagQrDataUrl } from "./tags/qr.js";
 import {
   curatorUri,
   scanIgnoredReason,
-  type StreamPatternType,
+  type PatternType,
 } from "@marquee/contracts";
 import {
   ffmpegProber,
@@ -796,25 +796,25 @@ export function buildServer(opts: BuildOptions = {}) {
   });
 
   /**
-   * Opt this album into an Entertainment streaming effect, or clear it with `{ effect: null }`
-   * (ADR 0035). The derived pattern is untouched and remains what plays where no entertainment area
-   * is configured, so this is a switch rather than an edit — see actions.setStreamingEffect.
+   * Override this album's motion with one of the seven pattern types, or return it to the derived
+   * pattern with `{ type: null }` (ADR 0039). The derived `pattern` is untouched either way — this
+   * is a choice stored beside it, not an edit of it. See actions.setPatternOverride.
    */
-  app.put("/api/albums/:curatorId/streaming-effect", async (req, reply) => {
+  app.put("/api/albums/:curatorId/pattern-override", async (req, reply) => {
     const { curatorId } = req.params as { curatorId: string };
-    const body = (req.body ?? {}) as { effect?: unknown; params?: unknown };
+    const body = (req.body ?? {}) as { type?: unknown; params?: unknown };
     try {
-      const asset = actions.setStreamingEffect(
+      const asset = actions.setPatternOverride(
         actionDeps,
         curatorId,
-        (body.effect ?? null) as StreamPatternType | null,
+        (body.type ?? null) as PatternType | null,
         // Distinguish "params omitted" (leave tuning alone) from "params: {}" (reset to defaults),
-        // so a caller flipping the effect doesn't have to restate the knobs.
+        // so a caller flipping the type doesn't have to restate the knobs.
         "params" in body ? body.params : undefined,
       );
       return {
-        streamingEffect: asset.streamingEffect ?? null,
-        streamingParams: asset.streamingParams ?? {},
+        patternOverride: asset.patternOverride ?? null,
+        patternOverrideParams: asset.patternOverrideParams ?? {},
         pattern: asset.pattern,
       };
     } catch (err) {
