@@ -407,6 +407,43 @@ describe("VideoSection", () => {
     expect(screen.queryByText(/Drop an H\.264 MP4/)).toBeNull();
   });
 
+  // Since the decode budget landed (ADR 0040) an upload re-encodes the clip, so the request is held
+  // for roughly the clip's own duration instead of being a file copy. The drop zone had no pending
+  // affordance at all, so a perfectly successful minute-long upload was indistinguishable from
+  // nothing happening — reported as "uploading silently fails" (#185).
+  it("shows a pending state on the drop zone while the upload is in flight", async () => {
+    let release!: () => void;
+    const run = vi.fn(
+      () => new Promise<void>((resolve) => (release = resolve)),
+    );
+    const { container } = render(
+      <VideoSection
+        curatorId="abcd1234"
+        asset={albumAt("awaiting_video")}
+        run={run}
+      />,
+    );
+
+    const input = container.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
+    fireEvent.change(input, {
+      target: { files: [new File(["v"], "clip.mp4", { type: "video/mp4" })] },
+    });
+
+    // The idle prompt is replaced by a message that says work is happening, and the input is shut so
+    // a second file can't be dropped onto an in-flight encode.
+    await screen.findByText(/Normalizing/i);
+    expect(screen.queryByText(/Drop an H\.264 MP4/)).toBeNull();
+    expect(
+      (container.querySelector('input[type="file"]') as HTMLInputElement)
+        .disabled,
+    ).toBe(true);
+
+    release();
+    await waitFor(() => expect(screen.queryByText(/Normalizing/i)).toBeNull());
+  });
+
   it("shows the player + detach once a video is attached", () => {
     const asset = albumAt("awaiting_preview", {
       visualizer: {

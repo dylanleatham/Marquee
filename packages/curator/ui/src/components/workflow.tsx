@@ -473,10 +473,14 @@ export function VideoSection({
     state === "awaiting_review" ||
     state === "awaiting_video" ||
     state === "awaiting_preview";
+  // An upload is no longer a file copy: since the decode budget landed ([ADR 0040]), the server
+  // re-encodes anything over budget, so the request is held for roughly the clip's own duration.
+  // Without a pending state a successful minute-long upload looks exactly like a dead button (#185).
+  const [uploading, wrapUpload] = usePending();
   const upload = (f: File) => {
     const form = new FormData();
     form.set("file", f);
-    return run(() => api.uploadVideo(curatorId, form));
+    return wrapUpload(() => run(() => api.uploadVideo(curatorId, form)));
   };
 
   const clips = asset.videoClips ?? [];
@@ -584,16 +588,27 @@ export function VideoSection({
                 ? ` · ${asset.visualizer.resolution}`
                 : ""}
             </span>
+            {/* Replacing re-encodes too, so it needs the same pending affordance as the drop zone
+                — a plain button here read as "nothing happened" for a minute (#185). */}
             <button
               className="btn btn--sm"
               onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+              aria-busy={uploading || undefined}
             >
-              Replace
+              {uploading ? (
+                <>
+                  <Spinner /> Normalizing…
+                </>
+              ) : (
+                "Replace"
+              )}
             </button>
             <AsyncButton
               className="btn btn--sm btn--danger"
               onClick={() => run(() => api.detachVideo(curatorId, true))}
               pendingLabel="Detaching…"
+              disabled={uploading}
             >
               Detach
             </AsyncButton>
@@ -602,31 +617,40 @@ export function VideoSection({
               type="file"
               accept="video/mp4"
               hidden
+              disabled={uploading}
               onChange={pickFile(upload)}
             />
           </div>
         </div>
       ) : (
         <label
-          className={`dropzone ${canUpload ? "" : "dropzone--disabled"}`}
-          onDragOver={(e) => canUpload && e.preventDefault()}
+          className={`dropzone ${canUpload && !uploading ? "" : "dropzone--disabled"}`}
+          aria-busy={uploading || undefined}
+          onDragOver={(e) => canUpload && !uploading && e.preventDefault()}
           onDrop={(e) => {
-            if (!canUpload) return;
+            if (!canUpload || uploading) return;
             e.preventDefault();
             const f = e.dataTransfer.files?.[0];
-            if (f) upload(f);
+            if (f) void upload(f);
           }}
         >
           <input
             type="file"
             accept="video/mp4"
             hidden
-            disabled={!canUpload}
+            disabled={!canUpload || uploading}
             onChange={pickFile(upload)}
           />
-          {canUpload
-            ? "Drop an H.264 MP4 here, or click to choose"
-            : "Available once Roadie has the album ready for review"}
+          {uploading ? (
+            <>
+              <Spinner /> Normalizing the video for the Pi — this takes about as
+              long as the clip itself. Don&apos;t navigate away.
+            </>
+          ) : canUpload ? (
+            "Drop an H.264 MP4 here, or click to choose"
+          ) : (
+            "Available once Roadie has the album ready for review"
+          )}
         </label>
       )}
     </div>
