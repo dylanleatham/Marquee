@@ -5,10 +5,16 @@ import {
   readdirSync,
   rmSync,
   writeFileSync,
+  mkdirSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createLogSink, createLineWriter, rotatedName } from "../src/log-sink";
+import {
+  createLogSink,
+  createLineWriter,
+  rotatedName,
+  openLogSink,
+} from "../src/log-sink";
 
 // Against a real temp dir rather than a mocked fs: rotation is a sequence of renames and deletes,
 // and the thing worth asserting is what ends up on disk — a mock would only assert my own plan.
@@ -23,6 +29,40 @@ afterEach(() => {
 });
 
 const read = (name: string): string => readFileSync(join(dir, name), "utf8");
+
+describe("openLogSink", () => {
+  const stub = { file: "x", write: () => {}, close: () => {} };
+
+  it("uses the first directory that accepts a sink", () => {
+    const tried: string[] = [];
+    const opened = openLogSink(["/a", "/b"], (o) => {
+      tried.push(o.dir);
+      return stub;
+    });
+    expect(opened.dir).toBe("/a");
+    expect(tried).toEqual(["/a"]);
+    expect(opened.failures).toEqual([]);
+  });
+
+  it("falls back past an unusable directory and reports what it skipped", () => {
+    // The real case this exists for: a Start-menu launch whose preferred log dir is unwritable used
+    // to fall back to "console only" — i.e. nothing at all, invisibly.
+    const opened = openLogSink(["/locked", "/tmpdir"], (o) => {
+      if (o.dir === "/locked") throw new Error("EACCES");
+      return stub;
+    });
+    expect(opened.dir).toBe("/tmpdir");
+    expect(opened.failures).toEqual([{ dir: "/locked", error: "EACCES" }]);
+  });
+
+  it("throws naming every directory it tried when none work", () => {
+    expect(() =>
+      openLogSink(["/one", "/two"], (o) => {
+        throw new Error(`nope-${o.dir}`);
+      }),
+    ).toThrow(/\/one \(nope-\/one\).*\/two \(nope-\/two\)/);
+  });
+});
 
 describe("rotatedName", () => {
   it("inserts the index before the extension", () => {
@@ -102,6 +142,39 @@ describe("createLogSink", () => {
     expect(read("marquee.log")).toBe(
       "a stack trace far longer than the limit\n",
     );
+  });
+
+  // A rotation that fails must not kill the sink for the life of the process. `rotate()` closed the
+  // handle *before* touching the filesystem and `write()` swallows every error, so one failed rename
+  // left `fd === null` forever and every later record was dropped in silence — and an empty tail
+  // reads as "nothing happened", which is the worst way for a log to fail.
+  /**
+   * Force `rotate()` to throw, on any platform: with `maxFiles: 2` the slot aging out is deleted with
+   * `rmSync(to, { force: true })`, and `force` only suppresses ENOENT — pointed at a *directory* with
+   * no `recursive`, it throws on both Windows and POSIX. Stands in for the real-world cause, which is
+   * a rotated sibling held open by antivirus or a previous instance.
+   */
+  const blockRotation = (): void => mkdirSync(join(dir, "marquee.1.log"));
+
+  it("keeps logging when a rotation fails", () => {
+    blockRotation();
+    const sink = createLogSink({ dir, maxBytes: 40, maxFiles: 2 });
+    sink.write("first-line-padded-out-to-force-a-rotation\n"); // puts it over the cap
+    sink.write("after-the-failed-rotation\n");
+    sink.close();
+    expect(read("marquee.log")).toContain("after-the-failed-rotation");
+  });
+
+  it("keeps accumulating across many failed rotations rather than giving up", () => {
+    blockRotation();
+    const sink = createLogSink({ dir, maxBytes: 40, maxFiles: 2 });
+    for (let i = 0; i < 20; i++)
+      sink.write(`line-${i}-padded-to-exceed-the-cap\n`);
+    sink.close();
+    // The file grows past the cap — the right trade when the alternative is losing the log entirely.
+    const body = read("marquee.log");
+    expect(body).toContain("line-0-");
+    expect(body).toContain("line-19-");
   });
 
   it("drops writes after close, and closing twice is harmless", () => {

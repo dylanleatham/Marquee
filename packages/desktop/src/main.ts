@@ -5,6 +5,7 @@ import { app, BrowserWindow, Menu, dialog, shell } from "electron";
 import { fork, type ChildProcess } from "node:child_process";
 import { join, resolve } from "node:path";
 import { existsSync } from "node:fs";
+import { tmpdir } from "node:os";
 import {
   serviceSpecs,
   devEntries,
@@ -16,7 +17,7 @@ import {
   type FfmpegPaths,
 } from "./services";
 import { registerRendererDiagnostics } from "./crash-log";
-import { createLogSink, type LogSink } from "./log-sink";
+import { openLogSink, type LogSink } from "./log-sink";
 import { createShellLogger, type ShellLogger } from "./logging";
 
 // Before anything reads a path off `app`. A packaged build gets "Marquee" from electron-builder's
@@ -30,8 +31,9 @@ const children: ChildProcess[] = [];
 let mainWindow: BrowserWindow | null = null;
 let shuttingDown = false;
 
-// Logging is initialised before anything else can fail, so a boot failure is itself logged. Until
-// then (and if the sink can't be opened at all) records go to the console only — the old behaviour.
+// Logging is initialised before anything else can fail, so a boot failure is itself logged. Until it
+// runs, records go to the console only; if no directory will take a sink at all, `initLogging` says so
+// in a dialog rather than to a console a Start-menu launch doesn't have.
 let logSink: LogSink | null = null;
 let logDir = "";
 let log: ShellLogger = createShellLogger({ sink: { write: () => {} } });
@@ -39,18 +41,31 @@ let log: ShellLogger = createShellLogger({ sink: { write: () => {} } });
 const streams: { flush(): void }[] = [];
 
 function initLogging(): void {
+  // Two candidates, because the preferred one can be unavailable for reasons the app can't fix (an
+  // offline roaming profile, locked-down permissions, a stale handle) and the temp dir almost never
+  // is. Previously a failure here meant console-only — which from a Start-menu launch is no
+  // destination at all, so the app ran happily and logged nothing.
+  const candidates = [app.getPath("logs"), join(tmpdir(), "marquee-logs")];
   try {
-    logDir = app.getPath("logs");
-    logSink = createLogSink({ dir: logDir });
+    const opened = openLogSink(candidates);
+    logDir = opened.dir;
+    logSink = opened.sink;
     log = createShellLogger({ sink: logSink });
     log.info("shell", `logging to ${logSink.file}`);
+    // Say so loudly: "Open log folder" now points somewhere unexpected, and the reason belongs in the
+    // log the reader is holding.
+    for (const f of opened.failures)
+      log.warn("shell", `could not log to ${f.dir} (${f.error}) — fell back`);
   } catch (err) {
-    // No sink → console-only, via the default logger, so the one record that explains why the log
-    // file is missing reads like every other record. Worth saying out loud: the symptom is an empty
-    // log folder, which otherwise looks identical to "nothing went wrong".
-    log.error(
-      "shell",
-      `could not open the log file: ${(err as Error).message}`,
+    // Nowhere to write at all. This is the one logging failure that has to be *shown*: the symptom
+    // is an empty log folder, which is indistinguishable from a quiet evening, and the record saying
+    // why would go to a console that a Start-menu launch doesn't have.
+    const message = (err as Error).message;
+    log.error("shell", `could not open a log file anywhere: ${message}`);
+    dialog.showErrorBox(
+      "Marquee can't write a log file",
+      `${message}\n\nThe app will keep running, but nothing will be recorded — ` +
+        `so if something goes wrong there will be no trace of it.`,
     );
   }
 }
