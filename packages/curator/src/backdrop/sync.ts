@@ -31,6 +31,12 @@ const noopLogger: Logger = { info: () => {}, warn: () => {} };
 /** Moves the visualizer mp4 onto Backdrop's media dir. Injectable so tests don't touch a real FS. */
 export interface MediaTransfer {
   /**
+   * Which transfer this is, for reporting. `resyncAll`'s response says what it actually did, and
+   * "nothing, because transfer is off" has to be distinguishable from "uploaded everything" —
+   * `{"pushed":12}` was identical in both cases (issue #187).
+   */
+  readonly mode: "local" | "push";
+  /**
    * Copy Curator's local `srcPath` to Backdrop's media dir as `{fileId}.mp4`. Throws on failure.
    *
    * `ctx` is optional throughout: a local copy has nothing useful to report and nothing to cancel,
@@ -49,6 +55,7 @@ export interface MediaTransfer {
 /** A same-filesystem copy into `backdropMediaDir` — the single-workstation transfer (see header). */
 export function localCopyTransfer(backdropMediaDir: string): MediaTransfer {
   return {
+    mode: "local",
     async copyVisualizer(srcPath, fileId) {
       mkdirSync(backdropMediaDir, { recursive: true });
       copyFileSync(srcPath, join(backdropMediaDir, `${fileId}.mp4`));
@@ -66,6 +73,7 @@ export function localCopyTransfer(backdropMediaDir: string): MediaTransfer {
  */
 export function httpPushTransfer(client: BackdropClient): MediaTransfer {
   return {
+    mode: "push",
     async copyVisualizer(srcPath, fileId, ctx) {
       await client.putMedia(fileId, srcPath, ctx ?? {});
     },
@@ -284,10 +292,19 @@ export class BackdropSync {
    */
   async resyncAll(assets: AlbumAsset[]): Promise<{
     pushed: number;
+    /** The active transfer mode, so "did this move my videos?" is answerable from the response. */
+    mediaTransfer: "none" | "local" | "push";
+    /** What happened to the *files*, as opposed to `pushed`, which counts library entries. */
+    media: { transferred: number; unchanged: number; skipped: number };
     failures: Array<{ curatorId: string; error: string }>;
   }> {
     const entries: LibraryEntryWithUri[] = [];
     const failures: Array<{ curatorId: string; error: string }> = [];
+    // Counted separately from `pushed` on purpose. `pushed` is library entries; these are bytes. A
+    // response that conflated them reported a complete success having moved nothing (issue #187).
+    let transferred = 0;
+    let unchanged = 0;
+    let skipped = 0;
     // Read the remote library once rather than per album: this is the path that walks the whole
     // library, and it is exactly where re-uploading everything would hurt most.
     const remote = this.mediaTransfer
@@ -303,15 +320,20 @@ export class BackdropSync {
           : undefined;
         const entry = contentHash ? { ...baseEntry, contentHash } : baseEntry;
 
-        const unchanged =
+        const isUnchanged =
           contentHash !== undefined &&
           remote?.entries[entry.uri]?.contentHash === contentHash;
-        if (unchanged) {
+        if (!this.mediaTransfer) {
+          // Transfer is off (the default, ADR 0038): the entry goes, the file is someone else's job.
+          skipped += 1;
+        } else if (isUnchanged) {
+          unchanged += 1;
           this.log.info(
             `Backdrop: ${entry.uri} already up to date, skipping upload`,
           );
         } else {
           await this.transferMedia(asset, entry.filePath);
+          transferred += 1;
         }
         entries.push(entry);
       } catch (err) {
@@ -322,7 +344,17 @@ export class BackdropSync {
       }
     }
     await this.client.syncAll(entries);
-    return { pushed: entries.length, failures };
+    return {
+      pushed: entries.length,
+      mediaTransfer: this.mediaTransferMode,
+      media: { transferred, unchanged, skipped },
+      failures,
+    };
+  }
+
+  /** The active transfer mode — `none` when no strategy was supplied. Surfaced by `/api/backdrop/status`. */
+  get mediaTransferMode(): "none" | "local" | "push" {
+    return this.mediaTransfer?.mode ?? "none";
   }
 
   /**
@@ -421,6 +453,7 @@ export class BackdropSync {
 /** A no-op sync used when no Backdrop is configured, so routes call it unconditionally. */
 export const disabledBackdropSync = {
   enabled: false as const,
+  mediaTransferMode: "none" as const,
   async syncAlbum(): Promise<SyncResult> {
     return { ok: true, skipped: true };
   },
@@ -435,6 +468,8 @@ export const disabledBackdropSync = {
   },
   async resyncAll() {
     return {
+      mediaTransfer: "none" as const,
+      media: { transferred: 0, unchanged: 0, skipped: 0 },
       pushed: 0,
       failures: [] as Array<{ curatorId: string; error: string }>,
     };
@@ -457,4 +492,5 @@ export type BackdropSyncLike = Pick<
   | "resyncAll"
   | "verify"
   | "verifyAlbum"
+  | "mediaTransferMode"
 > & { enabled: boolean };

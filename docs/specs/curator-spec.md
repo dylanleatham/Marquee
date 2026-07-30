@@ -618,11 +618,11 @@ live in Curator's config (`[conductor] url`, `shared_secret`, or env `CONDUCTOR_
 > `C:/home/pi/…` and fails its "must sit under `media_dir`" check (backdrop-spec §5), so no album
 > plays. Give it Backdrop's real POSIX path; Curator will not rewrite it.
 
-| Method | Path                        | Purpose                                                                                                |
-| ------ | --------------------------- | ------------------------------------------------------------------------------------------------------ |
-| GET    | `/api/backdrop/status`      | `{ enabled }` — whether a Backdrop is configured.                                                      |
-| POST   | `/api/backdrop/sync`        | Full library reconcile: push every videoed album (transferring files first). `409` if not configured.  |
-| POST   | `/api/backdrop/verify-sync` | Compare Curator's expected projection against Backdrop's live library; return `{ ok, discrepancies }`. |
+| Method | Path                        | Purpose                                                                                                                                                                                                                                                                                                                       |
+| ------ | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/backdrop/status`      | `{ enabled, mediaTransfer }` — whether a Backdrop is configured, and whether a sync moves **files** (`none` \| `local` \| `push`) or only metadata.                                                                                                                                                                           |
+| POST   | `/api/backdrop/sync`        | Full library reconcile: push every videoed album (transferring files first). Replies `{ pushed, mediaTransfer, media: { transferred, unchanged, skipped }, failures }` — `pushed` counts **library entries**, `media` counts **files** ([#187](https://github.com/dylanleatham/Marquee/issues/187)). `409` if not configured. |
+| POST   | `/api/backdrop/verify-sync` | Compare Curator's expected projection against Backdrop's live library; return `{ ok, discrepancies }`.                                                                                                                                                                                                                        |
 
 Backdrop URL and shared secret live in Curator's config:
 

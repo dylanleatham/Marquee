@@ -1795,7 +1795,12 @@ export function buildServer(opts: BuildOptions = {}) {
   // --- Backdrop sync (step 9, roadie-spec §6) — push Curator's library projection to Backdrop ---
   // Video attach/detach already sync automatically; these are the manual full-reconcile + verify
   // controls (curator-spec §9 "run sync from Curator" recovery, and the ★verify check).
-  app.get("/api/backdrop/status", async () => ({ enabled: backdrop.enabled }));
+  // `mediaTransfer` is here because "will a sync move my videos?" was otherwise only answerable by
+  // reading `.env` — and with the default (`none`) a sync reports success having moved nothing (#187).
+  app.get("/api/backdrop/status", async () => ({
+    enabled: backdrop.enabled,
+    mediaTransfer: backdrop.mediaTransferMode,
+  }));
 
   // Full library reconcile (curator-spec §8 "run sync from Curator" recovery). Push every videoed
   // album as the complete library, transferring each file first.
