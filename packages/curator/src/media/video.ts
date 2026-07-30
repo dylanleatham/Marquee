@@ -159,7 +159,11 @@ export function buildNormalizeArgs(
     violations.length > 0 && violations.every((v) => v === "audio");
 
   const head = ["-y", "-i", src, "-map", "0:v:0", "-an"];
-  const tail = ["-movflags", "+faststart", outPath];
+  // `-f mp4` is not optional here: the caller encodes to `{dest}.tmp-{uuid}` and renames on success,
+  // so there is no `.mp4` extension for ffmpeg to infer the muxer from and it fails outright with
+  // "Error initializing the muxer … Invalid argument". Pinning the container makes the argv
+  // independent of whatever the caller names the file.
+  const tail = ["-movflags", "+faststart", "-f", "mp4", outPath];
 
   if (videoIsFine) return [...head, "-c:v", "copy", ...tail];
 
@@ -332,9 +336,17 @@ export function run(
             `${bin} timed out after ${timeoutMs}ms and was killed`,
           ),
         );
-      code === 0
-        ? resolve(out)
-        : reject(new VideoError(`${bin} exited ${code}: ${err.slice(0, 300)}`));
+      if (code === 0) return resolve(out);
+      // The TAIL of stderr, not the head: ffmpeg opens with ~15 lines of version/configuration banner
+      // and puts the actual cause last, so slicing from the front reported the banner every time and
+      // nothing else. That turned a plain muxer error into an unexplained numeric exit code (#180).
+      // Windows reports a negative errno as its unsigned wrap, so fold it back — `-22` beats
+      // `4294967274` for anyone searching.
+      const signed =
+        code !== null && code > 2 ** 31 ? code - 2 ** 32 : (code ?? "null");
+      reject(
+        new VideoError(`${bin} exited ${signed}: ${err.trim().slice(-500)}`),
+      );
     });
   });
 }

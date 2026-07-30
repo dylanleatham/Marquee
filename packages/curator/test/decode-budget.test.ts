@@ -124,6 +124,16 @@ describe("buildNormalizeArgs", () => {
     expect(args.at(-1)).toBe("out.mp4");
   });
 
+  it("pins the output container, because the caller writes to a temp path with no .mp4 extension", () => {
+    // `ingestVideo` encodes to `{dest}.tmp-{uuid}` and renames on success, so ffmpeg cannot infer the
+    // muxer from the extension and fails with "Error initializing the muxer … Invalid argument".
+    // Shipped without this, every real normalize failed while every faked-prober test passed.
+    for (const info of [asShipped, { ...conformant, hasAudio: true }]) {
+      const args = buildNormalizeArgs("in.mp4", "out.mp4.tmp-abc123", info);
+      expect(args[args.indexOf("-f") + 1]).toBe("mp4");
+    }
+  });
+
   it("downscales an oversize input and pins the frame rate of an over-rate one", () => {
     const big = buildNormalizeArgs("in.mp4", "out.mp4", {
       ...asShipped,
