@@ -33,8 +33,15 @@ export {
   ingestVideo,
   ffmpegProber,
   VideoError,
+  DECODE_BUDGET,
+  budgetViolations,
+  needsNormalize,
+  buildNormalizeArgs,
+  fitWithinBudget,
+  parseFrameRate,
   type VideoProber,
   type VideoInfo,
+  type BudgetViolation,
 } from "./media/video.js";
 export {
   detectImage,

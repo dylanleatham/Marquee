@@ -29,6 +29,9 @@ const h264: VideoInfo = {
   height: 1080,
   codec: "h264",
   container: "mov,mp4,m4a",
+  bitRateBps: 7_300_000,
+  fps: 30,
+  hasAudio: false,
 };
 
 describe("validateVideo", () => {

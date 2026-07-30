@@ -7,12 +7,17 @@ import type { VideoInfo, VideoProber } from "../src/media/video.js";
 
 /** A video prober that never shells out to ffmpeg: returns canned probe info + writes a stub thumb. */
 export const fakeProber = (info?: Partial<VideoInfo>): VideoProber => ({
+  // Defaults sit inside DECODE_BUDGET (issue #180) so tests that aren't about normalizing take the
+  // plain copy path — pass `bitRateBps`/`hasAudio` explicitly to exercise the normalize branch.
   probe: async () => ({
     durationSec: 180,
     width: 1920,
     height: 1080,
     codec: "h264",
     container: "mov,mp4,m4a,3gp",
+    bitRateBps: 7_300_000,
+    fps: 30,
+    hasAudio: false,
     ...info,
   }),
   thumbnail: async (_file, outPath) => {
@@ -21,6 +26,9 @@ export const fakeProber = (info?: Partial<VideoInfo>): VideoProber => ({
   // Records which clips were joined (in order) so splice tests can assert the selection/ordering.
   concat: async (files, outPath) => {
     writeFileSync(outPath, Buffer.from(`SPLICED:${files.join(",")}`));
+  },
+  normalize: async (_src, outPath) => {
+    writeFileSync(outPath, Buffer.from("NORMALIZED"));
   },
 });
 
