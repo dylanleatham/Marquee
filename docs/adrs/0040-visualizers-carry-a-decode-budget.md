@@ -97,6 +97,16 @@ budget on something nobody can see":
 
 The kiosk launcher also passes GPU rasterization and zero-copy flags it previously omitted entirely.
 
+> **Reverted 2026-07-29, same day.** Those GPU flags — `--ignore-gpu-blocklist`,
+> `--enable-gpu-rasterization`, `--enable-zero-copy` — **booted the kiosk to a solid black screen** on
+> the real Pi. The reasoning ("compositing the CPU doesn't do is headroom the decoder gets back") was
+> plausible and never measured, and the Pi's vc4/V3D driver is on Chromium's blocklist for reasons;
+> overriding it takes the GPU process down and nothing paints. They are removed from `DEPLOY.md`, which
+> now warns against re-adding them and says to introduce any such flag one at a time with a reboot in
+> between. Nothing else in this ADR depended on them — the measured win is entirely the decode budget.
+> The lesson worth keeping: this ADR's other changes were all verified against real files or real
+> tests, and this one was the only thing in it that shipped on reasoning alone.
+
 **The kiosk SPA now has tests.** It never did — it's a vanilla IIFE meant for a browser, and a real
 browser test stayed deferred for want of Playwright. That gap is what let the two playback bugs above
 ship. `app.js` only reaches for `document`, `location` and `WebSocket`, so it can be driven by
