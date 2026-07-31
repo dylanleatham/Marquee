@@ -16,6 +16,7 @@ import {
 import { Cover, AsyncButton } from "./common";
 import { useVisibleCycle } from "../hooks";
 import { useRoomGate } from "../roomArm";
+import { usePrimaryAction } from "../primaryAction";
 import type { Run } from "./workflow";
 
 /** The palette animating under the runtime's own pattern — the light show, at the bench. */
@@ -210,6 +211,14 @@ export function PreviewWorkstation({
     // `legs` deliberately omitted — this reacts to disarming, not to each rehearsal result.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [armed, mode, curatorId]);
+
+  // Preview's primary action (⌘⏎, curator-ui-ux §9.1): approving is the whole point of looking.
+  // The two rejections stay mouse-only on purpose — sending an album back is a decision worth the
+  // extra half-second, and they read as opposites, so a wrong keystroke would be a wrong verdict.
+  usePrimaryAction({
+    label: "Looks good — approve the preview",
+    run: () => run(() => api.approvePreview(curatorId)),
+  });
 
   return (
     <div className="preview">

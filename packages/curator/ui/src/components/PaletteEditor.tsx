@@ -9,6 +9,7 @@ import {
 import type { Run } from "./workflow";
 import { AsyncButton } from "./common";
 import { useConfirm } from "./Confirm";
+import { usePrimaryAction } from "../primaryAction";
 
 const ROLES: PaletteRole[] = ["primary", "secondary", "accent"];
 const MAX_COLORS = 8;
@@ -78,8 +79,6 @@ export function PaletteEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverSig]);
 
-  if (!palette) return null;
-
   const setHex = (i: number, hex: string) =>
     setDraft((d) =>
       d.map((c, j) => (j === i ? { ...c, hex: normHex(hex) } : c)),
@@ -123,7 +122,7 @@ export function PaletteEditor({
 
   const reExtract = () =>
     run(async () => {
-      const force = palette.handEdited === true;
+      const force = palette?.handEdited === true;
       if (
         force &&
         !(await confirm({
@@ -136,6 +135,24 @@ export function PaletteEditor({
         return;
       await api.regeneratePalette(curatorId, force);
     });
+
+  // Look's primary action (⌘⏎, curator-ui-ux §9.1). Saving is the one thing this bench exists to
+  // commit — re-extract and reset both throw work away, which is not what a bare accelerator should
+  // reach. Declared unconditionally, above the `!palette` return, because hooks may not sit behind
+  // a branch; the null hands the slot back so the header says "no primary action" instead.
+  usePrimaryAction(
+    palette
+      ? {
+          label: "Save palette",
+          run: save,
+          ...(dirty
+            ? {}
+            : { disabledReason: "no unsaved changes to the palette" }),
+        }
+      : null,
+  );
+
+  if (!palette) return null;
 
   return (
     <div className="palette-editor">

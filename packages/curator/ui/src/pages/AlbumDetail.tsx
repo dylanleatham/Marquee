@@ -9,6 +9,11 @@ import {
   workstationFromSegment,
 } from "../rail";
 import { usePoll } from "../hooks";
+import {
+  PrimaryActionProvider,
+  useFirePrimaryAction,
+  usePrimaryActionHint,
+} from "../primaryAction";
 import { Cover, StateBadge, Spinner } from "../components/common";
 import { PaletteEditor } from "../components/PaletteEditor";
 import { ArtworkSection } from "../components/ArtworkSection";
@@ -31,8 +36,19 @@ import {
  * order — a visualizer already rendered, card art already commissioned — so nothing here is gated by
  * `roadie.state`. Every workstation is always reachable; state only picks which one opens by default
  * and what each rail chip reports.
+ *
+ * The provider is the ⌘⏎ slot (ADR 0044): whichever workstation is open declares its own primary
+ * action into it, and the bench header names what the key will do.
  */
 export function AlbumDetail() {
+  return (
+    <PrimaryActionProvider>
+      <Workbench />
+    </PrimaryActionProvider>
+  );
+}
+
+function Workbench() {
   const { curatorId = "", section } = useParams();
   const navigate = useNavigate();
   const confirm = useConfirm();
@@ -48,10 +64,13 @@ export function AlbumDetail() {
   const { data: peers } = usePoll(() => api.albumPeers(curatorId), 5000);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const primary = usePrimaryActionHint();
+  const firePrimary = useFirePrimaryAction();
 
-  // Keyboard path (curator-ui-ux §9.1): 1–5 jump benches, Esc returns to the queue. Ten albums ×
-  // mousing to every control is what turns a session into a chore. Everything here is also
-  // reachable by mouse — the keyboard is an accelerator, never the only way.
+  // Keyboard path (curator-ui-ux §9.1): 1–5 jump benches, Esc returns to the queue, ⌘⏎ runs the
+  // open workstation's primary action. Ten albums × mousing to every control is what turns a
+  // session into a chore. Everything here is also reachable by mouse — the keyboard is an
+  // accelerator, never the only way.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
@@ -63,6 +82,13 @@ export function AlbumDetail() {
           t.isContentEditable)
       )
         return;
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        // Never a no-op the user can't explain: when nothing is registered, or it's disabled, the
+        // header is already saying so beside the ⌘⏎ badge.
+        e.preventDefault();
+        firePrimary();
+        return;
+      }
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key === "Escape") {
         e.preventDefault();
@@ -77,7 +103,7 @@ export function AlbumDetail() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [navigate, curatorId]);
+  }, [navigate, curatorId, firePrimary]);
 
   // Shared action runner: clear any error, await the action, re-poll, and surface failures.
   const run = useCallback<Run>(
@@ -226,6 +252,24 @@ export function AlbumDetail() {
         <header className="bench__head">
           <h2>{bench.label}</h2>
           <p className="muted">{bench.blurb}</p>
+          {/* What ⌘⏎ does here, always stated. Video and Card genuinely have no single primary
+              control (ADR 0044) — saying "none" is the honest version of an inert key, and it is
+              what keeps the shortcut from being discovered as a dud. */}
+          <p className="bench__primary">
+            <kbd>⌘⏎</kbd>{" "}
+            {primary ? (
+              <>
+                <span className="bench__primary-label">{primary.label}</span>
+                {primary.disabledReason && (
+                  <span className="muted"> — {primary.disabledReason}</span>
+                )}
+              </>
+            ) : (
+              <span className="muted">
+                No primary action on this workstation
+              </span>
+            )}
+          </p>
         </header>
 
         {active === "look" && (

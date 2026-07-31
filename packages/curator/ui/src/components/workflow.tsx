@@ -23,6 +23,7 @@ import {
   useVisibleCycle,
   type GenerationJobHook,
 } from "../hooks";
+import { usePrimaryAction } from "../primaryAction";
 import { AsyncButton, Spinner } from "./common";
 
 /** The generate button's label reflects live job progress ("Generating 3/5…"). */
@@ -1064,6 +1065,31 @@ export function TagWriteSection({
   const tag = asset.tag;
   const verified = state === "verified";
   const canVerify = state === "awaiting_verify";
+  const sleeveWritten = tag?.sleeve?.written ?? false;
+
+  // Ship's primary action (⌘⏎, curator-ui-ux §9.1) follows the sequence the bench actually runs in:
+  // write the sleeve tag, then record the physical check. Two steps, so ⌘⏎ means "the next one" —
+  // which is what a keyboard run of ten albums needs it to mean.
+  usePrimaryAction(
+    verified
+      ? {
+          label: "Mark physically verified",
+          run: () => {},
+          disabledReason: "already verified",
+        }
+      : !sleeveWritten
+        ? {
+            label: "Mark sleeve tag written",
+            run: () => run(() => api.markTagWritten(curatorId, "sleeve")),
+          }
+        : {
+            label: "Mark physically verified",
+            run: () => run(() => api.verifyAlbum(curatorId)),
+            ...(canVerify
+              ? {}
+              : { disabledReason: "write the sleeve tag first" }),
+          },
+  );
 
   // Sleeve and card carry different URIs since ADR 0034: a sleeve is curator:album (you play the
   // vinyl), a card is curator:card (Amp streams it over Sonos). Each row shows its URI and a Flipper

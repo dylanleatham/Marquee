@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Link,
   Route,
@@ -18,6 +18,7 @@ import { RoadieStrip } from "./components/RoadieStrip";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ConfirmProvider } from "./components/Confirm";
 import { BatchProgress } from "./components/BatchProgress";
+import { CommandPalette } from "./components/CommandPalette";
 import { attachRunningBatch } from "./batchJob";
 
 /**
@@ -42,7 +43,7 @@ function NeedsYouCount() {
  * albums in one session; ten albums × mousing to every control is what makes that a chore. Every
  * shortcut here is also reachable by mouse — the keyboard is an accelerator, never the only path.
  */
-function useGlobalKeys() {
+function useGlobalKeys(openPalette: () => void) {
   const navigate = useNavigate();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -60,6 +61,12 @@ function useGlobalKeys() {
       if (mod && e.key === ",") {
         e.preventDefault();
         navigate("/settings");
+      } else if (mod && e.key.toLowerCase() === "k") {
+        // ⌘K reaches every album from anywhere (§9.1). Case-insensitive because ⇧ or caps lock
+        // sends "K", and a shortcut that works only in lower case is one that intermittently
+        // does nothing.
+        e.preventDefault();
+        openPalette();
       } else if (!mod && e.key === "n") {
         e.preventDefault();
         navigate("/add");
@@ -67,11 +74,14 @@ function useGlobalKeys() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [navigate]);
+  }, [navigate, openPalette]);
 }
 
 export function App() {
-  useGlobalKeys();
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const openPalette = useCallback(() => setPaletteOpen(true), []);
+  const closePalette = useCallback(() => setPaletteOpen(false), []);
+  useGlobalKeys(openPalette);
   // Reattach to a library sweep that was already running (issue #104). Without this, reloading the
   // window during a regeneration leaves it running invisibly with no progress and no way to stop it.
   useEffect(() => {
@@ -89,6 +99,15 @@ export function App() {
           </Link>
           <span className="app__tagline">Marquee collection</span>
           <NeedsYouCount />
+          {/* The palette's mouse path. ⌘K is the accelerator; without this the feature would be
+              invisible to anyone who hasn't read the keyboard table (§9.1). */}
+          <button
+            className="app__jump"
+            onClick={openPalette}
+            title="Jump to an album, or run a command (Ctrl/⌘ K)"
+          >
+            Jump… <kbd>⌘K</kbd>
+          </button>
           <Link to="/settings" className="app__nav">
             Settings
           </Link>
@@ -121,6 +140,7 @@ export function App() {
         </div>
         <RoadieStrip />
         <BatchProgress />
+        <CommandPalette open={paletteOpen} onClose={closePalette} />
       </div>
     </ConfirmProvider>
   );
