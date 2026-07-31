@@ -53,5 +53,37 @@ Two facts drove the ordering:
   break the tags.
 - Route B is a clean, documented pickup: the risky, firmware-specific piece (the NFC write) is the only
   real work left, isolated behind a stubbed function with a start-here plan.
-- Not covered: a Curator "download the pending list as CSV for the FAP" route (small Route A follow-up),
-  and marking a tag written in Curator (that's the #55 tag-write flow).
+- Not covered: marking a tag written in Curator (that's the #55 tag-write flow).
+
+## Update — 2026-07-31: Route B landed (#68)
+
+The decision above stands; this records what the deferred half turned out to cost, since the ordering
+rationale was a bet on where the risk lived.
+
+**The bet was right, but about the wrong thing.** The NFC write API — the risk this ADR was written
+around — was the _easy_ part: the sync poller compiled and wrote a page correctly on the first
+hardware attempt, against official fw 1.4.3 (`ufbt --channel=release` resolves to the same version, so
+no custom-firmware divergence arose). What actually cost the time were four things this ADR did not
+anticipate, each found only on hardware:
+
+- Every page op for one tag must share **one poller session**; the per-op sync helpers leave the tag
+  halted and the second call times out.
+- A 4 KB buffer on the 4 KB FAP stack killed the app at launch. **Nothing in this repo can catch
+  that** — `ufbt` builds it happily and no test compiles the file.
+- The Flipper CLI's `storage write_chunk` **appends**, so pushing a list twice doubled it.
+- Reading a file back must sync on the **command echo** and frame by **byte count**; the connect
+  banner ends in a prompt, so prompt-framed reads returned the wrong thing and silently turned an
+  append into a replace.
+
+The pattern: the risk was in the _undocumented behaviour of a device we can't unit-test_, not in the
+API surface. What caught all four was verifying against hardware after every change and refusing to
+trust a write without a read-back — not any amount of reading headers.
+
+**Also landed, beyond the original scope:** the list now reaches the card three ways —
+`GET /api/tags/pending.csv` (the follow-up this ADR listed as uncovered), a Queue button that replaces
+the list, and a Ship-tab button that merges one album in. Curator drives the Flipper's serial CLI
+directly, which is viable precisely because Curator runs on the workstation the Flipper is plugged
+into (runtime-overview §"config vs. runtime") — a `serialport` dependency that is imported lazily, so
+a build where the native binding is unavailable loses the button and not the service.
+
+Spec: [flipper-tag-writer.md](../specs/flipper-tag-writer.md) §6 carries the findings in full.

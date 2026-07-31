@@ -721,6 +721,30 @@ export const api = {
       body: JSON.stringify({ to }),
     }),
   // --- Tag write / verify (step 11) ---
+  /**
+   * Write the awaiting-tag-write list onto a USB-attached Flipper (issue #68). Resolves with what
+   * landed; rejects with the server's message when there is no Flipper or its port is busy.
+   */
+  pushTagListToFlipper: () =>
+    req<{
+      ok: true;
+      albums: number;
+      port: string;
+      bytes: number;
+      path: string;
+    }>("/api/tags/push-to-flipper", { method: "POST" }),
+  /**
+   * Add this album to the Flipper's tag list (issue #68) — merges into whatever is already on the
+   * card rather than replacing it. `total` is the album count on the list afterwards.
+   */
+  pushAlbumToFlipper: (id: string) =>
+    req<{
+      ok: true;
+      total: number;
+      port: string;
+      bytes: number;
+      path: string;
+    }>(`/api/albums/${id}/push-to-flipper`, { method: "POST" }),
   markTagWritten: (id: string, object: "sleeve" | "card") =>
     req<{ state: RoadieState }>(`/api/albums/${id}/tag-written`, {
       method: "POST",

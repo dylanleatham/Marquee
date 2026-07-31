@@ -3,13 +3,22 @@
 /** A native dep left external by esbuild, plus the dependency chain that reaches it from a server. */
 export interface NativeDep {
   name: string;
+  /** Workspace package under `packages/` whose dependencies reach it. Defaults to hue-conductor. */
+  from?: string;
   via: string[];
+  /**
+   * Also stage everything this package requires. Needed when the `.node` lives in a package reached
+   * through ordinary `dependencies` rather than a per-platform optional dep (serialport, issue #68).
+   */
+  transitive?: boolean;
 }
 
-/** A resolved package: its name and absolute on-disk directory, ready to copy. */
+/** A resolved package: its name, absolute on-disk directory, and where it is staged. */
 export interface ResolvedNativeDep {
   name: string;
   dir: string;
+  /** Destination relative to the servers dir, e.g. `node_modules/serialport/node_modules/debug`. */
+  dest: string;
 }
 
 export const RUNTIME_NATIVE_DEPS: NativeDep[];
