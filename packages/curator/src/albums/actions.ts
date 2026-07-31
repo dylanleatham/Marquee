@@ -606,26 +606,35 @@ export async function attachVideoUpload(
   return finishVideoAttach(deps, curatorId, vis);
 }
 
-/** Claim a file already sitting in /incoming/ and attach it (curator-spec §9 bulk-drop flow). */
-export async function attachVideoIncoming(
+/**
+ * Attach the video named by an attach body's `fileId` — either a filename in /incoming/, which is
+ * claimed and moved (curator-spec §9 bulk-drop flow), or the id of a file already in `visualizers/`,
+ * which is re-ingested into this album's own slot without disturbing the source (issue #99,
+ * [ADR 0041](../../../../docs/adrs/0041-attach-by-fileid-re-keys-into-the-albums-own-slot.md)).
+ * Re-attaching the album's own detached video resolves to the second form with source == destination,
+ * which `ingestVideo` handles in place.
+ */
+export async function attachVideoByFileId(
   deps: ActionDeps,
   curatorId: string,
-  incomingName: string,
+  fileId: string,
 ): Promise<AlbumAsset> {
   const asset = load(deps.store, curatorId);
   if (!VIDEO_ATTACHABLE.includes(asset.roadie.state))
     throw new TransitionError(asset.roadie.state, "awaiting_preview");
-  const src = safeIncomingPath(deps.store, incomingName);
-  if (!existsSync(src))
-    throw new NotFoundError(`no incoming file "${incomingName}"`);
+  const src = resolveAttachSource(deps.store, fileId, (id) =>
+    storedVisualizerFile(deps.store, id),
+  );
 
   const vis = await ingestVideo(
     { prober: deps.prober, paths: deps.store.paths, now: deps.now },
     {
-      srcPath: src,
+      srcPath: src.path,
       fileId: curatorId,
-      originalFilename: incomingName,
-      removeSrc: true,
+      originalFilename: src.originalFilename,
+      // Only an /incoming/ file is *claimed*; a stored one is a source we copy from and leave alone,
+      // or — when it is this album's own — the destination itself.
+      removeSrc: src.claimed,
     },
   );
   return finishVideoAttach(deps, curatorId, vis);
@@ -1004,25 +1013,33 @@ export function attachCardArtUpload(
   return asset;
 }
 
-/** Claim an image already sitting in /incoming/ and attach it as card art. */
-export function attachCardArtIncoming(
+/**
+ * Attach the image named by an attach body's `fileId` as card art — the same two forms as
+ * `attachVideoByFileId`: an /incoming/ filename (claimed and moved) or the id of an image already in
+ * `card-art/` (re-ingested into this album's own slot, source left alone). Re-ingesting sniffs the
+ * bytes again, so a stored file keeps being validated rather than trusted for having been here before.
+ */
+export function attachCardArtByFileId(
   deps: ActionDeps,
   curatorId: string,
-  incomingName: string,
+  fileId: string,
 ): AlbumAsset {
   const asset = load(deps.store, curatorId);
-  const src = safeIncomingPath(deps.store, incomingName);
-  if (!existsSync(src))
-    throw new NotFoundError(`no incoming file "${incomingName}"`);
+  const src = resolveAttachSource(deps.store, fileId, (id) =>
+    storedCardArtFile(deps.store, id),
+  );
   asset.cardArt = ingestCardArt(
     { paths: deps.store.paths, now: deps.now },
     {
-      buffer: readFileSync(src),
+      buffer: readFileSync(src.path),
       fileId: curatorId,
-      originalFilename: incomingName,
+      originalFilename: src.originalFilename,
     },
   );
-  rmSync(src, { force: true });
+  // Same rule as the video path: claim (move) an /incoming/ file, leave a stored one where it is —
+  // which also covers re-attaching this album's own card art, where the source *is* the destination
+  // and removing it would delete what we just wrote.
+  if (src.claimed) rmSync(src.path, { force: true });
   asset.status = deriveStatus(asset.roadie);
   deps.store.save(asset);
   return asset;
@@ -1413,11 +1430,74 @@ export function verifyPhysical(
 
 // --- helpers -----------------------------------------------------------------------------------
 
-/** Resolve a name to a path inside /incoming/, rejecting any traversal or nested path. */
-export function safeIncomingPath(store: AssetStore, name: string): string {
-  if (!name || name !== basenameOnly(name))
-    throw new ValidationError(`invalid incoming filename "${name}"`);
-  return store.paths.incomingFile(name);
+/** Where an attach body's `fileId` resolved to, and whether attaching consumes it. */
+interface AttachSource {
+  path: string;
+  /** True for an /incoming/ file — the caller moves it out. A stored file is only ever read. */
+  claimed: boolean;
+  /** What to record as the visualizer/card-art `originalFilename`. */
+  originalFilename: string;
+}
+
+/**
+ * Resolve an attach body's `fileId` to the file it names (curator-spec §Video / §Card art: "either an
+ * ID of a file already in `visualizers/`, or the filename of a file in `/incoming/`"). `stored` maps
+ * an id to its media-store path, or `undefined` when nothing is there.
+ *
+ * **The drop zone is probed first.** The two namespaces are near-disjoint in practice — a store id is a
+ * bare curatorId (or `{curatorId}-v{n}`), an /incoming/ name carries its extension — but a name that
+ * could mean both keeps the older claim-and-move meaning rather than silently changing behaviour for
+ * an existing caller ([ADR 0041](../../../../docs/adrs/0041-attach-by-fileid-re-keys-into-the-albums-own-slot.md)).
+ *
+ * The `fileId` is validated as a bare on-disk name before either lookup: both paths are built by
+ * joining it onto a media directory, so a nested or traversing name has to be rejected, not sanitized.
+ */
+function resolveAttachSource(
+  store: AssetStore,
+  fileId: string,
+  stored: (id: string) => StoredFile | undefined,
+): AttachSource {
+  if (!fileId || fileId !== basenameOnly(fileId))
+    throw new ValidationError(`invalid fileId "${fileId}"`);
+
+  const incoming = store.paths.incomingFile(fileId);
+  if (existsSync(incoming))
+    return { path: incoming, claimed: true, originalFilename: fileId };
+
+  const kept = stored(fileId);
+  if (kept) return { ...kept, claimed: false };
+
+  throw new NotFoundError(
+    `no file "${fileId}" in /incoming/ or the media store`,
+  );
+}
+
+/** A media-store file found by id. `originalFilename` is the id plus the extension it is stored under. */
+type StoredFile = { path: string; originalFilename: string };
+
+/** The stored visualizer for a fileId. Undefined if there is none — visualizers are always `.mp4`. */
+function storedVisualizerFile(
+  store: AssetStore,
+  fileId: string,
+): StoredFile | undefined {
+  const path = store.paths.visualizerFile(fileId);
+  return existsSync(path)
+    ? { path, originalFilename: `${fileId}.mp4` }
+    : undefined;
+}
+
+/** The stored card art for a fileId, whichever extension it landed with. Undefined if there is none. */
+function storedCardArtFile(
+  store: AssetStore,
+  fileId: string,
+): StoredFile | undefined {
+  // The two extensions `ingestCardArt` can ever write (it sniffs magic bytes and canonicalises to
+  // one of them), so this enumerates the whole namespace rather than guessing at it.
+  for (const ext of ["png", "jpg"] as const) {
+    const path = store.paths.cardArtFile(fileId, ext);
+    if (existsSync(path)) return { path, originalFilename: `${fileId}.${ext}` };
+  }
+  return undefined;
 }
 
 // Reduce a filename to a safe on-disk name: strip any directory, then collapse everything outside

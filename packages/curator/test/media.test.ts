@@ -80,6 +80,51 @@ describe("ingestVideo", () => {
     expect(existsSync(src)).toBe(false); // removeSrc
   });
 
+  // Re-attaching a video that is already in visualizers/ (issue #99) ingests the destination onto
+  // itself. `copyFileSync` onto its own path is a no-op on POSIX and an error on Windows, and
+  // `removeSrc` would delete the very file being attached — both have to be skipped, and the
+  // observable proof is that the bytes are still there afterwards.
+  it("ingests a file that is already the destination without destroying it", async () => {
+    const p = paths();
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    mkdirSync(p.visualizers, { recursive: true });
+    const dest = p.visualizerFile("abcd1234");
+    writeFileSync(dest, Buffer.from("ALREADYSTORED"));
+
+    const vis = await ingestVideo(
+      { prober: fakeProber(), paths: p },
+      {
+        srcPath: dest,
+        fileId: "abcd1234",
+        originalFilename: "abcd1234.mp4",
+        removeSrc: true,
+      },
+    );
+
+    expect(vis.resolution).toBe("1920x1080");
+    expect(existsSync(dest)).toBe(true);
+    expect(readFileSync(dest).toString()).toBe("ALREADYSTORED");
+    expect(existsSync(p.thumbnailFile("abcd1234"))).toBe(true);
+  });
+
+  // Same in-place ingest, but over the decode budget: the normalize path writes a temp beside the
+  // destination and renames it over the source it just read from, so the file is replaced rather
+  // than left as-is or lost.
+  it("normalizes an in-place file over the destination", async () => {
+    const p = paths();
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    mkdirSync(p.visualizers, { recursive: true });
+    const dest = p.visualizerFile("abcd1234");
+    writeFileSync(dest, Buffer.from("FAT"));
+
+    await ingestVideo(
+      { prober: fakeProber({ bitRateBps: 20_000_000 }), paths: p },
+      { srcPath: dest, fileId: "abcd1234", originalFilename: "abcd1234.mp4" },
+    );
+
+    expect(readFileSync(dest).toString()).toBe("NORMALIZED");
+  });
+
   it("rejects a bad format before writing anything", async () => {
     const p = paths();
     const { mkdirSync, writeFileSync } = await import("node:fs");
