@@ -4,6 +4,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, copyFileSync, rmSync, renameSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { resolve } from "node:path";
 import type { Paths } from "../store/paths.js";
 import type { VisualizerSection } from "../albums/asset.js";
 
@@ -209,6 +210,12 @@ export function buildNormalizeArgs(
  *
  * The conformant-input fast path is what keeps the splice cheap: `buildConcatArgs` already encodes to
  * the budget, so a spliced loop lands here in-budget and is copied rather than encoded a second time.
+ *
+ * **The source may already _be_ the destination** — re-attaching a video that's still in
+ * `visualizers/` from a previous attach ingests `visualizers/{id}.mp4` onto itself (issue #99). Both
+ * file operations are skipped in that case: `copyFileSync` onto its own path is a no-op at best and an
+ * `EBUSY` on Windows, and honouring `removeSrc` would delete the file the caller is attaching. The
+ * probe/validate/normalize/thumbnail work still runs, so a hand-dropped file is checked as usual.
  */
 export async function ingestVideo(
   deps: { prober: VideoProber; paths: Paths; now?: () => string },
@@ -224,6 +231,7 @@ export async function ingestVideo(
 
   mkdirSync(deps.paths.visualizers, { recursive: true });
   const dest = deps.paths.visualizerFile(args.fileId);
+  const inPlace = resolve(args.srcPath) === resolve(dest);
 
   // Over budget ⇒ normalize (issue #180). Encode to a temp beside the destination and rename only on
   // a clean finish: a half-written mp4 that *looks* whole is worse than none, because Backdrop would
@@ -244,7 +252,7 @@ export async function ingestVideo(
       // Cosmetic only — `stored` stays the source's numbers. Not worth failing an otherwise-good
       // encode over a probe of the file we just wrote.
     }
-  } else {
+  } else if (!inPlace) {
     copyFileSync(args.srcPath, dest);
   }
 
@@ -260,7 +268,7 @@ export async function ingestVideo(
   } catch {
     // A missing thumbnail is cosmetic — the preview still plays. Don't fail the attach over it.
   }
-  if (args.removeSrc) rmSync(args.srcPath, { force: true });
+  if (args.removeSrc && !inPlace) rmSync(args.srcPath, { force: true });
 
   const now = (deps.now ?? (() => new Date().toISOString()))();
   return {

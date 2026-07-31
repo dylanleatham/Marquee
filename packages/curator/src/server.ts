@@ -579,13 +579,11 @@ export function buildServer(opts: BuildOptions = {}) {
       ]);
       return { ok: true, ...result };
     } catch (err) {
-      return reply
-        .code(503)
-        .send({
-          ok: false,
-          error: (err as Error).message,
-          path: FLIPPER_PENDING_PATH,
-        });
+      return reply.code(503).send({
+        ok: false,
+        error: (err as Error).message,
+        path: FLIPPER_PENDING_PATH,
+      });
     }
   });
 
@@ -595,13 +593,11 @@ export function buildServer(opts: BuildOptions = {}) {
       const result = await flipperPush(pendingCsv(rows));
       return { ok: true, albums: rows.length, ...result };
     } catch (err) {
-      return reply
-        .code(503)
-        .send({
-          ok: false,
-          error: (err as Error).message,
-          path: FLIPPER_PENDING_PATH,
-        });
+      return reply.code(503).send({
+        ok: false,
+        error: (err as Error).message,
+        path: FLIPPER_PENDING_PATH,
+      });
     }
   });
 
@@ -1141,12 +1137,15 @@ export function buildServer(opts: BuildOptions = {}) {
   // was specced but never built, and the route had no caller — so it went with the spec section
   // (2026-07-25 spec reconcile). `/incoming/` itself stays: an upload that names no album still
   // lands there, and attach-by-filename still claims from it.
+  //
+  // `fileId` names either an /incoming/ filename or a video already in `visualizers/` — including this
+  // album's own, which is how a detach that kept the file is undone (issue #99 / ADR 0041).
   app.post("/api/albums/:curatorId/attach-video", async (req, reply) => {
     const { curatorId } = req.params as { curatorId: string };
     const { fileId } = (req.body ?? {}) as { fileId?: string };
     if (!fileId) return reply.code(400).send({ error: "fileId is required" });
     try {
-      const asset = await actions.attachVideoIncoming(
+      const asset = await actions.attachVideoByFileId(
         actionDeps,
         curatorId,
         fileId,
@@ -1304,12 +1303,13 @@ export function buildServer(opts: BuildOptions = {}) {
     }
   });
 
+  // Same two forms as attach-video: an /incoming/ filename, or an image already in `card-art/`.
   app.post("/api/albums/:curatorId/attach-card-art", async (req, reply) => {
     const { curatorId } = req.params as { curatorId: string };
     const { fileId } = (req.body ?? {}) as { fileId?: string };
     if (!fileId) return reply.code(400).send({ error: "fileId is required" });
     try {
-      const asset = actions.attachCardArtIncoming(
+      const asset = actions.attachCardArtByFileId(
         actionDeps,
         curatorId,
         fileId,

@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, readdirSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  readdirSync,
+  existsSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AssetStore } from "../src/store/asset-store.js";
@@ -376,6 +383,141 @@ describe("incoming claim flow", () => {
     await post(app, `/api/albums/${curatorId}/prompts/video/copied`);
     const res = await post(app, `/api/albums/${curatorId}/attach-video`, {
       fileId: "ghost.mp4",
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+// The other half of the documented `fileId` contract: "either an ID of a file already in
+// `visualizers/`, or the filename of a file in `/incoming/`" (curator-spec §Video). Only the
+// /incoming/ half was wired until issue #99 / ADR 0041 — so a detach that kept the file could not be
+// undone without re-uploading it.
+describe("attach by fileId — a file already in the media store", () => {
+  it("re-attaches the album's own video after a detach that kept the file", async () => {
+    const { app, store, curatorId } = await serverWithReviewedAlbum();
+    await uploadVideo(app, curatorId, Buffer.from("KEEPME"));
+    const file = store.paths.visualizerFile(curatorId);
+    expect(readFileSync(file).toString()).toBe("KEEPME");
+
+    // No ?delete=1 — the reference goes, the file stays.
+    const detach = await post(app, `/api/albums/${curatorId}/detach-video`);
+    expect(detach.json().state).toBe("awaiting_video");
+    expect(store.read(curatorId)!.visualizer).toBeUndefined();
+    expect(existsSync(file)).toBe(true);
+
+    const attach = await post(app, `/api/albums/${curatorId}/attach-video`, {
+      fileId: curatorId,
+    });
+    expect(attach.statusCode).toBe(200);
+    expect(attach.json().state).toBe("awaiting_preview");
+    expect(store.read(curatorId)!.visualizer).toMatchObject({
+      fileId: curatorId,
+      resolution: "1920x1080",
+    });
+    // Source and destination were the same file — it must survive its own re-ingest.
+    expect(readFileSync(file).toString()).toBe("KEEPME");
+  });
+
+  it("copies another stored video into the album's own slot, leaving the source alone", async () => {
+    const { app, store, curatorId } = await serverWithReviewedAlbum();
+    // Stand in for a generated clip (fileId `{curatorId}-v0`) or another album's visualizer.
+    mkdirSync(store.paths.visualizers, { recursive: true });
+    const source = store.paths.visualizerFile(`${curatorId}-v0`);
+    writeFileSync(source, Buffer.from("CLIPBYTES"));
+
+    const attach = await post(app, `/api/albums/${curatorId}/attach-video`, {
+      fileId: `${curatorId}-v0`,
+    });
+    expect(attach.statusCode).toBe(200);
+    // Re-keyed onto the album, because every serving route resolves media by curatorId (ADR 0041).
+    expect(attach.json().visualizer.fileId).toBe(curatorId);
+    expect(readFileSync(store.paths.visualizerFile(curatorId)).toString()).toBe(
+      "CLIPBYTES",
+    );
+    expect(readFileSync(source).toString()).toBe("CLIPBYTES");
+
+    // …and the re-keying is what makes it playable: the video route serves visualizers/{curatorId}.
+    const vid = await app.inject({
+      method: "GET",
+      url: `/api/albums/${curatorId}/video`,
+    });
+    expect(vid.statusCode).toBe(200);
+  });
+
+  it("re-attaches card art the album still has on disk", async () => {
+    const { app, store, curatorId } = await serverWithReviewedAlbum();
+    const mp = buildMultipart(
+      { curatorId },
+      {
+        field: "file",
+        filename: "card.png",
+        contentType: "image/png",
+        data: pngBytes(1050, 600),
+      },
+    );
+    await app.inject({
+      method: "POST",
+      url: "/api/card-art/upload",
+      headers: { "content-type": mp.contentType },
+      payload: mp.body,
+    });
+    const file = store.paths.cardArtFile(curatorId, "png");
+    expect(existsSync(file)).toBe(true);
+
+    await post(app, `/api/albums/${curatorId}/detach-card-art`); // keeps the file
+    expect(store.read(curatorId)!.cardArt).toBeUndefined();
+    expect(existsSync(file)).toBe(true);
+
+    const attach = await post(app, `/api/albums/${curatorId}/attach-card-art`, {
+      fileId: curatorId,
+    });
+    expect(attach.statusCode).toBe(200);
+    expect(store.read(curatorId)!.cardArt).toMatchObject({
+      fileId: curatorId,
+      ext: "png",
+      resolution: "1050x600",
+    });
+    expect(existsSync(file)).toBe(true);
+  });
+
+  // Precedence: a name that resolves in both namespaces keeps its older claim-and-move meaning, so
+  // wiring the second half can't change what an existing caller's fileId does (ADR 0041).
+  it("prefers an /incoming/ file over a stored one of the same name", async () => {
+    const { app, store, curatorId } = await serverWithReviewedAlbum();
+    mkdirSync(store.paths.visualizers, { recursive: true });
+    mkdirSync(store.paths.incoming, { recursive: true });
+    writeFileSync(store.paths.visualizerFile("dup"), Buffer.from("STORED"));
+    writeFileSync(store.paths.incomingFile("dup"), Buffer.from("INCOMING"));
+
+    const attach = await post(app, `/api/albums/${curatorId}/attach-video`, {
+      fileId: "dup",
+    });
+    expect(attach.statusCode).toBe(200);
+    expect(readFileSync(store.paths.visualizerFile(curatorId)).toString()).toBe(
+      "INCOMING",
+    );
+    expect(existsSync(store.paths.incomingFile("dup"))).toBe(false); // claimed
+    expect(readFileSync(store.paths.visualizerFile("dup")).toString()).toBe(
+      "STORED",
+    );
+  });
+
+  // Both lookups join the fileId onto a media directory, so a traversing name is rejected outright
+  // rather than sanitized into some other album's file.
+  it("400s a fileId that isn't a bare filename", async () => {
+    const { app, curatorId } = await serverWithReviewedAlbum();
+    for (const fileId of ["../../etc/passwd", "sub/dir.mp4", ".."]) {
+      const res = await post(app, `/api/albums/${curatorId}/attach-video`, {
+        fileId,
+      });
+      expect(res.statusCode, fileId).toBe(400);
+    }
+  });
+
+  it("404s a fileId that is in neither /incoming/ nor the media store", async () => {
+    const { app, curatorId } = await serverWithReviewedAlbum();
+    const res = await post(app, `/api/albums/${curatorId}/attach-card-art`, {
+      fileId: "nothing-here",
     });
     expect(res.statusCode).toBe(404);
   });
