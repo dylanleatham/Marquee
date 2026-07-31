@@ -462,6 +462,15 @@ invisible from the service status. For a colour-free read of the kiosk's own vie
   `media_transfer = "push"` that carries the videos too, skipping any whose `contentHash` already
   matches; otherwise rsync them yourself (A4.3). The asset store → Conductor rsync is unaffected.
   `POST /api/backdrop/verify-sync` to confirm.
+
+  > ⚠️ **`pushed` counts library entries, not files.** `media_transfer` defaults to **`none`**, and with
+  > it off a sync returns instantly having moved **zero bytes of video** — which looks exactly like a
+  > successful upload. Read the `mediaTransfer` and `media` fields in the reply, not just `pushed`
+  > ([#187](https://github.com/dylanleatham/Marquee/issues/187)); `GET /api/backdrop/status` reports the
+  > mode too. And note `verify-sync` checks library/asset **consistency, not file existence**, so it
+  > also reports clean when the Pi has no video at all. To confirm bytes actually landed, look on the
+  > Pi: `ls -l ~/Marquee/packages/backdrop/data/media/visualizers/`.
+
 - **See what's playing / recently played:** `GET /api/playback/current` and
   `GET /api/playback/history?limit=50` on Conductor (issue #54).
 - **Check logs:** `journalctl -u marquee-<service> -f` on the Pi.

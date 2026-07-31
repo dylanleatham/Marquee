@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, existsSync, readFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  existsSync,
+  readFileSync,
+  mkdirSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
@@ -20,8 +26,12 @@ const SECRET = "s3cr3t";
 
 /** A stand-in Backdrop: a real HTTP library-sync API backed by an in-memory map, enforcing auth. */
 function stubBackdrop(secret: string | null = SECRET) {
-  const entries: Record<string, { filePath: string; durationSec?: number }> =
-    {};
+  // `contentHash` is part of Backdrop's real library shape (backdrop-spec §9) and is what lets a
+  // resync skip an upload. The stub used to drop it, so the skip path was untestable (issue #187).
+  const entries: Record<
+    string,
+    { filePath: string; durationSec?: number; contentHash?: string }
+  > = {};
   const received: Array<{ method: string; path: string; body: unknown }> = [];
   const app = Fastify();
   app.addHook("onRequest", async (req, reply) => {
@@ -33,16 +43,27 @@ function stubBackdrop(secret: string | null = SECRET) {
       uri: string;
       filePath: string;
       durationSec?: number;
+      contentHash?: string;
     };
     received.push({ method: "POST", path: "/api/library/update", body: b });
-    entries[b.uri] = { filePath: b.filePath, durationSec: b.durationSec };
+    entries[b.uri] = {
+      filePath: b.filePath,
+      durationSec: b.durationSec,
+      ...(b.contentHash ? { contentHash: b.contentHash } : {}),
+    };
     return { updated: b.uri };
   });
   app.post("/api/library/sync", async (req) => {
-    const b = req.body as { entries: Array<{ uri: string; filePath: string }> };
+    const b = req.body as {
+      entries: Array<{ uri: string; filePath: string; contentHash?: string }>;
+    };
     received.push({ method: "POST", path: "/api/library/sync", body: b });
     for (const k of Object.keys(entries)) delete entries[k];
-    for (const e of b.entries) entries[e.uri] = { filePath: e.filePath };
+    for (const e of b.entries)
+      entries[e.uri] = {
+        filePath: e.filePath,
+        ...(e.contentHash ? { contentHash: e.contentHash } : {}),
+      };
     return { synced: b.entries.length };
   });
   app.delete("/api/library/:uri", async (req) => {
@@ -165,6 +186,45 @@ describe("BackdropSync → Backdrop (real HTTP)", () => {
     const result = await sync().resyncAll(store.list());
     expect(result.pushed).toBe(1);
     expect(Object.keys(backdrop.entries)).toEqual(["curator:album:has0vid1"]);
+  });
+
+  // Issue #187: `{"pushed":12,"failures":[]}` came back instantly right after nine visualizers were
+  // re-encoded and needed re-uploading. It read as a complete success and moved zero bytes, because
+  // `pushed` counts library entries and `media_transfer` defaults to `none`. The response has to say
+  // which it did — this is the silence ADR 0038 set out to remove, still present under the default.
+  it("resyncAll says no media was attempted when transfer is off", async () => {
+    store.save(withVideo("has0vid1"));
+    const result = await sync().resyncAll(store.list());
+    expect(result.pushed).toBe(1);
+    expect(result.mediaTransfer).toBe("none");
+    expect(result.media).toEqual({ transferred: 0, unchanged: 0, skipped: 1 });
+  });
+
+  /** `withVideo` sets the visualizer metadata only; a transfer needs actual bytes on disk. */
+  const withVideoFile = (id: string): AlbumAsset => {
+    const a = withVideo(id);
+    store.save(a);
+    mkdirSync(store.paths.visualizers, { recursive: true });
+    writeFileSync(store.paths.visualizerFile(id), Buffer.from(`MP4-${id}`));
+    return a;
+  };
+
+  it("resyncAll counts the files it actually transferred", async () => {
+    withVideoFile("has0vid1");
+    withVideoFile("has0vid2");
+    const result = await sync({ local: true }).resyncAll(store.list());
+    expect(result.mediaTransfer).toBe("local");
+    expect(result.failures).toEqual([]);
+    expect(result.media).toEqual({ transferred: 2, unchanged: 0, skipped: 0 });
+  });
+
+  it("resyncAll reports a file it skipped as already up to date", async () => {
+    withVideoFile("has0vid1");
+    const first = await sync({ local: true }).resyncAll(store.list());
+    expect(first.media.transferred).toBe(1);
+    // Second run: the entry now carries the same contentHash, so the bytes aren't sent again.
+    const again = await sync({ local: true }).resyncAll(store.list());
+    expect(again.media).toEqual({ transferred: 0, unchanged: 1, skipped: 0 });
   });
 
   it("verify reports URIs missing from Backdrop", async () => {
@@ -451,7 +511,8 @@ describe("server routes trigger Backdrop sync", () => {
       method: "GET",
       url: "/api/backdrop/status",
     });
-    expect(status.json()).toEqual({ enabled: false });
+    // `mediaTransfer` is reported so "will a sync move my videos?" doesn't require reading .env (#187).
+    expect(status.json()).toEqual({ enabled: false, mediaTransfer: "none" });
     const resync = await app.inject({
       method: "POST",
       url: "/api/backdrop/sync",
