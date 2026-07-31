@@ -742,6 +742,32 @@ describe("CardArtSection", () => {
     fireEvent.click(screen.getByText("shimmer"));
     expect(run).toHaveBeenCalledTimes(1);
   });
+
+  // Issue #98: the print version is now rendered server-side (ffmpeg), so the route can fail. As a
+  // plain `<a download>` that failure was a page of JSON; it has to go through `run` like everything
+  // else, and the button has to say it's working while ffmpeg does.
+  it("routes the print download through run rather than a bare download link", async () => {
+    const download = vi
+      .spyOn(api, "downloadCardArtPrint")
+      .mockResolvedValue(undefined);
+    const run = vi.fn(async (fn: () => Promise<unknown>) => {
+      await fn();
+    });
+    const asset = withCardPrompt({
+      cardArt: {
+        fileId: "abcd1234",
+        originalFilename: "art.png",
+        ext: "png",
+        attachedAt: "2026-07-31T00:00:00Z",
+      },
+    });
+    render(<CardArtSection curatorId="abcd1234" asset={asset} run={run} />);
+    const button = screen.getByText("Download print");
+    expect(button.closest("a")).toBeNull();
+    fireEvent.click(button);
+    await waitFor(() => expect(download).toHaveBeenCalledWith("abcd1234"));
+    expect(run).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("TagWriteSection (issue #55)", () => {

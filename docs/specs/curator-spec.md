@@ -467,9 +467,21 @@ to know when Curator is ready to show ([ADR 0008](../adrs/0008-desktop-app-super
 > this section. (1) ~~`attach-video` / `attach-card-art` currently claim a file from `/incoming/`
 > only — re-attaching a file that's already in `visualizers/`/`card-art/` isn't wired yet (the
 > drag-drop and `/incoming/` flows cover the real cases).~~ **Closed 2026-07-31 — see the amendment
-> below.** (2) `/card-art/print` serves the stored image verbatim; the 300-DPI print render is
-> deferred until Curator gains an image pipeline (see the curator README). Video ingest validation +
-> thumbnails require `ffmpeg`.
+> below.** (2) ~~`/card-art/print` serves the stored image verbatim; the 300-DPI print render is
+> deferred until Curator gains an image pipeline (see the curator README).~~ **Closed 2026-07-31 —
+> see the amendment below.** Video ingest validation + thumbnails require `ffmpeg`.
+>
+> **Amended 2026-07-31 by [ADR 0042](../adrs/0042-card-art-print-renders-through-ffmpeg.md)
+> ([issue #98](https://github.com/dylanleatham/Marquee/issues/98)):** gap (2) is closed — the print
+> route now renders rather than passing the stored bytes through, and the table row below is true as
+> written. The "image pipeline" it was waiting on is **ffmpeg**, which Curator already depends on and
+> already ships in the packaged desktop app; adding `sharp` would have meant a new native module in
+> the installer for work ffmpeg can do. ffmpeg writes no DPI metadata for either format, so Curator
+> stamps the PNG `pHYs` chunk / JPEG JFIF density itself. Off-size art (the common case — the upload
+> path accepts any size, and generated candidates come back square) is scaled to **cover** and
+> centre-cropped, which is what the card-art metaprompt's "full bleed, focal points inside a 144px
+> safe boundary" already asks Gemini for. Art that is already card-sized skips ffmpeg and only gets
+> the stamp, so the download survives a workstation without it.
 >
 > **Amended 2026-07-31 by [ADR 0041](../adrs/0041-attach-by-fileid-re-keys-into-the-albums-own-slot.md)
 > ([issue #99](https://github.com/dylanleatham/Marquee/issues/99)):** gap (1) is closed — both attach
@@ -518,7 +530,7 @@ to know when Curator is ready to show ([ADR 0008](../adrs/0008-desktop-app-super
 | POST   | `/api/albums/:curatorId/card-art/select`           | Body: `{ index }`. Promotes a generated candidate to the attached card art (ADR 0010).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | GET    | `/api/albums/:curatorId/card-art/candidate/:index` | Serves a generated candidate image (before one is promoted).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | GET    | `/api/albums/:curatorId/card-art`                  | Serves the current card art image.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| GET    | `/api/albums/:curatorId/card-art/print`            | Serves a print-optimized version (300 DPI, standard business-card dimensions) suitable for sending to a printer.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| GET    | `/api/albums/:curatorId/card-art/print`            | Serves a print-optimized version suitable for sending to a printer: **1050x600 at 300 DPI** (exactly 3.5in x 2in), or 600x1050 when the source art is portrait. `?bleed=1` returns 1125x675 instead — the same card with 0.125in of bleed past the trim line on every edge. Art that isn't already that size is scaled to cover and centre-cropped; art that is skips ffmpeg and is only re-stamped with the DPI. `404` with no card art, `422` if ffmpeg rejects the art, `503` if ffmpeg isn't available at all ([ADR 0042](../adrs/0042-card-art-print-renders-through-ffmpeg.md)).                                                                                                                                                                                                             |
 
 ### Preview and verification
 

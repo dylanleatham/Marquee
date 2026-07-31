@@ -1,4 +1,5 @@
 import { writeFileSync } from "node:fs";
+import { crc32, deflateSync } from "node:zlib";
 import type { GeneratedPalettePayload } from "@marquee/palette-press";
 import { buildAlbumAsset, type AlbumAsset } from "../src/albums/asset.js";
 import { Roadie, type RoadieOptions } from "../src/roadie/worker.js";
@@ -32,7 +33,11 @@ export const fakeProber = (info?: Partial<VideoInfo>): VideoProber => ({
   },
 });
 
-/** A minimal but structurally-valid PNG buffer of the given dimensions (header only). */
+/**
+ * A PNG *header* of the given dimensions — enough for `detectImage`/`imageSize`, which only read the
+ * signature and IHDR's first eight data bytes. Not a decodable image and not chunk-walkable: anything
+ * that parses the chunk stream (or hands the file to ffmpeg) wants `pngImage` below.
+ */
 export const pngBytes = (width = 1050, height = 600): Buffer => {
   const b = Buffer.alloc(24);
   b.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0); // signature
@@ -40,6 +45,41 @@ export const pngBytes = (width = 1050, height = 600): Buffer => {
   b.writeUInt32BE(width, 16);
   b.writeUInt32BE(height, 20);
   return b;
+};
+
+/**
+ * A genuinely decodable 8-bit RGB PNG: real IHDR/IDAT/IEND chunks with correct CRCs over a solid
+ * mid-grey field. The print render both walks the chunk stream (to insert `pHYs`) and, in the
+ * ffmpeg integration test, actually decodes the file — neither works on `pngBytes`'s header stub.
+ */
+export const pngImage = (width = 1024, height = 1024): Buffer => {
+  const chunk = (type: string, data: Buffer): Buffer => {
+    const c = Buffer.alloc(12 + data.length);
+    c.writeUInt32BE(data.length, 0);
+    c.write(type, 4, "ascii");
+    data.copy(c, 8);
+    c.writeUInt32BE(
+      crc32(c.subarray(4, 8 + data.length)) >>> 0,
+      8 + data.length,
+    );
+    return c;
+  };
+
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr.writeUInt8(8, 8); // bit depth
+  ihdr.writeUInt8(2, 9); // colour type: truecolour RGB
+  // Each scanline is a filter byte (0 = none) followed by width RGB triples.
+  const raw = Buffer.alloc(height * (1 + width * 3), 0x80);
+  for (let y = 0; y < height; y++) raw.writeUInt8(0, y * (1 + width * 3));
+
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", deflateSync(raw)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
 };
 
 /** A minimal JPEG buffer with an SOF0 marker carrying the given dimensions (padded past the SOF). */

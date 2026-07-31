@@ -11,7 +11,6 @@ import {
   videoClipThumbnailUrl,
   videoClipDownloadUrl,
   cardArtUrl,
-  cardArtPrintUrl,
   cardArtCandidateUrl,
   type AlbumAsset,
   type DraftedPrompt,
@@ -803,13 +802,16 @@ export function CardArtSection({
               {asset.cardArt.originalFilename}
               {asset.cardArt.resolution ? ` · ${asset.cardArt.resolution}` : ""}
             </span>
-            <a
+            {/* 1050x600 at 300 DPI, cropped to the card from whatever the art actually is
+                (issue #98). A fetch rather than an `<a download>` so a render failure lands in the
+                usual error channel instead of navigating to a page of JSON. */}
+            <AsyncButton
               className="btn btn--sm"
-              href={cardArtPrintUrl(curatorId)}
-              download
+              onClick={() => run(() => api.downloadCardArtPrint(curatorId))}
+              pendingLabel="Rendering…"
             >
               Download print
-            </a>
+            </AsyncButton>
             <button
               className="btn btn--sm"
               onClick={() => fileRef.current?.click()}

@@ -55,9 +55,17 @@ export interface ConcatOptions {
 
 /** A rejected upload — bad container/codec or an unreadable file. Surfaced to the UI as 422. */
 export class VideoError extends Error {
-  constructor(message: string) {
+  /**
+   * True when the *binary* couldn't be run at all (not installed, not executable) rather than the
+   * input being bad. The distinction is the difference between "this workstation can't do that yet"
+   * and "this file is broken", which callers answer with different status codes.
+   */
+  readonly binaryUnavailable: boolean;
+
+  constructor(message: string, opts: { binaryUnavailable?: boolean } = {}) {
     super(message);
     this.name = "VideoError";
+    this.binaryUnavailable = opts.binaryUnavailable ?? false;
   }
 }
 
@@ -284,7 +292,13 @@ export async function ingestVideo(
 // --- Real ffprobe/ffmpeg implementation ---------------------------------------------------------
 
 const FFPROBE = process.env.FFPROBE_PATH || "ffprobe";
-const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
+/**
+ * The one place the ffmpeg binary is named. Resolved per call rather than at import, so an
+ * `FFMPEG_PATH` set after this module loads is still honoured — which is also what lets a test point
+ * it at a binary that doesn't exist. Exported because the card-art print render (media/print.ts)
+ * drives ffmpeg too and must not grow a second copy of this contract.
+ */
+export const ffmpegBin = (): string => process.env.FFMPEG_PATH || "ffmpeg";
 const IS_WIN = process.platform === "win32";
 
 // Resolve a bare command to something CreateProcess can find on Windows without a shell: append
@@ -333,6 +347,7 @@ export function run(
       reject(
         new VideoError(
           `Could not run ${bin} (${(e as Error).message}). Is ffmpeg installed and on PATH?`,
+          { binaryUnavailable: true },
         ),
       );
     });
@@ -554,14 +569,14 @@ export const ffmpegProber: VideoProber = {
 
   async normalize(src, outPath, info) {
     await run(
-      FFMPEG,
+      ffmpegBin(),
       buildNormalizeArgs(src, outPath, info),
       NORMALIZE_TIMEOUT_MS,
     );
   },
 
   async thumbnail(file, outPath, atSec, width) {
-    await run(FFMPEG, [
+    await run(ffmpegBin(), [
       "-y",
       "-ss",
       String(atSec),
@@ -588,7 +603,7 @@ export const ffmpegProber: VideoProber = {
           )
         : {};
     await run(
-      FFMPEG,
+      ffmpegBin(),
       buildConcatArgs(files, outPath, build),
       CONCAT_TIMEOUT_MS,
     );

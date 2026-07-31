@@ -77,6 +77,7 @@ import {
   type VideoProber,
 } from "./media/video.js";
 import { ImageError } from "./media/images.js";
+import { PrintError, renderCardArtPrint } from "./media/print.js";
 import * as artwork from "./albums/artwork.js";
 import { resolvedArtworkFile } from "./albums/artwork.js";
 import { buildPalettePayload, DemoNotReadyError } from "./demo/payload.js";
@@ -208,6 +209,17 @@ const actionError = (
     return reply.code(409).send({ error: err.message });
   if (err instanceof VideoError || err instanceof ImageError)
     return reply.code(422).send({ error: err.message });
+  // The card-art print render (ADR 0042). Two failures, two codes: no ffmpeg on this workstation is a
+  // 503 (the art is fine, the pipeline isn't); ffmpeg rejecting the art is a 422, like any other bad
+  // media. `reason` carries ffmpeg's own words so the UI can show what actually went wrong.
+  if (err instanceof PrintError)
+    return reply.code(err.kind === "unavailable" ? 503 : 422).send({
+      error:
+        err.kind === "unavailable"
+          ? "print rendering needs ffmpeg, which isn't available"
+          : "could not render the print version",
+      reason: err.message,
+    });
   // @fastify/multipart aborts an over-ceiling file mid-stream. That's the caller sending too much,
   // not a server fault — answer 413 and name the limit so they know what to aim under (issue #12).
   if ((err as { code?: string }).code === "FST_REQ_FILE_TOO_LARGE")
@@ -861,19 +873,46 @@ export function buildServer(opts: BuildOptions = {}) {
     },
   );
 
-  // Print version: same image as a download. TODO: embed 300-DPI metadata / resize once we add an
-  // image pipeline (curator-spec recommends 1050x600 @ 300 DPI); v1 serves the stored art verbatim.
+  /**
+   * Print version: the stored art rendered to business-card dimensions at 300 DPI — 1050x600 (or
+   * 600x1050 for portrait art), `?bleed=1` for the 1125x675 version with the printer's trim
+   * allowance. Off-size art is scaled to cover and centre-cropped ([ADR 0042](docs/adrs), issue #98).
+   *
+   * Failures go through `actionError` like every other action: a missing ffmpeg is a 503, ffmpeg
+   * rejecting the art is a 422 (see the PrintError branch there). Reporting a missing dependency as
+   * a bad file sends you looking in the wrong place.
+   */
   app.get("/api/albums/:curatorId/card-art/print", async (req, reply) => {
     const { curatorId } = req.params as { curatorId: string };
     const asset = store.read(curatorId);
     if (!asset?.cardArt) return reply.code(404).send({ error: "no card art" });
-    const { ext } = asset.cardArt;
-    return sendFile(
-      reply,
-      store.paths.cardArtFile(curatorId, ext),
-      ext === "png" ? "image/png" : "image/jpeg",
-      `${curatorId}-card.${ext}`,
-    );
+    const file = store.paths.cardArtFile(curatorId, asset.cardArt.ext);
+    // No `existsSync` precheck: the render opens the file anyway, so a check here would only add a
+    // window in which a concurrent `detach-card-art?delete=1` turns a 404 into a 422. ENOENT from the
+    // open *is* the missing-file answer.
+    // `CardArtSection.ext` is a plain string on the asset; narrow the same way the sibling routes
+    // pick a content type — png is png, anything else is treated as JPEG.
+    const ext = asset.cardArt.ext === "png" ? "png" : "jpg";
+    // Matches the `?download=1` convention on the clip routes: present-and-1 is on, anything else off.
+    const bleed = (req.query as { bleed?: string }).bleed === "1";
+    try {
+      const print = await renderCardArtPrint({}, { file, ext, bleed });
+      return reply
+        .header("content-type", print.contentType)
+        .header("cache-control", "no-cache")
+        .header(
+          "content-disposition",
+          `attachment; filename="${curatorId}-card-print${bleed ? "-bleed" : ""}.${print.ext}"`,
+        )
+        .send(print.bytes);
+    } catch (err) {
+      // The art the asset points at isn't on disk (or a concurrent detach deleted it) — the same 404
+      // the other media routes give via sendFile's existsSync. Kept local rather than folded into
+      // actionError: teaching every action route that ENOENT means 404 would hide real faults.
+      if ((err as NodeJS.ErrnoException).code === "ENOENT")
+        return reply.code(404).send({ error: "not available yet" });
+      return actionError(err, reply, req);
+    }
   });
 
   // --- Palette actions (curator-spec §Palettes) ---
