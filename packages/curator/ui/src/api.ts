@@ -706,6 +706,33 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ index }),
     }),
+  /**
+   * Fetch the print render and save it, rather than pointing an `<a download>` at the route. The
+   * route renders through ffmpeg now (issue #98) and so can answer 404/422/503 — which a plain
+   * download link would show the human as a page of JSON. Going through fetch means a failure throws
+   * an ApiError the caller's `run` reports like every other action.
+   */
+  downloadCardArtPrint: async (id: string, bleed = false): Promise<void> => {
+    const res = await fetch(cardArtPrintUrl(id, bleed));
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new ApiError(
+        [body.error ?? `HTTP ${res.status}`, body.reason]
+          .filter(Boolean)
+          .join(" — "),
+        res.status,
+      );
+    }
+    const href = URL.createObjectURL(await res.blob());
+    try {
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = `${id}-card-print${bleed ? "-bleed" : ""}.png`;
+      a.click();
+    } finally {
+      URL.revokeObjectURL(href);
+    }
+  },
   detachCardArt: (id: string, del = false) =>
     req<{ detached: string }>(
       `/api/albums/${id}/detach-card-art${del ? "?delete=1" : ""}`,
@@ -845,7 +872,7 @@ export const videoClipThumbnailUrl = (id: string, index: number) =>
 export const videoClipDownloadUrl = (id: string, index: number) =>
   `/api/albums/${id}/video/clip/${index}?download=1`;
 export const cardArtUrl = (id: string) => `/api/albums/${id}/card-art`;
-export const cardArtPrintUrl = (id: string) =>
-  `/api/albums/${id}/card-art/print`;
+export const cardArtPrintUrl = (id: string, bleed = false) =>
+  `/api/albums/${id}/card-art/print${bleed ? "?bleed=1" : ""}`;
 export const cardArtCandidateUrl = (id: string, index: number) =>
   `/api/albums/${id}/card-art/candidate/${index}`;

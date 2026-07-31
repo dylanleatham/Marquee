@@ -54,8 +54,7 @@ The in-process worker then drives each album forward through its sub-states
 
 Not yet built (later steps): tag-write / physical-verify flows and palette editing, and Roadie's
 **Backdrop sync triggers** (★ in roadie-spec §6) — deferred until Backdrop exists (step 8), since
-there's no downstream to sync to yet. `card-art/print` serves the stored image verbatim for now;
-embedding 300-DPI metadata waits on an image pipeline.
+there's no downstream to sync to yet.
 
 Spotify is optional: set `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` (env or `config.toml
 [spotify]`). Without them, `/api/spotify/*` and JSON add return 503; manual add still works.
@@ -80,7 +79,10 @@ pnpm --filter @marquee/curator dev:ui  # UI: Vite on :4738, proxies /api → :47
 ```
 
 Video attach needs **ffmpeg** (`ffprobe` + `ffmpeg`) on `PATH`, or point at them with
-`FFPROBE_PATH` / `FFMPEG_PATH`. Everything else works without it.
+`FFPROBE_PATH` / `FFMPEG_PATH`. So does the card-art print render, unless the art is already exactly
+card-sized — that case is only a metadata stamp and needs nothing
+([ADR 0042](../../docs/adrs/0042-card-art-print-renders-through-ffmpeg.md)). Everything else works
+without it.
 
 Data lives under `~/marquee/` by default (`album-assets/` + `media/`); override with
 `MARQUEE_DATA_DIR` or `config.toml`. Curator's own API is unauthenticated (LAN-only, like
@@ -110,16 +112,17 @@ returns a `413` naming the limit (spec §9).
 
 ### Onboarding actions (step 7)
 
-| Method | Path                                                                     | Purpose                                                                                                                                                                                                                              |
-| ------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| POST   | `/api/albums/:id/prompts/:type/copied`                                   | Mark a prompt copied. Video → advances `awaiting_review → awaiting_video`.                                                                                                                                                           |
-| POST   | `/api/videos/upload`                                                     | Multipart. With `curatorId` → ingest + attach (`→ awaiting_preview`); else stash in `/incoming/`.                                                                                                                                    |
-| POST   | `/api/albums/:id/attach-video`                                           | Attach by `{ fileId }` — an `/incoming/` filename (claimed and moved) or a video already in `visualizers/`, e.g. one a `detach` left behind ([ADR 0041](../../docs/adrs/0041-attach-by-fileid-re-keys-into-the-albums-own-slot.md)). |
-| POST   | `/api/albums/:id/detach-video`                                           | Remove the visualizer (`?delete=1` deletes the file); steps back to `awaiting_video`.                                                                                                                                                |
-| POST   | `/api/card-art/upload` · `attach-card-art` · `detach-card-art`           | Same shape as video, for the Curator-only card art (state-independent).                                                                                                                                                              |
-| POST   | `/api/albums/:id/preview/approve`                                        | "Looks good" → `awaiting_tag_write`.                                                                                                                                                                                                 |
-| POST   | `/api/albums/:id/preview/reject`                                         | "Something's off" → `{ to: awaiting_review \| awaiting_video }`.                                                                                                                                                                     |
-| GET    | `/api/albums/:id/video` · `/thumbnail` · `/card-art` · `/card-art/print` | Stream the attached media.                                                                                                                                                                                                           |
+| Method | Path                                                           | Purpose                                                                                                                                                                                                                                                               |
+| ------ | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/api/albums/:id/prompts/:type/copied`                         | Mark a prompt copied. Video → advances `awaiting_review → awaiting_video`.                                                                                                                                                                                            |
+| POST   | `/api/videos/upload`                                           | Multipart. With `curatorId` → ingest + attach (`→ awaiting_preview`); else stash in `/incoming/`.                                                                                                                                                                     |
+| POST   | `/api/albums/:id/attach-video`                                 | Attach by `{ fileId }` — an `/incoming/` filename (claimed and moved) or a video already in `visualizers/`, e.g. one a `detach` left behind ([ADR 0041](../../docs/adrs/0041-attach-by-fileid-re-keys-into-the-albums-own-slot.md)).                                  |
+| POST   | `/api/albums/:id/detach-video`                                 | Remove the visualizer (`?delete=1` deletes the file); steps back to `awaiting_video`.                                                                                                                                                                                 |
+| POST   | `/api/card-art/upload` · `attach-card-art` · `detach-card-art` | Same shape as video, for the Curator-only card art (state-independent).                                                                                                                                                                                               |
+| POST   | `/api/albums/:id/preview/approve`                              | "Looks good" → `awaiting_tag_write`.                                                                                                                                                                                                                                  |
+| POST   | `/api/albums/:id/preview/reject`                               | "Something's off" → `{ to: awaiting_review \| awaiting_video }`.                                                                                                                                                                                                      |
+| GET    | `/api/albums/:id/video` · `/thumbnail` · `/card-art`           | Stream the attached media.                                                                                                                                                                                                                                            |
+| GET    | `/api/albums/:id/card-art/print`                               | The card art rendered for print: 1050x600 at 300 DPI (3.5in x 2in), or 600x1050 for portrait art. `?bleed=1` → 1125x675 with the printer's trim allowance. Off-size art is cover-cropped ([ADR 0042](../../docs/adrs/0042-card-art-print-renders-through-ffmpeg.md)). |
 
 ## Smoke test (the step-5 payoff: add, walk away, come back to `awaiting_review`)
 

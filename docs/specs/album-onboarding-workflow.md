@@ -264,7 +264,7 @@ ways to get the image:
 
 Then:
 
-1. Print the card at your leisure (Curator has a print-optimized endpoint at `/api/albums/:curatorId/card-art/print`)
+1. Print the card at your leisure — "Download print" on the Card section renders the art to 1050x600 at 300 DPI (exactly 3.5in x 2in), cropping to the card from whatever size the art actually is. Add `?bleed=1` to `/api/albums/:curatorId/card-art/print` for the 1125x675 version a commercial printer wants ([ADR 0042](../adrs/0042-card-art-print-renders-through-ffmpeg.md)).
 2. Once you have the physical card, write its NFC sticker as part of the tag write step (or later, whenever)
 
 A card can be added long after the album is otherwise `verified`. An album can also be fully verified without a card, forever. The system doesn't care; the card just makes triggering the album more ergonomic.

@@ -52,5 +52,9 @@ art.** Manual upload stays as the override.
 - **Video will follow the same shape** in the next phase (P3): a candidate _set_ of short Omni clips,
   delivered for download rather than promoted to a single artifact (in-app splicing deferred). This
   ADR establishes the candidate-set pattern; the video ADR will reference it.
-- Deferred: the 300-DPI print render (curator-spec §Card art note) still serves the stored image
-  verbatim — generation doesn't change that.
+- ~~Deferred: the 300-DPI print render (curator-spec §Card art note) still serves the stored image
+  verbatim — generation doesn't change that.~~
+  > **Superseded 2026-07-31 by [ADR 0042](0042-card-art-print-renders-through-ffmpeg.md) (issue #98):**
+  > `/card-art/print` renders through ffmpeg now. Generation is in fact what made it urgent — this ADR
+  > assumed the stored art would be the recommended 1050x600, but `generateImage` sends Nano Banana no
+  > aspect-ratio configuration, so a promoted candidate is square and needs cropping, not just a DPI stamp.
