@@ -36,7 +36,18 @@ const common = {
   // Keep native/optional bits external rather than trying to inline them. sharp/@img are optional at
   // runtime; node-aead-crypto (node-dtls-client's AEAD cipher, ADR 0024) is a required NAPI addon we
   // stage beside the bundle below — esbuild leaves it as a runtime require either way (issue #125).
-  external: ["sharp", "@img/*", "node-aead-crypto"],
+  //
+  // serialport (Curator's "push the tag list to a USB Flipper", issue #68) is the same shape: a NAPI
+  // addon loaded through node-gyp-build. Curator imports it *lazily*, so a packaged build that can't
+  // load it still boots and only that one button reports the failure — but keeping it external stops
+  // esbuild trying to inline a `.node` binary it cannot follow.
+  external: [
+    "sharp",
+    "@img/*",
+    "node-aead-crypto",
+    "serialport",
+    "@serialport/*",
+  ],
   // Fastify/avvio call CommonJS `require` internally; an ESM bundle has none, so shim it (and
   // __dirname/__filename) from import.meta.url. Standard esbuild CJS-in-ESM fix.
   banner: {

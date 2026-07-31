@@ -5,7 +5,9 @@ App(
     name="Marquee Tag Writer",
     apptype=FlipperAppType.EXTERNAL,
     entry_point="marquee_tag_writer_app",
-    stack_size=4 * 1024,
+    # 4K left no headroom once the GUI, storage and NFC paths are all live; the CSV buffer is
+    # heap-allocated for the same reason (see load_pending_albums).
+    stack_size=8 * 1024,
     fap_category="NFC",
     fap_author="Marquee",
     fap_description="Write curator:album:<id> NDEF URIs to NTAG213 from a Curator-exported list.",

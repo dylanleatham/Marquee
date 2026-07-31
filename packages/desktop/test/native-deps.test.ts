@@ -67,3 +67,63 @@ describe("runtime native deps (regression: #125)", () => {
     expect(hasNativeBinary(modules)).toBe(true);
   });
 });
+
+/*
+ * Issue #68 — Curator's "add this album to the Flipper" push. The packaged app failed with
+ * `Cannot find package 'serialport'`: esbuild left it external (it carries a NAPI addon), but it was
+ * never staged. It is unlike node-aead-crypto in two ways that the staging had to grow to handle —
+ * its binary lives in a package it reaches through ordinary `dependencies`, and its tree resolves
+ * two versions of some packages, which a flat `node_modules/<name>` cannot represent.
+ */
+describe("serialport staging (regression: #68)", () => {
+  it("resolves serialport together with the package carrying its .node", () => {
+    const resolved = resolveRuntimeNativeDeps(repoRoot);
+    const names = resolved.map((r) => r.name);
+
+    expect(names).toContain("serialport");
+    // The facade is useless alone: the compiled binding lives one level down.
+    const bindings = resolved.find(
+      (r) => r.name === "@serialport/bindings-cpp",
+    );
+    expect(bindings, "@serialport/bindings-cpp must resolve").toBeDefined();
+    expect(hasNativeBinary(bindings!.dir)).toBe(true);
+    // node-gyp-build is what performs the runtime require of that binary.
+    expect(names).toContain("node-gyp-build");
+  });
+
+  /**
+   * Flat staging silently dropped a version: `@serialport/parser-readline` resolves at both 12 and
+   * 13 here, and one overwrote the other. Nesting under the requiring package is what makes each
+   * consumer get the copy pnpm actually resolved for it.
+   */
+  it("nests each dependency under the package that requires it", () => {
+    const resolved = resolveRuntimeNativeDeps(repoRoot);
+    const bindings = resolved.find(
+      (r) => r.name === "@serialport/bindings-cpp",
+    );
+    expect(bindings!.dest).toBe(
+      "node_modules/serialport/node_modules/@serialport/bindings-cpp",
+    );
+    // No two staged packages may target the same directory, or one would clobber the other.
+    const dests = resolved.map((r) => r.dest);
+    expect(new Set(dests).size).toBe(dests.length);
+  });
+
+  it("stages serialport so the packaged server can import it", () => {
+    const out = mkdtempSync(join(tmpdir(), "marquee-serial-"));
+    tmpDirs.push(out);
+    const serversDir = join(out, "servers");
+
+    stageRuntimeNativeDeps(repoRoot, serversDir);
+
+    const serial = join(serversDir, "node_modules", "serialport");
+    // The exact specifier the packaged bundle failed to resolve.
+    expect(existsSync(join(serial, "package.json"))).toBe(true);
+    // …and the binding it loads, reachable from serialport's own node_modules.
+    expect(
+      hasNativeBinary(
+        join(serial, "node_modules", "@serialport", "bindings-cpp"),
+      ),
+    ).toBe(true);
+  });
+});

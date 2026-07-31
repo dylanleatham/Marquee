@@ -995,6 +995,60 @@ function TagPayload({
   );
 }
 
+/**
+ * Send just this album to the USB-attached Flipper, so its on-device menu lists this one record and
+ * you can write the tag without picking from a batch (issue #68).
+ *
+ * **Adds** to the list already on the card rather than replacing it, so working through records one
+ * at a time builds the on-device menu up. Sending the same album twice updates its row instead of
+ * duplicating it, so the button is safe to press again. The confirmation reports the new total,
+ * which is the only way to tell an append from a replace without walking over to the Flipper.
+ *
+ * Deliberately always enabled: unlike the Queue's batch button this is an explicit per-album action,
+ * so it works for an album that has not reached `awaiting_tag_write`.
+ */
+function PushAlbumToFlipper({ curatorId }: { curatorId: string }) {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
+    null,
+  );
+
+  const push = async () => {
+    setBusy(true);
+    setResult(null);
+    try {
+      const r = await api.pushAlbumToFlipper(curatorId);
+      setResult({
+        ok: true,
+        text: `Added — the Flipper now lists ${r.total} album${r.total === 1 ? "" : "s"} (${r.port}).`,
+      });
+    } catch (e) {
+      setResult({ ok: false, text: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="tagwrite__flipper">
+      <button
+        className="btn btn--sm"
+        onClick={push}
+        disabled={busy}
+        title="Adds this album to the tag list on the Flipper's SD card"
+      >
+        {busy ? "Adding to Flipper…" : "Add this album to Flipper"}
+      </button>
+      {result && (
+        <span className={result.ok ? "muted" : "row__error"}>
+          {result.ok ? "Done. " : "Failed: "}
+          {result.text}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function TagWriteSection({
   curatorId,
   asset,
@@ -1051,6 +1105,7 @@ export function TagWriteSection({
         {writeRow("sleeve", "sleeve tag")}
         {writeRow("card", "card tag")}
       </div>
+      <PushAlbumToFlipper curatorId={curatorId} />
       {verified ? (
         <div className="banner banner--ok">
           Verified ✓ — this album is fully onboarded.

@@ -889,3 +889,84 @@ describe("TagWriteSection — payload + QR", () => {
     expect(screen.getAllByText("QR unavailable").length).toBeGreaterThan(0);
   });
 });
+
+/**
+ * The Ship tab's "Send this album to Flipper" (issue #68). The push replaces the list on the card,
+ * so the confirmation has to say so — a batch list pushed from the Queue is gone afterwards.
+ */
+describe("TagWriteSection — add this album to the Flipper", () => {
+  const renderShip = (state: RoadieState = "awaiting_tag_write") =>
+    render(
+      <MemoryRouter>
+        <TagWriteSection
+          curatorId="abcd1234"
+          asset={albumAt(state)}
+          run={vi.fn()}
+        />
+      </MemoryRouter>,
+    );
+
+  const button = () =>
+    screen.getByText(/Add this album to Flipper/).closest("button")!;
+
+  /**
+   * The album is *added* to the list already on the card, so the confirmation reports the new total
+   * — that count is the only way to tell an append from a replace without walking to the Flipper.
+   */
+  it("adds this album and reports the list total afterwards", async () => {
+    const push = vi.spyOn(api, "pushAlbumToFlipper").mockResolvedValue({
+      ok: true,
+      total: 3,
+      port: "COM6",
+      bytes: 50,
+      path: "/ext/apps_data/marquee_tag_writer/pending.csv",
+    });
+    renderShip();
+
+    fireEvent.click(button());
+
+    await waitFor(() =>
+      expect(screen.getByText(/now lists 3 albums/)).toBeTruthy(),
+    );
+    expect(push).toHaveBeenCalledWith("abcd1234");
+    // Outcome is in words, not colour alone.
+    expect(screen.getByText(/Done\./)).toBeTruthy();
+  });
+
+  it("says album, singular, when it is the only one on the list", async () => {
+    vi.spyOn(api, "pushAlbumToFlipper").mockResolvedValue({
+      ok: true,
+      total: 1,
+      port: "COM6",
+      bytes: 50,
+      path: "/ext/apps_data/marquee_tag_writer/pending.csv",
+    });
+    renderShip();
+
+    fireEvent.click(button());
+
+    await waitFor(() =>
+      expect(screen.getByText(/now lists 1 album \(/)).toBeTruthy(),
+    );
+  });
+
+  it("shows the server's reason when no Flipper is attached", async () => {
+    vi.spyOn(api, "pushAlbumToFlipper").mockRejectedValue(
+      new Error("No Flipper found on USB."),
+    );
+    renderShip();
+
+    fireEvent.click(button());
+
+    await waitFor(() =>
+      expect(screen.getByText(/No Flipper found on USB/)).toBeTruthy(),
+    );
+    expect(screen.getByText(/Failed:/)).toBeTruthy();
+  });
+
+  /** Explicitly per-album, so unlike the Queue's batch button it does not depend on roadie state. */
+  it("is available for an album that is not awaiting a tag write", () => {
+    renderShip("awaiting_preview");
+    expect(button().disabled).toBe(false);
+  });
+});

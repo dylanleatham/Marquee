@@ -9,7 +9,7 @@
 // this module does it for the native node_modules the conductor needs.
 import { createRequire } from "node:module";
 import { cpSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
 
 /**
  * The native deps left external by esbuild, each with the dependency chain that reaches it from a
@@ -19,7 +19,19 @@ import { dirname, join } from "node:path";
  * dependency is likewise a native module esbuild can't bundle.
  */
 export const RUNTIME_NATIVE_DEPS = [
-  { name: "node-aead-crypto", via: ["node-dtls-client"] },
+  {
+    name: "node-aead-crypto",
+    from: "hue-conductor",
+    via: ["node-dtls-client"],
+  },
+  /**
+   * Curator's Flipper push (issue #68). `serialport` is a direct dependency, but unlike
+   * node-aead-crypto it is a *facade*: the `.node` binary lives in `@serialport/bindings-cpp`, which
+   * it reaches through ordinary `dependencies`. Shipping the package alone gets you a bundle that
+   * loads and then fails on its first internal import, so this one needs its whole dependency
+   * closure staged — hence `transitive`.
+   */
+  { name: "serialport", from: "curator", via: [], transitive: true },
 ];
 
 /**
@@ -54,30 +66,56 @@ function packageDir(fromPackageJson, name) {
  */
 export function resolveRuntimeNativeDeps(repoRoot, deps = RUNTIME_NATIVE_DEPS) {
   const resolved = [];
-  for (const { name, via } of deps) {
+  const placed = new Set();
+
+  /**
+   * Record `name` at `<parent>/node_modules/<name>`, then (when `transitive`) everything it requires,
+   * nested beneath it.
+   *
+   * Nested rather than flat, because a flat `node_modules/<name>` cannot hold two versions of the
+   * same package — and pnpm legitimately resolves several here (`@serialport/parser-readline` at both
+   * 12 and 13, `debug` at 4.4.0 and 4.4.3). Flattening silently hands one consumer the other's
+   * version. Nesting mirrors how Node actually resolves — from the requiring package's own
+   * `node_modules` upward — so every package gets exactly the copy pnpm resolved for it.
+   */
+  function collect(context, name, transitive, parent) {
+    let dir;
+    try {
+      dir = packageDir(context, name);
+    } catch {
+      return; // not installed here (an optional platform binding for another OS)
+    }
+
+    const dest = `${parent}node_modules/${name}`;
+    if (placed.has(dest)) return;
+    placed.add(dest);
+    resolved.push({ name, dir, dest });
+
+    const pkgContext = join(dir, "package.json");
+    const { dependencies = {}, optionalDependencies = {} } = JSON.parse(
+      readFileSync(pkgContext, "utf8"),
+    );
+
+    // The `.node` binary often lives in a per-platform optional dependency; ship the installed one.
+    for (const optional of Object.keys(optionalDependencies))
+      collect(pkgContext, optional, transitive, `${dest}/`);
+
+    if (transitive)
+      for (const dep of Object.keys(dependencies))
+        collect(pkgContext, dep, true, `${dest}/`);
+  }
+
+  for (const {
+    name,
+    from = "hue-conductor",
+    via,
+    transitive = false,
+  } of deps) {
     // Hop through the `via` chain so a nested (non-hoisted) dep resolves from the right context.
-    let context = join(repoRoot, "packages", "hue-conductor", "package.json");
+    let context = join(repoRoot, "packages", from, "package.json");
     for (const hop of via)
       context = join(packageDir(context, hop), "package.json");
-
-    const dir = packageDir(context, name);
-    resolved.push({ name, dir });
-
-    // The actual `.node` binary lives in a per-platform optional dependency; ship the installed one.
-    const { optionalDependencies = {} } = JSON.parse(
-      readFileSync(join(dir, "package.json"), "utf8"),
-    );
-    const pkgContext = join(dir, "package.json");
-    for (const platformPkg of Object.keys(optionalDependencies)) {
-      try {
-        resolved.push({
-          name: platformPkg,
-          dir: packageDir(pkgContext, platformPkg),
-        });
-      } catch {
-        // not installed for this platform — only the host's binding is present
-      }
-    }
+    collect(context, name, transitive, "");
   }
   return resolved;
 }
@@ -94,11 +132,17 @@ export function stageRuntimeNativeDeps(
   serversDir,
   deps = RUNTIME_NATIVE_DEPS,
 ) {
-  const modulesDir = join(serversDir, "node_modules");
   const resolved = resolveRuntimeNativeDeps(repoRoot, deps);
-  for (const { name, dir } of resolved) {
-    mkdirSync(dirname(join(modulesDir, name)), { recursive: true });
-    cpSync(dir, join(modulesDir, name), { recursive: true, dereference: true });
+  for (const { dir, dest } of resolved) {
+    const target = join(serversDir, ...dest.split("/"));
+    mkdirSync(dirname(target), { recursive: true });
+    // Copy the package's own files but not its nested node_modules — those are staged separately at
+    // their resolved versions, and copying pnpm's symlinked tree wholesale would duplicate the world.
+    cpSync(dir, target, {
+      recursive: true,
+      dereference: true,
+      filter: (src) => !src.endsWith(`${sep}node_modules`),
+    });
   }
   return resolved;
 }

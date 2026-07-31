@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   api,
@@ -10,6 +10,52 @@ import { QUEUE_SECTIONS, NEXT_ACTION, relativeTime } from "../format";
 import { usePoll } from "../hooks";
 import { queueKeyAction } from "../queueKeys";
 import { AlbumThumb, Spinner } from "../components/common";
+
+/**
+ * Write the awaiting-tag-write list onto a USB-attached Flipper (issue #68), so the on-device app
+ * lists the real albums instead of you downloading a CSV and dragging it across.
+ *
+ * Outcome is stated in words ("Sent…" / "Failed:") rather than signalled by colour alone — this is
+ * the only confirmation that the file actually reached the SD card. The failure text comes from the
+ * server verbatim, because the two real failures ("no Flipper found", "port is busy") are both
+ * things only the person at the desk can fix.
+ */
+function PushToFlipper() {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(
+    null,
+  );
+
+  const push = async () => {
+    setBusy(true);
+    setResult(null);
+    try {
+      const r = await api.pushTagListToFlipper();
+      setResult({
+        ok: true,
+        text: `Sent ${r.albums} album${r.albums === 1 ? "" : "s"} (${r.bytes} bytes) to ${r.port}.`,
+      });
+    } catch (e) {
+      setResult({ ok: false, text: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="queue-section__aside">
+      <button className="btn btn--sm" onClick={push} disabled={busy}>
+        {busy ? "Sending to Flipper…" : "Send list to Flipper"}
+      </button>
+      {result && (
+        <p className={result.ok ? "muted" : "row__error"}>
+          {result.ok ? "Done. " : "Failed: "}
+          {result.text}
+        </p>
+      )}
+    </div>
+  );
+}
 
 /** One album row: thumbnail, title/artist, how long it's waited, and its next-action link. */
 function Row({
@@ -60,12 +106,15 @@ function Section({
   entries,
   action,
   selectedId,
+  extra,
 }: {
   label: string;
   entries: QueueEntry[];
   action?: string;
   /** curatorId of the keyboard-selected row, if it lives in this section. */
   selectedId?: string | null;
+  /** Section-level control, rendered under the heading. Only shown when the section has rows. */
+  extra?: ReactNode;
 }) {
   if (!entries.length) return null;
   return (
@@ -73,6 +122,7 @@ function Section({
       <h2>
         {label} <span className="count">{entries.length}</span>
       </h2>
+      {extra}
       {entries.map((e) => (
         <Row
           key={e.curatorId}
@@ -209,6 +259,9 @@ export function QueueView() {
           entries={filtered[s.bucket]}
           action={NEXT_ACTION[s.bucket as RoadieState]}
           selectedId={selected?.curatorId}
+          extra={
+            s.bucket === "awaiting_tag_write" ? <PushToFlipper /> : undefined
+          }
         />
       ))}
 

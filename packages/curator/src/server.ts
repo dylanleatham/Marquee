@@ -56,6 +56,14 @@ import {
 import type { PaletteEditColor } from "./albums/palette.js";
 import { GenerationJobs, FileJobStore } from "./jobs/manager.js";
 import { flipperNfcFile } from "./tags/flipper-nfc.js";
+import { pendingCsv } from "./tags/pending-csv.js";
+import {
+  pushToFlipper,
+  appendToFlipper,
+  FLIPPER_PENDING_PATH,
+  type FlipperPusher,
+  type FlipperAppender,
+} from "./tags/flipper-push.js";
 import { tagQrDataUrl } from "./tags/qr.js";
 import {
   curatorUri,
@@ -115,6 +123,10 @@ export interface BuildOptions {
   amp?: AmpClient;
   /** Injected desk audio (tests point it at a stub Spotify); prod builds one from the user session. */
   deskAudio?: DeskAudio;
+  /** Injected Flipper push (tests pass a fake); prod writes to the USB-attached Flipper. */
+  flipperPush?: FlipperPusher;
+  /** Injected Flipper append (tests pass a fake); prod merges into the list already on the card. */
+  flipperAppend?: FlipperAppender;
 }
 
 const summary = (a: AlbumAsset) => ({
@@ -517,16 +529,81 @@ export function buildServer(opts: BuildOptions = {}) {
   // Flipper Zero tag authoring (issue #67, "Route A"): download a ready-to-write `.nfc` for an album,
   // and list the albums awaiting a tag write so you know which to fetch. Drop the `.nfc` on the
   // Flipper's SD card and write it to a blank NTAG213 via the stock NFC app (Saved → Write).
-  app.get("/api/tags/pending", async () => ({
-    pending: store
+  const pendingRows = () =>
+    store
       .list()
       .filter((a) => a.roadie.state === "awaiting_tag_write")
       .map((a) => ({
         curatorId: a.curatorId,
         name: a.metadata.name,
         artist: a.metadata.artist,
-      })),
-  }));
+      }));
+
+  app.get("/api/tags/pending", async () => ({ pending: pendingRows() }));
+
+  // The same list as a CSV for the Flipper app (issue #68, "Route B"): download it and drop it at
+  // /ext/apps_data/marquee_tag_writer/pending.csv on the Flipper's SD card, and the app lists those
+  // albums on-device. Spec: docs/specs/flipper-tag-writer.md §3.
+  app.get("/api/tags/pending.csv", async (_req, reply) => {
+    reply.header("content-disposition", 'attachment; filename="pending.csv"');
+    reply.type("text/csv; charset=utf-8");
+    return pendingCsv(pendingRows());
+  });
+
+  // One click instead of download-then-drag: write that same CSV straight onto the SD card of a
+  // Flipper attached to this machine over USB. 503 (not 500) when there is no Flipper or the port is
+  // busy — nothing is wrong with Curator, the hardware just isn't there, and the message says so.
+  const flipperPush = opts.flipperPush ?? pushToFlipper;
+
+  /**
+   * **Add** one album to the list on the Flipper, from its Ship tab. Appends rather than replaces —
+   * working through records one at a time builds the on-device menu up, and the batch route below is
+   * what you use when you mean "the list is exactly this". Re-sending the same album updates its row
+   * instead of duplicating it.
+   *
+   * Deliberately not state-filtered the way the batch route is: you named this album, so one that
+   * hasn't reached `awaiting_tag_write` can still be sent.
+   */
+  const flipperAppend = opts.flipperAppend ?? appendToFlipper;
+  app.post("/api/albums/:curatorId/push-to-flipper", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const asset = store.read(curatorId);
+    if (!asset) return reply.code(404).send({ error: "not found" });
+    try {
+      const result = await flipperAppend([
+        {
+          curatorId,
+          name: asset.metadata.name,
+          artist: asset.metadata.artist,
+        },
+      ]);
+      return { ok: true, ...result };
+    } catch (err) {
+      return reply
+        .code(503)
+        .send({
+          ok: false,
+          error: (err as Error).message,
+          path: FLIPPER_PENDING_PATH,
+        });
+    }
+  });
+
+  app.post("/api/tags/push-to-flipper", async (_req, reply) => {
+    const rows = pendingRows();
+    try {
+      const result = await flipperPush(pendingCsv(rows));
+      return { ok: true, albums: rows.length, ...result };
+    } catch (err) {
+      return reply
+        .code(503)
+        .send({
+          ok: false,
+          error: (err as Error).message,
+          path: FLIPPER_PENDING_PATH,
+        });
+    }
+  });
 
   app.get("/api/albums/:curatorId/tag.nfc", async (req, reply) => {
     const { curatorId } = req.params as { curatorId: string };

@@ -218,6 +218,20 @@ em {
   margin: 14px 0 6px;
   letter-spacing: 0.02em;
 }
+/* Section-level control under a queue heading — today the "send the tag list to the Flipper" button
+   on Awaiting tag write (issue #68). Its result line wraps under the button rather than beside it,
+   since the failure text is a full sentence from the server. */
+.queue-section__aside {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+.queue-section__aside p {
+  margin: 0;
+  font-size: 12px;
+}
 .count {
   font-variant-numeric: tabular-nums;
   color: var(--amber);
@@ -835,6 +849,16 @@ em {
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
+}
+/* "Add this album to Flipper" plus its outcome line (issue #68). Sits under the sleeve/card rows and
+   spans the full width, because the outcome is a sentence, not a chip. */
+.tagwrite__flipper {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 12px;
 }
 .tagwrite__done {
   color: var(--sage);

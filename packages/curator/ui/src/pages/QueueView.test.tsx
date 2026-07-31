@@ -14,7 +14,7 @@ import { MemoryRouter, Routes, Route } from "react-router-dom";
 import type { QueueGroups } from "../api";
 
 vi.mock("../api", () => ({
-  api: { queue: vi.fn() },
+  api: { queue: vi.fn(), pushTagListToFlipper: vi.fn() },
   artworkUrl: (id: string) => `/api/albums/${id}/artwork`,
 }));
 
@@ -219,5 +219,103 @@ describe("QueueView keyboard navigation", () => {
 
     // The cursor was past the end of the filtered list; it clamps rather than selecting nothing.
     await waitFor(() => expect(selectedTitle()).toBe("One"));
+  });
+});
+
+/**
+ * The "Send list to Flipper" button (issue #68). It is the only confirmation that the tag list
+ * actually reached the SD card, so what it says after a push — success *and* failure — is the
+ * behaviour worth pinning, not just that a request went out.
+ */
+describe("QueueView — send tag list to Flipper", () => {
+  const withPending = (): QueueGroups =>
+    ({
+      ...groups(),
+      awaiting_tag_write: [entry("dddd4444", "Purple Rain")],
+    }) as unknown as QueueGroups;
+
+  beforeEach(() => {
+    vi.mocked(api.queue).mockResolvedValue(withPending());
+  });
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  const button = () =>
+    screen.getByRole("button", { name: /send list to flipper/i });
+
+  it("offers the button on the awaiting-tag-write section", async () => {
+    renderQueue();
+    await waitFor(() => expect(button()).toBeTruthy());
+  });
+
+  it("does not offer it when nothing is awaiting a tag write", async () => {
+    vi.mocked(api.queue).mockResolvedValue(groups());
+    renderQueue();
+    await waitFor(() =>
+      expect(screen.getByText("Awaiting review")).toBeTruthy(),
+    );
+    expect(
+      screen.queryByRole("button", { name: /send list to flipper/i }),
+    ).toBeNull();
+  });
+
+  it("reports how much landed, and where, on success", async () => {
+    vi.mocked(api.pushTagListToFlipper).mockResolvedValue({
+      ok: true,
+      albums: 1,
+      port: "COM6",
+      bytes: 48,
+      path: "/ext/apps_data/marquee_tag_writer/pending.csv",
+    });
+    renderQueue();
+    await waitFor(() => expect(button()).toBeTruthy());
+    fireEvent.click(button());
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Sent 1 album \(48 bytes\) to COM6/),
+      ).toBeTruthy(),
+    );
+    // Stated in words, not by colour alone.
+    expect(screen.getByText(/Done\./)).toBeTruthy();
+  });
+
+  it("shows the server's reason when there is no Flipper attached", async () => {
+    vi.mocked(api.pushTagListToFlipper).mockRejectedValue(
+      new Error(
+        "No Flipper found on USB. Plug it in, unlock it, and try again.",
+      ),
+    );
+    renderQueue();
+    await waitFor(() => expect(button()).toBeTruthy());
+    fireEvent.click(button());
+
+    await waitFor(() =>
+      expect(screen.getByText(/No Flipper found on USB/)).toBeTruthy(),
+    );
+    expect(screen.getByText(/Failed:/)).toBeTruthy();
+  });
+
+  it("disables the button while a push is in flight", async () => {
+    type PushResult = Awaited<ReturnType<typeof api.pushTagListToFlipper>>;
+    let release: (v: PushResult) => void = () => {};
+    vi.mocked(api.pushTagListToFlipper).mockReturnValue(
+      new Promise<PushResult>((r) => {
+        release = r;
+      }),
+    );
+    renderQueue();
+    await waitFor(() => expect(button()).toBeTruthy());
+    fireEvent.click(button());
+
+    await waitFor(() => {
+      const busy = screen.getByRole("button", {
+        name: /sending to flipper/i,
+      }) as HTMLButtonElement;
+      expect(busy.disabled).toBe(true);
+    });
+    release({ ok: true, albums: 1, port: "COM6", bytes: 48, path: "p" });
   });
 });
