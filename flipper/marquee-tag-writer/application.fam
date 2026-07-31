@@ -1,5 +1,5 @@
 # Flipper application manifest for the Marquee Tag Writer (Route B, issue #68).
-# Build with ufbt (see README.md). Scaffold — the NFC write path is a TODO (spec §6).
+# Build with ufbt (see README.md). The NFC constraints that shaped this app are in spec §6.
 App(
     appid="marquee_tag_writer",
     name="Marquee Tag Writer",

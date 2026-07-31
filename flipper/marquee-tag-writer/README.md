@@ -1,4 +1,4 @@
-# Marquee Tag Writer (Flipper Zero) — scaffold
+# Marquee Tag Writer (Flipper Zero)
 
 Write an album's `curator:album:<id>` NDEF URI to a blank **NTAG213** by picking it from a list — no
 hand-typing 8-char IDs. This is **"Route B"** (issue #68); the shipped, no-app alternative is **Route

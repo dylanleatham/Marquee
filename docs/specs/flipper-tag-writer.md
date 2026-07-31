@@ -33,14 +33,19 @@ message: D1 01 17 55 00 <ascii "curator:album:2k7bxq9m">
 
 Laid into NTAG213 pages: page 3 = CC `E1 10 12 00`; the TLV starts at page 4, zero-padded; the URI is
 always 22 chars (`curator:album:` + 8-char id), so the TLV is a fixed 30 bytes and fits user memory
-(pages 4–39, 144 bytes) trivially. `ndef_build_uri_tlv()` in the scaffold implements this in C; keep it
-byte-identical to `ndefUriTlv()` in Route A. (A cheap way to stay honest: paste the C output hex into
-the same round-trip check Route A/Stylus use.)
+(pages 4–39, 144 bytes) trivially. `marquee_build_ndef_tlv()` implements this in C.
+
+**This is enforced, not trusted.** `packages/curator/test/flipper-c-bytes.test.ts` reads the C source,
+extracts the byte constants and the length arithmetic, and checks them against what `ndefUriTlv()`
+actually produces — so the third leg of the contract (Curator generates, Stylus parses, the FAP
+composes) cannot drift silently the way it could when "keep it byte-identical" was a comment.
 
 > **Card kind (2026-07-24, [ADR 0034](../adrs/0034-amp-sonos-playback-and-card-uri.md)).** A **card**
 > sticker carries `curator:card:<id>` instead of `curator:album:<id>` — same format, one byte shorter
-> (21 chars → a fixed **29-byte** TLV, `Page 4: 03 1A …`). The FAP should offer writing either kind;
-> Route A's `flipperNfcFile(curatorId, "card")` / `GET /api/albums/:id/tag.nfc?object=card` already do.
+> (21 chars → a fixed **29-byte** TLV, `Page 4: 03 1A …`). The FAP offers both — "Which kind of tag?"
+> is the screen after "Write a tag" (§4) — as do Route A's `flipperNfcFile(curatorId, "card")` and
+> `GET /api/albums/:id/tag.nfc?object=card`. The write path derives its page count from the TLV
+> length rather than assuming 30 bytes, so the shorter card TLV needs no special case.
 > Stylus reads both (`curator:(album|card)`); Conductor/Backdrop treat them alike, only Amp streams the
 > card over Sonos.
 
@@ -79,8 +84,9 @@ curatorId,name,artist
 aaaa1111,1999,Prince
 ```
 
-(Adding a "Download tag list" button/route to Curator that emits this CSV is a small Route A follow-up;
-until then, hand-create the file or paste from `/api/tags/pending`.)
+Commas, quotes and newlines are stripped from `name` and `artist` at the source, so the reader's
+split-on-the-first-two-commas is always exact; only `curatorId` has to survive verbatim, and it is
+base32 by construction.
 
 ## 4. UX
 
@@ -116,7 +122,7 @@ the phone/desktop marks it, issue #55); a "wrote N of M" progress counter.
 
 ## 5. Build & run
 
-Standard FAP via **ufbt** (see the scaffold README):
+Standard FAP via **ufbt** (see the app's README):
 
 ```sh
 cd flipper/marquee-tag-writer
