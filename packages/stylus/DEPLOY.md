@@ -314,6 +314,53 @@ That's issue #52 done.
 $ cd ~/Marquee && git pull
 $ cd packages/stylus && .venv/bin/pip install '.[hardware]'
 $ sudo systemctl restart marquee-stylus
+$ cd / && ~/Marquee/packages/stylus/.venv/bin/python \
+    -c "import stylus.state_machine as m,inspect;print(inspect.getfile(m))"   # verify — see below
 ```
 
 If `marquee-stylus.service` itself changed, re-copy it and `sudo systemctl daemon-reload` first.
+
+### The middle line is not optional — skipping it looks like it worked ([#201](https://github.com/dylanleatham/Marquee/issues/201))
+
+Stylus is installed into the venv **non-editable**, so
+`.venv/lib/python3.13/site-packages/stylus/` holds a full _copy_ of the package. **`git pull` does
+not change that copy.**
+
+Pulling and restarting nevertheless appears to work, because the unit runs:
+
+```ini
+WorkingDirectory=/home/pi/Marquee/packages/stylus
+ExecStart=/home/pi/Marquee/packages/stylus/.venv/bin/python -m stylus --config …/config.toml
+```
+
+`python -m` puts the working directory at `sys.path[0]`, so the repo tree shadows site-packages and
+the service imports the code you just pulled. That is a **coincidence of this unit's configuration,
+not a guarantee** — anything that runs Stylus from a different directory silently gets the stale
+copy. No error, no log line.
+
+That is what the verify line above is for. Run from `/`, so nothing shadows:
+
+```
+$ cd / && ~/Marquee/packages/stylus/.venv/bin/python \
+    -c "import stylus.state_machine as m,inspect;print(inspect.getfile(m))"
+```
+
+- `…/site-packages/stylus/state_machine.py` → the install is what runs. Good, **provided you ran the
+  `pip install`**.
+- `…/packages/stylus/stylus/state_machine.py` → you are seeing the repo tree only because of cwd
+  shadowing; the install is stale.
+
+**Real example (2026-08-01).** Deploying the [#198](https://github.com/dylanleatham/Marquee/issues/198)
+fix found the two trees four days apart — the repo at `<`, and the installed copy still at `!=` and
+still missing the [#176](https://github.com/dylanleatham/Marquee/issues/176) `UriCache` fix. The
+stand was one `cd` away from running a build that predated two shipped fixes.
+
+**Fast path when only Python source changed** (no new dependencies — the common case for a bug fix):
+
+```
+$ .venv/bin/pip install --no-deps .
+```
+
+This replaces just the `stylus` package and skips `[hardware]` entirely, so nothing rebuilds native
+wheels. On a Pi Zero that is seconds instead of minutes, which removes the incentive to skip the
+step at all.

@@ -386,10 +386,33 @@ No build — the core is stdlib-only Python ([ADR 0016](adrs/0016-stylus-stdlib-
 
 ```
 $ cd ~/Marquee && git pull
+$ cd packages/stylus && .venv/bin/pip install --no-deps .    # ← not optional; see below
 $ sudo systemctl restart marquee-stylus
 ```
 
-Only re-run `pip install -e '.[hardware]'` if the hardware extra itself changed — not on every pull.
+> **Corrected 2026-08-01 ([#201](https://github.com/dylanleatham/Marquee/issues/201)).** This block
+> used to say _"Only re-run `pip install -e '.[hardware]'` if the hardware extra itself changed — not
+> on every pull."_ That is true of an **editable** install, but Stylus is installed non-editable
+> ([DEPLOY.md §6](../packages/stylus/DEPLOY.md)), so site-packages holds a _copy_ that `git pull`
+> never touches. Following the old advice is how the stand came to be running a build four days
+> stale — with two already-shipped fixes missing — while `systemctl status` said `active` and the
+> logs looked clean.
+>
+> It looked fine because the unit's `WorkingDirectory` puts the repo tree ahead of site-packages on
+> `sys.path`; run Stylus from any other directory and the stale copy wins, silently. `--no-deps`
+> replaces just the package without rebuilding the native `[hardware]` wheels, so it costs seconds.
+> Verify from outside the package dir, and see
+> [DEPLOY.md §13](../packages/stylus/DEPLOY.md) for the full explanation:
+>
+> ```
+> $ cd / && ~/Marquee/packages/stylus/.venv/bin/python \
+>     -c "import stylus.state_machine as m,inspect;print(inspect.getfile(m))"
+> ```
+>
+> Whether to switch to an editable install and delete this class of problem is open on
+> [#201](https://github.com/dylanleatham/Marquee/issues/201).
+
+Re-run the full `.venv/bin/pip install '.[hardware]'` when the hardware extra itself changed.
 
 #### What actually needs what
 
