@@ -85,9 +85,19 @@ class DetectionMachine:
             self._reset_candidate()
             return None
         self._bump_candidate(tag.uid)
-        # Fire exactly when the streak first reaches the threshold; further polls of the same tag
-        # (count > threshold) neither re-fire nor re-flag.
-        if self._cand_count != self._cfg.insertion_debounce_polls:
+        # Keep looking once the streak has *reached* the threshold, rather than only on the poll
+        # where it equals it (issue #198).
+        #
+        # The reader re-reads NDEF on every poll of an undecoded tag — misses are deliberately not
+        # cached (#176) — so a decode that fails while the sleeve is still settling recovers a poll
+        # or two later. With `!=`, the machine had already stopped looking: one unlucky poll at the
+        # threshold latched that sleeve off until it was physically lifted and re-placed, which on
+        # the stand read as "this record just doesn't work".
+        #
+        # `<` does not re-fire or re-flag: a `Start` moves the machine to PLAYING (so this branch
+        # stops running), and `_flagged_bad` already suppresses a repeat BadTag for the same uid.
+        # Neither guarantee ever depended on the strict equality.
+        if self._cand_count < self._cfg.insertion_debounce_polls:
             return None
         if tag.uri is not None and is_curator_uri(tag.uri):
             self._enter_playing(tag.uid, tag.uri)
