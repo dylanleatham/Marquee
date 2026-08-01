@@ -1,5 +1,7 @@
 import logging
 
+import pytest
+
 from stylus.led import (
     GpioLed,
     LoggingLed,
@@ -71,10 +73,33 @@ def test_every_pattern_has_frames_with_sane_levels_and_holds():
 
 def test_idle_breathes_over_two_seconds():
     frames = frames_for(Pattern.IDLE)
-    assert sum(hold for _, hold in frames) == 2.0  # §7: slow breathe, 2s cycle
+    # §7: slow breathe, 2s cycle. Asserted with a tolerance, and that is not slack — the 40 holds are
+    # each 1/20, which has no exact binary representation, so *how* far the sum lands from 2.0 is a
+    # property of the interpreter rather than of the LED: CPython 3.12 gave the built-in `sum()`
+    # compensated (Neumaier) summation and returns exactly 2.0, while 3.11 — the floor of
+    # `requires-python`, and what CI runs — accumulates naively to 2.000000000000001. Pinning `== 2.0`
+    # therefore passed on a dev workstation and failed on the only Python that actually ran it
+    # (issue #194). A femtosecond of drift across a two-second breathe is not a defect; the cycle
+    # length is what §7 specifies, so that is what this asserts.
+    assert sum(hold for _, hold in frames) == pytest.approx(2.0)
     levels = [level for level, _ in frames]
     assert min(levels) == 0.0 and max(levels) == 1.0
     assert levels.index(max(levels)) == len(levels) // 2  # ramps up, then back down
+
+
+def test_idle_cycle_holds_under_naive_summation():
+    """The 2s cycle must hold under CPython <=3.11's `sum()`, not only 3.12+'s compensated one.
+
+    This is the blind spot behind issue #194, not a restatement of the test above. CI pins 3.11 and
+    `requires-python` floors there, but a workstation on 3.12+ gets the accurate built-in `sum()` —
+    so a float-equality regression in the assertion above is green locally and red only in CI, where
+    nobody is looking until a PR is already open. Adding the holds by hand reproduces the older
+    interpreter's arithmetic on *any* interpreter, so the failure is now a local one.
+    """
+    total = 0.0
+    for _, hold in frames_for(Pattern.IDLE):
+        total += hold
+    assert total == pytest.approx(2.0)
 
 
 def test_playing_is_solid_and_error_blinks_at_100ms():
