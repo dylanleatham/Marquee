@@ -74,3 +74,23 @@ export function tempMedia(names: string[]): {
 export function tempDataDir(): string {
   return mkdtempSync(join(tmpdir(), "backdrop-data-"));
 }
+
+/**
+ * Poll until `check` holds, or fail with a message naming what was awaited.
+ *
+ * For properties that settle a tick *after* a request returns — the media upload's cleanup waits
+ * for its write stream to close (issue #203), so a dead client's `inject` can settle first. Bounded
+ * so a property that never holds fails the test rather than hanging it.
+ */
+export async function waitFor(
+  check: () => boolean,
+  what: string,
+  timeoutMs = 3000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (check()) return;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  throw new Error(`timed out after ${timeoutMs}ms waiting for ${what}`);
+}
