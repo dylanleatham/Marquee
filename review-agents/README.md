@@ -93,6 +93,14 @@ it auto-discovers any dir containing a `config.json`.
 one), `contextGlobs` (string[] — files to load into context), `includePackageSpecs` (bool —
 auto-load the spec(s) for changed packages).
 
+**Write source globs as `packages/**/src/**`, never `packages/*/src/**`.** A single `*` matches one
+path segment, and not every package keeps its source one level down — `packages/curator/ui/src/` and
+`packages/fakes/*/src/` are both a level deeper. `test-auditor` carried the `*` form and so never ran
+on any of Curator's React UI ([issue #192](https://github.com/dylanleatham/Marquee/issues/192)); a
+reviewer that is never _triggered_ produces no `[GAP]` warning, so the run reads as a clean pass. A
+test in `lib/lib.test.mjs` discovers every `packages/**/src` directory on disk and fails if a
+source-scoped reviewer can't see it — if you add a nested package, that test is what tells you.
+
 ## Notes
 
 - Pure logic (glob routing, findings parse/dedupe) is unit-tested in `lib/lib.test.mjs` and runs

@@ -1,5 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { globToRegExp, matchesAny } from "./util.mjs";
 import {
   extractJsonArray,
@@ -32,6 +35,20 @@ test("globToRegExp: ** spans directories, * does not", () => {
   );
   assert.doesNotMatch("packages/a/b/c.ts", globToRegExp("packages/*/c.ts"));
   assert.match("packages/a/c.ts", globToRegExp("packages/*/c.ts"));
+
+  // The #192 distinction: a nested source root (Curator's UI) is only reachable with `**`.
+  assert.doesNotMatch(
+    "packages/curator/ui/src/App.tsx",
+    globToRegExp("packages/*/src/**"),
+  );
+  assert.match(
+    "packages/curator/ui/src/App.tsx",
+    globToRegExp("packages/**/src/**"),
+  );
+  assert.match(
+    "packages/curator/src/index.ts",
+    globToRegExp("packages/**/src/**"),
+  );
 });
 
 test("matchesAny: true when any pattern matches", () => {
@@ -40,6 +57,71 @@ test("matchesAny: true when any pattern matches", () => {
     true,
   );
   assert.equal(matchesAny("README.md", ["packages/**"]), false);
+});
+
+// --- issue #192: routing must cover every source root that actually exists ---
+
+const AGENTS_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
+const REPO_ROOT = dirname(AGENTS_DIR);
+
+/** Every `src` directory under `packages/`, discovered from disk rather than hard-coded. */
+function sourceRoots() {
+  const out = [];
+  const walk = (rel) => {
+    const abs = join(REPO_ROOT, rel);
+    for (const entry of readdirSync(abs)) {
+      if (entry === "node_modules" || entry === "dist" || entry === ".turbo")
+        continue;
+      const childRel = `${rel}/${entry}`;
+      if (!statSync(join(REPO_ROOT, childRel)).isDirectory()) continue;
+      if (entry === "src") out.push(childRel);
+      else walk(childRel);
+    }
+  };
+  walk("packages");
+  return out;
+}
+
+function specialistConfig(id) {
+  return JSON.parse(readFileSync(join(AGENTS_DIR, id, "config.json"), "utf8"));
+}
+
+// These reviewers claim to cover all first-party source. `test-auditor` in particular is what
+// CLAUDE.md's "new surface ⇒ test in the same change" gate leans on, so a source root it cannot
+// see is a silent hole in that gate — which is exactly what `packages/*/src/**` was: one level
+// deep, so all of Curator's React UI under `packages/curator/ui/src/` went unreviewed.
+for (const id of ["test-auditor", "spec-adherence", "runtime", "consistency"]) {
+  test(`${id} triggers on every packages/**/src root on disk (#192)`, () => {
+    const { triggerGlobs } = specialistConfig(id);
+    const missed = sourceRoots().filter(
+      (root) => !matchesAny(`${root}/Thing.tsx`, triggerGlobs),
+    );
+    assert.deepEqual(
+      missed,
+      [],
+      `${id} would not run on changes under: ${missed.join(", ")}`,
+    );
+  });
+}
+
+test("every specialist directory has the three files the README documents", () => {
+  for (const dir of readdirSync(AGENTS_DIR)) {
+    const cfgPath = join(AGENTS_DIR, dir, "config.json");
+    if (!existsSync(cfgPath)) continue;
+    const config = JSON.parse(readFileSync(cfgPath, "utf8"));
+    assert.equal(config.id, dir, `${dir}/config.json id must match its dir`);
+    // Routing is opt-in per specialist; one of these must be present or it never runs at all.
+    assert.ok(
+      config.triggerAll ||
+        config.triggerGlobs?.length ||
+        config.triggerImports?.length,
+      `${dir} declares no trigger, so it can never run`,
+    );
+    assert.ok(
+      existsSync(join(AGENTS_DIR, dir, "system-prompt.md")),
+      `${dir} has no system-prompt.md`,
+    );
+  }
 });
 
 test("extractJsonArray: handles fenced, bare, and absent arrays", () => {
