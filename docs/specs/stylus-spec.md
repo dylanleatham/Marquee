@@ -153,6 +153,17 @@ Central loop runs at 5 Hz (poll every 200ms). State transitions:
 
 Rationale: fast enough that placing a sleeve feels instant, slow enough that a hand hovering over the reader doesn't jitter the state.
 
+> **These are thresholds, not exact counts** ([#198](https://github.com/dylanleatham/Marquee/issues/198)).
+> "Reads needed before firing" means **at or past** the threshold: the machine keeps evaluating a
+> stable tag on every subsequent poll, not only on the poll where the streak equals the number.
+>
+> The code read `!=` rather than `<` until 2026-08-01, so the URI was inspected on exactly one poll.
+> Because the reader re-reads NDEF on every poll of an undecoded tag (misses are deliberately not
+> cached, [#176](https://github.com/dylanleatham/Marquee/issues/176)), a decode that failed while the
+> sleeve was still settling left it latched off until physically lifted — on the stand, "this record
+> just doesn't work". Firing once is guaranteed by the `PLAYING` transition and `_flagged_bad`, not
+> by the comparison.
+
 **LED patterns:**
 
 - Slow breathe (2s cycle): IDLE, waiting
