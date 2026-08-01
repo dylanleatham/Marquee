@@ -3,6 +3,6 @@
   "blocking": true,
   "model": "sonnet",
   "timeoutMs": 180000,
-  "triggerGlobs": ["packages/*/src/**", "packages/stylus/stylus/**"],
+  "triggerGlobs": ["packages/**/src/**", "packages/stylus/stylus/**"],
   "contextGlobs": ["docs/specs/testing-strategy.md"]
 }

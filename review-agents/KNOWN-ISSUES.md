@@ -15,6 +15,31 @@ _None currently._
 
 ### Resolved
 
+- **RA-5 — `test-auditor` never ran on Curator's React UI.** Fixed 2026-07-31
+  ([issue #192](https://github.com/dylanleatham/Marquee/issues/192)). Its `triggerGlobs` were
+  `packages/*/src/**`, and a single `*` matches exactly one path segment — so it saw
+  `packages/curator/src/**` but none of the six source roots nested a level deeper:
+  `packages/curator/ui/src` (all of the React UI), `packages/curator/web/src`, and the four
+  `packages/fakes/*/src`. Measured beforehand: a 17-file UI-only diff reported
+  `running 0/1 specialist(s)`.
+  The failure was silent in a way RA-3 doesn't cover — the `[GAP]` warning fires for a specialist
+  that was triggered and produced no verdict, not for one that was never triggered, so the run
+  printed "No findings 🎵" while a **blocking** reviewer sat out. `spec-adherence` already used
+  `packages/**/src/**`, so the two blocking reviewers disagreed about what counts as source.
+  This is the gate CLAUDE.md's "new surface ⇒ test in the same change" rule leans on, so the hole
+  was directly under the rule it was meant to enforce.
+  Widened to `packages/**/src/**`. The durable part is the gate, not the glob: a test discovers
+  every `packages/**/src` directory **from disk** and asserts each source-scoped reviewer matches
+  it, so the next nested package cannot silently reopen the hole. A second test asserts every
+  specialist directory declares some trigger and has the files the README documents.
+  Regression tests: the four `… triggers on every packages/**/src root on disk (#192)` cases, the
+  nested-`src` assertions in `globToRegExp: …`, and `every specialist directory has the three files
+…` in `lib/lib.test.mjs`.
+  The coverage backlog the first UI runs surfaced is tracked in
+  [issue #196](https://github.com/dylanleatham/Marquee/issues/196), not here — three blocking gaps
+  (`roomArm.ts` untested outright, `batchJob.ts` backoff/staleness, `api.ts` `downloadCardArtPrint`),
+  kept out of the routing fix so it stayed reviewable on its own.
+
 - **RA-4 — specialists replied in prose, so a blocking finding couldn't block.** Fixed 2026-07-26
   ([issue #117](https://github.com/dylanleatham/Marquee/issues/117)). The measured state beforehand,
   reviewing `feat/104-batch-add-and-regenerate`: _every_ specialist that had something to say said it
