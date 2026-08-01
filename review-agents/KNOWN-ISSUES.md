@@ -35,6 +35,10 @@ _None currently._
   Regression tests: the four `… triggers on every packages/**/src root on disk (#192)` cases, the
   nested-`src` assertions in `globToRegExp: …`, and `every specialist directory has the three files
 …` in `lib/lib.test.mjs`.
+  The coverage backlog the first UI runs surfaced is tracked in
+  [issue #196](https://github.com/dylanleatham/Marquee/issues/196), not here — three blocking gaps
+  (`roomArm.ts` untested outright, `batchJob.ts` backoff/staleness, `api.ts` `downloadCardArtPrint`),
+  kept out of the routing fix so it stayed reviewable on its own.
 
 - **RA-4 — specialists replied in prose, so a blocking finding couldn't block.** Fixed 2026-07-26
   ([issue #117](https://github.com/dylanleatham/Marquee/issues/117)). The measured state beforehand,
