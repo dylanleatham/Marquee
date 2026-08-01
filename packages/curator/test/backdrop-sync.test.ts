@@ -166,7 +166,7 @@ describe("BackdropSync → Backdrop (real HTTP)", () => {
     const res = await deadSync.syncAlbum(store.read("dead0001")!);
     expect(res.ok).toBe(false);
     const issues = store.read("dead0001")!.roadie.syncIssues;
-    expect(issues[0]).toMatch(/Backdrop sync failed/);
+    expect(issues[0]).toMatch(/^Backdrop: sync failed/);
     // The issue surfaces in the derived status the UI renders.
     expect(store.read("dead0001")!.status.issues).toContain(issues[0]);
   });
@@ -186,6 +186,57 @@ describe("BackdropSync → Backdrop (real HTTP)", () => {
     const result = await sync().resyncAll(store.list());
     expect(result.pushed).toBe(1);
     expect(Object.keys(backdrop.entries)).toEqual(["curator:album:has0vid1"]);
+  });
+
+  // ADR 0045: a full resync in `push` mode streams every visualizer — hours on a poor link — so it
+  // runs inside a job. A job you cannot watch or stop is not meaningfully better than a blocked
+  // request, so progress and cancellation have to reach all the way down.
+  it("resyncAll reports progress per album, counting ones with no video", async () => {
+    store.save(withVideo("prog0001"));
+    store.save(makeAsset("prog0002")); // no visualizer — still an album we walked past
+    const seen: Array<[number, number]> = [];
+    await sync().resyncAll(store.list(), {
+      onProgress: (done, total) => seen.push([done, total]),
+    });
+    expect(seen).toEqual([
+      [0, 2],
+      [1, 2],
+      [2, 2],
+    ]);
+  });
+
+  it("resyncAll stops between albums when cancelled", async () => {
+    for (const id of ["canc0001", "canc0002", "canc0003"])
+      store.save(withVideo(id));
+    const ac = new AbortController();
+    const result = await sync().resyncAll(store.list(), {
+      onProgress: (done) => {
+        if (done === 1) ac.abort();
+      },
+      signal: ac.signal,
+    });
+    expect(result.pushed).toBe(1);
+  });
+
+  it("resyncAll hands the signal to the upload, so a cancel aborts the transfer in flight", async () => {
+    store.save(withVideo("abrt0001"));
+    mkdirSync(store.paths.visualizers, { recursive: true });
+    writeFileSync(store.paths.visualizerFile("abrt0001"), Buffer.from("MP4"));
+    let sawSignal: AbortSignal | undefined;
+    const spySync = new BackdropSync({
+      store,
+      client: new BackdropClient({ url, sharedSecret: SECRET }),
+      backdropMediaDir: mediaDir,
+      mediaTransfer: {
+        mode: "push",
+        async copyVisualizer(_src, _fileId, ctx) {
+          sawSignal = ctx?.signal;
+        },
+      },
+    });
+    const ac = new AbortController();
+    await spySync.resyncAll(store.list(), { signal: ac.signal });
+    expect(sawSignal).toBe(ac.signal);
   });
 
   // Issue #187: `{"pushed":12,"failures":[]}` came back instantly right after nine visualizers were
@@ -234,7 +285,7 @@ describe("BackdropSync → Backdrop (real HTTP)", () => {
     const { ok, discrepancies } = await sync().verify(store.list());
     expect(ok).toBe(false);
     expect(discrepancies).toEqual([
-      "curator:album:missing1 not in Backdrop library",
+      "curator:album:missing1 not in the library",
     ]);
   });
 
@@ -245,7 +296,7 @@ describe("BackdropSync → Backdrop (real HTTP)", () => {
     const check = await sync().verifyAlbum(store.read("verme001")!);
     expect(check.ok).toBe(false);
     expect(store.read("verme001")!.roadie.syncIssues).toEqual([
-      "curator:album:verme001 not in Backdrop library",
+      "Backdrop: curator:album:verme001 not in the library",
     ]);
   });
 
@@ -497,7 +548,7 @@ describe("server routes trigger Backdrop sync", () => {
     });
     expect(res.json()).toEqual({
       ok: false,
-      discrepancies: ["curator:album:veri0001 not in Backdrop library"],
+      discrepancies: ["curator:album:veri0001 not in the library"],
     });
   });
 

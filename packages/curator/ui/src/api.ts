@@ -191,7 +191,9 @@ export type JobKind =
   | "cardArt"
   | "paletteBatch"
   /** Streaming a visualizer to Backdrop (issue #177). Progress is bytes, not items. */
-  | "mediaTransfer";
+  | "mediaTransfer"
+  /** Pushing the whole library to the runtime (ADR 0045). Progress is albums. */
+  | "runtimeSync";
 export type JobStatus = "running" | "done" | "failed" | "cancelled";
 
 /** A background generation job (issue #30 / ADR 0018). Mirrors GenerationJob on the server. */
@@ -693,7 +695,7 @@ export const api = {
       `/api/albums/${id}/jobs${kind ? `?kind=${kind}` : ""}`,
     ),
   /** Library-scoped jobs — how the batch panel reattaches to a sweep after a reload (ADR 0029). */
-  libraryJobs: (kind: "paletteBatch") =>
+  libraryJobs: (kind: "paletteBatch" | "runtimeSync") =>
     req<{ jobs: GenerationJob[] }>(`/api/jobs?kind=${kind}`),
   /** Re-derive every algorithmic palette. `force` includes hand-edited ones, which are otherwise skipped. */
   regeneratePalettes: (force = false) =>

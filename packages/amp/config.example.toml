@@ -12,7 +12,10 @@ shared_secret = "change-me-lan-only-secret"
 
 [storage]
 data_dir = "data"             # holds amp.json (the target Sonos room). Keep out of git.
-# album_assets_dir = "data/album-assets"   # the rsync target Curator pushes; default {data_dir}/album-assets
+# MUST equal Conductor's album_assets_dir: Curator pushes the store to Conductor's ingest API and Amp
+# reads the resulting directory (ADR 0045). The default below is NOT that directory — an Amp left on
+# defaults reads a path nothing writes, and every card scan fails to resolve an album.
+# album_assets_dir = "/home/pi/marquee-data/album-assets"
 
 [runtime]
 idle_timeout_minutes = 90

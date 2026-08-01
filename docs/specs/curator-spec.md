@@ -38,7 +38,7 @@ The queue-first workflow — Roadie does everything it can, humans work through 
 - In-app **bench preview** (sleeve + palette animating alongside video, plus desk audio on the workstation's own Spotify client; no hardware touched — [ADR 0028](../adrs/0028-preview-bench-and-room-modes.md), [ADR 0037](../adrs/0037-bench-preview-audio-via-spotify-connect.md))
 - Tag payload UI (URI + QR + mark-as-written)
 - **Room rehearsal** against the real runtime services (Conductor + Backdrop + Amp), behind an explicit room-arm switch ([ADR 0028](../adrs/0028-preview-bench-and-room-modes.md))
-- Backdrop sync (library metadata push + media rsync trigger)
+- Runtime push: Backdrop's library projection + video files ([ADR 0038](../adrs/0038-curator-pushes-media-over-http.md)) and the album-assets store Conductor and Amp read ([ADR 0045](../adrs/0045-curator-pushes-album-assets-to-conductor.md))
 - Override art support (upload your own JPG when Spotify's isn't right)
 - Application settings management (listening room, service URLs) with push-on-change to Conductor and Backdrop
 
@@ -282,7 +282,7 @@ Notes on the shape:
 - `tag.payload` is the string written to both sleeve and card stickers — same URI on both physical objects.
 - `tag.sleeve` and `tag.card` track write status per physical object separately, since one may exist without the other (e.g., sleeve tagged today, card printed and tagged next week).
 - `roadie` section owns Roadie's state machine (per the Roadie spec).
-- `roadie.syncIssues` records any problems Roadie encountered while propagating changes to Backdrop (missing files, failed rsync, stale metadata). Each entry has a timestamp, trigger (`video_attach` or `verified`), and human-readable message. Cleared when the issue is resolved or a subsequent successful sync supersedes it. The album's `status.issues` (derived) surfaces the count so it's visible in the queue view.
+- `roadie.syncIssues` records any problems encountered while propagating changes to the runtime — a missing file, an unreachable service, stale metadata. **Plain strings, each namespaced by the service that raised it** (`"Backdrop: sync failed: …"`, `"Conductor: push failed: …"`). Two services write this one array and each replaces its own findings on every attempt — that is how an issue clears when the next sync succeeds — so the prefix is what stops them erasing each other ([ADR 0045](../adrs/0045-curator-pushes-album-assets-to-conductor.md)). The album's `status.issues` (derived) surfaces them so they're visible in the queue view.
 - `status` is derived, not stored. Kept in the JSON for convenience of read-only consumers; recomputed on every save.
 
 ## 8. HTTP API
@@ -648,6 +648,36 @@ live in Curator's config (`[conductor] url`, `shared_secret`, or env `CONDUCTOR_
 | GET    | `/api/backdrop/status`      | `{ enabled, mediaTransfer }` — whether a Backdrop is configured, and whether a sync moves **files** (`none` \| `local` \| `push`) or only metadata.                                                                                                                                                                           |
 | POST   | `/api/backdrop/sync`        | Full library reconcile: push every videoed album (transferring files first). Replies `{ pushed, mediaTransfer, media: { transferred, unchanged, skipped }, failures }` — `pushed` counts **library entries**, `media` counts **files** ([#187](https://github.com/dylanleatham/Marquee/issues/187)). `409` if not configured. |
 | POST   | `/api/backdrop/verify-sync` | Compare Curator's expected projection against Backdrop's live library; return `{ ok, discrepancies }`.                                                                                                                                                                                                                        |
+
+### Runtime push — Curator is the one place data leaves the workstation
+
+The Backdrop routes above cover the video half. The **album-assets store** that Conductor and Amp
+read is pushed by the routes below, over HTTP to Conductor's ingest API
+([ADR 0045](../adrs/0045-curator-pushes-album-assets-to-conductor.md)). Before that ADR it moved only
+by a hand-run `rsync`, and there was no way to tell from Curator that it had stopped happening.
+
+| Method | Path                          | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------ | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/api/albums/:curatorId/push` | Push **one** album everywhere: the asset to Conductor (Amp reads the same directory), the projection to Backdrop, and the video as a background transfer. Replies `{ conductor: {ok,…}, backdrop: {ok,…}, transferJobId? }`. Available at **any** state — unlike `verify-physical`, which is a one-way terminal transition and so cannot be the only way to re-push. `404` for an unknown album.                                                                                                                                                                                                                                                                                                            |
+| POST   | `/api/runtime/sync`           | Push the **whole library**. Returns `202` with a library-scoped `runtimeSync` job; poll `GET /api/jobs/:id`, cancel with `POST /api/jobs/:id/cancel`. Progress counts **album-legs** — one tick per album per _configured_ service, so `total` is `albums × 2` when both Conductor's push and Backdrop are enabled, and `albums × 1` when only one of them is. (Counting a single leg would show the bar finishing while the slow half, the videos, had not started; counting a disabled leg would leave it permanently short.) Deliberately a job, not inline: with `media_transfer = "push"` this streams every visualizer, which is hours over a poor link. `409` when no runtime service is configured. |
+| POST   | `/api/runtime/verify`         | Read-only drift report: `{ conductor: { ok, missing, extra }, backdrop?: { ok, discrepancies } }`. `missing` is what breaks playback; `extra` cannot (the push never deletes) but is the only signal the two stores have diverged. An unreachable service reports `{ ok: false, error }` rather than failing the request.                                                                                                                                                                                                                                                                                                                                                                                   |
+| GET    | `/api/jobs/active`            | Every job currently **running**, any kind, album-scoped or not — what the system-status page polls. `GET /api/jobs` deliberately cannot answer this (it requires a `kind`), and asking per album would be one request per album.                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+
+> **The push is additive — it never deletes.** An album removed in Curator leaves its `{curatorId}.json`
+> behind on the runtime. Dropping runtime data because of a transient Curator state is the worse
+> failure; `POST /api/runtime/verify` reports the leftovers as `extra` instead.
+
+Conductor's URL, shared secret and push opt-in live in Curator's config:
+
+```toml
+[conductor]
+url = "http://runtime-pi:4737"
+shared_secret = "change-me-lan-only-secret"
+# push_assets defaults to true whenever `url` is set explicitly. The default URL (localhost:4737)
+# exists only so the Demo Room proxy has somewhere to aim, and pushing to it on a workstation with no
+# runtime would put an "unreachable" syncIssue on every album.
+# push_assets = false
+```
 
 Backdrop URL and shared secret live in Curator's config:
 

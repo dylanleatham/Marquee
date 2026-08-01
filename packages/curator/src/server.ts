@@ -91,6 +91,12 @@ import {
   effectiveMediaTransferMode,
   type BackdropSyncLike,
 } from "./backdrop/sync.js";
+import { ConductorClient } from "./conductor/client.js";
+import {
+  ConductorSync,
+  disabledConductorSync,
+  type ConductorSyncLike,
+} from "./conductor/sync.js";
 import { AmpClient } from "./amp/client.js";
 import { createLogger } from "@marquee/observability";
 
@@ -118,6 +124,8 @@ export interface BuildOptions {
   prober?: VideoProber;
   /** Injected Backdrop sync (tests point it at a stub Backdrop); prod builds one from config.backdrop. */
   backdrop?: BackdropSyncLike;
+  /** Injected Conductor asset push (tests point it at a stub); prod builds one from config.conductor. */
+  conductorSync?: ConductorSyncLike;
   /** Injected generation-job manager (tests may pass one with a fake clock); prod builds its own. */
   jobs?: GenerationJobs;
   /** Injected Amp client (tests pass one with a fake fetch); prod builds one from config.amp. */
@@ -505,6 +513,26 @@ export function buildServer(opts: BuildOptions = {}) {
           });
         })()
       : disabledBackdropSync);
+  // Conductor asset push (ADR 0045). Off unless a Conductor URL was explicitly configured — the
+  // `conductor.url` default exists for the Demo Room proxy, and pushing to it on a workstation with
+  // no runtime would put an unreachable-syncIssue on every album.
+  const conductorSync: ConductorSyncLike =
+    opts.conductorSync ??
+    (config.conductor.pushAssets
+      ? new ConductorSync({
+          store,
+          client: new ConductorClient({
+            url: config.conductor.url,
+            ...(config.conductor.sharedSecret
+              ? { sharedSecret: config.conductor.sharedSecret }
+              : {}),
+          }),
+          logger: {
+            info: (m) => app.log.info(m),
+            warn: (m) => app.log.warn(m),
+          },
+        })
+      : disabledConductorSync);
   // Amp — the room rehearsal's audio leg (ADR 0028). Absent unless an Amp URL is configured; the
   // rehearsal then reports audio as unconfigured rather than failing (lights + video still run).
   const amp: AmpClient | undefined =
@@ -1107,7 +1135,7 @@ export function buildServer(opts: BuildOptions = {}) {
    * Best-effort throughout: a sync failure is recorded on the album as a syncIssue, never a 5xx on
    * the human action that triggered it.
    */
-  const syncVideoChange = async (asset: AlbumAsset) => {
+  const syncAlbumToRuntime = async (asset: AlbumAsset) => {
     // Cancel any transfer still in flight for this album, **before** anything else and regardless of
     // whether this change owes a new one.
     //
@@ -1125,14 +1153,59 @@ export function buildServer(opts: BuildOptions = {}) {
       if (stale.status === "running") jobs.cancel(stale.id);
     }
 
-    const res = await backdrop.syncMetadata(asset);
-    if (!res.transferNeeded) return undefined;
+    // Conductor reads the whole asset, not Backdrop's projection, so any album change has to reach
+    // it too. Best-effort and recorded like the Backdrop half — an unreachable Conductor must not
+    // fail the human action that triggered this.
+    //
+    // Concurrent, not sequential: the two legs are independent, each records its own namespaced
+    // syncIssue, and neither reads the other's result — so running them in series only added both
+    // services' latency to every attach, detach and verify. Safe against the write race (#38)
+    // because `AssetStore.update` is a fully synchronous read-mutate-save, which the event loop
+    // cannot interleave.
+    const [conductor, backdropRes] = await Promise.all([
+      conductorSync.syncAlbum(asset),
+      backdrop.syncMetadata(asset),
+    ]);
+    const transferJob = backdropRes.transferNeeded
+      ? jobs.start("mediaTransfer", asset.curatorId, async (ctx) => {
+          const out = await backdrop.transferMediaInBackground(asset, ctx);
+          if (!out.ok) throw new Error(out.error ?? "media transfer failed");
+          return {};
+        })
+      : undefined;
 
-    return jobs.start("mediaTransfer", asset.curatorId, async (ctx) => {
-      const out = await backdrop.transferMediaInBackground(asset, ctx);
-      if (!out.ok) throw new Error(out.error ?? "media transfer failed");
-      return {};
+    return { conductor, backdrop: backdropRes, transferJob };
+  };
+
+  /** The video routes only ever wanted the transfer job; keep that shape for them. */
+  const syncVideoChange = async (asset: AlbumAsset) =>
+    (await syncAlbumToRuntime(asset)).transferJob;
+
+  /**
+   * Push one album to the whole runtime, as an API response: the asset to Conductor (which Amp reads
+   * from the same directory) and the projection + video to Backdrop.
+   *
+   * This is the reusable counterpart to `verify-physical`. Verification is a one-way terminal
+   * transition, so hanging the push off it alone would leave a verified album with no in-Curator way
+   * to re-push after, say, a re-attached video — which is how this became a shell command in the
+   * first place.
+   */
+  const pushAlbumToRuntime = async (asset: AlbumAsset) => {
+    const {
+      conductor,
+      backdrop: bd,
+      transferJob,
+    } = await syncAlbumToRuntime(asset);
+    const leg = (r: { ok: boolean; skipped?: boolean; error?: string }) => ({
+      ok: r.ok,
+      ...(r.skipped ? { skipped: true } : {}),
+      ...(r.error ? { error: r.error } : {}),
     });
+    return {
+      conductor: leg(conductor),
+      backdrop: leg(bd),
+      ...(transferJob ? { transferJobId: transferJob.id } : {}),
+    };
   };
 
   app.post("/api/videos/upload", async (req, reply) => {
@@ -1447,13 +1520,21 @@ export function buildServer(opts: BuildOptions = {}) {
     return { jobs: jobs.forAlbum(curatorId, filter) };
   });
 
+  // Everything currently in flight, album-scoped and library-scoped alike. The system-status page
+  // needs "what is this machine doing right now" in one call; `GET /api/jobs` deliberately cannot
+  // answer that (it requires a `kind`), and polling per album does not scale with the library.
+  // Running only — finished jobs are the per-album route's business.
+  app.get("/api/jobs/active", async () => ({ jobs: jobs.active() }));
+
   // Library-scoped jobs of a kind, newest first — how the batch panel reattaches to a sweep that was
   // already running when the window reloaded (ADR 0029). Per-album jobs live at the route above and
   // are deliberately not returned here; `kind` is required so this can never become "all jobs".
   app.get("/api/jobs", async (req, reply) => {
     const kind = (req.query as { kind?: string }).kind;
-    if (kind !== "paletteBatch")
-      return reply.code(400).send({ error: "kind=paletteBatch is required" });
+    if (kind !== "paletteBatch" && kind !== "runtimeSync")
+      return reply
+        .code(400)
+        .send({ error: "kind=paletteBatch or kind=runtimeSync is required" });
     return { jobs: jobs.library(kind) };
   });
 
@@ -1529,6 +1610,10 @@ export function buildServer(opts: BuildOptions = {}) {
     const { curatorId } = req.params as { curatorId: string };
     try {
       const asset = actions.verifyPhysical(actionDeps, curatorId);
+      // Push before verifying (ADR 0045). Verifying used to *check* Backdrop and report drift; now
+      // the last human step of onboarding also makes the runtime true, so "I put the sleeve on the
+      // stand and it worked" is a claim about a system that has actually been given the album.
+      const push = await pushAlbumToRuntime(asset);
       // ★verify-on-verified: confirm Backdrop carries this album; discrepancies surface as syncIssues
       // (non-blocking — the album is verified regardless of Backdrop reachability).
       const verify = await backdrop.verifyAlbum(asset).catch((err) => ({
@@ -1537,7 +1622,7 @@ export function buildServer(opts: BuildOptions = {}) {
           `Backdrop verify unreachable: ${(err as Error).message}`,
         ],
       }));
-      return { state: asset.roadie.state, verify };
+      return { state: asset.roadie.state, push, verify };
     } catch (err) {
       return actionError(err, reply, req);
     }
@@ -1938,6 +2023,86 @@ export function buildServer(opts: BuildOptions = {}) {
         error: `Backdrop not reachable: ${(err as Error).message}`,
       });
     }
+  });
+
+  // --- Runtime push (ADR 0045) — Curator is the one place data leaves the workstation -------------
+  // The Backdrop routes above cover half the runtime; these cover all of it, including the
+  // album-assets store Conductor and Amp read, which until now moved only by a hand-run rsync.
+
+  /** Push one album everywhere. Available at any state, unlike the one-way `verify-physical`. */
+  app.post("/api/albums/:curatorId/push", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const asset = store.read(curatorId);
+    if (!asset) return reply.code(404).send({ error: "album not found" });
+    return pushAlbumToRuntime(asset);
+  });
+
+  /**
+   * Push the whole library. Returns **202 + a job** rather than doing the work inline: with
+   * `media_transfer = "push"` this streams every visualizer, which is hours over a poor link, and
+   * `POST /api/backdrop/sync` holding a request open for that long is the thing this replaces.
+   *
+   * Progress is albums, not bytes — the per-video byte progress belongs to each `mediaTransfer` job,
+   * which the status page shows alongside this one.
+   */
+  app.post("/api/runtime/sync", async (_req, reply) => {
+    if (!conductorSync.enabled && !backdrop.enabled)
+      return reply
+        .code(409)
+        .send({ error: "no runtime services are configured" });
+
+    const job = jobs.start("runtimeSync", undefined, async (ctx) => {
+      const assets = store.list();
+      // Progress counts **album-legs**: each album is pushed once per configured service, so the
+      // total is one tick per album per enabled leg. Counting only one leg would show the bar
+      // finishing while the slow half — the videos — had not started; counting a disabled leg would
+      // leave the bar permanently short, since a no-op sync never reports progress.
+      const conductorLegs = conductorSync.enabled ? assets.length : 0;
+      const backdropLegs = backdrop.enabled ? assets.length : 0;
+      const total = conductorLegs + backdropLegs;
+      const phase = (offset: number) => (done: number) =>
+        ctx.onProgress(offset + done, total);
+
+      // Conductor first: it is small, fast, and it is what makes an album resolvable at all. A
+      // library whose videos are still uploading but whose palettes have landed is a working room.
+      const conductor = await conductorSync.resyncAll(assets, {
+        onProgress: phase(0),
+        signal: ctx.signal,
+      });
+      if (ctx.signal.aborted) return { runtimeSync: { conductor } };
+      const backdropRes = backdrop.enabled
+        ? await backdrop.resyncAll(assets, {
+            onProgress: phase(conductorLegs),
+            signal: ctx.signal,
+          })
+        : undefined;
+      return {
+        runtimeSync: {
+          conductor,
+          ...(backdropRes ? { backdrop: backdropRes } : {}),
+        },
+      };
+    });
+    return reply.code(202).send(job);
+  });
+
+  /** Read-only drift report across the runtime — what the status page's "out of sync" count uses. */
+  app.post("/api/runtime/verify", async (_req, reply) => {
+    const assets = store.list();
+    const [conductor, backdropCheck] = await Promise.all([
+      conductorSync
+        .verify(assets)
+        .catch((err: Error) => ({ ok: false, error: err.message })),
+      backdrop.enabled
+        ? backdrop
+            .verify(assets)
+            .catch((err: Error) => ({ ok: false, error: err.message }))
+        : Promise.resolve(undefined),
+    ]);
+    return reply.send({
+      conductor,
+      ...(backdropCheck ? { backdrop: backdropCheck } : {}),
+    });
   });
 
   // --- Roadie: queue view + observability + controls (roadie-spec §10/§11/§12) ---

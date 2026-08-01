@@ -118,9 +118,12 @@ The album onboarding workflow already defined per-album states. Roadie doesn't i
                             └─────────────────────┘
 
   ★ = Roadie sync triggers on human-driven transitions (see §6):
-      ★sync   = get the video file onto Backdrop's SD card — pushed over HTTP,
-                copied locally, or left to rsync, per media_transfer (§6, ADR 0038)
-      ★verify = verify this album is in Backdrop's library, log any discrepancies
+      ★sync   = push the album asset to Conductor — which Amp reads from the same
+                directory (ADR 0045) — and get the video file onto Backdrop's SD
+                card, pushed over HTTP, copied locally, or left to rsync, per
+                media_transfer (§6, ADR 0038)
+      ★verify = push the album to the whole runtime first (ADR 0045), then verify
+                it is in Backdrop's library and log any discrepancies
 ```
 
 Two important properties:
@@ -197,6 +200,17 @@ Two important properties:
 > (issue #55): the `verified`-transition endpoint (`POST /api/albums/:id/verify-physical`) fires a
 > single-album verify (`syncAlbum`'s counterpart `verifyAlbum`) that records any drift as
 > `syncIssues`; the manual full-library `POST /api/backdrop/verify-sync` remains for recovery.
+>
+> **Update (2026-08-01, [ADR 0045](../adrs/0045-curator-pushes-album-assets-to-conductor.md)): ★ now
+> covers the whole runtime, not just Backdrop.** The **album-assets store** Conductor reads at scan
+> time — and Amp reads from the same directory — is pushed over HTTP too
+> (`PUT /api/album-assets/:curatorId`), at the same triggers plus **verify**, which now pushes before
+> it verifies. Two new controls sit alongside the Backdrop ones: `POST /api/albums/:curatorId/push`
+> (one album, available at any state, since `verified` is terminal and so cannot be the only way to
+> re-push) and `POST /api/runtime/sync` (the whole library, as a cancellable background job).
+> `POST /api/runtime/verify` is the cross-service drift check. Because two services now write
+> `roadie.syncIssues`, each entry is namespaced by the service that raised it so they cannot erase
+> each other's findings.
 
 Curator synchronizes Backdrop at two human-driven transitions. _(Original step-5 design below; the
 mechanism was revised by [ADR 0015](../adrs/0015-backdrop-sync-triggered-at-projection-changes.md) —

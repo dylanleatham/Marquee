@@ -221,7 +221,15 @@ Both Conductor and Backdrop implement an idle timeout: if no scan event has arri
 
 - **Curator → Backdrop metadata**: HTTP push after each save **that changes what Backdrop plays** — a video attach (upsert), detach, or album delete (remove) — via `POST /api/library/update` / `DELETE /api/library/:uri`, plus a full-reconcile `POST /api/library/sync`. Small, atomic, fast. (Not a literal every-save hook: an album still in Roadie's pipeline has no video to project — [ADR 0015](../adrs/0015-backdrop-sync-triggered-at-projection-changes.md), build step 9.)
 - **Curator → Backdrop videos**: streamed by Curator over HTTP (`PUT /api/media/:fileId`, `media_transfer = "push"` — [ADR 0038](../adrs/0038-curator-pushes-media-over-http.md)), skipping files whose `contentHash` Backdrop already reports; or `rsync`/`syncthing` out of band (`media_transfer = "none"`, the default). Big files, tolerant of long-running transfer.
-- **Curator → Conductor asset store**: `rsync` push from workstation to runtime Pi. Curator handles this as an automatic post-save action so it feels the same as the Backdrop HTTP push.
+- **Curator → Conductor asset store**: HTTP push, `PUT /api/album-assets/:curatorId` ([ADR 0045](../adrs/0045-curator-pushes-album-assets-to-conductor.md)). Fires on a video change, on **verify**, on the per-album `POST /api/albums/:curatorId/push`, and for the whole library from `POST /api/runtime/sync` (a background job). **Amp reads the same directory** and is served by the same push. `rsync` still works for a bulk first load, but is no longer required.
+
+> **Corrected 2026-08-01 ([ADR 0045](../adrs/0045-curator-pushes-album-assets-to-conductor.md)).** This
+> line previously read _"`rsync` push … Curator handles this as an automatic post-save action so it
+> feels the same as the Backdrop HTTP push"_ — describing a feature that had never been built, while
+> [runbook A4.3](../runbook.md) said to run `rsync` by hand. The runtime consequently sat six albums
+> behind the workstation for four days with no scan ever driving the lights, and nothing in Curator
+> could say so. The push described above is now real; this note stays as the record of why.
+
 - **Spotify Web API → Curator**: called by Roadie during the album-onboarding pipeline (metadata + art). Read-only. Uses existing OAuth credentials (reuse from your Conflicted Lineup app if convenient).
 
 ### Error handling philosophy

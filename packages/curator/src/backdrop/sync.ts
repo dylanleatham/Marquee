@@ -14,6 +14,7 @@ import { join } from "node:path";
 import type { AssetStore } from "../store/asset-store.js";
 import type { AlbumAsset } from "../albums/asset.js";
 import { deriveStatus } from "../albums/asset.js";
+import { replaceIssuesFrom } from "../sync-issues.js";
 import { BackdropClient } from "./client.js";
 import {
   albumUri,
@@ -166,9 +167,7 @@ export class BackdropSync {
     } catch (err) {
       const message = (err as Error).message;
       this.log.warn(`Backdrop sync failed for ${asset.curatorId}: ${message}`);
-      this.recordSyncIssues(asset.curatorId, [
-        `Backdrop sync failed: ${message}`,
-      ]);
+      this.recordSyncIssues(asset.curatorId, [`sync failed: ${message}`]);
       return { ok: false, error: message };
     }
   }
@@ -203,9 +202,7 @@ export class BackdropSync {
     } catch (err) {
       const message = (err as Error).message;
       this.log.warn(`Backdrop sync failed for ${asset.curatorId}: ${message}`);
-      this.recordSyncIssues(asset.curatorId, [
-        `Backdrop sync failed: ${message}`,
-      ]);
+      this.recordSyncIssues(asset.curatorId, [`sync failed: ${message}`]);
       return { ok: false, error: message, transferNeeded: false };
     }
   }
@@ -266,7 +263,7 @@ export class BackdropSync {
         `Backdrop media transfer failed for ${asset.curatorId}: ${message}`,
       );
       this.recordSyncIssues(asset.curatorId, [
-        `Backdrop media transfer failed: ${message}`,
+        `media transfer failed: ${message}`,
       ]);
       return { ok: false, error: message };
     }
@@ -281,7 +278,7 @@ export class BackdropSync {
     } catch (err) {
       const message = (err as Error).message;
       this.log.warn(`Backdrop remove failed for ${curatorId}: ${message}`);
-      this.recordSyncIssues(curatorId, [`Backdrop sync failed: ${message}`]);
+      this.recordSyncIssues(curatorId, [`sync failed: ${message}`]);
       return { ok: false, error: message };
     }
   }
@@ -290,7 +287,13 @@ export class BackdropSync {
    * Full reconcile (curator-spec §9 "run sync from Curator" recovery): push every album with a
    * visualizer as the complete library, transferring each file first. Returns per-album outcomes.
    */
-  async resyncAll(assets: AlbumAsset[]): Promise<{
+  async resyncAll(
+    assets: AlbumAsset[],
+    ctx: {
+      onProgress?: (done: number, total: number) => void;
+      signal?: AbortSignal;
+    } = {},
+  ): Promise<{
     pushed: number;
     /** The active transfer mode, so "did this move my videos?" is answerable from the response. */
     mediaTransfer: "none" | "local" | "push";
@@ -311,9 +314,16 @@ export class BackdropSync {
       ? await this.client.getLibrary().catch(() => undefined)
       : undefined;
 
-    for (const asset of assets) {
+    ctx.onProgress?.(0, assets.length);
+    for (const [i, asset] of assets.entries()) {
+      // Between albums, not mid-file: a cancel stops the run promptly without corrupting the upload
+      // in flight, which `putMedia`'s own signal handles.
+      if (ctx.signal?.aborted) break;
       const baseEntry = buildLibraryEntry(asset, this.backdropMediaDir);
-      if (!baseEntry) continue;
+      if (!baseEntry) {
+        ctx.onProgress?.(i + 1, assets.length);
+        continue;
+      }
       try {
         const contentHash = this.mediaTransfer
           ? await this.hashVisualizer(asset)
@@ -332,7 +342,7 @@ export class BackdropSync {
             `Backdrop: ${entry.uri} already up to date, skipping upload`,
           );
         } else {
-          await this.transferMedia(asset, entry.filePath);
+          await this.transferMedia(asset, entry.filePath, ctx);
           transferred += 1;
         }
         entries.push(entry);
@@ -342,6 +352,7 @@ export class BackdropSync {
           error: (err as Error).message,
         });
       }
+      ctx.onProgress?.(i + 1, assets.length);
     }
     await this.client.syncAll(entries);
     return {
@@ -371,10 +382,10 @@ export class BackdropSync {
       const entry = buildLibraryEntry(asset, this.backdropMediaDir);
       if (!entry) continue;
       const have = live.entries[entry.uri];
-      if (!have) discrepancies.push(`${entry.uri} not in Backdrop library`);
+      if (!have) discrepancies.push(`${entry.uri} not in the library`);
       else if (have.filePath !== entry.filePath)
         discrepancies.push(
-          `${entry.uri} filePath drift: Backdrop has ${have.filePath}, expected ${entry.filePath}`,
+          `${entry.uri} filePath drift: runtime has ${have.filePath}, expected ${entry.filePath}`,
         );
     }
     return { ok: discrepancies.length === 0, discrepancies };
@@ -396,12 +407,15 @@ export class BackdropSync {
   private async transferMedia(
     asset: AlbumAsset,
     _filePath: string,
+    ctx: { signal?: AbortSignal } = {},
   ): Promise<void> {
     if (!this.mediaTransfer || !asset.visualizer) return; // off → rsync handles the file (Pi)
     const src = this.store.paths.visualizerFile(asset.visualizer.fileId);
     if (!existsSync(src))
       throw new Error(`local visualizer file missing at ${src}`);
-    await this.mediaTransfer.copyVisualizer(src, asset.visualizer.fileId);
+    // The signal reaches `putMedia`, so cancelling a full resync aborts the upload in flight rather
+    // than waiting out a transfer that can take ~90 minutes on the measured link (ADR 0038).
+    await this.mediaTransfer.copyVisualizer(src, asset.visualizer.fileId, ctx);
   }
 
   /**
@@ -441,10 +455,18 @@ export class BackdropSync {
     }
   }
 
-  /** Replace the album's syncIssues (re-reading first so a concurrent write isn't clobbered, #38). */
+  /**
+   * Replace **Backdrop's** syncIssues (re-reading first so a concurrent write isn't clobbered, #38).
+   * Conductor writes the same field for the album-assets push, so this must not clear its entries —
+   * see `replaceIssuesFrom`.
+   */
   private recordSyncIssues(curatorId: string, issues: string[]): void {
     this.store.update(curatorId, (a) => {
-      a.roadie.syncIssues = issues;
+      a.roadie.syncIssues = replaceIssuesFrom(
+        a.roadie.syncIssues,
+        "Backdrop",
+        issues,
+      );
       a.status = deriveStatus(a.roadie);
     });
   }
