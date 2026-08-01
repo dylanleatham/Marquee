@@ -2,7 +2,13 @@
 // nothing is hidden because of `roadie.state`, every workstation is reachable from every state, and
 // a deep link beats the state machine's opinion about where you should be.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, waitFor } from "@testing-library/react";
+import {
+  render,
+  screen,
+  cleanup,
+  fireEvent,
+  waitFor,
+} from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
 import type { AlbumAsset, RoadieState } from "../api";
 
@@ -22,6 +28,10 @@ vi.mock("../api", () => ({
     }),
     uploadArtworkOverride: vi.fn(),
     removeArtworkOverride: vi.fn(),
+    // The primary actions ⌘⏎ reaches (issue #95), one per workstation that has one.
+    editPalette: vi.fn().mockResolvedValue({ palette: null }),
+    markTagWritten: vi.fn().mockResolvedValue({ state: "awaiting_verify" }),
+    verifyAlbum: vi.fn().mockResolvedValue({ state: "verified" }),
   },
   artworkUrl: (id: string) => `/api/albums/${id}/artwork`,
   videoUrl: (id: string) => `/api/albums/${id}/video`,
@@ -187,5 +197,145 @@ describe("AlbumDetail — the workbench rail", () => {
 
     expect(await screen.findByText(/404/)).toBeTruthy();
     expect(railLabels()).toEqual(RAIL);
+  });
+});
+
+/**
+ * The detail's keyboard path (curator-ui-ux §9.1). `1`–`5` and `Esc` shipped with the workbench;
+ * `⌘⏎` is issue #95. The property that ties them together is the one §9.1 states outright: a
+ * shortcut acts on what is on screen, and never silently does nothing — so on a bench with no
+ * primary action the header says so, rather than leaving the key to be discovered as a dud.
+ */
+describe("AlbumDetail — the keyboard path", () => {
+  beforeEach(() => {
+    vi.mocked(api.geminiSettings).mockResolvedValue({
+      configured: false,
+      generateCardArt: false,
+      generateVideo: false,
+    } as never);
+  });
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  const primaryHint = () =>
+    document.querySelector(".bench__primary")?.textContent ?? "";
+  const press = (key: string, init: KeyboardEventInit = {}) =>
+    fireEvent.keyDown(window, { key, ...init });
+
+  it("jumps benches with 1–5 and returns to the queue with Escape", async () => {
+    vi.mocked(api.album).mockResolvedValue(album());
+    renderAt("/albums/abcd1234");
+    await waitFor(() => expect(openBench()).toBe("Look"));
+
+    press("3");
+    await waitFor(() => expect(openBench()).toBe("Card"));
+    press("Escape");
+    expect(await screen.findByText("queue")).toBeTruthy();
+  });
+
+  it("names what ⌘⏎ will do on the open workstation", async () => {
+    vi.mocked(api.album).mockResolvedValue(album());
+    renderAt("/albums/abcd1234/look");
+    await waitFor(() => expect(openBench()).toBe("Look"));
+
+    expect(primaryHint()).toContain("Save palette");
+  });
+
+  it("says plainly that Video and Card have no primary action", async () => {
+    vi.mocked(api.album).mockResolvedValue(album());
+    renderAt("/albums/abcd1234/video");
+    await waitFor(() => expect(openBench()).toBe("Video"));
+
+    expect(primaryHint()).toMatch(/no primary action/i);
+    press("Enter", { metaKey: true });
+    // Inert is a decision, not an accident — nothing fires, and the header already said so.
+    expect(api.editPalette).not.toHaveBeenCalled();
+    expect(api.markTagWritten).not.toHaveBeenCalled();
+  });
+
+  it("runs Look's primary action — but only once there is something to save", async () => {
+    vi.mocked(api.album).mockResolvedValue(album());
+    renderAt("/albums/abcd1234/look");
+    await waitFor(() => expect(openBench()).toBe("Look"));
+
+    // Clean draft: the key must not fire, and the header carries the reason (§10).
+    expect(primaryHint()).toMatch(/no unsaved changes/i);
+    press("Enter", { metaKey: true });
+    expect(api.editPalette).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("Color 1 hex"), {
+      target: { value: "#00FF00" },
+    });
+    await waitFor(() => expect(primaryHint()).not.toMatch(/no unsaved/i));
+    press("Enter", { metaKey: true });
+    await waitFor(() => expect(api.editPalette).toHaveBeenCalledTimes(1));
+    // The *edited* draft, not the one captured when the bench mounted.
+    expect(vi.mocked(api.editPalette).mock.calls[0]?.[1]).toEqual([
+      { hex: "#00FF00", role: "primary" },
+    ]);
+  });
+
+  it("runs Ship's primary action, following the order the bench works in", async () => {
+    vi.mocked(api.album).mockResolvedValue(
+      album({ roadie: { ...album().roadie, state: "awaiting_tag_write" } }),
+    );
+    renderAt("/albums/abcd1234");
+    await waitFor(() => expect(openBench()).toBe("Ship"));
+
+    expect(primaryHint()).toContain("Mark sleeve tag written");
+    press("Enter", { metaKey: true });
+    await waitFor(() =>
+      expect(api.markTagWritten).toHaveBeenCalledWith("abcd1234", "sleeve"),
+    );
+    expect(api.verifyAlbum).not.toHaveBeenCalled();
+  });
+
+  it("moves Ship's primary action on to verification once the sleeve is written", async () => {
+    vi.mocked(api.album).mockResolvedValue(
+      album({
+        roadie: { ...album().roadie, state: "awaiting_verify" },
+        tag: { sleeve: { written: true } },
+      } as Partial<AlbumAsset>),
+    );
+    renderAt("/albums/abcd1234");
+    await waitFor(() => expect(openBench()).toBe("Ship"));
+
+    expect(primaryHint()).toContain("Mark physically verified");
+    press("Enter", { metaKey: true });
+    await waitFor(() =>
+      expect(api.verifyAlbum).toHaveBeenCalledWith("abcd1234"),
+    );
+  });
+
+  it("refuses to verify before the sleeve tag is written, and says why", async () => {
+    vi.mocked(api.album).mockResolvedValue(
+      album({
+        roadie: { ...album().roadie, state: "awaiting_review" },
+        tag: { sleeve: { written: true } },
+      } as Partial<AlbumAsset>),
+    );
+    renderAt("/albums/abcd1234/ship");
+    await waitFor(() => expect(openBench()).toBe("Ship"));
+
+    expect(primaryHint()).toMatch(/write the sleeve tag first/i);
+    press("Enter", { metaKey: true });
+    expect(api.verifyAlbum).not.toHaveBeenCalled();
+  });
+
+  it("never fires while the user is typing in a field", async () => {
+    vi.mocked(api.album).mockResolvedValue(album());
+    renderAt("/albums/abcd1234/look");
+    await waitFor(() => expect(openBench()).toBe("Look"));
+
+    const hex = screen.getByLabelText("Color 1 hex");
+    fireEvent.change(hex, { target: { value: "#00FF00" } });
+    await waitFor(() => expect(primaryHint()).not.toMatch(/no unsaved/i));
+
+    fireEvent.keyDown(hex, { key: "Enter", metaKey: true, bubbles: true });
+    fireEvent.keyDown(hex, { key: "2", bubbles: true });
+    expect(api.editPalette).not.toHaveBeenCalled();
+    expect(openBench()).toBe("Look");
   });
 });

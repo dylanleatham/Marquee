@@ -1533,6 +1533,140 @@ em {
   margin-left: 14px;
 }
 
+/* --- ⌘K's mouse path: the palette has to be findable without reading the keyboard table (§9.1) --- */
+.app__jump {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 12px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.app__jump:hover {
+  color: var(--text);
+  border-color: var(--amber-soft);
+}
+.needs-you + .app__jump,
+.app__jump + .app__nav {
+  margin-left: 14px;
+}
+
+kbd {
+  font-family: var(--mono);
+  font-size: 11px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: var(--muted);
+  background: var(--panel-2);
+  white-space: nowrap;
+}
+
+/* --- the command palette (§9.1, ADR 0043) --- */
+/* Sits high rather than centred: the list grows downward, and a centred box would walk up the
+   screen as you type. */
+.command-palette-scrim {
+  align-items: start;
+  padding-top: 12vh;
+}
+.command-palette {
+  width: min(620px, calc(100vw - 48px));
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+.command-palette__input {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 17px;
+  padding: 15px 18px;
+  outline: none;
+}
+.command-palette__list {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+.command-palette__row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+/* The selected row carries a caret and a border as well as the tint — colour alone is not a state
+   (§3.4), and this list is navigated entirely by eye. */
+.command-palette__row.is-active {
+  background: var(--panel-2);
+  box-shadow: inset 0 0 0 1px var(--amber-soft);
+}
+.command-palette__caret {
+  width: 12px;
+  flex: none;
+  color: var(--amber);
+}
+.command-palette__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.command-palette__sub {
+  color: var(--muted);
+  font-size: 13px;
+}
+.command-palette__hint {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.command-palette__empty,
+.command-palette__error,
+.command-palette__foot {
+  margin: 0;
+  padding: 12px 18px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.command-palette__error {
+  color: var(--alert);
+}
+.command-palette__foot {
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+}
+
+/* --- what ⌘⏎ does on this bench, stated before it is pressed (§9.1, ADR 0044) --- */
+.bench__head .bench__primary {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.bench__primary-label {
+  color: var(--text);
+}
+
 /* --- in-app confirm, replacing window.confirm (§2) --- */
 .modal-scrim {
   position: fixed;

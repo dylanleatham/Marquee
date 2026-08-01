@@ -320,26 +320,25 @@ sit down now?"
 The success criterion is working through ten albums in one session. Ten albums × mousing to every
 control is what turns a session into a chore.
 
-| Context | Key                      | Action                                    | Status   |
-| ------- | ------------------------ | ----------------------------------------- | -------- |
-| Global  | `Ctrl/⌘ ,`               | Settings                                  | built    |
-| Global  | `n`                      | Add album                                 | built    |
-| Queue   | `j` / `k` (or `↓` / `↑`) | Move selection                            | built    |
-| Queue   | `Enter`                  | Open selected album                       | built    |
-| Queue   | `/`                      | Focus search                              | built    |
-| Queue   | `Esc` (in search)        | Leave the search field                    | built    |
-| Detail  | `1`–`5`                  | Jump to rail workstation                  | built    |
-| Detail  | `Esc`                    | Back to queue                             | built    |
-| Global  | `Ctrl/⌘ K`               | Jump to album (fuzzy over title/artist)   | deferred |
-| Detail  | `[` / `]`                | Previous / next album at the same state   | built    |
-| Detail  | `Ctrl/⌘ Enter`           | Primary action of the current workstation | deferred |
+| Context | Key                      | Action                                    | Status |
+| ------- | ------------------------ | ----------------------------------------- | ------ |
+| Global  | `Ctrl/⌘ ,`               | Settings                                  | built  |
+| Global  | `n`                      | Add album                                 | built  |
+| Queue   | `j` / `k` (or `↓` / `↑`) | Move selection                            | built  |
+| Queue   | `Enter`                  | Open selected album                       | built  |
+| Queue   | `/`                      | Focus search                              | built  |
+| Queue   | `Esc` (in search)        | Leave the search field                    | built  |
+| Detail  | `1`–`5`                  | Jump to rail workstation                  | built  |
+| Detail  | `Esc`                    | Back to queue                             | built  |
+| Global  | `Ctrl/⌘ K`               | Jump to album, or run a command           | built  |
+| Detail  | `[` / `]`                | Previous / next album at the same state   | built  |
+| Detail  | `Ctrl/⌘ Enter`           | Primary action of the current workstation | built  |
 
 > **Status added 2026-07-25** when the keyboard path was implemented; `[`/`]` built 2026-07-26
-> ([issue #94](https://github.com/dylanleatham/Marquee/issues/94)). The two remaining deferred rows
-> are not abandoned, but each is a feature rather than a binding: `Ctrl/⌘ K` needs a command-palette
-> surface and `Ctrl/⌘ Enter` needs each workstation to declare which of its controls is primary.
-> They are tracked in [issue #95](https://github.com/dylanleatham/Marquee/issues/95) rather than
-> silently dropped.
+> ([issue #94](https://github.com/dylanleatham/Marquee/issues/94)); `Ctrl/⌘ K` and `Ctrl/⌘ Enter`
+> built 2026-07-31 ([issue #95](https://github.com/dylanleatham/Marquee/issues/95)), each of which
+> needed a surface rather than a handler — see below. **The table is now complete: every binding
+> specified here is implemented.**
 
 `[` / `]` implement the onboarding workflow's "next album at this state is a first-class affordance"
 (§12 there). The neighbours come from the **server**, sharing the queue's own bucketing
@@ -364,6 +363,41 @@ intermittently does nothing is worse than one that doesn't exist, because the us
 they have. The decision itself lives in `ui/src/queueKeys.ts` as a pure function of the live rows, so
 the clamping rules are checkable without racing a render.
 
+#### The command palette (`Ctrl/⌘ K`)
+
+Ranks **albums and commands in one list, albums first**
+([ADR 0043](../adrs/0043-command-palette-carries-commands.md)). An empty input lists the commands
+only — fuzzy matching needs letters, and a whole library dumped into an empty overlay buries the
+short list worth showing before you have typed. The commands are navigational (Queue, Add album,
+Settings, the NFC how-to): **the palette takes you places, it does not do things.** Arming the room
+is deliberately absent — its switch stays in the status bar where its state is continuously visible
+([ADR 0028](../adrs/0028-preview-bench-and-room-modes.md)) — as is anything that spends a Gemini
+call. Ranking is a pure function in `ui/src/commandPalette.ts`, for the reason `queueKeys.ts` is.
+`GET /api/albums` already carries what it needs, fetched when the palette opens rather than polled;
+a failed fetch still leaves the commands working and says why the albums are missing.
+
+The palette has a mouse path — the header's **Jump…** button — but no app-menu item (§9.2).
+
+#### The primary action (`Ctrl/⌘ Enter`)
+
+Each workstation **declares its own** primary action into a slot the detail page owns
+([ADR 0044](../adrs/0044-workstations-declare-their-primary-action.md)); the answer depends on state
+the workstation holds — Look's is "save the palette", and only the palette editor knows whether the
+draft differs from what is stored — so it cannot live in the rail's own table.
+
+| Workstation | `Ctrl/⌘ Enter`                                           |
+| ----------- | -------------------------------------------------------- |
+| Look        | Save palette — disabled, with the reason, when not dirty |
+| Video       | _none_                                                   |
+| Card        | _none_                                                   |
+| Preview     | Looks good (approve). The rejections stay mouse-only     |
+| Ship        | Mark sleeve tag written, then Mark physically verified   |
+
+Video and Card have no single primary control — draft, generate, attach and select are alternative
+routes to the same artifact, chosen by what you happen to be holding (ADR 0026). **The bench header
+always names what `Ctrl/⌘ Enter` will do**, including "No primary action on this workstation", which
+is what keeps an inert key honest: a state you can read before you press it is not a silent one.
+
 ### 9.2 App menu
 
 `autoHideMenuBar: true` with no menu defined means the app has no discoverable command surface and no
@@ -375,6 +409,10 @@ fullscreen), Help (docs) — makes the shortcuts discoverable and the OS integra
 > any non-`/api` GET, so a menu item costs no new IPC surface. The **room-arm switch deliberately
 > stayed out of the menu** — it belongs in the status bar where its state is continuously visible
 > (§6.3); a menu item would hide the one thing that must never be forgotten.
+>
+> **The command palette is not in the menu either (2026-07-31).** Loading a route is exactly what it
+> must not do: the palette is an overlay over wherever you already are, and a menu item would have to
+> reload the window to open it. Its discoverable half is the header's **Jump…** button instead.
 
 ### 9.3 Window
 
