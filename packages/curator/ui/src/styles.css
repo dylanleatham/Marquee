@@ -2119,3 +2119,43 @@ kbd {
 .transfer--failed {
   border-color: var(--alert);
 }
+
+/* --- System status page ------------------------------------------------------------------------
+   The album matrix is the page's reason to exist: the only view that says "Curator has thirteen
+   albums and the runtime has six". Wide by nature, so it scrolls inside its own container rather
+   than pushing the page sideways. */
+.matrix__scroll {
+  overflow-x: auto;
+}
+.matrix {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+.matrix th,
+.matrix td {
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+}
+.matrix thead th {
+  font-weight: 600;
+  color: var(--muted);
+}
+.matrix tbody th {
+  font-weight: 500;
+  white-space: normal;
+}
+/* Present/absent reads from the glyph, never the colour alone (curator-ui-ux §3.4); the tint is a
+   second channel for people who do perceive it, and every cell also carries screen-reader text. */
+.matrix__cell {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.matrix__cell--yes {
+  color: var(--ok, inherit);
+}
+.matrix__cell--no {
+  color: var(--alert, inherit);
+}

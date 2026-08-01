@@ -108,6 +108,12 @@ export interface Config {
    * `X-Trigger-Secret` as the other services.
    */
   amp?: { url: string; sharedSecret?: string };
+  /**
+   * How Curator reaches Stylus, for the system-status page only. Stylus *produces* scan events; it
+   * never consumes them, so unlike the other three this is a read-only observability target and
+   * never appears in a rehearsal fan-out. Absent → the status page reports it unconfigured.
+   */
+  stylus?: { url: string; sharedSecret?: string };
 }
 
 // Upload ceiling. A compiled-in 500 MB cap rejected real 1 GB visualizer videos (issue #12), so
@@ -137,6 +143,7 @@ export function loadConfig(override: Partial<Config> = {}): Config {
   const conductorFile = file.conductor ?? {};
   const backdropFile = file.backdrop ?? {};
   const ampFile = file.amp ?? {};
+  const stylusFile = file.stylus ?? {};
 
   // Resolve the data dir first: it holds settings.json, the user-writable credential store the
   // packaged app relies on (it has no repo `.env`). config.toml/env still win, so dev is unchanged.
@@ -295,6 +302,20 @@ export function loadConfig(override: Partial<Config> = {}): Config {
     ? resolve(backdropMediaDirRaw)
     : backdropMediaDirRaw;
 
+  // Stylus — the stand's reader, for the system-status page only. Read-only: Stylus *produces* scan
+  // events and never consumes one, so unlike the three below it is never a fan-out target. Absent →
+  // the page reports it unconfigured, which is distinct from unreachable.
+  //
+  // `shared_secret` is accepted for uniformity and sent as `X-Trigger-Secret`, but **Stylus's status
+  // server does not check it** — `StatusService.handle` inspects only method and path (stylus-spec
+  // §8.3). Harmless today and correct the day Stylus gains inbound auth; recorded here so nobody
+  // reads its presence as evidence that `/status` is protected.
+  const stylusUrl =
+    (stylusFile.url as string | undefined) ?? process.env.STYLUS_URL;
+  const stylusSecret =
+    (stylusFile.shared_secret as string | undefined) ??
+    process.env.TRIGGER_SHARED_SECRET;
+
   // Amp (ADR 0028) — the room rehearsal's audio leg. Configured only when a URL is present; absent
   // → the rehearsal reports audio as unconfigured rather than failing (lights + video still run).
   const ampUrl = (ampFile.url as string | undefined) ?? process.env.AMP_URL;
@@ -348,6 +369,14 @@ export function loadConfig(override: Partial<Config> = {}): Config {
           amp: {
             url: ampUrl,
             ...(ampSecret ? { sharedSecret: ampSecret } : {}),
+          },
+        }
+      : {}),
+    ...(stylusUrl
+      ? {
+          stylus: {
+            url: stylusUrl,
+            ...(stylusSecret ? { sharedSecret: stylusSecret } : {}),
           },
         }
       : {}),

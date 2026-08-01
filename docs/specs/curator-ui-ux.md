@@ -313,6 +313,45 @@ The onboarding workflow's rule stands: the needs-you number is the only number t
 treatment. Adding queue depth or total albums beside it muddies the one signal that answers "should I
 sit down now?"
 
+## 8.5 System status — the page you open when something is wrong
+
+Added 2026-08-01, at `/system`. Every runtime service already had a status endpoint; what was
+missing is that **the failures worth catching are disagreements between hosts**, and answering one
+meant curling four services and diffing the results by hand.
+
+So the heart of the page is the **album matrix** — the only view that says "Curator has thirteen
+albums and the runtime has six". One row per album, one column per host that should be holding part
+of it:
+
+| Column              | Answers                                                                                                                     |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Video attached      | Curator has a visualizer — without one there is nothing downstream to hold                                                  |
+| On Conductor        | The asset was pushed, so a scan can drive the lights ([ADR 0045](../adrs/0045-curator-pushes-album-assets-to-conductor.md)) |
+| In Backdrop library | Backdrop can resolve the scan URI to a file path                                                                            |
+| Video on Backdrop   | …and the bytes are actually there ([ADR 0038](../adrs/0038-curator-pushes-media-over-http.md))                              |
+
+The last two are deliberately separate columns. The entry and the bytes travel on different legs, so
+"listed but unplayable" is a real state — and it is exactly how an album sat in the library with no
+mp4 for a day, looking healthy from every angle.
+
+Also on the page: service reachability, what is playing (video / lights / audio), **the stand**, jobs
+in flight, and one **Sync everything** button. Read-only apart from that button — this is the page
+you open when something is wrong, so it must never be the reason something is wrong.
+
+**The stand** is the section that pays for itself during bring-up. It reports Stylus's _reader_ view,
+not its state machine (stylus-spec §8), which distinguishes three things that used to be one blank:
+nothing on the stand, a tag present whose NDEF won't decode, and a tag that decoded but carries
+something unactionable. The last refusal is kept after the sleeve is lifted.
+
+Two rules this page must not break:
+
+- **Never colour alone (§3.4).** Every matrix cell is a glyph plus screen-reader text naming what it
+  means _for that column_ — "no" is not equally bad everywhere; no video attached is mid-workflow,
+  missing from Conductor is broken. Each album also carries a **word**, Ready or Incomplete.
+- **State the limits rather than implying completeness.** Conductor's playback view covers only CLIP
+  playback and carries no `curatorId`, so an album on a streaming pattern reports nothing. The page
+  says so in place instead of showing a confident blank.
+
 ## 9. Desktop affordances
 
 ### 9.1 Keyboard

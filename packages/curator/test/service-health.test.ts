@@ -65,12 +65,15 @@ describe("GET /api/settings/service-health", () => {
     );
   };
 
-  it("reports all three services", async () => {
+  // Exact, not a subset: a service silently dropped from the probe list would leave the Settings
+  // screen quietly blind to it. Stylus joined when the system-status page needed its reachability.
+  it("reports every runtime service", async () => {
     const byName = await health(curator());
     expect(Object.keys(byName).sort()).toEqual([
       "amp",
       "backdrop",
       "conductor",
+      "stylus",
     ]);
   });
 

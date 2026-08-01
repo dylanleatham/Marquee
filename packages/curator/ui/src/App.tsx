@@ -13,6 +13,7 @@ import { AlbumDetail } from "./pages/AlbumDetail";
 import { AddAlbum } from "./pages/AddAlbum";
 import { DemoRoom } from "./pages/DemoRoom";
 import { Settings } from "./pages/Settings";
+import { SystemStatus } from "./pages/SystemStatus";
 import { TagHelp } from "./pages/TagHelp";
 import { RoadieStrip } from "./components/RoadieStrip";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -108,6 +109,9 @@ export function App() {
           >
             Jump… <kbd>⌘K</kbd>
           </button>
+          <Link to="/system" className="app__nav">
+            System
+          </Link>
           <Link to="/settings" className="app__nav">
             Settings
           </Link>
@@ -125,6 +129,7 @@ export function App() {
                 element={<AlbumDetail />}
               />
               <Route path="/demo/:curatorId" element={<DemoRoom />} />
+              <Route path="/system" element={<SystemStatus />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/help/tags" element={<TagHelp />} />
               <Route

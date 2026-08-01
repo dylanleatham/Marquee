@@ -393,6 +393,11 @@ export interface DemoRoomInfo {
  * because a rehearsal degrades rather than fails.
  */
 export interface RehearsalLeg {
+  /**
+   * Deliberately **not** the same union as `ServiceHealth`. A rehearsal fans a scan *out* to the
+   * services that consume one; Stylus is what *produces* scans and never receives one, so it can be
+   * probed for reachability but can never be a leg here.
+   */
   service: "conductor" | "backdrop" | "amp";
   ok: boolean;
   reason?: string;
@@ -404,11 +409,61 @@ export interface RehearsalLeg {
  * different problems with different fixes.
  */
 export interface ServiceHealth {
-  service: "conductor" | "backdrop" | "amp";
+  service: "conductor" | "backdrop" | "amp" | "stylus";
   configured: boolean;
   reachable: boolean;
   url?: string;
   detail?: string;
+}
+
+/** What the reader sees, as opposed to what its state machine did (stylus-spec §8). */
+export interface StylusStatus {
+  state: string;
+  readerId?: string;
+  lastUid?: string | null;
+  lastUri?: string | null;
+  /** On the stand right now. `uri: null` = present but undecodable; whole object null = empty stand. */
+  observed?: { uid: string; uri: string | null; at: string } | null;
+  /** The last tag refused — kept after the sleeve is lifted. */
+  lastBadTag?: { uid: string; uri: string | null; at: string } | null;
+  downstreamHealth?: Record<string, boolean>;
+}
+
+/** One album across every host that should hold part of it (GET /api/system/status). */
+export interface AlbumPresence {
+  curatorId: string;
+  name: string;
+  artist: string;
+  hasVideo: boolean;
+  onConductor: boolean;
+  inBackdropLibrary: boolean;
+  /** Entry present **and** Backdrop confirms the bytes. Absent `fileMissing` reads as "can't tell". */
+  videoOnBackdrop: boolean;
+}
+
+/** Everything at once, for the System status page (GET /api/system/status). */
+export interface SystemStatus {
+  at: string;
+  services: ServiceHealth[];
+  playing: {
+    video: {
+      state: string;
+      uri: string | null;
+      filePath: string | null;
+      browserConnected?: boolean;
+    } | null;
+    lights: Array<{
+      roomId: string;
+      source?: { name?: string; artist?: string };
+      pattern?: string;
+      startedAt?: string;
+    }> | null;
+    audio: { state?: string; target?: string | null } | null;
+    caveats: string[];
+  };
+  stylus: StylusStatus | null;
+  albums: AlbumPresence[];
+  jobs: GenerationJob[];
 }
 
 /** Aggregate Conductor health for the Demo Room header (GET /api/demo/status). */
@@ -534,6 +589,29 @@ export const api = {
   /** Reachability of each sibling service, for the Settings screen (issue #101). */
   serviceHealth: () =>
     req<{ services: ServiceHealth[] }>("/api/settings/service-health"),
+  /** Everything the System status page renders, in one bounded call. Always 200. */
+  systemStatus: () => req<SystemStatus>("/api/system/status"),
+  /** Push the whole library to the runtime — returns a job to poll (ADR 0045). */
+  runtimeSync: () =>
+    req<GenerationJob>("/api/runtime/sync", { method: "POST" }),
+  /** Read-only drift report across Conductor and Backdrop. */
+  runtimeVerify: () =>
+    req<{
+      conductor: {
+        ok: boolean;
+        missing?: string[];
+        extra?: string[];
+        error?: string;
+      };
+      backdrop?: { ok: boolean; discrepancies?: string[]; error?: string };
+    }>("/api/runtime/verify", { method: "POST" }),
+  /** Push one album everywhere. Available at any state, unlike verify-physical. */
+  pushAlbum: (curatorId: string) =>
+    req<{
+      conductor: { ok: boolean; skipped?: boolean; error?: string };
+      backdrop: { ok: boolean; skipped?: boolean; error?: string };
+      transferJobId?: string;
+    }>(`/api/albums/${curatorId}/push`, { method: "POST" }),
 
   /** Audio leg of a rehearsal (ADR 0028). Amp-unconfigured comes back as `played:false` + a reason. */
   demoAudio: (curatorId: string) =>
