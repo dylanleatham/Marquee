@@ -44,11 +44,25 @@ class StylusApp:
         # Observability for GET /status.
         self._last_event: dict[str, Any] | None = None
         self._downstream_health: dict[str, bool] = {}
+        # What the *reader* saw, as opposed to what the machine did with it.
+        #
+        # Everything else here describes the state machine, so it only ever populates once an album
+        # has actually started playing. A sleeve sitting on the reader being rejected — an unwritten
+        # tag, a garbled NDEF, a URI for some other scheme — left /status looking exactly like an
+        # empty stand, which is the one case you need it for (issue #198's bring-up debugging).
+        self._observed: dict[str, Any] | None = None
+        self._last_bad_tag: dict[str, Any] | None = None
         self._led.set(Pattern.IDLE)
 
     # --- one poll cycle ---------------------------------------------------------------------------
     def tick(self):
-        action = self._machine.observe(self._reader.poll())
+        tag = self._reader.poll()
+        # Recorded before the machine runs, and regardless of what it decides: a tag the machine
+        # ignores is exactly the one worth reporting.
+        self._observed = (
+            None if tag is None else {"uid": tag.uid, "uri": tag.uri, "at": self._now()}
+        )
+        action = self._machine.observe(tag)
         if action is not None:
             self._handle(action)
         self._apply_steady_led()
@@ -67,6 +81,13 @@ class StylusApp:
             self._publish(stop_event(self._reader_id, at=self._now()))
         elif isinstance(action, BadTag):
             log.warning("tag %s carried no valid curator:(album|card) URI — ignoring", action.uid)
+            # Kept after the sleeve is lifted, so "I took it off before I thought to look" still has
+            # an answer. `observed` goes null the moment the reader sees nothing; this does not.
+            self._last_bad_tag = {
+                "uid": action.uid,
+                "uri": self._observed["uri"] if self._observed else None,
+                "at": self._now(),
+            }
             self._led.set(Pattern.ERROR)
 
     def _ack_start(self) -> None:
@@ -110,8 +131,14 @@ class StylusApp:
         return {
             "state": self._machine.state.value,
             "readerId": self._reader_id,
+            # The machine's view: what is *playing*. Null until a scan actually fired.
             "lastUid": self._machine.current_uid,
             "lastUri": self._machine.current_uri,
             "lastEvent": self._last_event,
             "downstreamHealth": self._downstream_health,
+            # The reader's view: what is *on the stand right now*, decoded or not. Null means the
+            # reader sees nothing — which is how you tell an empty stand from a rejected sleeve.
+            "observed": self._observed,
+            # The last tag the machine refused, remembered across removal.
+            "lastBadTag": self._last_bad_tag,
         }
