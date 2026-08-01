@@ -95,12 +95,17 @@ shows Backdrop's idle gradient. (The video-plays check comes after A4's sync, in
 - [ ] Curator `config.toml`: `[conductor]` + `[backdrop]` urls, shared secret, Backdrop `media_dir` (the path **on the Pi**)
 - [ ] One album prepared to **at least `awaiting_review`** (has palette + pattern) — else scans give `202 album not ready`
 - [ ] A visualizer video attached/spliced to that album — else lights work but no video
-- [ ] `rsync` asset store → Pi's `album_assets_dir`
-- [ ] Videos on the Pi: either Curator `media_transfer = "push"` (streams them during sync, ADR 0038)
-      or `rsync` videos → Pi's media dir
-- [ ] `POST /api/backdrop/sync` (library projection)
+- [ ] Curator's `CONDUCTOR_URL` (or `[conductor] url`) set **explicitly** — the localhost default
+      leaves the album-assets push off (ADR 0045)
+- [ ] Amp's `album_assets_dir` **equals Conductor's** — the default is a different directory that
+      nothing writes, so card scans would never resolve an album
+- [ ] `POST /api/runtime/sync` — pushes the asset store to Conductor, the projection to Backdrop, and
+      (with `media_transfer = "push"`) the videos. Returns a job; poll `GET /api/jobs/:id`
+- [ ] Videos on the Pi: covered by the above with `media_transfer = "push"` (ADR 0038); otherwise
+      `rsync` videos → Pi's media dir
 
-**GATE 4:** `POST http://<workstation-curator>/api/backdrop/verify-sync` reports **no drift**.
+**GATE 4:** `POST http://<workstation-curator>/api/runtime/verify` reports **no drift** —
+`conductor.missing` and `backdrop.discrepancies` both empty.
 
 ---
 

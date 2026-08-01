@@ -14,14 +14,39 @@ import { dirname } from "node:path";
 import type { VideoClip, CardArtCandidate } from "../albums/asset.js";
 import type { BatchPaletteReport } from "../albums/batch.js";
 
-export type JobKind = "video" | "cardArt" | "paletteBatch" | "mediaTransfer";
+export type JobKind =
+  | "video"
+  | "cardArt"
+  | "paletteBatch"
+  | "mediaTransfer"
+  /** Pushing the whole library to the runtime (ADR 0045). Library-scoped: no curatorId. */
+  | "runtimeSync";
 export type JobStatus = "running" | "done" | "failed" | "cancelled";
+
+/** What one runtime service made of a full push (ADR 0045). */
+export interface RuntimeSyncLeg {
+  pushed: number;
+  failures: Array<{ curatorId: string; error: string }>;
+}
 
 /** What a finished job produced — the same payloads the synchronous routes used to return. */
 export interface JobResult {
   videoClips?: VideoClip[];
   cardArtCandidates?: CardArtCandidate[];
   paletteBatch?: BatchPaletteReport;
+  /**
+   * A full runtime push, per service. `backdrop` is absent when no Backdrop is configured, which is
+   * a different thing from one that pushed nothing — the distinction issue #187 was about.
+   */
+  runtimeSync?: {
+    conductor: RuntimeSyncLeg;
+    backdrop?: {
+      pushed: number;
+      mediaTransfer: "none" | "local" | "push";
+      media: { transferred: number; unchanged: number; skipped: number };
+      failures: Array<{ curatorId: string; error: string }>;
+    };
+  };
 }
 
 export interface GenerationJob {
@@ -174,6 +199,21 @@ export class GenerationJobs {
     this.gc();
     return [...this.jobs.values()]
       .filter((j) => j.curatorId === undefined && j.kind === kind)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map(snapshot);
+  }
+
+  /**
+   * Every job still running, newest first, whatever its kind or album.
+   *
+   * The complement of `forAlbum`/`library`, which both need to know what they are looking for. The
+   * system-status page needs the opposite — "is this machine busy, and with what" — and asking that
+   * per album would mean one request per album in the library.
+   */
+  active(): GenerationJob[] {
+    this.gc();
+    return [...this.jobs.values()]
+      .filter((j) => j.status === "running")
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .map(snapshot);
   }

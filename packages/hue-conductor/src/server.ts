@@ -17,8 +17,10 @@ import {
 } from "@marquee/contracts";
 import {
   FsAlbumAssetReader,
+  FsAlbumAssetWriter,
   curatorIdFromUri,
   type AlbumAssetReader,
+  type AlbumAssetWriter,
 } from "./assets.js";
 import { isStreamEffect } from "./stream/renderers.js";
 import { StreamSession } from "./stream/session.js";
@@ -43,6 +45,8 @@ export interface BuildOptions {
   timers?: Timers;
   /** Injected album-assets reader (tests seed albums in memory); prod reads the synced store. */
   assets?: AlbumAssetReader;
+  /** Injected album-assets writer (tests capture pushes); prod writes the synced store (ADR 0045). */
+  assetWriter?: AlbumAssetWriter;
   /** Injected streaming controller (tests fake it); prod builds one lazily from the paired bridge. */
   streamSession?: StreamController;
 }
@@ -64,6 +68,39 @@ function clipFallback(payload: PalettePayload): PalettePayload {
           }
         : { type: "static", params: {} };
   return { ...payload, pattern };
+}
+
+/**
+ * Narrow a pushed album asset at the boundary (ADR 0045). Hand-written like every other parser here:
+ * `album-asset.schema.json` exists but nothing in the repo validates against it at runtime, and one
+ * route is the wrong place to introduce a schema library.
+ *
+ * Checks only what Conductor depends on plus the identity fields — the asset is Curator's shape and
+ * Conductor reads a documented slice of it (`AlbumPaletteInput`). Being stricter here would reject
+ * albums over fields this service never looks at. A palette that isn't ready yet is deliberately
+ * *accepted*: `/api/scan` already degrades that to `202 ignored: album not ready`, and refusing the
+ * push would mean an album could never be staged before its palette lands.
+ */
+function parseAssetPush(
+  body: unknown,
+  expectedId: string,
+): { asset: Record<string, unknown> } | { error: string } {
+  if (typeof body !== "object" || body === null || Array.isArray(body))
+    return { error: "expected an album-asset object" };
+  const b = body as Record<string, unknown>;
+  if (b.version !== 1)
+    return { error: `unsupported asset version: ${JSON.stringify(b.version)}` };
+  if (typeof b.curatorId !== "string")
+    return { error: "curatorId is required" };
+  if (b.curatorId !== expectedId)
+    return {
+      error: `curatorId ${JSON.stringify(b.curatorId)} does not match the path ${JSON.stringify(expectedId)}`,
+    };
+  for (const key of ["metadata", "roadie"] as const) {
+    if (typeof b[key] !== "object" || b[key] === null)
+      return { error: `${key} is required` };
+  }
+  return { asset: b };
 }
 
 /** Parse a scan event at the boundary (mirrors Backdrop's parser). Returns null on a malformed body. */
@@ -107,6 +144,9 @@ export function buildServer(opts: BuildOptions = {}) {
   });
   // Reads the synced album-assets store so a raw scan can drive the lights (issue #45 / ADR 0019).
   const assets = opts.assets ?? new FsAlbumAssetReader(config.albumAssetsDir);
+  // ...and writes it, so Curator can push the store instead of an operator running rsync (ADR 0045).
+  const assetWriter =
+    opts.assetWriter ?? new FsAlbumAssetWriter(config.albumAssetsDir);
 
   // Streaming (Entertainment API, ADR 0024). Built lazily from the paired bridge on first use — it
   // needs the DTLS `clientkey`, captured at pairing. Returns null when streaming isn't possible yet
@@ -384,6 +424,55 @@ export function buildServer(opts: BuildOptions = {}) {
   // album not synced yet, album not far enough along) degrades gracefully to a 202 "ignored" rather
   // than an error — a scan must never error-storm the always-on service (runtime-overview §9). The
   // engine arms the 90-min idle timeout on start, the safety net for a lost `stop`.
+  // --- Album-asset ingest (ADR 0045) -------------------------------------------------------------
+  // Curator pushes the store here instead of an operator running `rsync`. `FsAlbumAssetReader` holds
+  // no cache and does no file-watching, so a pushed asset is live for the very next scan.
+  //
+  // The explicit `bodyLimit` matters: Fastify defaults to 1 MB and nothing else in the repo raises
+  // it, while an asset carrying many `cardArtCandidates` and prompt drafts can grow well past a
+  // typical ~14 KB. 4 MB is generous for JSON and still bounded.
+  app.put<{ Params: { curatorId: string } }>(
+    "/api/album-assets/:curatorId",
+    { bodyLimit: 4 * 1024 * 1024 },
+    async (req, reply) => {
+      const { curatorId } = req.params;
+      if (!/^[a-z0-9]{8}$/.test(curatorId))
+        return reply
+          .code(400)
+          .send({ error: "curatorId must match /^[a-z0-9]{8}$/" });
+
+      const parsed = parseAssetPush(req.body, curatorId);
+      if ("error" in parsed) return reply.code(400).send(parsed);
+
+      try {
+        const bytes = await assetWriter.write(curatorId, parsed.asset);
+        req.log.info(`album asset pushed: ${curatorId} (${bytes} bytes)`);
+        return { curatorId, bytes };
+      } catch (err) {
+        // Mapped here rather than rethrown on purpose: `setErrorHandler` below defaults to **502**
+        // and echoes `err.message`, so a local disk failure would reach Curator dressed as a bad
+        // gateway and read as "the network ate it" in the sync issue.
+        req.log.error(err);
+        return reply
+          .code(500)
+          .send({ error: `could not write the album asset: ${curatorId}` });
+      }
+    },
+  );
+
+  // What Curator diffs against to report drift on the system-status page. Ids only — Curator already
+  // holds the authoritative bodies, and shipping 13 full assets back would be pure noise.
+  app.get("/api/album-assets", async (req, reply) => {
+    try {
+      return { curatorIds: await assetWriter.list() };
+    } catch (err) {
+      req.log.error(err);
+      return reply
+        .code(500)
+        .send({ error: "could not list the album-assets store" });
+    }
+  });
+
   app.post("/api/scan", async (req, reply) => {
     const scan = parseScan(req.body);
     if (!scan)

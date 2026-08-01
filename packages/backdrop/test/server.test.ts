@@ -208,6 +208,53 @@ describe("backdrop HTTP API", () => {
     expect(res.json()).toEqual({ removed: false });
   });
 
+  // Listed-but-unplayable is the failure Curator cannot otherwise see: the entry and the bytes move
+  // on separate legs (ADR 0038), so an entry can be present while the mp4 never arrived.
+  describe("GET /api/library reports playability", () => {
+    const getLibrary = (app: ReturnType<typeof build>["app"]) =>
+      app.inject({ method: "GET", url: "/api/library", headers: AUTH });
+
+    it("marks an entry whose file is on disk as present", async () => {
+      const { app } = build();
+      const entry = (await getLibrary(app)).json().entries[URI];
+      expect(entry.fileMissing).toBe(false);
+      expect(entry.durationSec).toBe(187); // the stored fields still come through
+    });
+
+    it("marks an entry whose file was never transferred as missing", async () => {
+      const { app, mediaDir } = build();
+      await app.inject({
+        method: "POST",
+        url: "/api/library/update",
+        headers: AUTH,
+        payload: {
+          uri: "curator:album:ghost123",
+          filePath: `${mediaDir}/ghost123.mp4`,
+        },
+      });
+      const entries = (await getLibrary(app)).json().entries;
+      expect(entries["curator:album:ghost123"].fileMissing).toBe(true);
+      expect(entries[URI].fileMissing).toBe(false);
+    });
+
+    it("marks an entry pointing outside mediaDir as missing, matching what play() would refuse", async () => {
+      const { app, controller } = build();
+      const outside = "curator:album:outside1";
+      await app.inject({
+        method: "POST",
+        url: "/api/library/update",
+        headers: AUTH,
+        payload: { uri: outside, filePath: "/etc/passwd" },
+      });
+      expect((await getLibrary(app)).json().entries[outside].fileMissing).toBe(
+        true,
+      );
+      // The report and the enforcement agree — that's the point of sharing fileIsPlayable.
+      controller.play(outside);
+      expect(controller.status().state).toBe("idle");
+    });
+  });
+
   it("admin play / stop / simulate-scan drive the controller", async () => {
     const { app, controller } = build();
 

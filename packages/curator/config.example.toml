@@ -21,11 +21,18 @@ data_dir = "~/marquee"
 # token = "..."
 # username = "..."
 
-# How the Demo Room reaches Hue Conductor to drive the real lights (ADR 0007). Defaults shown; or use
-# env vars CONDUCTOR_URL / TRIGGER_SHARED_SECRET. The shared secret must match Conductor's [auth].
+# How Curator reaches Hue Conductor — for the Demo Room's real lights (ADR 0007) and to push the
+# album-assets store (ADR 0045). Defaults shown; or use env vars CONDUCTOR_URL /
+# TRIGGER_SHARED_SECRET. The shared secret must match Conductor's [auth].
 # [conductor]
 # url = "http://localhost:4737"
 # shared_secret = "change-me-lan-only-secret"
+#
+# push_assets: send the album-assets store to Conductor, which is also what Amp reads (ADR 0045).
+# Defaults to true whenever `url` is set explicitly, and false otherwise — the default localhost URL
+# exists so the Demo Room proxy has somewhere to aim, and pushing to it on a workstation with no
+# runtime would put an "unreachable" syncIssue on every album. Env: CURATOR_CONDUCTOR_PUSH_ASSETS.
+# push_assets = true
 
 # Backdrop — the video half. Absent → sync disabled. Env: BACKDROP_URL / BACKDROP_MEDIA_DIR /
 # BACKDROP_MEDIA_TRANSFER.

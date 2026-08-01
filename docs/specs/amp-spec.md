@@ -82,7 +82,7 @@ Mirrors Conductor and Backdrop for consistency.
 │  (stand)     │  { event, uri, … }  │   (Fastify, headless)       │  (LAN)        │  coordinator │
 └──────────────┘                     │                             │               └──────┬───────┘
                                      │  ┌───────────────────────┐  │                      │
-        Curator ──rsync──► album-    │  │   Playback engine     │  │                 [ Speakers ]
+    Curator ──HTTP push──► album-    │  │   Playback engine     │  │                 [ Speakers ]
         assets store  ─┐            │  │   - card gate         │  │
                        └───────────>│  │   - idle timeout      │  │
               PUT /api/settings ───>│  │   SonosDriver (port)  │  │
@@ -215,6 +215,20 @@ shape:
 | `albumAssetsDir`     | `[storage].album_assets_dir` / `ALBUM_ASSETS_DIR` | `{dataDir}/album-assets`                   |
 | `idleTimeoutMinutes` | `[runtime].idle_timeout_minutes`                  | `90`                                       |
 | `defaultTargetRoom`  | `[sonos].target_room` / `AMP_TARGET_ROOM`         | `null` (else set via `PUT /api/settings`)  |
+
+> **`album_assets_dir` must point at Conductor's
+> ([ADR 0045](../adrs/0045-curator-pushes-album-assets-to-conductor.md)).** Curator pushes the store
+> to Conductor's ingest API and Amp reads the resulting directory — one push serves both, because
+> they are siblings on one Pi (runtime-overview §7). **The default is not that directory**, so an Amp
+> left on defaults reads a path nothing writes and every card scan fails to resolve an album. Set it
+> explicitly:
+>
+> ```toml
+> [storage]
+> album_assets_dir = "/home/pi/marquee-data/album-assets"   # must equal Conductor's
+> ```
+>
+> If Amp ever moves to its own host, this coupling breaks and Amp needs its own ingest route.
 
 ## 13. Testing
 

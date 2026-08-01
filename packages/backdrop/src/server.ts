@@ -11,7 +11,11 @@ import type { ScanEvent, LibraryEntry } from "@marquee/contracts";
 import { loadConfig, type Config } from "./config.js";
 import { Library } from "./library.js";
 import { SocketHub, type Socket } from "./hub.js";
-import { PlaybackController, type Timers } from "./controller.js";
+import {
+  PlaybackController,
+  fileIsPlayable,
+  type Timers,
+} from "./controller.js";
 import { createLogger } from "@marquee/observability";
 
 const pkgDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -303,7 +307,26 @@ export function buildServer(opts: BuildOptions = {}) {
     return { removed };
   });
 
-  app.get("/api/library", async () => library.all());
+  // Each entry carries `fileMissing`, so a caller can tell "Backdrop knows about this album" from
+  // "Backdrop can actually play it". Curator's sync pushes the entry and the bytes on separate legs
+  // (ADR 0038) and the entry lands first by design, so listed-but-unplayable is a real, expected
+  // intermediate state — and, when a transfer never happened, a silent one. This is what makes it
+  // visible. `existsSync` per entry is a stat over a library of tens; not worth caching.
+  app.get("/api/library", async () => {
+    const { entries, ...rest } = library.all();
+    return {
+      ...rest,
+      entries: Object.fromEntries(
+        Object.entries(entries).map(([uri, entry]) => [
+          uri,
+          {
+            ...entry,
+            fileMissing: !fileIsPlayable(config.mediaDir, entry.filePath),
+          },
+        ]),
+      ),
+    };
+  });
 
   // --- Admin / dev overrides ---------------------------------------------------------------------
   app.post("/api/admin/play", async (req, reply) => {

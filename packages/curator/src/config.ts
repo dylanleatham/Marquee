@@ -64,7 +64,20 @@ export interface Config {
    * Conductor). `sharedSecret` is the same `X-Trigger-Secret` the other services use; absent → the
    * demo calls Conductor unauthenticated (fine only when Conductor also runs with auth disabled).
    */
-  conductor: { url: string; sharedSecret?: string };
+  conductor: {
+    url: string;
+    sharedSecret?: string;
+    /**
+     * Whether to push the album-assets store to this Conductor (ADR 0045).
+     *
+     * Defaults on **only when a URL was explicitly configured**. The `url` above always has a value
+     * (localhost:4737), so pushing unconditionally would mean every album on a workstation with no
+     * runtime collecting a "Conductor unreachable" syncIssue — noise that would train you to ignore
+     * the field that is supposed to tell you the runtime is out of date. Set `push_assets` to
+     * override in either direction.
+     */
+    pushAssets: boolean;
+  };
   /**
    * How Curator reaches Backdrop to sync its library (build step 9, roadie-spec §6). Absent → sync is
    * disabled (the common case with no runtime Pi running). `mediaDir` is where Backdrop reads videos
@@ -220,6 +233,23 @@ export function loadConfig(override: Partial<Config> = {}): Config {
   const port = Number(server.port ?? process.env.CURATOR_PORT ?? 4739);
   const host = String(server.host ?? "127.0.0.1");
 
+  // Conductor asset push (ADR 0045). An explicitly-configured URL is the signal that a real runtime
+  // exists to push to — the default localhost URL is only there so the Demo Room proxy has somewhere
+  // to aim. `push_assets` overrides either way, for a co-located Conductor (the desktop app) or to
+  // turn the push off while keeping the demo proxy pointed somewhere.
+  const conductorUrl =
+    (conductorFile.url as string | undefined) ?? process.env.CONDUCTOR_URL;
+  // Tri-state, unlike `asBool`: "unset" has to stay distinguishable from "explicitly false", or an
+  // absent setting would read as "off" and silently disable the push wherever it defaults to on.
+  const rawPushAssets =
+    conductorFile.push_assets ?? process.env.CURATOR_CONDUCTOR_PUSH_ASSETS;
+  const conductorPushAssets =
+    rawPushAssets === undefined ||
+    rawPushAssets === null ||
+    rawPushAssets === ""
+      ? Boolean(conductorUrl)
+      : asBool(rawPushAssets);
+
   // Backdrop sync (step 9). Configured only when a URL is present; absent → sync disabled. mediaDir
   // defaults to Curator's own visualizers dir — correct for a shared-root single-machine setup, and
   // meant to be overridden with Backdrop's real media path on a split (Pi) deployment.
@@ -292,11 +322,8 @@ export function loadConfig(override: Partial<Config> = {}): Config {
       1024,
     dataDir,
     conductor: {
-      url: String(
-        conductorFile.url ??
-          process.env.CONDUCTOR_URL ??
-          "http://localhost:4737",
-      ),
+      url: String(conductorUrl ?? "http://localhost:4737"),
+      pushAssets: conductorPushAssets,
       ...((conductorFile.shared_secret ?? process.env.TRIGGER_SHARED_SECRET)
         ? {
             sharedSecret: String(

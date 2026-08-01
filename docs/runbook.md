@@ -61,7 +61,7 @@ Work top-to-bottom; each step ends with a **Check** so a failure tells you which
    shared_secret = "<your-lan-secret>"
    [storage]
    data_dir = "data"                                   # bridge credential + settings
-   album_assets_dir = "/home/pi/marquee-data/album-assets"   # the rsync target (issue #45)
+   album_assets_dir = "/home/pi/marquee-data/album-assets"   # Curator pushes here (ADR 0045); Amp must match
    [runtime]
    idle_timeout_minutes = 90                           # safety net for a lost stop
    ```
@@ -164,16 +164,27 @@ a CLIP pattern; check `journalctl -u marquee-conductor` for `streaming … faile
      Conductor needs a **palette + pattern** (present from `awaiting_review` on) or a scan degrades to
      `202 ignored: album not ready`.
    - Attach or **splice** a visualizer video (issue #29) so Backdrop has a file to play.
-3. **Sync to the Pi:**
-   - **Asset store → Conductor:** `rsync -a ~/marquee/album-assets/ pi@marquee-pi5:/home/pi/marquee-data/album-assets/`
-     (must equal Conductor's `album_assets_dir`).
-   - **Videos → Backdrop:** set Curator's `media_transfer = "push"` and it streams each video as part
-     of the sync ([ADR 0038](adrs/0038-curator-pushes-media-over-http.md)) — nothing to run by hand.
-     Otherwise (`media_transfer = "none"`, the default) move them yourself:
+3. **Sync to the Pi — one action, from Curator** ([ADR 0045](adrs/0045-curator-pushes-album-assets-to-conductor.md)):
+   - `POST /api/runtime/sync` (or the **Sync everything** button) pushes the **album-assets store to
+     Conductor**, the **library projection to Backdrop**, and — with `media_transfer = "push"` — the
+     **videos** too. It returns `202` with a job; poll `GET /api/jobs/:id` for progress, or
+     `POST /api/jobs/:id/cancel` to stop it. One album alone: `POST /api/albums/:curatorId/push`.
+   - **Prerequisites, both one-time:** Curator needs `CONDUCTOR_URL` (or `[conductor] url`) set
+     explicitly — the localhost default deliberately does not enable the push — and **Amp's
+     `album_assets_dir` must equal Conductor's**, or card scans read a directory nothing writes.
+   - **Check:** `POST /api/runtime/verify` reports drift for both services —
+     `conductor: { missing, extra }` and `backdrop: { discrepancies }`. `missing` is what breaks
+     playback; `extra` is a leftover from a deleted album and is harmless (the push never deletes).
+   - **rsync still works** and is still the faster choice for a first bulk load over a good link:
+     `rsync -a ~/marquee/album-assets/ pi@marquee-pi5:/home/pi/marquee-data/album-assets/` and
      `rsync -a ~/marquee/media/visualizers/ pi@marquee-pi5:/home/pi/marquee-data/media/visualizers/`.
-     rsync is still the faster choice for a first bulk load over a good link.
-   - **Library projection → Backdrop:** `POST /api/backdrop/sync` on Curator pushes the URI→file map.
-   - **Check:** `POST /api/backdrop/verify-sync` on Curator reports no drift.
+     It is no longer a required step.
+
+> **Why this used to be manual, and why it matters.** Until ADR 0045 the asset store moved only by
+> that `rsync`, and nothing reported when it had stopped. On this hardware the runtime sat six albums
+> behind a thirteen-album workstation for four days: every scan logged
+> `202 ignored: album not synced`, no scan ever drove the lights, and Curator called every album
+> healthy the whole time.
 
 ### A5. Smoke-test the full chain — _before_ the stand
 
@@ -458,10 +469,11 @@ invisible from the service status. For a colour-free read of the kiosk's own vie
   bridge link button when prompted.
 - **Force a service back to idle:** `POST http://<pi>:4737/api/playback/stop` (Conductor) /
   `POST http://<pi>:4740/api/admin/stop` (Backdrop).
-- **Re-sync after adding/attaching:** Curator → `POST /api/backdrop/sync`. With
-  `media_transfer = "push"` that carries the videos too, skipping any whose `contentHash` already
-  matches; otherwise rsync them yourself (A4.3). The asset store → Conductor rsync is unaffected.
-  `POST /api/backdrop/verify-sync` to confirm.
+- **Re-sync after adding/attaching:** Curator → `POST /api/runtime/sync`, which covers **both**
+  halves — the album-assets store to Conductor (ADR 0045) and the projection to Backdrop. With
+  `media_transfer = "push"` it carries the videos too, skipping any whose `contentHash` already
+  matches; otherwise rsync those yourself (A4.3). One album only:
+  `POST /api/albums/:curatorId/push`. `POST /api/runtime/verify` to confirm.
 
   > ⚠️ **`pushed` counts library entries, not files.** `media_transfer` defaults to **`none`**, and with
   > it off a sync returns instantly having moved **zero bytes of video** — which looks exactly like a
@@ -477,17 +489,17 @@ invisible from the service status. For a colour-free read of the kiosk's own vie
 
 ### Debug matrix
 
-| Symptom                                        | Look at                                         | Likely cause                                                                                                                                                                                 |
-| ---------------------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/api/test/color` does nothing                 | Conductor logs; `GET /api/bridge/status`        | Not paired / bridge unreachable — re-run pairing (A2.2)                                                                                                                                      |
-| Any scan → 401                                 | the `X-Trigger-Secret` on every hop             | Secret mismatch between Stylus/Curator and Conductor/Backdrop                                                                                                                                |
-| Scan `202 ignored: no listening room`          | `GET /api/settings`                             | Listening room not set (A2.4)                                                                                                                                                                |
-| Scan `202 ignored: album not synced`           | the Pi's `album_assets_dir`                     | rsync didn't land `{curatorId}.json` (A4.3). **Desktop app:** Conductor and Curator disagree on the store — see [ADR 0008](adrs/0008-desktop-app-supervises-services.md)'s 2026-07-27 update |
-| Scan `202 ignored: album not ready`            | the album's Roadie state in Curator             | No palette/pattern yet — advance to `awaiting_review` (A4.2)                                                                                                                                 |
-| Lights work, no video                          | Backdrop logs; `POST /api/backdrop/verify-sync` | Library not synced / video file not on Backdrop's SD (A4.3). Check the library's `filePath` really sits under Backdrop's `media_dir` — a `C:/…` prefix means a Curator older than issue #166 |
-| `current` empty but scan returned `playing`    | Conductor logs                                  | Bridge call failed mid-apply (409 not paired / 502)                                                                                                                                          |
-| Sleeve on stand does nothing, but A5/A6 worked | Stylus logs; LED                                | NFC read/mount tuning, or Stylus can't reach the Pi 5                                                                                                                                        |
-| Effect stays after lifting the sleeve          | —                                               | Missed `stop`; the 90-min idle timeout is the backstop, or stop it by hand                                                                                                                   |
+| Symptom                                        | Look at                                         | Likely cause                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ---------------------------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/api/test/color` does nothing                 | Conductor logs; `GET /api/bridge/status`        | Not paired / bridge unreachable — re-run pairing (A2.2)                                                                                                                                                                                                                                                                                                                                                           |
+| Any scan → 401                                 | the `X-Trigger-Secret` on every hop             | Secret mismatch between Stylus/Curator and Conductor/Backdrop                                                                                                                                                                                                                                                                                                                                                     |
+| Scan `202 ignored: no listening room`          | `GET /api/settings`                             | Listening room not set (A2.4)                                                                                                                                                                                                                                                                                                                                                                                     |
+| Scan `202 ignored: album not synced`           | the Pi's `album_assets_dir`                     | Curator never pushed the asset. Run `POST /api/runtime/verify` — the album will be in `conductor.missing` — then `POST /api/runtime/sync` (A4.3). If the push is not firing at all, Curator's `CONDUCTOR_URL` is unset, so `push_assets` defaults off (ADR 0045). **Desktop app:** Conductor and Curator disagree on the store — see [ADR 0008](adrs/0008-desktop-app-supervises-services.md)'s 2026-07-27 update |
+| Scan `202 ignored: album not ready`            | the album's Roadie state in Curator             | No palette/pattern yet — advance to `awaiting_review` (A4.2)                                                                                                                                                                                                                                                                                                                                                      |
+| Lights work, no video                          | Backdrop logs; `POST /api/backdrop/verify-sync` | Library not synced / video file not on Backdrop's SD (A4.3). Check the library's `filePath` really sits under Backdrop's `media_dir` — a `C:/…` prefix means a Curator older than issue #166                                                                                                                                                                                                                      |
+| `current` empty but scan returned `playing`    | Conductor logs                                  | Bridge call failed mid-apply (409 not paired / 502)                                                                                                                                                                                                                                                                                                                                                               |
+| Sleeve on stand does nothing, but A5/A6 worked | Stylus logs; LED                                | NFC read/mount tuning, or Stylus can't reach the Pi 5                                                                                                                                                                                                                                                                                                                                                             |
+| Effect stays after lifting the sleeve          | —                                               | Missed `stop`; the 90-min idle timeout is the backstop, or stop it by hand                                                                                                                                                                                                                                                                                                                                        |
 
 Full failure-mode table: `docs/specs/runtime-overview.md §9`. During bring-up, the scan response's
 `action`/`reason` plus Conductor's `/api/playback/current` are your fastest signal for which layer is

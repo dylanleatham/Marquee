@@ -330,6 +330,55 @@ describe("loadConfig", () => {
     );
   });
 
+  // ADR 0045. `conductor.url` always has a value (the Demo Room proxy needs somewhere to aim), so
+  // presence cannot gate the asset push the way it does for Backdrop — an explicit URL does.
+  describe("conductor.pushAssets", () => {
+    const clearConductorEnv = () => {
+      delete process.env.CONDUCTOR_URL;
+      delete process.env.CURATOR_CONDUCTOR_PUSH_ASSETS;
+    };
+
+    it("is off when the URL is only the localhost default", () => {
+      noFile();
+      clearConductorEnv();
+      const c = loadConfig();
+      expect(c.conductor.url).toBe("http://localhost:4737");
+      expect(c.conductor.pushAssets).toBe(false);
+    });
+
+    it("is on once a URL is configured explicitly", () => {
+      noFile();
+      clearConductorEnv();
+      process.env.CONDUCTOR_URL = "http://runtime-pi:4737";
+      expect(loadConfig().conductor.pushAssets).toBe(true);
+    });
+
+    it("can be forced off while keeping the URL for the demo proxy", () => {
+      noFile();
+      clearConductorEnv();
+      process.env.CONDUCTOR_URL = "http://runtime-pi:4737";
+      process.env.CURATOR_CONDUCTOR_PUSH_ASSETS = "false";
+      expect(loadConfig().conductor.pushAssets).toBe(false);
+    });
+
+    it("can be forced on for a co-located Conductor (the desktop app)", () => {
+      noFile();
+      clearConductorEnv();
+      process.env.CURATOR_CONDUCTOR_PUSH_ASSETS = "true";
+      const c = loadConfig();
+      expect(c.conductor.url).toBe("http://localhost:4737");
+      expect(c.conductor.pushAssets).toBe(true);
+    });
+
+    it("reads the opt-in from config.toml", () => {
+      clearConductorEnv();
+      withFile(
+        '[conductor]\nurl = "http://runtime-pi:4737"\npush_assets = false\n',
+      );
+      expect(loadConfig().conductor.pushAssets).toBe(false);
+    });
+  });
+
   it("derives the Spotify OAuth redirect URI from host + port by default", () => {
     noFile();
     process.env.SPOTIFY_CLIENT_ID = "id";

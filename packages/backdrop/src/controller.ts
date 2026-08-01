@@ -51,6 +51,21 @@ export interface Status {
 
 const DEFAULT_IDLE_MS = 90 * 60 * 1000;
 
+/**
+ * Whether a library entry's `filePath` is something we would actually hand the browser: it must sit
+ * under `mediaDir` (defense-in-depth against a poisoned library) **and** the bytes must be there.
+ *
+ * Exported so `GET /api/library` reports the same verdict the controller enforces at play time. When
+ * these were two separate judgements, Curator could sync an entry, see it listed, and still get a
+ * silent no-op on scan because the mp4 had never been moved — which is exactly how DAMN. sat in the
+ * library unplayable for a day.
+ */
+export function fileIsPlayable(mediaDir: string, filePath: string): boolean {
+  const rel = relative(mediaDir, filePath);
+  if (rel.startsWith("..") || isAbsolute(rel)) return false;
+  return existsSync(filePath);
+}
+
 export class PlaybackController {
   private state: PlaybackState = "idle";
   private uri: string | null = null;
@@ -120,7 +135,7 @@ export class PlaybackController {
       });
       return;
     }
-    if (!this.fileIsPlayable(entry.filePath)) {
+    if (!fileIsPlayable(this.mediaDir, entry.filePath)) {
       this.log.warn(
         { uri, filePath: entry.filePath },
         "video file missing or outside media dir — staying put",
@@ -156,13 +171,6 @@ export class PlaybackController {
   /** Cancel any pending idle timer (e.g. on shutdown / test teardown). */
   dispose(): void {
     this.clearIdleTimeout();
-  }
-
-  private fileIsPlayable(filePath: string): boolean {
-    // Reject anything that resolves outside mediaDir before we ever hand it to the browser.
-    const rel = relative(this.mediaDir, filePath);
-    if (rel.startsWith("..") || isAbsolute(rel)) return false;
-    return existsSync(filePath);
   }
 
   private armIdleTimeout(): void {

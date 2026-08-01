@@ -870,4 +870,224 @@ describe("hue-conductor HTTP API", () => {
       expect(res.statusCode).toBe(401);
     });
   });
+
+  // ADR 0045 — Curator pushes the album-assets store here instead of an operator running rsync.
+  describe("album-asset ingest", () => {
+    const ID = "2k7bxq9m";
+    const asset = {
+      version: 1,
+      curatorId: ID,
+      createdAt: "2026-08-01T00:00:00.000Z",
+      metadata: { name: "Purple Rain", artist: "Prince" },
+      roadie: { state: "verified" },
+      palette: { colors: [{ hex: "#4B0082", role: "primary" }] },
+      pattern: { type: "static", params: {} },
+    };
+
+    /** A writer that records pushes in memory, so the route is tested without touching disk. */
+    const spyWriter = (onWrite?: () => never) => {
+      const written = new Map<string, unknown>();
+      return {
+        written,
+        write: async (curatorId: string, body: unknown) => {
+          onWrite?.();
+          written.set(curatorId, body);
+          return JSON.stringify(body).length;
+        },
+        list: async () => [...written.keys()].sort(),
+      };
+    };
+
+    const build = (writer = spyWriter()) => ({
+      writer,
+      ...buildServer({
+        config: { sharedSecret: SECRET },
+        store: seededStore(),
+        driver: livingRoom().driver,
+        assetWriter: writer,
+      }),
+    });
+
+    // Serialise here rather than letting inject infer: a bare JSON scalar ("a string", 42) needs an
+    // explicit content-type or Fastify answers 415 before the route's own validation ever runs.
+    const put = (
+      app: ReturnType<typeof buildServer>["app"],
+      id: string,
+      payload: unknown,
+    ) =>
+      app.inject({
+        method: "PUT",
+        url: `/api/album-assets/${id}`,
+        headers: { ...AUTH, "content-type": "application/json" },
+        payload: JSON.stringify(payload),
+      });
+
+    it("accepts a pushed asset and hands it to the writer", async () => {
+      const { app, writer } = build();
+      const res = await put(app, ID, asset);
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ curatorId: ID });
+      expect(res.json().bytes).toBeGreaterThan(0);
+      expect(writer.written.get(ID)).toMatchObject({
+        metadata: { name: "Purple Rain" },
+      });
+    });
+
+    it("requires the shared secret", async () => {
+      const { app } = build();
+      const res = await app.inject({
+        method: "PUT",
+        url: `/api/album-assets/${ID}`,
+        payload: asset as never,
+      });
+      expect(res.statusCode).toBe(401);
+    });
+
+    it.each(["TOOLONGGG", "UPPER123", "short", "2k7bxq9!"])(
+      "rejects the malformed curatorId %s before touching the writer",
+      async (id) => {
+        const { app, writer } = build();
+        const res = await put(app, id, { ...asset, curatorId: id });
+        expect(res.statusCode).toBe(400);
+        expect(res.json().error).toMatch(/curatorId must match/);
+        expect(writer.written.size).toBe(0);
+      },
+    );
+
+    // `..` never reaches the handler — the router normalises it away — but the guard that matters is
+    // that nothing is written, whichever layer says no.
+    it("never writes for a path-traversal attempt", async () => {
+      const { app, writer } = build();
+      const res = await put(app, "../etc", asset);
+      expect(res.statusCode).not.toBe(200);
+      expect(writer.written.size).toBe(0);
+    });
+
+    it("rejects a body whose curatorId disagrees with the path", async () => {
+      const { app, writer } = build();
+      const res = await put(app, ID, { ...asset, curatorId: "zzzz9999" });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toMatch(/does not match the path/);
+      expect(writer.written.size).toBe(0);
+    });
+
+    it("rejects an unsupported asset version", async () => {
+      const { app } = build();
+      const res = await put(app, ID, { ...asset, version: 2 });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toMatch(/unsupported asset version/);
+    });
+
+    it.each(["metadata", "roadie"])(
+      "rejects an asset missing %s",
+      async (k) => {
+        const { app } = build();
+        const res = await put(app, ID, { ...asset, [k]: undefined });
+        expect(res.statusCode).toBe(400);
+        expect(res.json().error).toMatch(new RegExp(`${k} is required`));
+      },
+    );
+
+    it.each([["a string"], [42], [null], [[1, 2]]])(
+      "rejects a non-object body (%s)",
+      async (body) => {
+        const { app } = build();
+        const res = await put(app, ID, body);
+        expect(res.statusCode).toBe(400);
+      },
+    );
+
+    // An album whose palette hasn't landed yet must still be stageable — /api/scan already degrades
+    // that to `202 ignored: album not ready`, so refusing the push would strand the album instead.
+    it("accepts an asset with no palette or pattern yet", async () => {
+      const { app, writer } = build();
+      const res = await put(app, ID, {
+        version: 1,
+        curatorId: ID,
+        metadata: { name: "In progress" },
+        roadie: { state: "fetching_metadata" },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(writer.written.has(ID)).toBe(true);
+    });
+
+    // The error handler defaults to 502 and echoes err.message; a local disk failure is neither a
+    // bad gateway nor something to leak a filesystem path over.
+    it("maps a write failure to 500, not the handler's default 502", async () => {
+      const { app } = build(
+        spyWriter(() => {
+          throw new Error("EACCES: permission denied, open '/secret/path'");
+        }),
+      );
+      const res = await put(app, ID, asset);
+      expect(res.statusCode).toBe(500);
+      expect(res.json().error).not.toMatch(/EACCES|secret/);
+    });
+
+    it("a pushed asset is immediately readable by a scan (no cache to invalidate)", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "conductor-ingest-"));
+      const store = seededStore();
+      store.setListeningRoom("1");
+      const fake = livingRoom();
+      // Real reader + writer over one directory: this is the production wiring.
+      const { app } = buildServer({
+        config: { sharedSecret: SECRET, albumAssetsDir: dir },
+        store,
+        driver: fake.driver,
+        timers: new FakeTimers(),
+      });
+
+      const before = await app.inject({
+        method: "POST",
+        url: "/api/scan",
+        headers: AUTH,
+        payload: {
+          event: "start",
+          uri: `curator:album:${ID}`,
+          tagUid: "04",
+          at: "t",
+        },
+      });
+      expect(before.json()).toMatchObject({ reason: "album not synced" });
+
+      expect((await put(app, ID, asset)).statusCode).toBe(200);
+
+      const after = await app.inject({
+        method: "POST",
+        url: "/api/scan",
+        headers: AUTH,
+        payload: {
+          event: "start",
+          uri: `curator:album:${ID}`,
+          tagUid: "04",
+          at: "t",
+        },
+      });
+      expect(after.json()).toMatchObject({ action: "playing", roomId: "1" });
+    });
+
+    describe("GET /api/album-assets", () => {
+      it("lists what the runtime is actually holding", async () => {
+        const { app } = build();
+        await put(app, ID, asset);
+        await put(app, "zzzz9999", { ...asset, curatorId: "zzzz9999" });
+        const res = await app.inject({
+          method: "GET",
+          url: "/api/album-assets",
+          headers: AUTH,
+        });
+        expect(res.statusCode).toBe(200);
+        expect(res.json()).toEqual({ curatorIds: [ID, "zzzz9999"] });
+      });
+
+      it("requires the shared secret", async () => {
+        const { app } = build();
+        const res = await app.inject({
+          method: "GET",
+          url: "/api/album-assets",
+        });
+        expect(res.statusCode).toBe(401);
+      });
+    });
+  });
 });

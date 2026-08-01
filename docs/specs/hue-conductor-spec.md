@@ -179,6 +179,33 @@ The pairing endpoints are called by a one-time CLI script (`pnpm run pair` in th
 | GET    | `/api/settings` | Returns current Conductor settings (`listeningRoomId`, `entertainmentAreaId`). Called by Curator to display current state.                                                                                              |
 | PUT    | `/api/settings` | Body: `{ listeningRoomId?, entertainmentAreaId? }`. Curator pushes settings updates here. Only the keys present are changed (a partial PUT can't clear the other). Persisted to disk; used as defaults for `/api/scan`. |
 
+### Album assets (pushed from Curator, [ADR 0045](../adrs/0045-curator-pushes-album-assets-to-conductor.md))
+
+Conductor resolves a scan by reading `{album_assets_dir}/{curatorId}.json`
+([ADR 0019](../adrs/0019-conductor-scan-reads-asset-store.md)). These routes are how that file gets
+there. Before them it arrived only by a hand-run `rsync`, and a store that had quietly stopped being
+synced was indistinguishable — from either end — from one that was up to date.
+
+| Method | Path                           | Purpose                                                                                                                                                                                                                                                                                                                                                                           |
+| ------ | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PUT    | `/api/album-assets/:curatorId` | Body is the full album asset JSON. `curatorId` must match `^[a-z0-9]{8}$` **and** equal `body.curatorId`; `version` must be `1`; `metadata` and `roadie` must be present. Replies `{ curatorId, bytes }`. Idempotent. `400` on any of the above, `500` if the write fails. Body limit 4 MB (Fastify's 1 MB default is not enough for an asset carrying many card-art candidates). |
+| GET    | `/api/album-assets`            | `{ curatorIds }` — the ids currently on disk, sorted. Curator diffs against this to report drift; ids only, since Curator holds the authoritative bodies.                                                                                                                                                                                                                         |
+
+Three properties are deliberate:
+
+- **Write is temp-file-then-rename, with a per-request-unique temp name.** A scan reading mid-write
+  must see the old asset or the new one, never a partial — which `FsAlbumAssetReader` would treat as
+  "album not synced", reintroducing the original bug intermittently.
+- **A write failure is `500`, not the error handler's default `502`.** A local disk error reaching
+  Curator dressed as a bad gateway would be recorded as a network problem.
+- **Validation is shallow on purpose.** Conductor reads a documented slice (§8) and Amp reads a
+  different one from the same file; rejecting on fields neither reads would strand albums. An asset
+  with no palette yet is _accepted_ — `/api/scan` already degrades that to `202 ignored: album not ready`.
+
+> **Amp reads the same directory.** Point Amp's `album_assets_dir` at Conductor's and one push serves
+> both (amp-spec §Album assets). They are siblings on one Pi by committed topology; if Amp ever moves
+> hosts it needs its own ingest route.
+
 ### Entertainment (streaming, [ADR 0024](../adrs/0024-entertainment-dtls-transport.md))
 
 | Method | Path                       | Purpose                                                                                                                                                                                                                 |
