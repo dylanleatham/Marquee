@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import { buildServer } from "../src/server.js";
 import { Library } from "../src/library.js";
-import { FakeTimers, tempMedia, tempDataDir } from "./fakes.js";
+import { FakeTimers, tempMedia, tempDataDir, waitFor } from "./fakes.js";
 
 const SECRET = "test-secret";
 const AUTH = { "x-trigger-secret": SECRET };
@@ -128,6 +128,37 @@ describe("PUT /api/media/:fileId", () => {
   });
 
   /**
+   * Issue #203. The cleanup above races the *asynchronous* `fs.open` behind `createWriteStream`.
+   * `destroy()` only schedules the close, so on the over-cap path — where the very first chunk
+   * throws — the unlink can run before the file exists: `rmSync` removes nothing (`force` swallows
+   * the ENOENT) and the pending open then creates the orphan, which nothing ever collects.
+   *
+   * Measured at roughly **6 in 10 rejected uploads** leaking permanently. The original single-shot
+   * assertion above caught it about 1 run in 12, because one request is one coin flip and it is the
+   * *accumulation* that hurts — so this repeats it and asserts on the total.
+   *
+   * Sequential on purpose. Firing them concurrently actually *hides* the bug: the opens are all
+   * queued before the bodies are processed, so by the time each `catch` runs the file reliably
+   * exists and the unlink succeeds. Curator pushes albums one at a time, so sequential is also the
+   * real shape of a resync that trips the cap.
+   */
+  it("leaves no orphan .part behind across repeated rejected uploads", async () => {
+    const { app, mediaDir } = build({ maxUploadBytes: 16 });
+
+    for (let i = 0; i < 300; i++) {
+      const res = await put(
+        app,
+        `f${String(i).padStart(7, "0")}`,
+        Buffer.alloc(64, 1),
+      );
+      expect(res.statusCode).toBe(413);
+    }
+
+    // Every one of them was refused, so the media dir must be exactly as empty as it started.
+    expect(readdirSync(mediaDir)).toEqual([]);
+  }, 30_000);
+
+  /**
    * The dangerous failure is not a failed upload — it is a *truncated* one that looks complete, which
    * Backdrop would hand to the kiosk as a valid video. The write goes to a temp file and is renamed
    * only once the stream ends cleanly, so the real filename never exists in a partial state.
@@ -211,8 +242,15 @@ describe("PUT /api/media/:fileId", () => {
       })
       .catch(() => undefined);
 
+    // Cleanup is deliberately asynchronous since #203 — the handler waits for the write stream to
+    // close before unlinking. A dead client's `inject` can settle before that finishes, so the
+    // durable property is "nothing is left behind", not "it is already gone at this instant".
+    // Bounded, so a cleanup that never happens still fails the test rather than hanging.
+    await waitFor(
+      () => readdirSync(mediaDir).length === 0,
+      "the abandoned temp file to be cleaned up",
+    );
     expect(existsSync(join(mediaDir, `${FILE_ID}.mp4`))).toBe(false);
-    expect(readdirSync(mediaDir)).toEqual([]); // no temp file left holding space
   });
 
   it("accepts an upload for an album that has no library entry yet", async () => {

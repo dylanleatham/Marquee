@@ -30,6 +30,13 @@ export interface BuildOptions {
   timers?: Timers;
 }
 
+/**
+ * How long a failed upload waits for its write stream to close before unlinking the temp file
+ * anyway (issue #203). Generous: `close` follows `destroy()` promptly in every case we know of, so
+ * this is a backstop against wedging the request, not a expected-path timeout.
+ */
+const CLOSE_WAIT_MS = 5000;
+
 /** A media upload exceeded `maxUploadBytes` (ADR 0038) — answered as 413. */
 export class UploadTooLargeError extends Error {
   constructor() {
@@ -240,7 +247,31 @@ export function buildServer(opts: BuildOptions = {}) {
       return reply.code(201).send({ fileId, bytes });
     } catch (err) {
       clearTimeout(stallTimer);
-      out.destroy(); // release the handle before unlinking, or Windows keeps the file locked
+      // Unlink only once the stream has actually closed (issue #203).
+      //
+      // `destroy()` merely *schedules* the close, and `createWriteStream` opens its file
+      // asynchronously — so unlinking on the next line races both. Lose that race and `rmSync`
+      // removes nothing (`force` swallows the ENOENT) while the stream still goes on to touch the
+      // path, leaving a `.part` orphan that nothing ever collects. Measured at a few percent of
+      // rejected uploads, permanent, and unbounded on a Pi whose SD card is the scarce resource.
+      //
+      // Awaiting `close` removes the ordering question entirely rather than guessing which side
+      // wins: by then the descriptor is released (which is also what Windows needs before an
+      // unlink) and the file either exists to be removed or was never created.
+      await new Promise<void>((resolve) => {
+        if (out.closed) return resolve();
+        let timer: NodeJS.Timeout | undefined;
+        const done = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+        // Bounded, like every other wait in this handler. If `close` somehow never arrives we still
+        // unlink and reply — which is exactly the behaviour this replaced, so the bound can only
+        // degrade to the old outcome, never wedge the request.
+        timer = setTimeout(done, CLOSE_WAIT_MS);
+        out.once("close", done);
+        out.destroy();
+      });
       rmSync(tmp, { force: true }); // no partial file, and no orphan filling the SD card
       if (err instanceof UploadTooLargeError) {
         return reply
