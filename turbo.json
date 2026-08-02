@@ -20,11 +20,29 @@
     "test": {
       "dependsOn": ["^build"],
       "outputs": ["coverage/**"],
-      "env": ["MARQUEE_REQUIRE_FFMPEG", "FFMPEG_PATH", "FFPROBE_PATH"]
+      "env": [
+        "MARQUEE_REQUIRE_FFMPEG",
+        "FFMPEG_PATH",
+        "FFPROBE_PATH",
+        "VITEST_MAX_FORKS",
+        "VITEST_MIN_FORKS"
+      ]
     },
+    // VITEST_MAX_FORKS/VITEST_MIN_FORKS cap vitest's fork pool on the Windows CI leg — the second
+    // half of the mitigation for the #131/#156 flakes, which ci.yml sets and explains. They were
+    // undeclared here for the whole of their life, so strict env mode stripped them and the cap
+    // never applied (issue #223); the leg ran the default CPU-count pool while the comment said
+    // otherwise. Declared on `test` too, because that task runs the same vitest invocation.
+    // workflow-turbo-env.test.ts now fails if a workflow sets a variable nothing here declares.
     "test:unit": {
       "dependsOn": ["^build"],
-      "env": ["MARQUEE_REQUIRE_FFMPEG", "FFMPEG_PATH", "FFPROBE_PATH"]
+      "env": [
+        "MARQUEE_REQUIRE_FFMPEG",
+        "FFMPEG_PATH",
+        "FFPROBE_PATH",
+        "VITEST_MAX_FORKS",
+        "VITEST_MIN_FORKS"
+      ]
     },
     "test:contracts": {
       "dependsOn": ["^build"]
