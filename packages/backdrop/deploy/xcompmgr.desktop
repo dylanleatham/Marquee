@@ -1,0 +1,31 @@
+[Desktop Entry]
+# Marquee Backdrop — disables Raspberry Pi OS's compositor for the kiosk user.
+#
+# Install as ~/.config/autostart/xcompmgr.desktop, where it overrides the system entry at
+# /etc/xdg/autostart/xcompmgr.desktop by filename (XDG autostart spec). A user-level override is
+# used rather than editing the system file so an apt upgrade of the package can't quietly undo it:
+#
+#     mkdir -p ~/.config/autostart
+#     cp ~/Marquee/packages/backdrop/deploy/xcompmgr.desktop ~/.config/autostart/
+#
+# WHY: xcompmgr does no vsync at all. Chromium page-flipped mid-scanout, and because a 30fps clip on
+# a 60Hz panel holds a fixed phase relationship, the resulting tear parked at a constant height —
+# roughly a third of the way down — instead of drifting. It read as a permanent horizontal scan line
+# on every video rather than as tearing (issue #211, 2026-08-02, ADR 0047). With no compositor the
+# fullscreen kiosk window scans out directly and the modesetting driver flips on vblank.
+#
+# `Option "TearFree" "true"` on the modesetting driver is the other standard fix, and is the one to
+# reach for if a future Pi OS image needs a compositor for something. It was not used here because
+# this driver build exposes no TearFree xrandr property, so it could not be tested without editing
+# xorg.conf.d and restarting X — where dropping the compositor was verifiable live and reversible in
+# one command. Nothing on this box needs compositing: the display only ever shows one fullscreen
+# window.
+#
+# TO RE-ENABLE THE COMPOSITOR: delete this file (the system entry takes over again) and reboot.
+Type=Application
+Name=xcompmgr
+Comment=Disabled for the Backdrop kiosk — see ADR 0047
+NoDisplay=true
+Exec=/usr/bin/cmstart
+Hidden=true
+X-GNOME-Autostart-enabled=false
