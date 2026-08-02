@@ -22,9 +22,11 @@ kiosk browser connects over WebSocket and shows the video.
   ([ADR 0047](../../docs/adrs/0047-the-kiosk-display-pipeline-not-the-decoder.md)). Guarded by
   `test/deploy-assets.test.ts`.
 - **`quality.ts`** — turns the kiosk's `getVideoPlaybackQuality()` counters into a dropped-frame
-  verdict for `/api/status` (spec §8, [ADR 0046](../../docs/adrs/0046-layer-roles-swap-on-screen-and-the-pi-reports-its-own-decode.md)).
-  The Pi decodes H.264 in software and Curator's preview can't see that, so this is the only
-  measurement of whether a visualizer actually plays on the hardware.
+  verdict for `/api/status` (spec §8, [ADR 0046](../../docs/adrs/0046-layer-roles-swap-on-screen-and-the-pi-reports-its-own-decode.md),
+  [ADR 0048](../../docs/adrs/0048-the-playback-verdict-describes-the-last-interval.md)). The Pi
+  decodes H.264 in software and Curator's preview can't see that, so this is the only measurement of
+  whether a visualizer actually plays on the hardware. The counters arrive cumulative; the verdict is
+  the movement between two of them, so it describes the last ten seconds rather than the whole clip.
 - **`server.ts`** — Fastify + `@fastify/websocket` + `@fastify/static`; every endpoint in spec §8
   (`/api/scan`, `/api/library/*`, `/api/admin/*`, `/api/status`, `/healthz`), `X-Trigger-Secret`
   auth on `/api/*` (SPA + `/ws` + `/healthz` stay open).

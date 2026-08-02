@@ -16,7 +16,8 @@ export type BrowserEvent =
   | { type: "playback-error"; filePath: string; error: string }
   | { type: "loop-completed"; filePath: string; iteration: number }
   // Cumulative decoder counters for the clip on screen, sampled periodically by the kiosk
-  // (issue #211). The one measurement of whether this board is keeping up — see `quality.ts`.
+  // (issue #211). The one measurement of whether this board is keeping up — see `quality.ts`, which
+  // judges the difference between consecutive samples rather than these totals (issue #216).
   | {
       type: "playback-quality";
       filePath: string;
