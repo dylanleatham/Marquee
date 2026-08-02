@@ -239,7 +239,25 @@ Rationale: a scan event that arrives 30 seconds late is worse than no event at a
 
 Small local HTTP server on port 4741:
 
-- `GET /status` → current state, last UID, last URI, last event timestamp, downstream health
+- `GET /status` → two views, deliberately separate:
+
+  | Field                                      | View        | Meaning                                                                                                                                               |
+  | ------------------------------------------ | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `state`, `lastUid`, `lastUri`, `lastEvent` | the machine | What is **playing**. Null until a scan actually fired.                                                                                                |
+  | `observed: { uid, uri, at } \| null`       | the reader  | What is **on the stand right now**, decoded or not. `uri` is null when the NDEF wouldn't read; the whole object is null when the reader sees nothing. |
+  | `lastBadTag: { uid, uri, at } \| null`     | the reader  | The last tag the machine refused, **kept after the sleeve is lifted**.                                                                                |
+  | `downstreamHealth`                         | publishing  | Per-downstream result of the last publish.                                                                                                            |
+
+  > **Why both.** Until 2026-08-01 only the machine's view existed, so a sleeve sitting on the reader
+  > being rejected — an unwritten tag, a garbled NDEF, a URI for another scheme — made `/status`
+  > identical to an empty stand. That is precisely the case the endpoint is for, and it cost a real
+  > debugging session during the [#198](https://github.com/dylanleatham/Marquee/issues/198) bring-up:
+  > the only window into a failing sleeve was `journalctl` on the stand Pi.
+  >
+  > So: `observed == null` means nothing is on the reader. `observed.uri == null` means a tag is
+  > there and its NDEF won't decode. A non-null `observed.uri` that never becomes `lastUri` means the
+  > tag decoded but carried something the machine won't act on.
+
 - `GET /healthz` → 200 if the PN532 is responding
 - `POST /simulate` → dev-only endpoint to inject fake tag events without physical hardware. Very useful during Player/Conductor testing.
 

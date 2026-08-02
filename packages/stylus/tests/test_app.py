@@ -94,3 +94,78 @@ def test_bad_tag_does_not_publish():
     app.tick()  # threshold → BadTag, no publish
     assert pub.events == []
     assert app.status()["state"] == "idle"
+
+
+# --- /status observability (issue #198's blind spot) ---------------------------------------------
+#
+# `state`/`lastUid`/`lastUri` describe the *machine*, so they only ever populate once an album has
+# started playing. A sleeve sitting on the reader being rejected — the case you actually need to
+# diagnose — was invisible: the endpoint looked exactly like an empty stand. These fields describe
+# the *reader* instead, so "is there a sleeve on it, and what does it read?" is answerable.
+
+
+def test_status_reports_a_tag_that_is_present_but_undecodable():
+    app, reader, pub, led = build()
+    reader.set_tag("04:A1:B2", None)  # on the reader, NDEF unreadable
+    app.tick()
+
+    observed = app.status()["observed"]
+    assert observed == {"uid": "04:A1:B2", "uri": None, "at": "2026-07-21T00:00:00Z"}
+    # …and the machine still reports nothing, which is the whole point of the new field.
+    assert app.status()["state"] == "idle"
+    assert app.status()["lastUri"] is None
+
+
+def test_status_reports_a_tag_carrying_the_wrong_kind_of_uri():
+    app, reader, pub, led = build()
+    reader.set_tag("A", "spotify:album:nope")
+    app.tick()
+    assert app.status()["observed"]["uri"] == "spotify:album:nope"
+
+
+def test_status_shows_an_empty_stand_as_no_observation():
+    app, reader, pub, led = build()
+    reader.set_tag("A", URI_A)
+    app.tick()
+    assert app.status()["observed"] is not None
+    reader.clear()
+    app.tick()
+    assert app.status()["observed"] is None  # sleeve lifted — nothing on the reader
+
+
+def test_status_records_the_last_rejected_tag():
+    app, reader, pub, led = build()
+    assert app.status()["lastBadTag"] is None
+    reader.set_tag("A", "not-a-curator-uri")
+    app.tick()
+    app.tick()  # threshold → BadTag
+    assert app.status()["lastBadTag"] == {
+        "uid": "A",
+        "uri": "not-a-curator-uri",
+        "at": "2026-07-21T00:00:00Z",
+    }
+
+
+def test_a_rejection_is_remembered_after_the_sleeve_is_lifted():
+    # The forensic case: you take the sleeve off before thinking to check /status.
+    app, reader, pub, led = build()
+    reader.set_tag("A", None)
+    app.tick()
+    app.tick()  # BadTag
+    reader.clear()
+    app.tick()
+    assert app.status()["observed"] is None  # nothing on the reader now…
+    assert app.status()["lastBadTag"]["uid"] == "A"  # …but we still know what happened
+
+
+def test_a_successful_scan_still_reports_the_observation():
+    app, reader, pub, led = build()
+    reader.set_tag("A", URI_A)
+    app.tick()
+    app.tick()  # Start
+    assert app.status()["state"] == "playing"
+    assert app.status()["observed"] == {
+        "uid": "A",
+        "uri": URI_A,
+        "at": "2026-07-21T00:00:00Z",
+    }
