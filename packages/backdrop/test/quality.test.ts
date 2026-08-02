@@ -8,6 +8,7 @@
 // repeatedly held `totalFrames` constant, which no decoder does. `record()` is a stream processor
 // and was only ever tested as a function; the sequences below are the guard.
 import { describe, it, expect } from "vitest";
+import fc from "fast-check";
 import {
   QualityMonitor,
   DEGRADED_PCT,
@@ -325,5 +326,67 @@ describe("QualityMonitor judges the last interval, not the life of the clip", ()
       m.record(sample({ totalFrames: 3000, droppedFrames: 110 }), at)
         .newlyDegraded,
     ).toBe(true);
+  });
+});
+
+// The examples above are the sequences we thought of. These are the ones we didn't.
+//
+// `record()` reads a WebSocket frame from the SPA — the one runtime on the Pi this repo doesn't
+// build — so the input is an arbitrary pair of numbers arriving in an arbitrary order, not a
+// well-behaved pair of monotonic counters. #216's own near-misses were all shapes of that: counters
+// resetting, one counter moving without the other, a window of zero. A percentage that escapes
+// [0, 100] would be served straight to `/api/status` and read as a decode verdict.
+describe("QualityMonitor holds its invariants over any sequence of counters", () => {
+  const counters = fc.record({
+    filePath: fc.constantFrom("/media/one.mp4", "/media/two.mp4"),
+    // Deliberately unsorted and unpaired: the browser is not obliged to be sensible, and neither is
+    // a reconnecting one that starts a fresh element mid-clip.
+    totalFrames: fc.integer({ min: -100, max: 20_000 }),
+    droppedFrames: fc.integer({ min: -100, max: 20_000 }),
+  });
+
+  it("never reports a rate outside 0–100%, nor a negative window", () => {
+    fc.assert(
+      fc.property(
+        fc.array(counters, { minLength: 1, maxLength: 40 }),
+        (seq) => {
+          const m = new QualityMonitor();
+          for (const s of seq) {
+            const { report } = m.record(s, at);
+            expect(report.droppedPct).toBeGreaterThanOrEqual(0);
+            expect(report.droppedPct).toBeLessThanOrEqual(100);
+            expect(report.intervalFrames).toBeGreaterThanOrEqual(0);
+            expect(report.intervalDroppedFrames).toBeGreaterThanOrEqual(0);
+            expect(report.intervalDroppedFrames).toBeLessThanOrEqual(
+              report.intervalFrames,
+            );
+            expect(Number.isFinite(report.droppedPct)).toBe(true);
+          }
+        },
+      ),
+    );
+  });
+
+  it("never calls a window degraded without the frames to justify it", () => {
+    // The whole point of the floor: no sequence of counters may produce a `degraded` verdict off a
+    // window too short to mean anything. This is what makes "delayed by one sample, never hidden"
+    // a property rather than a hope.
+    fc.assert(
+      fc.property(
+        fc.array(counters, { minLength: 1, maxLength: 40 }),
+        (seq) => {
+          const m = new QualityMonitor();
+          for (const s of seq) {
+            const { report } = m.record(s, at);
+            if (report.degraded) {
+              expect(report.intervalFrames).toBeGreaterThanOrEqual(
+                MIN_INTERVAL_FRAMES,
+              );
+              expect(report.droppedPct).toBeGreaterThan(DEGRADED_PCT);
+            }
+          }
+        },
+      ),
+    );
   });
 });
