@@ -35,6 +35,11 @@ jobs:
             #      reaches all six vitest packages (curator's own vitest.config.ts included);
             #      review-agents runs `node --test` and ignores them.
             #
+            #      Setting them here is only half of it: turbo runs in strict env mode and drops any
+            #      variable turbo.json doesn't declare, so these two are declared on the `test:unit`
+            #      task there. Without that they never reach vitest and this leg quietly runs the
+            #      default pool — which is what it did until issue #223 found it.
+            #
             # Not a speed trade, despite what #131 assumed: measured over the full fleet, capping
             # forks ran *faster* (43.3s vs 48.5s) with 32% less system time, because fork-spawn
             # overhead exceeds the parallelism benefit at this suite size.

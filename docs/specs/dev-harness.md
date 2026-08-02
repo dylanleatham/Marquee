@@ -174,9 +174,19 @@ Jobs:
    `windows-latest`** (issue #129): the Pi is Linux but the workstation is Windows, and while CI was
    Linux-only a POSIX-only path assumption could only be caught by hand. The other jobs stay
    Linux-only to limit cost. Job names carry the OS, e.g. `test:unit (windows-latest)`.
-   The Windows leg runs turbo at `--concurrency=1` (issue #131) — parallel package tasks each spawn
-   their own vitest fork pool, and on a 4-core Windows runner that got a worker killed mid-run. It
-   costs almost nothing: serialized, the whole `test:unit` graph is ~37s.
+   The Windows leg bounds process spawning from both directions (issues #131, #156) — parallel
+   package tasks each spawn their own vitest fork pool, and on a 4-core Windows runner that got a
+   worker killed mid-run. Across packages, turbo runs at `--concurrency=1`; within a package,
+   `VITEST_MAX_FORKS`/`VITEST_MIN_FORKS` cap vitest's own pool at 1. It costs almost nothing:
+   serialized, the whole `test:unit` graph is ~37s.
+
+   The env-var half only works because `turbo.json` **declares** those two names on the `test:unit`
+   task. Turbo runs in `envMode: strict` and silently drops anything undeclared, which is exactly how
+   the setting sat inert from the day it was added until issue #223 — the workflow said the pool was
+   capped and it never was. Any variable a workflow sets on a turbo step needs a matching declaration
+   in `turbo.json`; `packages/curator/test/workflow-turbo-env.test.ts` fails the build if one is
+   missing.
+
 4. **unit tests (Python)** — nfc-trigger package
 5. **integration tests** — `turbo run test:integration`. Curator is currently the only package that
    defines the script: it runs the tests that shell out to the **real** ffmpeg/ffprobe rather than a
