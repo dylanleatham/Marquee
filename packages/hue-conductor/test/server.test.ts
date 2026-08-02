@@ -341,6 +341,39 @@ describe("hue-conductor HTTP API", () => {
       expect(res.json()).toMatchObject({ action: "stopped", roomId: "1" });
     });
 
+    // runtime-overview §9, row 1 — the only row in that table with no test behind it until #53's
+    // hardening pass. Both halves matter: the scan must fail *cleanly* (a 5xx Stylus can retry, not
+    // a hang or a crash), and the failure must leave no session behind, so the very next scan works
+    // the moment the bridge is back. A latched-failure bug here looks exactly like a dead bridge.
+    it("bridge unreachable → 502, lights untouched, and the next scan recovers", async () => {
+      const store = seededStore();
+      store.setListeningRoom("1");
+      const fake = livingRoom();
+      fake.setUnreachable(true);
+      const { app } = build(store, fake, { "2k7bxq9m": ALBUM });
+
+      const down = await app.inject({
+        method: "POST",
+        url: "/api/scan",
+        headers: AUTH,
+        payload: scanStart,
+      });
+      expect(down.statusCode).toBe(502);
+      expect(fake.setCalls).toHaveLength(0);
+
+      // Bridge comes back. No restart, no manual clear — just the next scan.
+      fake.setUnreachable(false);
+      const up = await app.inject({
+        method: "POST",
+        url: "/api/scan",
+        headers: AUTH,
+        payload: scanStart,
+      });
+      expect(up.statusCode).toBe(202);
+      expect(up.json()).toMatchObject({ action: "playing", roomId: "1" });
+      expect(fake.setCalls).toHaveLength(2);
+    });
+
     it("degrades gracefully with no listening room configured", async () => {
       const fake = livingRoom();
       const { app } = build(seededStore(), fake, { "2k7bxq9m": ALBUM });
