@@ -29,7 +29,8 @@ import {
   PRINT_DPI,
 } from "../src/media/print.js";
 import { imageSize } from "../src/media/images.js";
-import { ffmpegAvailable, run, VideoError } from "../src/media/video.js";
+import { run, VideoError } from "../src/media/video.js";
+import { ffmpegGate } from "./ffmpeg-gate.js";
 import {
   makeAsset,
   fakeProber,
@@ -38,9 +39,11 @@ import {
   jpegBytes,
 } from "./helpers.js";
 
-// Anything that needs the real binary is skipped without it — a local/dev gate, not a CI one, the
-// same call video-ffmpeg-integration.test.ts makes.
-const hasFfmpeg = ffmpegAvailable();
+// Anything that needs the real binary is skipped without it, the same call
+// video-ffmpeg-integration.test.ts makes — and, like that file, no longer a local-only gate: CI's
+// `test:integration` leg installs ffmpeg and sets `MARQUEE_REQUIRE_FFMPEG=1`, which turns a missing
+// binary into a failure instead of a silent skip. See `ffmpeg-gate.ts`.
+const hasFfmpeg = ffmpegGate();
 const itFfmpeg = hasFfmpeg ? it : it.skip;
 const describeFfmpeg = hasFfmpeg ? describe : describe.skip;
 

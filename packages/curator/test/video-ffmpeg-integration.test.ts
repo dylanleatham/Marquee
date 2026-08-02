@@ -5,15 +5,20 @@
 // path, while all nine faked-prober tests stayed green (issue #180).
 //
 // So this file's job is narrow and specific: run the real binaries over the real code path, including
-// the real temp filename. Skipped when ffmpeg isn't installed — it's a local/dev gate, not a CI one.
+// the real temp filename. Skipped when ffmpeg isn't installed, which stays true on a workstation that
+// never touches video — but it is no longer a local-only gate. CI installs ffmpeg and runs this file
+// on the `test:integration` leg with `MARQUEE_REQUIRE_FFMPEG=1`, so a missing binary there is a red
+// build rather than a silent skip. That skip is how #180 above, and #217 after it, both reached a
+// release: for as long as no workflow installed ffmpeg, every assertion in here was inert on CI.
+// See `ffmpeg-gate.ts`.
 import { describe, it, expect, beforeAll } from "vitest";
 import { mkdtempSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Paths } from "../src/store/paths.js";
+import { ffmpegGate } from "./ffmpeg-gate.js";
 import {
   ffmpegProber,
-  ffmpegAvailable,
   ingestVideo,
   budgetViolations,
   needsNormalize,
@@ -22,7 +27,7 @@ import {
 } from "../src/media/video.js";
 
 const FFMPEG = process.env.FFMPEG_PATH || "ffmpeg";
-const hasFfmpeg = ffmpegAvailable();
+const hasFfmpeg = ffmpegGate();
 const describeFfmpeg = hasFfmpeg ? describe : describe.skip;
 
 /**
