@@ -343,6 +343,28 @@ describe("playback quality reaches /api/status (issue #211)", () => {
     });
   });
 
+  it("serves a verdict about the last sample, not the whole clip (regression: #216)", async () => {
+    // The monitor is stateful across WebSocket frames, and /api/status is where an operator reads
+    // the result — so the delta has to survive the trip, not just hold inside QualityMonitor. On the
+    // #211 deploy this endpoint kept saying `degraded` for minutes after a panel change had stopped
+    // the drops, because it was serving a lifetime average.
+    const { app, hub, controller, videoPath } = build();
+    controller.play(URI);
+
+    report(hub, videoPath, 5182, 285); // 5.5% at 4K — the board really is behind
+    expect((await status(app)).playbackQuality.degraded).toBe(true);
+
+    report(hub, videoPath, 5782, 285); // panel forced to 1080p: nothing dropped since
+    expect((await status(app)).playbackQuality).toMatchObject({
+      totalFrames: 5782,
+      droppedFrames: 285,
+      intervalFrames: 600,
+      intervalDroppedFrames: 0,
+      droppedPct: 0,
+      degraded: false,
+    });
+  });
+
   it("drops the verdict once playback stops", async () => {
     // A "degraded" left over from the last album, served against an idle display, would send an
     // operator hunting a problem that isn't on screen.

@@ -85,7 +85,8 @@
    * numbers instead of on reasoning.
    *
    * Counters are cumulative per element and reset when it gets a new source, so a sample is always
-   * scoped to the clip named alongside it.
+   * scoped to the clip named alongside it. Sent raw on purpose: the backend judges the difference
+   * between consecutive samples (issue #216), which it can only do if it sees the totals.
    */
   function reportQuality(el, filePath) {
     if (!el.getVideoPlaybackQuality) return; // not Chromium, or too old — simply no signal

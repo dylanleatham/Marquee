@@ -73,10 +73,18 @@ event; `QualityMonitor` turns the counters into a verdict and `/api/status` serv
 `playbackQuality`. Sustained loss over **2%** is `degraded` — roughly one visible hitch per second at
 30 fps — and logs a warning **once per clip**, not once per sample.
 
-The threshold ignores samples under 30 frames: a couple of frames lost around a `loop` restart is
-normal, and a percentage off a handful of frames swings wildly and means nothing. Counters arriving
+~~The threshold ignores samples under 30 frames: a couple of frames lost around a `loop` restart is
+normal, and a percentage off a handful of frames swings wildly and means nothing.~~ Counters arriving
 from the browser are clamped, because a WebSocket frame is unvalidated input and `NaN` would
 serialise as `null` — reading as "no signal" rather than "a bad frame arrived".
+
+> **Amended 2026-08-02 by [ADR 0048](0048-the-playback-verdict-describes-the-last-interval.md)
+> (issue #216):** the verdict is computed from the **interval** between samples, not from the
+> cumulative counters. Judged against a lifetime total it lagged reality by minutes — the first
+> deploy to use it kept reporting `degraded` for five samples after a panel-resolution change stopped
+> the drops dead. The 30-frame floor moves with it, to 150 frames measured over the window. Sustained
+> 2% and once-per-clip both stand; recovery now needs a judged window at 1% or under to re-arm that
+> warning.
 
 **7. Nothing in the decode budget changed.** It is tempting to drop the ceiling again — measured
 here, decode cost tracks bitrate far more than resolution (1080p at 8 Mbps costs ~2.2x the CPU of

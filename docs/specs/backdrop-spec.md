@@ -260,7 +260,8 @@ pointing at files not yet present (§10 covers the UX).
 | POST   | `/api/admin/simulate-scan` | Body: same as `/api/scan`. Exists for parity with the trigger service's simulate endpoint — makes end-to-end testing symmetric. |
 
 > **`playbackQuality` — how the board actually decoded** (2026-08-02,
-> [ADR 0046](../adrs/0046-layer-roles-swap-on-screen-and-the-pi-reports-its-own-decode.md)).
+> [ADR 0046](../adrs/0046-layer-roles-swap-on-screen-and-the-pi-reports-its-own-decode.md), amended
+> the same day by [ADR 0048](../adrs/0048-the-playback-verdict-describes-the-last-interval.md)).
 > [ADR 0040](../adrs/0040-visualizers-carry-a-decode-budget.md) set a decode budget with nothing
 > watching the result — Curator's preview runs on a workstation and cannot see the defect, so the only
 > report of a glitch was a person in front of the display. The kiosk now samples
@@ -269,8 +270,10 @@ pointing at files not yet present (§10 covers the UX).
 > ```json
 > {
 >   "filePath": "/…/visualizers/a1b2c3d4.mp4",
->   "totalFrames": 1800,
->   "droppedFrames": 90,
+>   "totalFrames": 5182,
+>   "droppedFrames": 285,
+>   "intervalFrames": 600,
+>   "intervalDroppedFrames": 30,
 >   "droppedPct": 5,
 >   "degraded": true,
 >   "at": "2026-08-02T19:04:11.221Z"
@@ -278,9 +281,21 @@ pointing at files not yet present (§10 covers the UX).
 > ```
 >
 > `null` while idle, and `null` until the kiosk has reported on the file that is _currently_ on screen
-> — a verdict left over from the previous album would be worse than none. `degraded` is sustained loss
-> over **2%**, about one visible hitch per second at 30 fps; a clip crossing it logs one warning to
-> journald, not one per sample. Samples under 30 frames are recorded but never judged.
+> — a verdict left over from the previous album would be worse than none.
+>
+> **The verdict describes the last interval, not the life of the clip** (ADR 0048). `totalFrames` /
+> `droppedFrames` are the browser's cumulative counters; `intervalFrames` / `intervalDroppedFrames`
+> are the movement since the previous sample, and `droppedPct` is the ratio of those two. So a clip that
+> dropped badly and then stopped reads `"droppedPct": 0` beside a large `droppedFrames` — that is the
+> field working. Judged cumulatively it lagged a real fix by minutes
+> ([#216](https://github.com/dylanleatham/Marquee/issues/216)), which is the one moment it is read.
+>
+> `degraded` is sustained loss over **2%** _in that window_, about one visible hitch per second at 30
+> fps; a clip crossing it logs one warning to journald, not one per sample, and re-arms only once a
+> judged window comes back to 1% or under — a dip across the line is not a recovery. Intervals under 150 frames
+> (half a sample window at 30 fps) are reported but never judged; the counters reset whenever the
+> video element gets a new source, and a counter that goes backwards starts a new window rather than
+> producing a negative rate.
 
 ## 9. Library structure
 
@@ -355,9 +370,11 @@ type Event =
   | { type: "playback-error"; filePath: string; error: string }
   | { type: "loop-completed"; filePath: string; iteration: number }
   // Cumulative decoder counters for the clip on screen, sampled every 10s while playing and nothing
-  // while idle. Backed by `getVideoPlaybackQuality()`; surfaced as `/api/status.playbackQuality`
-  // (ADR 0046). Not a cross-service contract — the browser is the same box as the backend — so it
-  // lives in packages/backdrop/src/types.ts, like the rest of this channel.
+  // while idle. Backed by `getVideoPlaybackQuality()`. The backend judges the *difference* between
+  // consecutive samples and surfaces that as `/api/status.playbackQuality` (ADR 0046, ADR 0048) —
+  // the wire shape stays cumulative because that is what the browser measures. Not a cross-service
+  // contract — the browser is the same box as the backend — so it lives in
+  // packages/backdrop/src/types.ts, like the rest of this channel.
   | {
       type: "playback-quality";
       filePath: string;
@@ -394,7 +411,7 @@ Ship the gradient as the default. The SPA is structured so the idle overlay is i
 
 ## 13. Known gotchas
 
-- **Decode headroom is the scarce resource, not bandwidth or storage.** Because H.264 decode is software on a Pi 5 (§4 correction), anything else the CPU does during playback competes with it directly. Three real instances, all fixed in [ADR 0040](../adrs/0040-visualizers-carry-a-decode-budget.md): the idle overlay's `background-position` animation is not compositor-accelerated, so it repainted the full screen every frame — and kept doing it _underneath a playing video_, because the layer was only dropped to `opacity: 0` and left in the compositing path (it is now parked and `visibility: hidden` while playing); a crossfade left the outgoing video decoding for the whole 450ms fade, running two software decodes at the moment a new clip was also starting (it is now paused when the fade starts); and `stop` acted on `active` while the role swap sat behind a 450ms timer, so a removal landing mid-crossfade left the just-started video playing forever behind the idle overlay, invisible and still decoding (`stop` now acts on both layers). **What did _not_ work: GPU flags.** ADR 0040 also had the launcher pass `--ignore-gpu-blocklist --enable-gpu-rasterization --enable-zero-copy`, on the reasoning that compositing the CPU doesn't do is headroom the software decoder gets back. That reasoning was never measured, the Pi's vc4/V3D driver is on Chromium's blocklist for reasons, and overriding it booted the kiosk to a solid black screen. They are removed; DEPLOY.md step 11b now warns against re-adding them. The decode budget is where the win actually came from. When diagnosing "the video looks rough," **read `/api/status.playbackQuality` first** — the kiosk reports its own dropped-frame rate as of [ADR 0046](../adrs/0046-layer-roles-swap-on-screen-and-the-pi-reports-its-own-decode.md), so this question has a number behind it instead of an opinion. If it says the board is keeping up, the roughness is not decode: check `vcgencmd get_throttled` and the panel's actual mode, since a 4K panel makes Chromium render the page at 3840x2160 and rescale every frame, which costs more than the decode.
+- **Decode headroom is the scarce resource, not bandwidth or storage.** Because H.264 decode is software on a Pi 5 (§4 correction), anything else the CPU does during playback competes with it directly. Three real instances, all fixed in [ADR 0040](../adrs/0040-visualizers-carry-a-decode-budget.md): the idle overlay's `background-position` animation is not compositor-accelerated, so it repainted the full screen every frame — and kept doing it _underneath a playing video_, because the layer was only dropped to `opacity: 0` and left in the compositing path (it is now parked and `visibility: hidden` while playing); a crossfade left the outgoing video decoding for the whole 450ms fade, running two software decodes at the moment a new clip was also starting (it is now paused when the fade starts); and `stop` acted on `active` while the role swap sat behind a 450ms timer, so a removal landing mid-crossfade left the just-started video playing forever behind the idle overlay, invisible and still decoding (`stop` now acts on both layers). **What did _not_ work: GPU flags.** ADR 0040 also had the launcher pass `--ignore-gpu-blocklist --enable-gpu-rasterization --enable-zero-copy`, on the reasoning that compositing the CPU doesn't do is headroom the software decoder gets back. That reasoning was never measured, the Pi's vc4/V3D driver is on Chromium's blocklist for reasons, and overriding it booted the kiosk to a solid black screen. They are removed; DEPLOY.md step 11b now warns against re-adding them. The decode budget is where the win actually came from. When diagnosing "the video looks rough," **read `/api/status.playbackQuality` first** — the kiosk reports its own dropped-frame rate as of [ADR 0046](../adrs/0046-layer-roles-swap-on-screen-and-the-pi-reports-its-own-decode.md), so this question has a number behind it instead of an opinion. The verdict covers the last sample interval, not the life of the clip ([ADR 0048](../adrs/0048-the-playback-verdict-describes-the-last-interval.md)), so it answers "did the thing I just changed help" within ten seconds. If it says the board is keeping up, the roughness is not decode: check `vcgencmd get_throttled` and the panel's actual mode, since a 4K panel makes Chromium render the page at 3840x2160 and rescale every frame, which costs more than the decode.
 - **Most of it was never decode at all.** [ADR 0047](../adrs/0047-the-kiosk-display-pipeline-not-the-decoder.md) settled this with the ADR 0046 signal on its first real run: with every visualizer inside the decode budget and the SoC un-throttled at 45% CPU, the display was still dropping **5.5% of frames** — because the panel was at 3840x2160@30. At 1920x1080@60 it drops **none**. Then, with playback smooth, a **stationary horizontal line a third of the way down** became visible on every clip: `xcompmgr`, the compositor Pi OS autostarts, does no vsync, so Chromium page-flips mid-scanout — and a 30fps clip on a 60Hz panel holds a fixed phase, so the tear parks at one height instead of drifting and reads as a scan line rather than as tearing. Both fixes are checked in (`packages/backdrop/deploy/`) and guarded by `test/deploy-assets.test.ts`, because both are invisible failures: nothing in a build, a type-check, or a runtime assertion notices either, and the second one is invisible to `playbackQuality` too — **a torn picture reports 0% dropped**, since no frame was ever late. When the video "looks bad", the discriminator is whether frames go _missing_ or a frame is _split_.
 - **Not every glitch was decode.** ADR 0040 read all of them as throughput, and the third fix above — `stop` acting on both layers — treated a symptom of a deeper defect it left in place: **the role swap itself sat behind that 450ms timer**, so `inactive` pointed at the on-screen element for the length of every fade. Commands that overlap a crossfade are the only kind the hardware sends, and each of them was handed the video being watched. [ADR 0046](../adrs/0046-layer-roles-swap-on-screen-and-the-pi-reports-its-own-decode.md) moves the swap onto the moment a clip goes on screen; see the §7 correction for the four symptoms. The general lesson: a transition bug and a throughput bug look identical from the sofa, which is why the SPA's tests now drive overlapping commands and the Pi now reports its own decode.
 - **Chromium autoplay policy.** Chromium blocks autoplay of videos with audio _unless muted or after a user gesture_. Since Backdrop videos are always muted, this shouldn't bite — but if you want to unmute someday, you'll need to launch Chromium with `--autoplay-policy=no-user-gesture-required`. Bake this into the launcher unit now so future-you doesn't have to remember.
