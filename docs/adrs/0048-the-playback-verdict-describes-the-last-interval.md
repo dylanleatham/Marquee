@@ -41,9 +41,9 @@ dropped **since**, not since the file loaded. A rate is a thing per unit time, a
 totals; the difference between two totals is the only place a rate was ever going to come from.
 
 **2. The cumulative pair stays in the report,** as `totalFrames` / `droppedFrames`, joined by the
-window they were measured over (`intervalFrames` / `intervalDropped`). "Nothing dropped in the last
-ten seconds, 285 lost over the clip" is a more useful sentence to an operator than either half, and
-publishing the window is what makes a `droppedPct` of 0 next to a large `droppedFrames` read as
+window they were measured over (`intervalFrames` / `intervalDroppedFrames`). "Nothing dropped in the
+last ten seconds, 285 lost over the clip" is a more useful sentence to an operator than either half,
+and publishing the window is what makes a `droppedPct` of 0 next to a large `droppedFrames` read as
 intended rather than as a bug.
 
 **3. A counter that goes backwards is a fresh clip, not a negative rate.** The counters belong to the
@@ -64,17 +64,18 @@ it: a real problem is delayed by one sample, never hidden.
 **5. Recovery needs hysteresis.** Per-interval rates are far twitchier than the lifetime average they
 replace, and a board sitting near 2% will cross it in both directions all evening. The
 warned-once-per-clip rule (ADR 0046 decision 6) would then re-arm on every dip and spend the warning
-on the next sample. So the warning re-arms only below **half** the threshold — a dip under the line
-isn't recovery, a clear reading is.
+on the next sample. So the warning re-arms only on a judged window at or under **half** the threshold
+(1.0% inclusive) — a dip under the line isn't recovery, a clear reading is.
 
 ## Consequences
 
 - **The number now answers the question it is asked.** Change something on the Pi, wait one sample
   interval, read the verdict. That is what `DEPLOY.md` §14's "ask the Pi first — don't guess" row
   promises, and it is now true.
-- **`/api/status.playbackQuality` grows two fields** (`intervalFrames`, `intervalDropped`) and keeps
-  every field it had. Additive, so nothing that reads it has to change — but `droppedPct` now means
-  something different from what it meant yesterday, which is why this is an ADR and not a patch.
+- **`/api/status.playbackQuality` grows two fields** (`intervalFrames`, `intervalDroppedFrames`) and
+  keeps every field it had. Additive, so nothing that reads it has to change — but `droppedPct` now
+  means something different from what it meant yesterday, which is why this is an ADR and not a
+  patch.
 - **A transient hiccup is now visible and then gone.** Under cumulative counters a bad first minute
   tainted the clip's number forever; under deltas it shows up in one sample and clears. This is the
   intended behaviour, and it does mean the field cannot answer "was this clip _ever_ bad" — the

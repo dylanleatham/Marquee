@@ -359,7 +359,7 @@ describe("playback quality reaches /api/status (issue #211)", () => {
       totalFrames: 5782,
       droppedFrames: 285,
       intervalFrames: 600,
-      intervalDropped: 0,
+      intervalDroppedFrames: 0,
       droppedPct: 0,
       degraded: false,
     });

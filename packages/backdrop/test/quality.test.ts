@@ -190,7 +190,7 @@ describe("QualityMonitor judges the last interval, not the life of the clip", ()
       at,
     );
     expect(report.intervalFrames).toBe(300);
-    expect(report.intervalDropped).toBe(15);
+    expect(report.intervalDroppedFrames).toBe(15);
     expect(report.droppedPct).toBe(5); // 15/300, not 25/1300
     expect(report.degraded).toBe(true);
   });
@@ -221,7 +221,7 @@ describe("QualityMonitor judges the last interval, not the life of the clip", ()
       at,
     );
     expect(report.intervalFrames).toBe(300);
-    expect(report.intervalDropped).toBe(21);
+    expect(report.intervalDroppedFrames).toBe(21);
     expect(report.droppedPct).toBe(7);
     expect(report.droppedPct).toBeGreaterThan(0);
   });
@@ -236,7 +236,7 @@ describe("QualityMonitor judges the last interval, not the life of the clip", ()
       at,
     );
     expect(report.intervalFrames).toBe(350);
-    expect(report.intervalDropped).toBe(2);
+    expect(report.intervalDroppedFrames).toBe(2);
     expect(report.degraded).toBe(false); // 0.6%, not the 50-frame interval a subtraction would give
   });
 
@@ -264,7 +264,7 @@ describe("QualityMonitor judges the last interval, not the life of the clip", ()
       sample({ totalFrames: 1010, droppedFrames: 500 }),
       at,
     );
-    expect(report.intervalDropped).toBe(10);
+    expect(report.intervalDroppedFrames).toBe(10);
     expect(report.droppedPct).toBe(100);
   });
 
@@ -310,5 +310,20 @@ describe("QualityMonitor judges the last interval, not the life of the clip", ()
     expect(step(50)).toBe(false); // 5% again: the same problem, not a new one
     expect(step(2)).toBe(false); // 0.2% — genuinely recovered, re-arms
     expect(step(50)).toBe(true); // a real relapse gets its line
+  });
+
+  it("re-arms at exactly the recovery bar, which is inclusive", () => {
+    // Half the degraded threshold, to the decimal. The spec states the boundary, so it gets a case
+    // rather than being left to whichever comparison operator got typed.
+    const m = new QualityMonitor();
+    expect(
+      m.record(sample({ totalFrames: 1000, droppedFrames: 50 }), at)
+        .newlyDegraded,
+    ).toBe(true);
+    m.record(sample({ totalFrames: 2000, droppedFrames: 60 }), at); // 10/1000 = 1.0% exactly
+    expect(
+      m.record(sample({ totalFrames: 3000, droppedFrames: 110 }), at)
+        .newlyDegraded,
+    ).toBe(true);
   });
 });

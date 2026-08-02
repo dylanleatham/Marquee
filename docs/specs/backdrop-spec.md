@@ -273,7 +273,7 @@ pointing at files not yet present (§10 covers the UX).
 >   "totalFrames": 5182,
 >   "droppedFrames": 285,
 >   "intervalFrames": 600,
->   "intervalDropped": 30,
+>   "intervalDroppedFrames": 30,
 >   "droppedPct": 5,
 >   "degraded": true,
 >   "at": "2026-08-02T19:04:11.221Z"
@@ -284,15 +284,15 @@ pointing at files not yet present (§10 covers the UX).
 > — a verdict left over from the previous album would be worse than none.
 >
 > **The verdict describes the last interval, not the life of the clip** (ADR 0048). `totalFrames` /
-> `droppedFrames` are the browser's cumulative counters; `intervalFrames` / `intervalDropped` are the
-> movement since the previous sample, and `droppedPct` is the ratio of those two. So a clip that
+> `droppedFrames` are the browser's cumulative counters; `intervalFrames` / `intervalDroppedFrames`
+> are the movement since the previous sample, and `droppedPct` is the ratio of those two. So a clip that
 > dropped badly and then stopped reads `"droppedPct": 0` beside a large `droppedFrames` — that is the
 > field working. Judged cumulatively it lagged a real fix by minutes
 > ([#216](https://github.com/dylanleatham/Marquee/issues/216)), which is the one moment it is read.
 >
 > `degraded` is sustained loss over **2%** _in that window_, about one visible hitch per second at 30
 > fps; a clip crossing it logs one warning to journald, not one per sample, and re-arms only once a
-> window comes back under 1% — a dip across the line is not a recovery. Intervals under 150 frames
+> judged window comes back to 1% or under — a dip across the line is not a recovery. Intervals under 150 frames
 > (half a sample window at 30 fps) are reported but never judged; the counters reset whenever the
 > video element gets a new source, and a counter that goes backwards starts a new window rather than
 > producing a negative rate.

@@ -31,9 +31,9 @@ export interface QualityReport extends QualitySample {
   /** Frames decoded since the previous sample — the window everything below is measured over. */
   intervalFrames: number;
   /** Frames lost in that window. */
-  intervalDropped: number;
+  intervalDroppedFrames: number;
   /**
-   * `intervalDropped` as a percentage of `intervalFrames`, rounded to one decimal. `0` when no
+   * `intervalDroppedFrames` as a percentage of `intervalFrames`, rounded to one decimal. `0` when no
    * frames were decoded in the window.
    */
   droppedPct: number;
@@ -70,7 +70,7 @@ export const DEGRADED_PCT = 2;
 export const MIN_INTERVAL_FRAMES = 150;
 
 /**
- * Recovery has to clear this, not merely dip under `DEGRADED_PCT`.
+ * Recovery has to reach this — inclusive — not merely dip under `DEGRADED_PCT`.
  *
  * Per-interval rates are a far twitchier signal than the lifetime average they replaced
  * ([#216](https://github.com/dylanleatham/Marquee/issues/216)): a board sitting near the threshold
@@ -121,14 +121,14 @@ export class QualityMonitor {
     const intervalFrames = totalFrames - base.totalFrames;
     // Clamped because the counters are unvalidated browser input and need not agree with each
     // other; more lost than decoded in a window would otherwise read as over 100%.
-    const intervalDropped = Math.min(
+    const intervalDroppedFrames = Math.min(
       intervalFrames,
       droppedFrames - base.droppedFrames,
     );
     const droppedPct =
       intervalFrames === 0
         ? 0
-        : Math.round((intervalDropped / intervalFrames) * 1000) / 10;
+        : Math.round((intervalDroppedFrames / intervalFrames) * 1000) / 10;
     const judged = intervalFrames >= MIN_INTERVAL_FRAMES;
     const degraded = judged && droppedPct > DEGRADED_PCT;
 
@@ -137,7 +137,7 @@ export class QualityMonitor {
       totalFrames,
       droppedFrames,
       intervalFrames,
-      intervalDropped,
+      intervalDroppedFrames,
       droppedPct,
       degraded,
       at: now(),

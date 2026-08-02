@@ -83,7 +83,8 @@ serialise as `null` — reading as "no signal" rather than "a bad frame arrived"
 > cumulative counters. Judged against a lifetime total it lagged reality by minutes — the first
 > deploy to use it kept reporting `degraded` for five samples after a panel-resolution change stopped
 > the drops dead. The 30-frame floor moves with it, to 150 frames measured over the window. Sustained
-> 2% and once-per-clip both stand; recovery now needs to clear 1% to re-arm that warning.
+> 2% and once-per-clip both stand; recovery now needs a judged window at 1% or under to re-arm that
+> warning.
 
 **7. Nothing in the decode budget changed.** It is tempting to drop the ceiling again — measured
 here, decode cost tracks bitrate far more than resolution (1080p at 8 Mbps costs ~2.2x the CPU of
