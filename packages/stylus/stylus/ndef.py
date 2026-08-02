@@ -84,6 +84,10 @@ def _unwrap_tlv(data: bytes) -> bytes:
             length = (data[i] << 8) | data[i + 1]
             i += 2
         if t == 0x03:  # NDEF Message TLV
+            if i + length > n:
+                # The TLV declares more message than we were handed: the read stopped early. Hand
+                # back nothing rather than a partial message — see ``parse_uri`` for why.
+                return b""
             return data[i : i + length]
         i += length  # some other TLV (lock control 0x01, etc.) — skip its value
     return b""
@@ -94,6 +98,12 @@ def parse_uri(data: bytes) -> str | None:
 
     Never raises on malformed input — a garbled read returns ``None`` so the caller just treats it
     as "no tag" rather than crashing the poll loop.
+
+    A record whose declared lengths run past the end of ``data`` is treated as malformed, **not**
+    decoded as far as the bytes go. Python slicing truncates silently, so the do-nothing version of
+    this reads a 16-byte read of ``curator:card:frn453tp`` back as ``curator:c`` — a shorter URI
+    that is perfectly well-formed, gets cached as a successful decode, and is then reported forever
+    as a real tag carrying a URI nobody ever wrote. A partial read must look like a failed read.
     """
     try:
         msg = _unwrap_tlv(bytes(data))
@@ -113,12 +123,16 @@ def parse_uri(data: bytes) -> str | None:
                 payload_len = msg[i]
                 i += 1
             else:
+                if i + 4 > n:
+                    return None
                 payload_len = int.from_bytes(msg[i : i + 4], "big")
                 i += 4
             id_len = 0
             if il:
                 id_len = msg[i]
                 i += 1
+            if i + type_len + id_len + payload_len > n:
+                return None  # record runs past the bytes we have — a short read, not a short URI
             rec_type = msg[i : i + type_len]
             i += type_len + id_len
             payload = msg[i : i + payload_len]

@@ -63,6 +63,29 @@ def test_malformed_input_returns_none():
     assert parse_uri(b"\x00\x00\x00") is None  # all-NULL TLVs, no message
 
 
+def test_a_read_cut_short_mid_uri_is_a_failed_decode_not_a_shorter_uri():
+    """The stand reported a real card tag as `curator:c` — the first 16 bytes of
+    `curator:card:frn453tp`, decoded as if that were the whole record. It is well-formed, so it was
+    cached as a successful decode and shown as a tag "carrying" a URI nobody ever wrote. Every
+    truncation of a good tag must read as undecodable."""
+    full = tlv_wrap(uri_record("curator:card:frn453tp"))
+    assert parse_uri(full) == "curator:card:frn453tp"
+    # Every prefix short of the whole message. Losing only the trailing 0xFE terminator is not a
+    # truncation — the terminator sits outside the message — so the last byte is excluded.
+    for n in range(1, len(full) - 1):
+        assert parse_uri(full[:n]) is None, f"{n} bytes decoded to something"
+
+
+def test_truncated_bare_record_returns_none():
+    rec = uri_record(ALBUM)  # no TLV wrapper — the record header carries the length
+    assert parse_uri(rec[: len(rec) - 1]) is None
+
+
+def test_truncated_four_byte_payload_length_returns_none():
+    # Long-record form: the 4-byte payload length itself is cut off mid-field.
+    assert parse_uri(b"\xc1\x01\x00\x00") is None
+
+
 def test_non_uri_record_returns_none():
     # A MIME (TNF 0x02) record isn't a URI/Text record → nothing to extract.
     assert parse_uri(_record(0x02, b"text/plain", b"hello")) is None

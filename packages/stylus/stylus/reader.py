@@ -41,21 +41,71 @@ class SimulatedReader:
         return self._current
 
 
+def _ndef_tlv_end(data: bytes) -> int | None:
+    """Byte offset just past the NDEF-message TLV's value, or ``None`` if ``data`` doesn't reach it.
+
+    Walks the same TLV chain :func:`stylus.ndef._unwrap_tlv` walks, but over a *partial* read, so it
+    answers the only question the page loop has: am I done, or do I still owe bytes? ``None`` means
+    "keep reading" — including for a bare NDEF message with no TLV wrapper (MB bit set), whose
+    length can't be known from the front, where reading everything is the safe answer.
+    """
+    if data and data[0] & 0x80:
+        return None
+    i, n = 0, len(data)
+    while i < n:
+        t = data[i]
+        if t == 0x00:  # NULL TLV — padding, skip
+            i += 1
+            continue
+        if t == 0xFE:  # Terminator TLV — there is no NDEF message on this tag
+            return i + 1
+        if i + 1 >= n:
+            return None  # length byte not read yet
+        length = data[i + 1]
+        i += 2
+        if length == 0xFF:  # 3-byte length form
+            if i + 1 >= n:
+                return None
+            length = (data[i] << 8) | data[i + 1]
+            i += 2
+        if t == 0x03:  # NDEF Message TLV — done once its whole value is in hand
+            return i + length
+        i += length  # some other TLV (lock control 0x01, etc.) — skip its value
+    return None
+
+
+def _read_page(read_page: Callable[[int], bytes | None], page: int, attempts: int) -> bytes | None:
+    """One page, retried. A single dropped I²C read mid-record is the whole bug this file guards."""
+    for _ in range(attempts):
+        data = read_page(page)
+        if data:
+            return data
+    return None
+
+
 # NTAG213 user memory is read 4 bytes (one page) at a time. Assemble pages into the NDEF-message
-# byte string, stopping at the terminator TLV (0xFE) or when a page read fails. Pure so it's testable
-# with a fake page reader; the real reader passes the PN532's ``ntag2xx_read_block``.
+# byte string, stopping once the NDEF-message TLV is *complete* or when a page read fails. Pure so
+# it's testable with a fake page reader; the real reader passes the PN532's ``ntag2xx_read_block``.
+#
+# Stopping used to mean "this page contained an 0xFE byte", which is not the same question: it stops
+# early on a payload byte that happens to be 0xFE, and — the failure that motivated this — it can't
+# tell a finished message from a read that died halfway through one. Reading to the length the tag
+# itself declares means a short read is short by a knowable amount, and `parse_uri` rejects it
+# instead of decoding the prefix into a plausible shorter URI.
 def assemble_ntag_ndef(
     read_page: Callable[[int], bytes | None],
     start_page: int = 4,
     max_pages: int = 40,
+    page_attempts: int = 3,
 ) -> bytes:
     out = bytearray()
     for page in range(start_page, start_page + max_pages):
-        data = read_page(page)
+        data = _read_page(read_page, page, page_attempts)
         if not data:
             break
         out.extend(data)
-        if 0xFE in data:  # terminator TLV — no need to read further
+        end = _ndef_tlv_end(bytes(out))
+        if end is not None and len(out) >= end:
             break
     return bytes(out)
 
