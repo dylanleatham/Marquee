@@ -15,11 +15,18 @@ kiosk browser connects over WebSocket and shows the video.
   `play`/`stop` command, idle-timeout safety net (injectable timers), and graceful handling of an
   unknown URI or a missing/out-of-tree file (stay put, flash a corner hint — never blackscreen).
 - **`hub.ts`** — WebSocket fan-out to the connected browser(s).
+- **`quality.ts`** — turns the kiosk's `getVideoPlaybackQuality()` counters into a dropped-frame
+  verdict for `/api/status` (spec §8, [ADR 0046](../../docs/adrs/0046-layer-roles-swap-on-screen-and-the-pi-reports-its-own-decode.md)).
+  The Pi decodes H.264 in software and Curator's preview can't see that, so this is the only
+  measurement of whether a visualizer actually plays on the hardware.
 - **`server.ts`** — Fastify + `@fastify/websocket` + `@fastify/static`; every endpoint in spec §8
   (`/api/scan`, `/api/library/*`, `/api/admin/*`, `/api/status`, `/healthz`), `X-Trigger-Secret`
   auth on `/api/*` (SPA + `/ws` + `/healthz` stay open).
 - **`public/`** — vanilla kiosk SPA: two `<video>` layers for crossfade, near-black idle gradient,
-  auto-reconnecting WebSocket, `?debug=1` corner indicators.
+  auto-reconnecting WebSocket, `?debug=1` corner indicators. The layers swap roles the moment a clip
+  goes on screen, never on a timer — a timer-based swap left the "spare" layer pointing at the video
+  being watched for the length of every fade
+  ([ADR 0046](../../docs/adrs/0046-layer-roles-swap-on-screen-and-the-pi-reports-its-own-decode.md)).
 
 Cross-service shapes (`ScanEvent`, `LibraryEntry`) live in `@marquee/contracts`.
 
@@ -27,7 +34,7 @@ Cross-service shapes (`ScanEvent`, `LibraryEntry`) live in `@marquee/contracts`.
 
 ```bash
 pnpm --filter @marquee/backdrop dev        # tsx watch on :4740 (auth disabled, warns at boot)
-pnpm --filter @marquee/backdrop test       # vitest — 39 tests
+pnpm --filter @marquee/backdrop test       # vitest — 100 tests
 pnpm --filter @marquee/backdrop type-check
 ```
 

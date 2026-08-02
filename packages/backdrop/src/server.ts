@@ -16,6 +16,7 @@ import {
   fileIsPlayable,
   type Timers,
 } from "./controller.js";
+import { QualityMonitor } from "./quality.js";
 import { createLogger } from "@marquee/observability";
 
 const pkgDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -87,8 +88,21 @@ function parseScan(body: unknown): ScanEvent | null {
 export function buildServer(opts: BuildOptions = {}) {
   const config = loadConfig(opts.config);
   const library = opts.library ?? new Library(config.dataDir);
+  const quality = new QualityMonitor();
   const hub = new SocketHub((ev) => {
-    // Browser events are observability only; log and move on (spec §10).
+    if (ev.type === "playback-quality") {
+      // The kiosk samples these every few seconds, so logging each one would drown the journal.
+      // Only a clip *becoming* degraded is worth a line; the current numbers live on /api/status.
+      const { report, newlyDegraded } = quality.record(ev);
+      if (newlyDegraded) {
+        app.log.warn(
+          report,
+          "backdrop playback is dropping frames — this board decodes H.264 in software (ADR 0040)",
+        );
+      }
+      return;
+    }
+    // Other browser events are observability only; log and move on (spec §10).
     app.log.info({ browserEvent: ev }, "backdrop browser event");
   });
   const app = Fastify({
@@ -145,11 +159,17 @@ export function buildServer(opts: BuildOptions = {}) {
     });
   });
 
-  app.get("/api/status", async () => ({
-    ...controller.status(),
-    browserConnected: hub.connectedCount() > 0,
-    uptimeSec: Math.round((Date.now() - startedAt) / 1000),
-  }));
+  app.get("/api/status", async () => {
+    const status = controller.status();
+    return {
+      ...status,
+      browserConnected: hub.connectedCount() > 0,
+      // How the clip on screen is actually decoding (issue #211). `null` until the kiosk has sent a
+      // sample for *this* file — which is also what an idle display reports.
+      playbackQuality: quality.latest(status.filePath),
+      uptimeSec: Math.round((Date.now() - startedAt) / 1000),
+    };
+  });
 
   // --- Scan intake (from Stylus) -----------------------------------------------------------------
   app.post("/api/scan", async (req, reply) => {
