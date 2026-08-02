@@ -18,7 +18,7 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -127,11 +127,22 @@ export function usePrimaryAction(action: PrimaryAction | null): void {
   // Deliberately no dependency array: `action.run` is a fresh closure over current state on every
   // render and must be re-registered every time. `claim` only touches state when the label or the
   // reason actually changes, so this cannot loop.
-  useEffect(() => {
+  //
+  // **Layout, not passive** (issue #225). A passive effect runs *after* the paint, so the commit
+  // that first shows a workstation painted a header reading "No primary action on this workstation"
+  // on a bench that has one, and ⌘⏎ pressed in that window was a real dud — the same class as
+  // [#119](https://github.com/dylanleatham/Marquee/issues/119), where the queue's key handler was
+  // stale in precisely the moment the queue first appeared. React flushes the re-render this
+  // schedules before the browser paints, so the header ADR 0044 §2 promises "always" names the
+  // action is right in the frame the bench arrives, not the one after.
+  useLayoutEffect(() => {
     api?.claim(id, action);
   });
 
-  useEffect(() => () => api?.release(id), [api, id]);
+  // Layout for the same reason, in the other direction: a bench that unmounts must not leave a stale
+  // label painted beside ⌘⏎. The owner guard in `release` is what keeps the handover safe when both
+  // benches' effects run in the one commit.
+  useLayoutEffect(() => () => api?.release(id), [api, id]);
 }
 
 /** What ⌘⏎ would do right now — for the bench header. */
