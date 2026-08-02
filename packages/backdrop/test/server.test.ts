@@ -297,5 +297,69 @@ describe("backdrop HTTP API", () => {
     expect(body.state).toBe("idle");
     expect(body.browserConnected).toBe(false);
     expect(typeof body.uptimeSec).toBe("number");
+    expect(body.playbackQuality).toBeNull();
+  });
+});
+
+// The kiosk's decoder counters are the only measurement of whether this board keeps up with a clip
+// (issue #211); ADR 0040 set a decode budget with nothing watching the result. These pin the path
+// from a browser frame to /api/status.
+describe("playback quality reaches /api/status (issue #211)", () => {
+  const status = async (app: ReturnType<typeof build>["app"]) =>
+    (
+      await app.inject({ method: "GET", url: "/api/status", headers: AUTH })
+    ).json();
+
+  /** Deliver a browser→backend frame the way a connected kiosk would. */
+  const report = (
+    hub: ReturnType<typeof build>["hub"],
+    filePath: string,
+    totalFrames: number,
+    droppedFrames: number,
+  ) =>
+    hub.receive(
+      JSON.stringify({
+        type: "playback-quality",
+        filePath,
+        totalFrames,
+        droppedFrames,
+      }),
+    );
+
+  it("serves the drop rate for the clip that is on screen", async () => {
+    const { app, hub, controller, videoPath } = build();
+    controller.play(URI);
+
+    report(hub, videoPath, 1800, 90);
+
+    const body = await status(app);
+    expect(body.state).toBe("playing");
+    expect(body.playbackQuality).toMatchObject({
+      filePath: videoPath,
+      totalFrames: 1800,
+      droppedFrames: 90,
+      droppedPct: 5,
+      degraded: true,
+    });
+  });
+
+  it("drops the verdict once playback stops", async () => {
+    // A "degraded" left over from the last album, served against an idle display, would send an
+    // operator hunting a problem that isn't on screen.
+    const { app, hub, controller, videoPath } = build();
+    controller.play(URI);
+    report(hub, videoPath, 1800, 90);
+    controller.stop();
+
+    expect((await status(app)).playbackQuality).toBeNull();
+  });
+
+  it("ignores a malformed frame rather than taking the backend down", async () => {
+    const { app, hub, controller } = build();
+    controller.play(URI);
+    hub.receive("{not json");
+    hub.receive(JSON.stringify({ type: "playback-quality" }));
+
+    expect((await status(app)).state).toBe("playing");
   });
 });

@@ -14,7 +14,15 @@ export type Command =
 export type BrowserEvent =
   | { type: "playback-started"; filePath: string }
   | { type: "playback-error"; filePath: string; error: string }
-  | { type: "loop-completed"; filePath: string; iteration: number };
+  | { type: "loop-completed"; filePath: string; iteration: number }
+  // Cumulative decoder counters for the clip on screen, sampled periodically by the kiosk
+  // (issue #211). The one measurement of whether this board is keeping up — see `quality.ts`.
+  | {
+      type: "playback-quality";
+      filePath: string;
+      totalFrames: number;
+      droppedFrames: number;
+    };
 
 /** The backend's single global playback state (backdrop-spec §7). */
 export type PlaybackState = "idle" | "playing";
