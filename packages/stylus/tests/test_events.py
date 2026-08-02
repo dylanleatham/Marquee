@@ -9,7 +9,7 @@ from stylus.events import is_curator_uri, now_iso, start_event, stop_event
 _SCHEMA = json.loads(
     (
         Path(__file__).resolve().parents[2] / "contracts" / "schemas" / "scan-event.schema.json"
-    ).read_text()
+    ).read_text(encoding="utf-8")  # JSON is UTF-8; don't let a Windows locale decide otherwise
 )
 _VALIDATOR = Draft202012Validator(_SCHEMA)
 
