@@ -30,6 +30,8 @@ venv/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+# Left behind by the `pip install -e '.[dev]'` the stylus README prescribes.
+*.egg-info/
 
 # Test / coverage
 coverage/
