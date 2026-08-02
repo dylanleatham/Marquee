@@ -80,7 +80,7 @@ $ curl -s -H "X-Trigger-Secret: SECRET" -X POST http://localhost:4741/api/admin/
 `systemd` keeps Amp alive and restarts it on failure or reboot. Create the service file:
 
 ```
-$ sudo nano /etc/systemd/system/amp.service
+$ sudo nano /etc/systemd/system/marquee-amp.service
 ```
 
 Paste this (assumes username `pi`; adjust the paths if you used a different username):
@@ -110,13 +110,17 @@ Enable and start it:
 
 ```
 $ sudo systemctl daemon-reload
-$ sudo systemctl enable --now amp
-$ systemctl status amp          # "active (running)"; q to exit
-$ journalctl -u amp -f          # live logs; Ctrl+C to stop watching
+$ sudo systemctl enable --now marquee-amp
+$ systemctl status marquee-amp          # "active (running)"; q to exit
+$ journalctl -u marquee-amp -f          # live logs; Ctrl+C to stop watching
 ```
 
+> **The unit is `marquee-amp`, not `amp`** — matching `marquee-conductor` and `marquee-stylus`, and
+> matching what is actually deployed. This document used to say `amp.service`, so a copy-paste of
+> `journalctl -u amp` returns nothing on a real Pi and reads exactly like a service with no traffic.
+
 Amp now survives reboots and restarts if it crashes. Confirm by pulling the power, waiting, and
-re-checking `systemctl status amp` after boot.
+re-checking `systemctl status marquee-amp` after boot.
 
 ## 5. Connect Amp to the rest of Marquee
 
@@ -125,6 +129,23 @@ Amp just waits for HTTP on port **4741**; two things drive it over the LAN:
 - **Stylus** POSTs scan events to `/api/scan` with the shared secret. A **card** scan
   (`curator:card:<id>`) plays the album; a **sleeve** (`curator:album:<id>`) is ignored — you play the
   vinyl. (Conductor and Backdrop react to both, for lights and video.)
+
+  **This does not happen on its own — go and add Amp to Stylus's config now:**
+
+  ```toml
+  # on the Pi Zero, ~/Marquee/packages/stylus/config.toml
+  [downstream.amp]
+  url = "http://<pi5>:4741/api/scan"
+  timeout_ms = 5000
+  shared_secret = "the-same-secret-everything-else-uses"
+  ```
+
+  then `sudo systemctl restart marquee-stylus`. Installing Amp does not enlist it: Stylus fans out
+  to exactly the downstreams its own config names, so an Amp that is deployed, healthy, and holding
+  the right target room still never receives a scan until this section exists. The symptom is
+  lights and video working perfectly with no audio, and no error anywhere to explain it — grep
+  Amp's journal for `/api/scan` and confirm it is receiving anything at all before suspecting Sonos.
+
 - **Curator** (on your workstation) keeps Amp current: it rsyncs the album-assets store to Amp's
   `album_assets_dir` (so `metadata.spotifyUri` is available at scan time), and can push the target
   room with `PUT /api/settings` (`{ "targetRoom": "Living Room" }`) instead of editing `config.toml`.
@@ -134,16 +155,16 @@ Amp just waits for HTTP on port **4741**; two things drive it over the LAN:
 ```
 $ cd ~/Marquee && git pull && pnpm install
 $ pnpm --filter @marquee/amp build
-$ sudo systemctl restart amp
+$ sudo systemctl restart marquee-amp
 ```
 
 ## 7. Troubleshooting
 
-| Symptom                                                                         | Likely cause / fix                                                                                                               |
-| ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `systemctl status amp`: won't start                                             | `journalctl -u amp -e`. Common: wrong path/username in the unit, or the build (step 1) never ran so `dist/server.js` is missing. |
-| Card scan does nothing; log says `sonos unavailable: no Spotify favorite found` | Save one Spotify album as a Sonos Favorite in the Sonos app — Amp derives the account binding from it.                           |
-| Log says `no Sonos room named "…"`                                              | The `target_room` must match a name from `GET /api/sonos/rooms` exactly (case/spacing count).                                    |
-| Card scan logs `album not synced` / `album not on spotify`                      | Curator hasn't rsynced this album's asset yet, or the album has no `metadata.spotifyUri`. Both degrade to silence by design.     |
-| `401 unauthorized` from a `curl`                                                | `X-Trigger-Secret` header must equal `config.toml`'s `shared_secret`.                                                            |
-| Audio keeps playing after you lift the card                                     | A lost `stop` event; Amp's 90-min idle timeout is the backstop. Force it now: `POST /api/admin/stop`.                            |
+| Symptom                                                                         | Likely cause / fix                                                                                                                       |
+| ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `systemctl status marquee-amp`: won't start                                     | `journalctl -u marquee-amp -e`. Common: wrong path/username in the unit, or the build (step 1) never ran so `dist/server.js` is missing. |
+| Card scan does nothing; log says `sonos unavailable: no Spotify favorite found` | Save one Spotify album as a Sonos Favorite in the Sonos app — Amp derives the account binding from it.                                   |
+| Log says `no Sonos room named "…"`                                              | The `target_room` must match a name from `GET /api/sonos/rooms` exactly (case/spacing count).                                            |
+| Card scan logs `album not synced` / `album not on spotify`                      | Curator hasn't rsynced this album's asset yet, or the album has no `metadata.spotifyUri`. Both degrade to silence by design.             |
+| `401 unauthorized` from a `curl`                                                | `X-Trigger-Secret` header must equal `config.toml`'s `shared_secret`.                                                                    |
+| Audio keeps playing after you lift the card                                     | A lost `stop` event; Amp's 90-min idle timeout is the backstop. Force it now: `POST /api/admin/stop`.                                    |

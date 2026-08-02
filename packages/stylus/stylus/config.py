@@ -38,7 +38,7 @@ class ReaderConfig:
 
 @dataclass(frozen=True)
 class Downstream:
-    """A service Stylus fans scan events out to (Conductor, Backdrop)."""
+    """A service Stylus fans scan events out to (Conductor, Backdrop, Amp)."""
 
     name: str
     url: str
@@ -64,12 +64,23 @@ class Config:
     led: LedConfig = field(default_factory=LedConfig)
 
 
-# The two downstreams, in fan-out order. `player` is accepted as a legacy alias for `backdrop`
-# (the service's committed name; older configs and stylus-spec §9 still say "player").
-_DOWNSTREAM_KEYS = ("conductor", "backdrop", "player")
+# The downstreams, in fan-out order: lights, then video, then audio. `player` is accepted as a
+# legacy alias for `backdrop` (the service's committed name; older configs and stylus-spec §9 still
+# say "player"). `amp` is the ADR 0034 third leg — a `curator:card:` scan streams over Sonos.
+_DOWNSTREAM_KEYS = ("conductor", "backdrop", "player", "amp")
+_KNOWN_DOWNSTREAMS = frozenset(_DOWNSTREAM_KEYS)
 
 
 def _downstreams_from(section: dict[str, Any]) -> tuple[Downstream, ...]:
+    # A key this function doesn't recognise used to be skipped in silence, which is how a whole
+    # service can be configured and never receive anything: `[downstream.amp]` in config.toml read
+    # as valid TOML, raised nothing, logged nothing, and simply never became a downstream. Refuse
+    # it instead — a downstream you thought you wired up is worth a crash loop in journalctl.
+    unknown = sorted(set(section) - _KNOWN_DOWNSTREAMS)
+    if unknown:
+        raise ValueError(
+            f"unknown downstream(s): {', '.join(unknown)} (known: {', '.join(_DOWNSTREAM_KEYS)})"
+        )
     out: list[Downstream] = []
     seen: set[str] = set()
     for key in _DOWNSTREAM_KEYS:

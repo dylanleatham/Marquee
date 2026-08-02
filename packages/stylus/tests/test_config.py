@@ -56,6 +56,36 @@ def test_explicit_backdrop_wins_over_legacy_player():
     assert c.downstreams[0].url == "http://new:4740/api/scan"
 
 
+def test_amp_is_a_downstream_and_fans_out_after_lights_and_video():
+    # ADR 0034's third leg: a card scan drives lights + video + audio. Amp is last so the visuals
+    # aren't waiting behind a Sonos round trip.
+    c = config_from_dict(
+        {
+            "downstream": {
+                "conductor": {"url": "http://c:4737/api/scan"},
+                "backdrop": {"url": "http://b:4740/api/scan"},
+                "amp": {"url": "http://a:4741/api/scan", "shared_secret": "s"},
+            }
+        }
+    )
+    assert [d.name for d in c.downstreams] == ["conductor", "backdrop", "amp"]
+    assert c.downstreams[2].shared_secret == "s"
+
+
+def test_an_unrecognised_downstream_is_refused_rather_than_ignored():
+    """Silently skipping an unknown key is how Amp stayed unreachable: the stand had lights and
+    video, `[downstream.amp]` looked wired up, and nothing anywhere said it wasn't a downstream."""
+    with pytest.raises(ValueError, match="unknown downstream"):
+        config_from_dict(
+            {
+                "downstream": {
+                    "conductor": {"url": "http://c:4737/api/scan"},
+                    "ampp": {"url": "http://a:4741/api/scan"},
+                }
+            }
+        )
+
+
 def test_downstream_without_url_is_an_error():
     with pytest.raises(ValueError, match="no url"):
         config_from_dict({"downstream": {"conductor": {"shared_secret": "x"}}})
@@ -91,4 +121,5 @@ def test_example_config_parses():
     raw = tomllib.loads(example.read_text())
     c = config_from_dict(raw)
     assert isinstance(c, Config)
-    assert {d.name for d in c.downstreams} == {"conductor", "backdrop"}
+    # Amp included: an example that ships without it is how a stand ends up silent (ADR 0034).
+    assert {d.name for d in c.downstreams} == {"conductor", "backdrop", "amp"}
