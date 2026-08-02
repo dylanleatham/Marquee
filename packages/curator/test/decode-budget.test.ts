@@ -13,6 +13,7 @@ import {
   budgetViolations,
   needsNormalize,
   buildNormalizeArgs,
+  fitWithinBudget,
   parseFrameRate,
   ingestVideo,
   type VideoInfo,
@@ -147,6 +148,47 @@ describe("buildNormalizeArgs", () => {
     expect(big[big.indexOf("-r") + 1]).toBe("30");
   });
 
+  it("forces the downscale to even dimensions, which yuv420p requires", () => {
+    // regression: #217 — `force_original_aspect_ratio=decrease` preserves aspect but not *parity*,
+    // and libx264 at `-pix_fmt yuv420p` (4:2:0 chroma) refuses an odd width or height outright:
+    // "height not divisible by 2 (1920x1013)". DCI 2K (2048x1080) and DCI 4K (4096x2160) both scale
+    // to exactly that, so every DCI-format upload failed the encode and never reached the store.
+    //
+    // This is the cheap tripwire; `video-ffmpeg-integration.test.ts` is what actually proves the
+    // argv runs, because a string assertion cannot see ffmpeg reject the command.
+    for (const size of [
+      { width: 2048, height: 1080 }, // DCI 2K  → 1920x1013 unguarded
+      { width: 4096, height: 2160 }, // DCI 4K  → 1920x1013 unguarded
+      { width: 3842, height: 2160 }, //         → 1920x1079 unguarded
+    ]) {
+      const args = buildNormalizeArgs("in.mp4", "out.mp4", {
+        ...conformant,
+        ...size,
+      });
+      const vf = args[args.indexOf("-vf") + 1] ?? "";
+      expect(vf).toContain("force_divisible_by=2");
+    }
+  });
+
+  it("clamps parity even when the source is small enough to skip the downscale", () => {
+    // regression: #217, widened. The `force_divisible_by=2` above only helps when `resolution` is a
+    // violation — but a source can *already* be odd and inside the budget, because H.264 only forbids
+    // odd dimensions at 4:2:0; 4:4:4 (and conformance-cropped HEVC) allow them. Such a file adds no
+    // scale filter, so a re-encode triggered by any *other* violation re-encoded at the native odd
+    // size and died the same way: "width not divisible by 2 (1919x1013)". Both HEVC and over-bitrate
+    // uploads reach this path, and HEVC always does — it is a codec violation by definition.
+    for (const info of [
+      { ...conformant, width: 1919, height: 1013, bitRateBps: 20_000_000 },
+      { ...conformant, width: 1919, height: 1013, codec: "hevc" },
+      { ...conformant, width: 1919, height: 1013, fps: 60 },
+    ]) {
+      const args = buildNormalizeArgs("in.mp4", "out.mp4", info);
+      const vf = args[args.indexOf("-vf") + 1] ?? "";
+      expect(vf).toContain("crop=trunc(iw/2)*2:trunc(ih/2)*2");
+      expect(vf).not.toContain("scale="); // still no needless downscale — it already fits
+    }
+  });
+
   it("remuxes rather than re-encodes when audio is the only thing out of budget", () => {
     // An NLE export that already fits the budget but carries a muted audio track must not pay a
     // full re-encode (and the quality loss) just to drop that track.
@@ -157,6 +199,54 @@ describe("buildNormalizeArgs", () => {
     expect(args).toContain("-an");
     expect(args[args.indexOf("-c:v") + 1]).toBe("copy");
     expect(args).not.toContain("libx264");
+  });
+});
+
+/**
+ * `fitWithinBudget` had no test at all, despite being the rule the *splice* path relies on to keep
+ * libx264 fed with an even frame — it is the pad target every clip is normalized to. #217 was the
+ * same mistake on the normalize path, so this pins the invariant the docstring already claims.
+ */
+describe("fitWithinBudget", () => {
+  const shapes = [
+    [3840, 2160], // UHD — exact halving
+    [4096, 2160], // DCI 4K — the #217 shape
+    [2048, 1080], // DCI 2K
+    [3842, 2160],
+    [1920, 1080], // already conformant
+    [1919, 1013], // odd *and* already inside the budget (4:4:4 H.264 allows this)
+    [1281, 721],
+    [640, 480], // comfortably under
+    [7680, 4320], // 8K
+    [1, 1], // degenerate — must not produce a zero dimension
+  ] as const;
+
+  it.each(shapes)("returns an even, in-budget frame for %ix%i", (w, h) => {
+    const fit = fitWithinBudget(w, h);
+    // Even is the whole point: H.264 4:2:0 cannot encode an odd axis.
+    expect(fit.width % 2).toBe(0);
+    expect(fit.height % 2).toBe(0);
+    // Rounding to even must never round *up* past the ceiling it exists to respect.
+    expect(fit.width).toBeLessThanOrEqual(DECODE_BUDGET.maxWidth);
+    expect(fit.height).toBeLessThanOrEqual(DECODE_BUDGET.maxHeight);
+    // And never collapse to nothing.
+    expect(fit.width).toBeGreaterThanOrEqual(2);
+    expect(fit.height).toBeGreaterThanOrEqual(2);
+  });
+
+  it("preserves the aspect ratio to within the rounding it is allowed", () => {
+    // Forcing even can move each axis by at most 1px, so the ratio may drift slightly — but a
+    // downscale must never letterbox-by-stretch, which is what a real aspect bug would look like.
+    for (const [w, h] of shapes) {
+      const fit = fitWithinBudget(w, h);
+      const drift = Math.abs(fit.width / fit.height - w / h) / (w / h);
+      expect(drift).toBeLessThan(0.01);
+    }
+  });
+
+  it("does not upscale a frame that already fits", () => {
+    expect(fitWithinBudget(640, 480)).toEqual({ width: 640, height: 480 });
+    expect(fitWithinBudget(1920, 1080)).toEqual({ width: 1920, height: 1080 });
   });
 });
 
