@@ -15,6 +15,12 @@ kiosk browser connects over WebSocket and shows the video.
   `play`/`stop` command, idle-timeout safety net (injectable timers), and graceful handling of an
   unknown URI or a missing/out-of-tree file (stay put, flash a corner hint — never blackscreen).
 - **`hub.ts`** — WebSocket fan-out to the connected browser(s).
+- **`deploy/`** — the kiosk launcher (`kiosk.sh`) and the compositor override (`xcompmgr.desktop`),
+  checked in rather than pasted out of DEPLOY.md so the Pi and the repo can't silently disagree.
+  Between them they force the panel to 1920x1080@60 and stop `xcompmgr` tearing the picture — the two
+  settings that mattered more than the entire encode pipeline
+  ([ADR 0047](../../docs/adrs/0047-the-kiosk-display-pipeline-not-the-decoder.md)). Guarded by
+  `test/deploy-assets.test.ts`.
 - **`quality.ts`** — turns the kiosk's `getVideoPlaybackQuality()` counters into a dropped-frame
   verdict for `/api/status` (spec §8, [ADR 0046](../../docs/adrs/0046-layer-roles-swap-on-screen-and-the-pi-reports-its-own-decode.md)).
   The Pi decodes H.264 in software and Curator's preview can't see that, so this is the only
@@ -34,7 +40,7 @@ Cross-service shapes (`ScanEvent`, `LibraryEntry`) live in `@marquee/contracts`.
 
 ```bash
 pnpm --filter @marquee/backdrop dev        # tsx watch on :4740 (auth disabled, warns at boot)
-pnpm --filter @marquee/backdrop test       # vitest — 100 tests
+pnpm --filter @marquee/backdrop test       # vitest — 112 tests
 pnpm --filter @marquee/backdrop type-check
 ```
 
