@@ -782,6 +782,22 @@ orphan to re-attach.
 > (~0.6x the clip's duration) where it used to be a file copy. Moving that behind the job manager is
 > the tracked follow-up.
 
+> **Stored dimensions are always even (2026-08-02,
+> [issue #217](https://github.com/dylanleatham/Marquee/issues/217)).** H.264 at 4:2:0 cannot encode an
+> odd width or height, so **every re-encode clamps both axes to a multiple of 2** — the downscale via
+> `force_divisible_by=2`, and every other re-encode via an unconditional `crop`. `fitWithinBudget`,
+> the splice's pad target, forces the same thing.
+>
+> Two consequences worth reading as spec, not trivia. **A downscaled frame may land just under
+> 1920x1080** rather than on it: DCI 2K (2048x1080) and DCI 4K (4096x2160) both store as **1920x1012**,
+> because the aspect-preserving height is 1012.5. And **an odd-dimensioned source loses up to one pixel
+> per axis** — legal input, since H.264 only forbids odd axes at 4:2:0 and 4:4:4 permits them.
+>
+> Before this, neither clamp existed: the downscale emitted `1920x1013`, libx264 refused it ("height
+> not divisible by 2"), and ingest **rejected the upload outright** — so DCI-format files, an ordinary
+> NLE export target, could not be attached at all. The accept ceiling in the note above is unchanged;
+> this constrains only what a normalize _writes_.
+
 **Upload ceiling.** A single multipart upload is capped at `storage.max_upload_mb` in
 `config.toml` (env `CURATOR_MAX_UPLOAD_MB`), default **2048 MB**. Visualizer videos are the only
 large uploads; cover and card art are tiny. An over-ceiling upload is rejected with **413** and a

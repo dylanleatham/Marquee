@@ -179,10 +179,24 @@ export function buildNormalizeArgs(
   const filters: string[] = [];
   if (violations.includes("resolution"))
     filters.push(
+      // `force_divisible_by=2` is not cosmetic: `force_original_aspect_ratio=decrease` preserves the
+      // aspect ratio but says nothing about *parity*, and libx264 at `-pix_fmt yuv420p` (4:2:0 chroma
+      // needs both axes halvable) refuses an odd frame outright — "height not divisible by 2
+      // (1920x1013)" — so ingest rejected the upload instead of storing it. DCI 2K (2048x1080) and
+      // DCI 4K (4096x2160) are ordinary NLE exports and both land on exactly that (issue #217).
+      // The concat path gets the same guarantee a different way: it pads to `fitWithinBudget`, which
+      // forces even for this identical reason.
       `scale=${DECODE_BUDGET.maxWidth}:${DECODE_BUDGET.maxHeight}:` +
-        `force_original_aspect_ratio=decrease`,
+        `force_original_aspect_ratio=decrease:force_divisible_by=2`,
       "setsar=1",
     );
+  // The parity clamp is unconditional, and that is the point: the scale above only runs on a
+  // `resolution` violation, but a source can arrive *already* odd and already inside the budget —
+  // H.264 forbids odd axes at 4:2:0, not at 4:4:4, and cropped HEVC does it too. Such a file skipped
+  // the scale entirely and re-encoded at its native odd size, so any other violation (an HEVC upload
+  // is one by definition) hit the identical "width not divisible by 2" failure. A no-op on the even
+  // frames that are the norm; the last word on parity for every re-encode (issue #217).
+  filters.push("crop=trunc(iw/2)*2:trunc(ih/2)*2");
 
   return [
     ...head,
@@ -493,7 +507,15 @@ export function buildConcatArgs(
 
 /**
  * Shrink `width`x`height` to fit inside `DECODE_BUDGET`, preserving aspect ratio; a frame already
- * inside it passes through untouched. Dimensions are forced even — H.264's 4:2:0 chroma requires it.
+ * inside it keeps its size. Dimensions are forced even — H.264's 4:2:0 chroma requires it, and this
+ * is the pad target every spliced clip is normalized to, so an odd result reaches libx264 directly.
+ *
+ * The even-forcing used to sit *after* an `if (scale >= 1) return { width, height }` early exit, so
+ * an already-in-budget frame was passed through odd — contradicting the sentence above it. Reachable:
+ * a 1919x1013 clip (legal H.264 at 4:4:4) spliced against a differently-sized one made that the pad
+ * target and the splice failed to configure its filter graph (issue #217, widened from the normalize
+ * path). Rounding to even can move an axis by 1px but never past the ceiling, since the ceiling is
+ * itself even.
  */
 export function fitWithinBudget(
   width: number,
@@ -504,7 +526,6 @@ export function fitWithinBudget(
     DECODE_BUDGET.maxWidth / width,
     DECODE_BUDGET.maxHeight / height,
   );
-  if (scale >= 1) return { width, height };
   const even = (n: number) => Math.max(2, 2 * Math.round((n * scale) / 2));
   return { width: even(width), height: even(height) };
 }

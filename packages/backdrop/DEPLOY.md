@@ -246,8 +246,14 @@ the same decode budget Curator applies on ingest — the bitrate cap is the part
 board, not just the codec:
 
 ```
-$ ffmpeg -i <the-copied-file> -an -c:v libx264 -profile:v high -level 4.0 -preset veryfast -crf 21 -maxrate 8M -bufsize 16M -g 60 -pix_fmt yuv420p -movflags +faststart -y ~/Marquee/packages/backdrop/data/media/visualizers/demo.mp4
+$ ffmpeg -i <the-copied-file> -an -vf "crop=trunc(iw/2)*2:trunc(ih/2)*2" -c:v libx264 -profile:v high -level 4.0 -preset veryfast -crf 21 -maxrate 8M -bufsize 16M -g 60 -pix_fmt yuv420p -movflags +faststart -y ~/Marquee/packages/backdrop/data/media/visualizers/demo.mp4
 ```
+
+The `crop` is not decoration — `-pix_fmt yuv420p` cannot encode an odd width or height, and it fails
+the whole command with "width not divisible by 2" rather than degrading. HEVC is exactly where that
+bites, because it can carry odd dimensions and this command is the one you run _on_ an HEVC file. It
+is a no-op on the even frames that are the norm. Curator applies the same clamp on ingest
+([issue #217](https://github.com/dylanleatham/Marquee/issues/217)).
 
 Now register it in Backdrop's library — `SECRET` is your `shared_secret` from `config.toml`. Run this
 **on the Pi**:
