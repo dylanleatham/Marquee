@@ -178,7 +178,15 @@ Jobs:
    their own vitest fork pool, and on a 4-core Windows runner that got a worker killed mid-run. It
    costs almost nothing: serialized, the whole `test:unit` graph is ~37s.
 4. **unit tests (Python)** — nfc-trigger package
-5. **integration tests** — all packages, using fakes from `packages/fakes/`
+5. **integration tests** — `turbo run test:integration`. Curator is currently the only package that
+   defines the script: it runs the tests that shell out to the **real** ffmpeg/ffprobe rather than a
+   faked prober. This leg installs ffmpeg (`apt-get install -y ffmpeg`) and sets
+   `MARQUEE_REQUIRE_FFMPEG=1`, which turns a missing binary into a build failure instead of a skip —
+   for a long stretch no workflow installed ffmpeg at all, so those tests silently skipped on every
+   run and two defects shipped through the gap (#180, #217). The real-binary tests live here rather
+   than on `test:unit` so an encode never competes with the rest of the monorepo suite for a 2-core
+   runner; that contention once flaked Backdrop's timing-sensitive server/ws tests. `test:unit` still
+   runs the same files, where they skip for want of ffmpeg exactly as they did before.
 6. **coverage report** — aggregated across packages, posted as PR comment (not gating)
 7. **build** — all packages build cleanly
 
@@ -450,7 +458,9 @@ Options for what runs:
 
 - `pnpm test` — full test suite. Under 2 minutes.
 - `pnpm run test:fast` — unit + contract only. Under 30 seconds.
-- `pnpm run test:integration` — integration tests only.
+- `pnpm run test:integration` — integration tests only. Today that means Curator's real-ffmpeg
+  tests; needs ffmpeg on PATH (or `FFMPEG_PATH`/`FFPROBE_PATH`), and skips without it unless you set
+  `MARQUEE_REQUIRE_FFMPEG=1` as CI does.
 - `pnpm run test:e2e` — end-to-end, requires `--with-e2e` dev running.
 
 ### Other useful commands

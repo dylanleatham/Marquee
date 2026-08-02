@@ -13,18 +13,30 @@
     "type-check": {
       "dependsOn": ["^build"]
     },
+    // FFMPEG_PATH/FFPROBE_PATH are declared on the local-facing test tasks for the same reason as on
+    // test:integration below: strict env mode strips them otherwise, so a workstation that keeps
+    // ffmpeg off PATH and points at it by variable — the arrangement the desktop app uses — silently
+    // skipped every real-binary test at pre-push, which is the same blind spot in miniature.
     "test": {
       "dependsOn": ["^build"],
-      "outputs": ["coverage/**"]
+      "outputs": ["coverage/**"],
+      "env": ["MARQUEE_REQUIRE_FFMPEG", "FFMPEG_PATH", "FFPROBE_PATH"]
     },
     "test:unit": {
-      "dependsOn": ["^build"]
+      "dependsOn": ["^build"],
+      "env": ["MARQUEE_REQUIRE_FFMPEG", "FFMPEG_PATH", "FFPROBE_PATH"]
     },
     "test:contracts": {
       "dependsOn": ["^build"]
     },
     "test:integration": {
-      "dependsOn": ["^build"]
+      "dependsOn": ["^build"],
+      // turbo runs in strict env mode, so a variable the workflow sets but nobody declares here is
+      // stripped before vitest ever sees it. MARQUEE_REQUIRE_FFMPEG is what makes a missing ffmpeg
+      // fail the build instead of skipping quietly (see test/ffmpeg-gate.ts), so an undeclared one
+      // would restore the exact silence this task exists to end. FFMPEG_PATH/FFPROBE_PATH are here
+      // for the same reason: they're how a machine without ffmpeg on PATH points at its binaries.
+      "env": ["MARQUEE_REQUIRE_FFMPEG", "FFMPEG_PATH", "FFPROBE_PATH"]
     }
   }
 }
