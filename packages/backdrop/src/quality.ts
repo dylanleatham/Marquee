@@ -79,13 +79,13 @@ export const MIN_INTERVAL_FRAMES = 150;
  */
 const RE_ARM_PCT = DEGRADED_PCT / 2;
 
-/** Counters as they read at the start of a window. A clip with no history starts here. */
-const FRESH: Counters = { totalFrames: 0, droppedFrames: 0 };
-
 interface Counters {
   totalFrames: number;
   droppedFrames: number;
 }
+
+/** Counters as they read at the start of a window. A clip with no history starts here. */
+const FRESH: Counters = { totalFrames: 0, droppedFrames: 0 };
 
 /**
  * Keeps the most recent playback-quality report, and says when a clip first goes degraded so the
