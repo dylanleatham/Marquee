@@ -21,10 +21,10 @@ side. The Pi's panel was running at 3840x2160@30, so Chromium was rescaling ever
 1920x1080@60 stopped the drops **dead**: from that moment the decoder lost nothing at all. That ADR
 had to read _"held ~5.5% between successive samples"_ — a delta, computed by hand off consecutive
 readings — to reach its conclusion, because the field it was reading would not say so itself.
-`/api/status` went on
-reporting `degraded: true` for five more samples — 4.5%, 4.1%, 3.8%, 3.5%, 3.3% — because
-`getVideoPlaybackQuality()` returns **cumulative** counters for the video element, and the 285 frames
-already lost stayed in the numerator while fresh good frames slowly diluted them.
+
+`/api/status` went on reporting `degraded: true` for five more samples — 4.5%, 4.1%, 3.8%, 3.5%,
+3.3% — because `getVideoPlaybackQuality()` returns **cumulative** counters for the video element, and
+the 285 frames already lost stayed in the numerator while fresh good frames slowly diluted them.
 
 So the verdict lagged reality by minutes, and did it in the one situation the field exists for:
 someone has just changed something and wants to know whether it helped. A number that takes minutes
