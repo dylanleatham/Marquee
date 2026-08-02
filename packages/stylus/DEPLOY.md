@@ -204,8 +204,8 @@ $ cp config.example.toml config.toml
 $ nano config.toml
 ```
 
-Set the two downstream URLs to your **Pi 5's** hostname and the shared secret to the same value
-Conductor and Backdrop use — Stylus posts to both directly, it does not go through Curator:
+Set the downstream URLs to your **Pi 5's** hostname and the shared secret to the same value the
+other services use — Stylus posts to each directly, it does not go through Curator:
 
 ```toml
 [downstream.conductor]
@@ -215,7 +215,20 @@ shared_secret = "the-same-secret-everything-else-uses"
 [downstream.backdrop]
 url = "http://marquee-pi5.local:4740/api/scan"
 shared_secret = "the-same-secret-everything-else-uses"
+
+[downstream.amp]                                    # audio — omit only if you haven't deployed Amp
+url = "http://marquee-pi5.local:4741/api/scan"
+shared_secret = "the-same-secret-everything-else-uses"
 ```
+
+> **All three, or you get a stand that looks finished and is silent.** Lights and video come from
+> Conductor and Backdrop; audio for a `curator:card:` scan comes from Amp ([ADR 0034](../../docs/adrs/0034-amp-sonos-playback-and-card-uri.md)),
+> and Amp only ever hears about a scan because this file names it. Nothing downstream complains
+> about the omission — Amp sits healthy and idle, `/status` shows `downstreamHealth` all `true` for
+> the two that _are_ configured, and every card scan lights the room in silence.
+>
+> Amp's port really is **4741**, the same number as Stylus's own status server below. Different
+> machines, no clash.
 
 Leave `[reader]` debounce at defaults for now — step 11 is where you tune them. Keep
 `[led].gpio_pin = 17` unless you wired the LED elsewhere; set `[led].enabled = false` if you didn't

@@ -25,6 +25,25 @@ url = "http://192.168.1.50:4740/api/scan"
 timeout_ms = 2000
 shared_secret = "change-me-lan-only-secret"
 
+# Audio (ADR 0034). Amp runs on the Pi 5 alongside Conductor and Backdrop, and plays a
+# `curator:card:` scan over Sonos; it answers `202 ignored` for a `curator:album:` sleeve, so it is
+# safe to wire up even if you only own sleeve tags. **Without this section there is no audio** —
+# lights and video will work perfectly and nothing will tell you Amp was never asked.
+#
+# Note Amp's port is 4741, the same number Stylus's own status server uses below. That is not a
+# clash: they are different machines (Amp on the Pi 5, the status server on this Pi Zero).
+[downstream.amp]
+url = "http://192.168.1.50:4741/api/scan"
+# 5s, like Conductor and for the same reason: /api/scan doesn't just accept the event, it resolves
+# the album and drives Sonos over UPnP before replying.
+timeout_ms = 5000
+shared_secret = "change-me-lan-only-secret"
+
+# NOTE: the fan-out is sequential and synchronous inside the poll loop (#173), so the reader is blind
+# for the sum of these timeouts. A third downstream widens the worst case: with all three down and
+# the §8 retry window, a scan stalls polling for ~36s. Fine while the services are up — a success
+# costs one round trip each — but it is why these timeouts are tight rather than generous.
+
 [status]
 listen_port = 4741
 
