@@ -104,7 +104,8 @@ def test_load_config_from_file(tmp_path):
     p.write_text(
         '[reader]\nid = "kitchen"\npoll_interval_ms = 150\n'
         '[downstream.conductor]\nurl = "http://c:4737/api/scan"\n'
-        "[status]\nlisten_port = 5000\n"
+        "[status]\nlisten_port = 5000\n",
+        encoding="utf-8",
     )
     c = load_config(p)
     assert c.reader.id == "kitchen"
@@ -118,7 +119,9 @@ def test_example_config_parses():
     from pathlib import Path
 
     example = Path(__file__).resolve().parents[1] / "config.example.toml"
-    raw = tomllib.loads(example.read_text())
+    # TOML is UTF-8 by definition; say so, or this decodes as cp1252 on a Windows workstation and
+    # trips over the first character the example picks up outside that range (test_source_encoding).
+    raw = tomllib.loads(example.read_text(encoding="utf-8"))
     c = config_from_dict(raw)
     assert isinstance(c, Config)
     # Amp included: an example that ships without it is how a stand ends up silent (ADR 0034).
