@@ -173,7 +173,7 @@ Fired to both Conductor (`/api/scan`) and Backdrop (`/api/scan`) in parallel. Bo
 
 - If either Conductor or Backdrop misses the `stop` event (WiFi drop, service restart, whatever), an idle timeout after 90 minutes of no events fires an internal stop. Purple Rain doesn't play until morning.
 - If the Stylus can't reach a downstream service, it retries 3× over ~2.5s and gives up, logging.
-- If Backdrop is asked to play a URI that's not in its library, or whose file is missing on disk, it stays in its current state and shows a small "not synced yet" indicator. No crash, no black screen.
+- If Backdrop is asked to play a URI that's not in its library, or whose file is missing on disk, it stays in its current state and shows a small corner indicator — `video not in library` or `video file missing` ([backdrop-spec §10](backdrop-spec.md#10-frontend-spa-structure) owns the wording). No crash, no black screen.
 
 ## 7. Deployment topology
 
@@ -242,17 +242,21 @@ Every service is expected to:
 
 ## 9. Failure modes (curated list)
 
-| Failure                             | Detected by                                         | User-visible effect                                    | Recovery                                                      |
-| ----------------------------------- | --------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------- |
-| Hue bridge unreachable              | Conductor                                           | Scan → 503 → lights don't change                       | Auto: retry next scan. Manual: check bridge power/network.    |
-| Video file missing on Backdrop's SD | Backdrop                                            | Small "not synced yet" indicator                       | Manual: run sync from Curator.                                |
-| Album not in library                | Backdrop                                            | Small "not in library" indicator                       | Manual: Curator to generate/attach video.                     |
-| Stylus can't reach Conductor        | Stylus                                              | Fast-blink LED, no lights change                       | Auto: retry 3×, then log. Manual: check WiFi.                 |
-| Lost `stop` event                   | Conductor + Backdrop                                | Effect continues after sleeve removed                  | Auto: idle timeout (90 min). Manual: `POST /admin/stop`.      |
-| Curator down                        | Everything downstream                               | Runtime works with last synced state; can't add albums | Manual: restart Curator, resync.                              |
-| Backdrop Chromium crash             | Backdrop                                            | Black display                                          | Auto: systemd restarts. Watchdog checks WebSocket connection. |
-| NFC read misdetected                | Stylus + downstreams                                | Wrong album loads (rare)                               | Manual: swap sleeve. Or wait for tag-removal timeout.         |
-| Bad JSON in asset file              | Curator (validation on save) or Conductor (on read) | Curator refuses to save; Conductor logs and stays idle | Manual: fix JSON. `.bak` file has last-good version.          |
+Every row below has a unit test behind it **and** a bench drill in
+[failure-drills.md](../failure-drills.md) — the tests prove the logic handles the failure, the drills
+prove the failure reaches that logic on real hardware. Change a row here and change the drill with it.
+
+| Failure                             | Detected by                                         | User-visible effect                                    | Recovery                                                                            |
+| ----------------------------------- | --------------------------------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| Hue bridge unreachable              | Conductor                                           | Scan → 502 → lights don't change                       | Auto: retry next scan. Manual: check bridge power/network.                          |
+| Video file missing on Backdrop's SD | Backdrop                                            | Small `video file missing` indicator                   | Manual: run sync from Curator.                                                      |
+| Album not in library                | Backdrop                                            | Small `video not in library` indicator                 | Manual: Curator to generate/attach video.                                           |
+| Stylus can't reach Conductor        | Stylus                                              | Fast-blink LED, no lights change                       | Auto: retry 3×, then log. Manual: check WiFi.                                       |
+| Lost `stop` event                   | Conductor + Backdrop                                | Effect continues after sleeve removed                  | Auto: idle timeout (90 min). Manual: see [failure-drills D1](../failure-drills.md). |
+| Curator down                        | Everything downstream                               | Runtime works with last synced state; can't add albums | Manual: restart Curator, resync.                                                    |
+| Backdrop Chromium crash             | Backdrop                                            | Black display                                          | Auto: systemd restarts. Watchdog checks WebSocket connection.                       |
+| NFC read misdetected                | Stylus + downstreams                                | Wrong album loads (rare)                               | Manual: swap sleeve. Or wait for tag-removal timeout.                               |
+| Bad JSON in asset file              | Curator (validation on save) or Conductor (on read) | Curator refuses to save; Conductor logs and stays idle | Manual: fix JSON. `.bak` file has last-good version.                                |
 
 ## 10. Suggested development order
 
@@ -269,7 +273,7 @@ Build in an order where each step is demoable and each subsequent step compounds
 9. **Backdrop library sync from Curator.** Now you can add an album in Curator and see it play in Backdrop.
 10. **Stylus, on the bench.** Read tags, publish events to `curl`-able stub endpoints. Wire real endpoints. Prove the full software chain.
 11. **Physical stand integration.** Mount the Stylus, tune positioning, tag your first sleeves. First real "place record, room changes" moment.
-12. **Iterate on failure modes, then everything else.** Idle timeouts, missing-file handling, LED patterns, sync verification, Roadie retry polish.
+12. **Iterate on failure modes, then everything else.** Idle timeouts, missing-file handling, LED patterns, sync verification, Roadie retry polish. Worked drill by drill in [failure-drills.md](../failure-drills.md), the §9 companion to the bring-up checklist.
 
 Steps 1–5 are backend-only and can happen in a coffee shop. Steps 6–9 need a Hue bridge and a display. Steps 10–11 need the physical setup.
 

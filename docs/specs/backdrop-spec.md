@@ -321,7 +321,7 @@ Notes:
 - Absolute file paths. Backdrop doesn't need to guess.
 - `contentHash` lets Curator's sync logic know when a video has been updated and needs re-pushing.
 - `durationSec` is currently just informational, but useful later if you want to align pattern transitions to loop boundaries or show a progress indicator during dev.
-- If the file at `filePath` is missing when a scan comes in, Backdrop logs "video missing," stays in current state, and displays a small "video not synced yet" indicator (see §10). Doesn't crash, doesn't blackscreen.
+- If the file at `filePath` is missing when a scan comes in, Backdrop logs "video missing," stays in current state, and displays the small center-bottom error indicator (§10 is the canonical wording — don't restate it here). Doesn't crash, doesn't blackscreen.
 
 ## 10. Frontend SPA structure
 
@@ -348,7 +348,12 @@ and every command the hardware sends arrives inside that window — see the §7 
 - Bottom-right corner: WebSocket connection indicator — a labelled pill (`ws online` / `ws
 connecting…` / `ws offline`), colour-coded as a redundant cue so it's readable without colour vision
 - Bottom-left corner: current URI (small text, low opacity)
-- Center-bottom (only on error): "video not in library" or "video file missing" when a scan comes in for something Backdrop can't play
+- Center-bottom (only on error): **`video not in library`** (the URI resolves to nothing) or **`video
+file missing`** (it resolves, but the bytes aren't on the SD card, or `filePath` escapes
+  `media_dir`) when a scan comes in for something Backdrop can't play. These two strings are the
+  canonical wording; `controller.test.ts` asserts them verbatim, and every other doc points here
+  rather than repeating them — §11 and runtime-overview §6/§9 each carried a third spelling ("video
+  not synced yet") until 2026-08-02
 
 Show or hide the indicators via a `?debug=1` URL param. Off in the demo mode.
 

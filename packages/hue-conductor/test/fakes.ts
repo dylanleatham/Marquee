@@ -110,12 +110,19 @@ export interface FakeOptions {
   createUserAlwaysFails?: boolean;
   /** getConfiguration throws — simulates a paired-but-unreachable bridge. */
   configThrows?: boolean;
+  /**
+   * `connect` throws — the bridge is powered off or off the network, so *every* call the adapter
+   * makes fails, not just `getConfiguration`. Flip it back with `setUnreachable(false)` to prove the
+   * §9 "auto: retry next scan" recovery.
+   */
+  connectThrows?: boolean;
 }
 
 export function makeFakeDriver(opts: FakeOptions = {}) {
   const setCalls: SetCall[] = [];
   const groups = opts.groups ?? [];
   let createUserCalls = 0;
+  let unreachable = opts.connectThrows ?? false;
 
   const api = {
     users: {
@@ -179,6 +186,7 @@ export function makeFakeDriver(opts: FakeOptions = {}) {
       ];
     },
     async connect() {
+      if (unreachable) throw new Error("connect ECONNREFUSED 10.0.0.5:443");
       return api as unknown as HueApi;
     },
     newLightState() {
@@ -186,5 +194,13 @@ export function makeFakeDriver(opts: FakeOptions = {}) {
     },
   };
 
-  return { driver, setCalls, getCreateUserCalls: () => createUserCalls };
+  return {
+    driver,
+    setCalls,
+    getCreateUserCalls: () => createUserCalls,
+    /** Take the bridge off the network mid-test, or put it back. */
+    setUnreachable: (v: boolean) => {
+      unreachable = v;
+    },
+  };
 }

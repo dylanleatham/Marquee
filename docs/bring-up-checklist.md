@@ -198,4 +198,5 @@ during bring-up:
 2. **`GET /api/playback/current`** on Conductor — did it actually resolve and apply the scan?
 
 Full failure-mode table: `docs/specs/runtime-overview.md §9`. Next step after this checklist is the
-hardening pass, [issue #53](https://github.com/dylanleatham/Marquee/issues/53).
+hardening pass — [**failure-drills.md**](failure-drills.md), the same tick-along format, one drill
+per §9 row ([issue #53](https://github.com/dylanleatham/Marquee/issues/53)).
