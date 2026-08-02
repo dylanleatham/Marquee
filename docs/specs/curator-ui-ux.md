@@ -437,6 +437,13 @@ routes to the same artifact, chosen by what you happen to be holding (ADR 0026).
 always names what `Ctrl/⌘ Enter` will do**, including "No primary action on this workstation", which
 is what keeps an inert key honest: a state you can read before you press it is not a silent one.
 
+> **"Always" includes the first frame (2026-08-02, [issue #225](https://github.com/dylanleatham/Marquee/issues/225)).**
+> A workstation registers from a **layout** effect, so the label is right in the same frame the bench
+> appears. Registering after the paint — the obvious `useEffect` — meant opening Look painted one
+> frame reading "No primary action on this workstation" on a bench that has one, and `Ctrl/⌘ Enter`
+> pressed in that window really was a dud. This is the same class as #119 above: React paints before
+> it flushes effects, so anything a shortcut depends on must be in place by the commit that shows it.
+
 ### 9.2 App menu
 
 `autoHideMenuBar: true` with no menu defined means the app has no discoverable command surface and no

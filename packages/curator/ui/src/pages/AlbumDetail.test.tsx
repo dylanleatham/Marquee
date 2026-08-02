@@ -240,8 +240,66 @@ describe("AlbumDetail — the keyboard path", () => {
     renderAt("/albums/abcd1234/look");
     await waitFor(() => expect(openBench()).toBe("Look"));
 
-    expect(primaryHint()).toContain("Save palette");
+    await waitFor(() => expect(primaryHint()).toContain("Save palette"));
   });
+
+  /**
+   * regression: #225 — the slot was claimed from a *passive* effect, so the label landed one commit
+   * after the one that renders the bench, and React paints in between: opening Look painted a frame
+   * reading "No primary action on this workstation" on a bench that has one, and ⌘⏎ pressed in that
+   * window was a real dud. ADR 0044 §2 / curator-ui-ux §9.1 say the header *always* names the
+   * action, not "always, one paint late".
+   *
+   * Same class as [#119](https://github.com/dylanleatham/Marquee/issues/119) — React paints rows
+   * before it flushes effects — which is why this is guarded rather than only awaited.
+   *
+   * The MutationObserver is the whole point: it sees every DOM state the browser could have painted,
+   * where an awaited assertion only ever sees the settled one. That gap is also what made the
+   * assertion above flaky rather than red — `waitFor(openBench)` is satisfied by the first commit.
+   */
+  it.each([
+    // Both registrants, and both ways a bench opens: the URL naming it, and the state defaulting
+    // to it. The URL route was the reported one; Ship is the same mistake one component over.
+    {
+      bench: "Look",
+      label: "Save palette",
+      path: "/albums/abcd1234/look",
+      asset: () => album(),
+    },
+    {
+      bench: "Ship",
+      label: "Mark sleeve tag written",
+      path: "/albums/abcd1234",
+      asset: () =>
+        album({ roadie: { ...album().roadie, state: "awaiting_tag_write" } }),
+    },
+  ])(
+    "never paints a frame claiming $bench has no primary action",
+    async ({ bench, label, path, asset }) => {
+      vi.mocked(api.album).mockResolvedValue(asset());
+      const frames: string[] = [];
+      const observer = new MutationObserver(() =>
+        frames.push(`${openBench()} — ${primaryHint()}`),
+      );
+      observer.observe(document.body, {
+        subtree: true,
+        childList: true,
+        characterData: true,
+      });
+      try {
+        renderAt(path);
+        await waitFor(() => expect(primaryHint()).toContain(label));
+      } finally {
+        observer.disconnect();
+      }
+
+      expect(
+        frames.filter(
+          (f) => f.startsWith(bench) && /no primary action/i.test(f),
+        ),
+      ).toEqual([]);
+    },
+  );
 
   it("says plainly that Video and Card have no primary action", async () => {
     vi.mocked(api.album).mockResolvedValue(album());
@@ -261,7 +319,7 @@ describe("AlbumDetail — the keyboard path", () => {
     await waitFor(() => expect(openBench()).toBe("Look"));
 
     // Clean draft: the key must not fire, and the header carries the reason (§10).
-    expect(primaryHint()).toMatch(/no unsaved changes/i);
+    await waitFor(() => expect(primaryHint()).toMatch(/no unsaved changes/i));
     press("Enter", { metaKey: true });
     expect(api.editPalette).not.toHaveBeenCalled();
 
@@ -284,7 +342,9 @@ describe("AlbumDetail — the keyboard path", () => {
     renderAt("/albums/abcd1234");
     await waitFor(() => expect(openBench()).toBe("Ship"));
 
-    expect(primaryHint()).toContain("Mark sleeve tag written");
+    await waitFor(() =>
+      expect(primaryHint()).toContain("Mark sleeve tag written"),
+    );
     press("Enter", { metaKey: true });
     await waitFor(() =>
       expect(api.markTagWritten).toHaveBeenCalledWith("abcd1234", "sleeve"),
@@ -302,7 +362,9 @@ describe("AlbumDetail — the keyboard path", () => {
     renderAt("/albums/abcd1234");
     await waitFor(() => expect(openBench()).toBe("Ship"));
 
-    expect(primaryHint()).toContain("Mark physically verified");
+    await waitFor(() =>
+      expect(primaryHint()).toContain("Mark physically verified"),
+    );
     press("Enter", { metaKey: true });
     await waitFor(() =>
       expect(api.verifyAlbum).toHaveBeenCalledWith("abcd1234"),
@@ -319,7 +381,9 @@ describe("AlbumDetail — the keyboard path", () => {
     renderAt("/albums/abcd1234/ship");
     await waitFor(() => expect(openBench()).toBe("Ship"));
 
-    expect(primaryHint()).toMatch(/write the sleeve tag first/i);
+    await waitFor(() =>
+      expect(primaryHint()).toMatch(/write the sleeve tag first/i),
+    );
     press("Enter", { metaKey: true });
     expect(api.verifyAlbum).not.toHaveBeenCalled();
   });
