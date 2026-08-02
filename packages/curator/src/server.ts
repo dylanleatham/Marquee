@@ -98,6 +98,8 @@ import {
   type ConductorSyncLike,
 } from "./conductor/sync.js";
 import { AmpClient } from "./amp/client.js";
+import { probeService } from "./runtime/probe.js";
+import { buildSystemStatus } from "./runtime/system-status.js";
 import { createLogger } from "@marquee/observability";
 
 export interface BuildOptions {
@@ -1520,10 +1522,15 @@ export function buildServer(opts: BuildOptions = {}) {
     return { jobs: jobs.forAlbum(curatorId, filter) };
   });
 
-  // Everything currently in flight, album-scoped and library-scoped alike. The system-status page
-  // needs "what is this machine doing right now" in one call; `GET /api/jobs` deliberately cannot
-  // answer that (it requires a `kind`), and polling per album does not scale with the library.
-  // Running only — finished jobs are the per-album route's business.
+  // Everything currently in flight, album-scoped and library-scoped alike — the standalone answer to
+  // "what is this machine doing right now". `GET /api/jobs` deliberately cannot answer that (it
+  // requires a `kind`) and polling per album does not scale with the library. Running only; finished
+  // jobs are the per-album route's business.
+  //
+  // The system-status page does *not* call this: it gets `jobs` inside `/api/system/status`, so the
+  // job list belongs to the same instant as the service health it sits beside. This route is for
+  // callers that want the jobs alone — curl during a long sync, and anything that shouldn't pay for
+  // a full runtime fan-out to find out whether something is running.
   app.get("/api/jobs/active", async () => ({ jobs: jobs.active() }));
 
   // Library-scoped jobs of a kind, newest first — how the batch panel reattaches to a sweep that was
@@ -1941,57 +1948,38 @@ export function buildServer(opts: BuildOptions = {}) {
    * other outbound call — a wedged service must not hold the request open.
    */
   app.get("/api/settings/service-health", async () => {
-    const probe = async (
-      name: string,
-      url: string | undefined,
-      path: string,
-      secret?: string,
-    ) => {
-      if (!url) return { service: name, configured: false, reachable: false };
-      try {
-        const headers: Record<string, string> = {};
-        if (secret) headers["x-trigger-secret"] = secret;
-        const res = await fetch(`${url}${path}`, {
-          headers,
-          signal: AbortSignal.timeout(5000),
-        });
-        return {
-          service: name,
-          configured: true,
-          reachable: res.ok,
-          url,
-          ...(res.ok ? {} : { detail: `HTTP ${res.status}` }),
-        };
-      } catch (err) {
-        return {
-          service: name,
-          configured: true,
-          reachable: false,
-          url,
-          detail: (err as Error).message,
-        };
-      }
-    };
-
     const services = await Promise.all([
       // Conductor's bridge status doubles as its health check — it says whether the Hue bridge is
       // paired, which is the thing that actually stops lights working.
-      probe(
-        "conductor",
-        config.conductor.url,
-        "/api/bridge/status",
-        config.conductor.sharedSecret,
-      ),
-      probe(
-        "backdrop",
-        config.backdrop?.url,
-        "/healthz",
-        config.backdrop?.sharedSecret,
-      ),
-      probe("amp", config.amp?.url, "/api/status", config.amp?.sharedSecret),
+      probeService("conductor", config.conductor, "/api/bridge/status"),
+      probeService("backdrop", config.backdrop, "/healthz"),
+      probeService("amp", config.amp, "/api/status"),
+      probeService("stylus", config.stylus, "/healthz"),
     ]);
     return { services };
   });
+
+  /**
+   * Everything at once: "what is the system actually doing right now" (the system-status page).
+   *
+   * Distinct from `service-health` above, which answers only "is what I configured reachable". This
+   * one also compares — which albums the runtime holds against which Curator has, whether a library
+   * entry has bytes behind it — because every failure worth catching here is a *disagreement*
+   * between hosts, not a service's own self-report.
+   *
+   * Always 200. An unreachable service degrades its own section to null; a status page that errors
+   * because something is down is reporting the one thing it exists to show, as a failure.
+   */
+  app.get("/api/system/status", async () =>
+    buildSystemStatus({
+      conductor: config.conductor,
+      backdrop: config.backdrop,
+      amp: config.amp,
+      stylus: config.stylus,
+      albums: store.list(),
+      jobs: jobs.active(),
+    }),
+  );
 
   // --- Backdrop sync (step 9, roadie-spec §6) — push Curator's library projection to Backdrop ---
   // Video attach/detach already sync automatically; these are the manual full-reconcile + verify

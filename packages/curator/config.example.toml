@@ -50,6 +50,15 @@ data_dir = "~/marquee"
 #   "push"  — Curator streams it to Backdrop over HTTP, skipping files whose hash already matches.
 # media_transfer = "push"
 
+# Stylus — the stand's NFC reader, for the System status page only. Env: STYLUS_URL. Read-only:
+# Stylus *produces* scan events and never consumes one, so it never joins a rehearsal fan-out.
+# Absent → the status page reports it as not configured.
+# [stylus]
+# url = "http://stylus.local:4741"
+# Sent as X-Trigger-Secret for uniformity, but Stylus's status server does not check it today —
+# its /status and /healthz are unauthenticated (stylus-spec §8.3). Harmless; not protection.
+# shared_secret = "change-me-lan-only-secret"
+
 # Amp — the room rehearsal's audio leg (ADR 0028). Env: AMP_URL.
 # [amp]
 # url = "http://runtime-pi.local:4741"

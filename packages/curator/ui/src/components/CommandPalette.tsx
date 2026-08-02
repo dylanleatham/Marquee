@@ -49,6 +49,14 @@ function commandRows(go: (to: string) => void): PaletteRow[] {
       run: () => go("/add"),
     },
     {
+      id: "cmd:system",
+      group: "command",
+      label: "System status",
+      sublabel: "Services, what's playing, and which albums the runtime has",
+      keywords: ["health", "runtime", "stylus", "diagnose", "sync", "drift"],
+      run: () => go("/system"),
+    },
+    {
       id: "cmd:settings",
       group: "command",
       label: "Settings",

@@ -6,31 +6,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError, type DemoRoomInfo, type ServiceHealth } from "../api";
 import { AsyncButton, Spinner } from "./common";
-
-const SERVICE_LABEL: Record<ServiceHealth["service"], string> = {
-  conductor: "Hue Conductor — lights",
-  backdrop: "Backdrop — display",
-  amp: "Amp — Sonos audio",
-};
-
-function HealthRow({ health }: { health: ServiceHealth }) {
-  // Three distinct outcomes, not two: never set up, set up but unreachable, working. Colour is
-  // never the only channel (curator-ui-ux §3.4), so each carries its own word.
-  const tone = !health.configured ? "off" : health.reachable ? "ok" : "bad";
-  const word = !health.configured
-    ? "Not configured"
-    : health.reachable
-      ? "Reachable"
-      : "Unreachable";
-  return (
-    <li className={`legs__item legs__item--${tone === "ok" ? "ok" : "off"}`}>
-      <span aria-hidden="true" className="legs__dot" />
-      <b>{SERVICE_LABEL[health.service]}</b> {word}
-      {health.url && <code className="health__url">{health.url}</code>}
-      {health.detail && <em> — {health.detail}</em>}
-    </li>
-  );
-}
+import { ServiceHealthList } from "./ServiceHealthList";
 
 export function RoomAndServices() {
   const [rooms, setRooms] = useState<DemoRoomInfo[] | null>(null);
@@ -134,13 +110,7 @@ export function RoomAndServices() {
           Test connections
         </AsyncButton>
       </div>
-      {health && (
-        <ul className="legs">
-          {health.map((h) => (
-            <HealthRow key={h.service} health={h} />
-          ))}
-        </ul>
-      )}
+      {health && <ServiceHealthList health={health} />}
     </>
   );
 }
