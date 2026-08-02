@@ -24,8 +24,11 @@ dev = [
     "hypothesis",      # property tests for the state machine
     "responses",       # fake HTTP endpoints
     "jsonschema",      # validate against the shared contracts/*.json
-    "ruff",
-    "mypy",
+    # Pinned to match the CI gate in .github/workflows/ci.yml — a local ruff/mypy from a newer minor
+    # than CI's would let drift through (or flag what CI won't), which is exactly the confusion these
+    # two steps exist to remove. Bump both places together.
+    "ruff~=0.15.9",
+    "mypy~=2.3.0",
 ]
 
 [tool.ruff]
@@ -33,9 +36,14 @@ line-length = 100
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Put the package dir on sys.path so `import stylus` works under a bare `pytest` run (CI), without
-# an editable install — `pip install -e .` would drag in the Pi-only hardware deps, which don't
-# install off-hardware. (`python -m pytest` adds CWD implicitly; plain `pytest` does not.)
+# Put the package dir on sys.path so `import stylus` works under a bare `pytest` run, without an
+# editable install — CI installs tools by name and never installs the package itself.
+# (`python -m pytest` adds CWD implicitly; plain `pytest` does not.)
+#
+# This used to say `pip install -e .` "would drag in the Pi-only hardware deps". It doesn't:
+# `dependencies` is empty and the adafruit/Blinka pins live in the `hardware` extra, so `-e .` and
+# `-e '.[dev]'` both install clean off-Pi. The README's dev loop uses `-e '.[dev]'` to get the
+# CI-pinned ruff/mypy; this setting is what keeps the *CI* path working without it.
 pythonpath = ["."]
 
 [build-system]

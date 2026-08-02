@@ -147,7 +147,8 @@ Three GitHub Actions workflows, staged by cost and coverage. Every PR blocks on 
 
 `ci.yml` carries a matrix of turbo tasks (`lint`, `type-check`, `test:unit`, `test:integration`,
 `build`) plus two jobs that aren't turbo tasks: **`format`** (`pnpm run format:check` over the whole
-tree — issue #97) and **`python (stylus)`**.
+tree — issue #97) and **`python (stylus)`** (`pytest -q`, `ruff check stylus tests`, `mypy stylus` —
+the same three commands as the local loop in `packages/stylus/README.md`).
 
 ### `contract-tests.yml` — the fastest, most valuable gate
 

@@ -85,9 +85,29 @@ jobs:
       - name: Install stylus (dev)
         working-directory: packages/stylus
         # Hardware deps (adafruit/pn532) don't install off-Pi; install dev tools + test only.
+        #
+        # ruff and mypy are compatible-release pinned because the Lint/Type-check steps below make
+        # them *gates*: unpinned, a ruff minor promoting a new rule into the default set turns this
+        # job red with no commit behind it. `~=` still takes patch fixes, just not the minor that
+        # changes what counts as a failure — bump the minor deliberately, with the fixes in the same
+        # PR. There's no dependabot for pip here, so nothing bumps these for you. The rest stay
+        # unpinned: they only run code that the tests already assert on. Keep in sync with
+        # pyproject.toml's [dev] extra and packages/stylus/README.md.
         run: |
           python -m pip install --upgrade pip
-          pip install pytest ruff mypy jsonschema freezegun hypothesis responses
+          pip install pytest 'ruff~=0.15.9' 'mypy~=2.3.0' jsonschema freezegun hypothesis responses
+      # The three steps below are exactly the local loop in packages/stylus/README.md. Until now the
+      # job installed ruff and mypy and then ran neither, so both were documented-but-unenforced;
+      # `!cancelled()` keeps a failure in one from masking the other two, the same reason the node
+      # matrix sets fail-fast: false.
       - name: Test
         working-directory: packages/stylus
         run: pytest -q
+      - name: Lint
+        if: ${{ !cancelled() }}
+        working-directory: packages/stylus
+        run: ruff check stylus tests
+      - name: Type-check
+        if: ${{ !cancelled() }}
+        working-directory: packages/stylus
+        run: mypy stylus

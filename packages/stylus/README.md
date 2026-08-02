@@ -37,8 +37,8 @@ Conductor once its scan handler lands (see below).
 ### Dev
 
 ```sh
-pip install pytest ruff mypy jsonschema freezegun hypothesis   # what CI installs
-pytest -q && ruff check stylus tests && mypy stylus
+pip install -e '.[dev]'                               # ruff/mypy pinned to CI's versions
+pytest -q && ruff check stylus tests && mypy stylus   # the three gates CI runs
 ```
 
 ## On the Pi (step 11 — physical)
