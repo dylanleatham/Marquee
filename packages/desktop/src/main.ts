@@ -9,9 +9,12 @@ import { tmpdir } from "node:os";
 import {
   serviceSpecs,
   devEntries,
-  waitForHealth,
-  isHealthy,
-  servicesToStart,
+  resolveDataDir,
+  newInstanceId,
+  probeHealth,
+  waitForOurs,
+  planBoot,
+  watchBootExit,
   CURATOR_PORT,
   type ServiceSpec,
   type FfmpegPaths,
@@ -30,6 +33,9 @@ app.setName("Marquee");
 const children: ChildProcess[] = [];
 let mainWindow: BrowserWindow | null = null;
 let shuttingDown = false;
+// Until boot finishes, a child's death is boot's failure to report (`watchBootExit`) — the generic
+// "service stopped" handlers below would otherwise raise a second, vaguer dialog for the same event.
+let booted = false;
 
 // Logging is initialised before anything else can fail, so a boot failure is itself logged. Until it
 // runs, records go to the console only; if no directory will take a sink at all, `initLogging` says so
@@ -117,7 +123,7 @@ function resolveFfmpeg(): FfmpegPaths | undefined {
   return undefined;
 }
 
-function startService(spec: ServiceSpec): void {
+function startService(spec: ServiceSpec): ChildProcess {
   // fork uses Electron's own binary; ELECTRON_RUN_AS_NODE makes it behave as plain Node, so a
   // packaged app needs no system Node install.
   const child = fork(spec.entry, [], {
@@ -134,7 +140,7 @@ function startService(spec: ServiceSpec): void {
   // A spawn failure (e.g. a missing bundled server) emits 'error'; without this listener it would
   // throw unhandled and crash the main process instead of showing the dialog + quitting.
   child.on("error", (spawnErr) => {
-    if (shuttingDown) return;
+    if (shuttingDown || !booted) return;
     reportFailure(
       "Marquee failed to start",
       `Could not start ${spec.name}: ${spawnErr.message}`,
@@ -145,13 +151,14 @@ function startService(spec: ServiceSpec): void {
   child.on("exit", (code) => {
     out.flush();
     err.flush();
-    if (code && code !== 0 && !shuttingDown)
+    if (code && code !== 0 && !shuttingDown && booted)
       reportFailure(
         "Marquee service stopped",
         `${spec.name} exited with code ${code}. Restart the app.`,
       );
   });
   children.push(child);
+  return child;
 }
 
 function shutdown(): void {
@@ -178,12 +185,53 @@ async function boot(): Promise<void> {
     throw new Error(
       "Built servers not found. Run `pnpm --filter @marquee/desktop run build:services` first.",
     );
-  const specs = serviceSpecs(entries, resolveFfmpeg());
-  // Adopt an already-running instance (e.g. a Conductor started by hand) rather than forking a
-  // duplicate onto a taken port; start only the ones that aren't already answering.
-  const health = await Promise.all(specs.map((s) => isHealthy(s.healthUrl)));
-  servicesToStart(specs, health).forEach(startService);
-  await Promise.all(specs.map((s) => waitForHealth(s.healthUrl)));
+  // One token per launch, handed to each child and required back from /healthz, so the gate can tell
+  // the services it started from whatever else happens to hold the ports (issue #229).
+  const instanceId = newInstanceId();
+  const specs = serviceSpecs(
+    entries,
+    resolveFfmpeg(),
+    resolveDataDir(),
+    instanceId,
+  );
+  const verdicts = await Promise.all(
+    specs.map((s) => probeHealth(s, instanceId)),
+  );
+  const plan = planBoot(specs, verdicts);
+
+  // A stranger on one of our ports is where this used to go quiet: the poll saw a 200, the shell
+  // adopted it, and the window opened on another checkout's collection with no service child of its
+  // own. Refusing to boot is the only honest answer — we cannot make that process into ours.
+  if (plan.conflicts.length)
+    throw new Error(
+      plan.conflicts
+        .map(({ spec, reason }) => `${spec.healthUrl} — ${reason}.`)
+        .join("\n") + `\n\nClose that program, then start Marquee again.`,
+    );
+
+  // Adopting a matching instance (e.g. a Conductor started by hand on the same store) stays the
+  // documented behaviour, ADR 0008 — but it goes in the log now, because "the app didn't start this"
+  // is the first thing you want to know when the services misbehave.
+  for (const spec of plan.adopt)
+    log.warn(
+      "shell",
+      `adopting the ${spec.name} already running at ${spec.healthUrl} — this launch did not start it`,
+    );
+
+  const started = plan.start.map((spec) => ({
+    spec,
+    child: startService(spec),
+  }));
+  const watches = started.map(({ spec, child }) => watchBootExit(spec, child));
+  try {
+    await Promise.race([
+      Promise.all(started.map(({ spec }) => waitForOurs(spec, instanceId))),
+      ...watches.map((w) => w.rejected),
+    ]);
+  } finally {
+    for (const watch of watches) watch.dispose();
+  }
+  booted = true;
 }
 
 /**

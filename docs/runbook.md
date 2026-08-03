@@ -86,7 +86,8 @@ Work top-to-bottom; each step ends with a **Check** so a failure tells you which
 4. **Set the listening room:** `GET /api/rooms` to find the id, then
    `PUT /api/settings { "listeningRoomId": "<roomId>" }` (or set it from Curator's Demo Room). Scans
    carry no room — they drive this one.
-   - **Check:** `GET /healthz` → `{ ok: true, paired: true }`. Then prove the bridge path with
+   - **Check:** `GET /healthz` → includes `ok: true, paired: true` (plus the `service` / `instance` /
+     `albumAssetsDir` identity fields the desktop shell uses; `instance` is `null` here). Then prove the bridge path with
      `POST /api/test/color { "roomId": "<id>", "hex": "#4B0082" }` → that room turns purple.
      (All `/api/*` calls need `-H "X-Trigger-Secret: <secret>"`.)
 

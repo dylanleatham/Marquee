@@ -186,8 +186,15 @@ Fired to both Conductor (`/api/scan`) and Backdrop (`/api/scan`) in parallel. Bo
 > **Launcher (2026-07-17, [ADR 0008](../adrs/0008-desktop-app-supervises-services.md)):** on the
 > workstation, Curator (and a co-located Conductor, for the Demo Room's real-lights preview before
 > the Pi exists) can be launched as a single **desktop app** (`packages/desktop`, Electron) instead
-> of hand-started dev servers. It's purely a launcher/shell — the services and this topology are
-> unchanged.
+> of hand-started dev servers. It's purely a launcher/shell — this topology is unchanged, and the
+> services still run headless for the Pi and CI.
+>
+> **Amended 2026-08-02 ([ADR 0050](../adrs/0050-the-desktop-health-gate-checks-identity-not-liveness.md)):**
+> the one thing the services did gain is identity on `/healthz` — `service`, `instance` and their
+> resolved directory. The shell gates its window on those rather than on a bare 200, because a 200
+> from a stale service in another checkout looked identical and got driven as if it were the app's
+> own ([issue #229](https://github.com/dylanleatham/Marquee/issues/229)). On the Pi `instance` is
+> `null` and nothing else changes.
 
 The mental model is **config vs. runtime**: Curator is a configuration/admin tool that runs on your usual dev machine when you're actively working with the collection; the runtime Pi is an always-on appliance that runs whenever the experience is active. They don't need to be running simultaneously — you can add albums today with the runtime off, or listen to records tonight with your laptop shut.
 

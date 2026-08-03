@@ -551,8 +551,15 @@ export function buildServer(opts: BuildOptions = {}) {
   // cover/card art are tiny. Over-ceiling uploads surface as a 413 via actionError (issue #12).
   app.register(multipart, { limits: { fileSize: config.maxUploadBytes } });
 
+  // `service` / `instance` / `dataDir` are the desktop shell's identity check (issue #229): a 200
+  // only proves something is listening, so the shell needs to know *which* Curator this is and
+  // which collection it is rooted at before it will drive it. `instance` is null for any Curator
+  // not started by a shell — hand-run dev servers, the Pi — which is exactly the "not ours" answer.
   app.get("/healthz", async () => ({
     ok: true,
+    service: "curator",
+    instance: process.env.MARQUEE_INSTANCE_ID ?? null,
+    dataDir: config.dataDir,
     albums: store.list().length,
     spotify: Boolean(spotify),
     discogs: Boolean(discogs),

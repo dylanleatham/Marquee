@@ -41,7 +41,42 @@ describe("hue-conductor HTTP API", () => {
     });
     const res = await app.inject({ method: "GET", url: "/healthz" });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ ok: true, paired: true });
+    expect(res.json()).toMatchObject({ ok: true, paired: true });
+  });
+
+  /**
+   * Issue #229. The desktop shell gates its window on /healthz, and a 200 alone only proves
+   * *something* is listening — it adopted a stale service from another checkout and drove it. These
+   * three fields are what let it tell "the Conductor I started, on my asset store" from a stranger.
+   */
+  it("/healthz identifies which Conductor this is, and which asset store it reads", async () => {
+    const albumAssetsDir = mkdtempSync(join(tmpdir(), "conductor-assets-"));
+    const { app } = buildServer({
+      config: { sharedSecret: SECRET, albumAssetsDir },
+      store: seededStore(),
+      driver: livingRoom().driver,
+    });
+    const res = await app.inject({ method: "GET", url: "/healthz" });
+    expect(res.json()).toMatchObject({
+      service: "hue-conductor",
+      albumAssetsDir,
+    });
+  });
+
+  it("/healthz echoes the launching shell's instance token, and null without one", async () => {
+    const build = () =>
+      buildServer({
+        config: { sharedSecret: SECRET },
+        store: seededStore(),
+        driver: livingRoom().driver,
+      }).app.inject({ method: "GET", url: "/healthz" });
+
+    // No shell started this one — a hand-run dev server or the Pi. "Not ours" is the right answer.
+    expect((await build()).json().instance).toBeNull();
+
+    vi.stubEnv("MARQUEE_INSTANCE_ID", "launch-token");
+    expect((await build()).json().instance).toBe("launch-token");
+    vi.unstubAllEnvs();
   });
 
   it("rejects /api/* without the shared secret", async () => {

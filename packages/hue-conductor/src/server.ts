@@ -191,8 +191,15 @@ export function buildServer(opts: BuildOptions = {}) {
     }
   });
 
+  // `service` / `instance` / `albumAssetsDir` are the desktop shell's identity check (issue #229).
+  // The asset store is the directory that has to agree: a Conductor reading a different one answers
+  // every scan `202 ignored: album not synced` while Preview claims the lights are running (#164).
+  // `instance` is null for any Conductor no shell started — hand-run dev servers, the Pi.
   app.get("/healthz", async () => ({
     ok: true,
+    service: "hue-conductor",
+    instance: process.env.MARQUEE_INSTANCE_ID ?? null,
+    albumAssetsDir: config.albumAssetsDir,
     paired: Boolean(store.bridge),
   }));
 
