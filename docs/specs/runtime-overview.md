@@ -217,6 +217,18 @@ Curator's UI runs on your local network with no auth (analogous to Home Assistan
 
 Both Conductor and Backdrop implement an idle timeout: if no scan event has arrived in 90 minutes and the service is in a non-idle state, restore idle. This is the safety net for lost `stop` events. Not a substitute for real event delivery — a workaround for a well-understood failure class.
 
+### Idle cost
+
+Distinct from the idle _timeouts_ above: that is about state, this is about what the system costs
+while sitting in that state. Because every service is always-on, idle cost is a product requirement,
+and it is measured rather than assumed — **no configuration exceeds 1.2% of one CPU core at zero
+traffic** (measured 2026-08-02, [#137](https://github.com/dylanleatham/Marquee/issues/137)). Numbers,
+budgets and how to re-measure: [idle-cost-baseline.md](idle-cost-baseline.md). The audit also refuted
+its own leading hypothesis — `pnpm dev`'s watchers are _cheaper_ on CPU than the packaged desktop app,
+and dev mode's real cost is memory. Enforcement is a reviewer rule plus two assertions on the desktop
+shell, deliberately not a CI check
+([ADR 0049](../adrs/0049-idle-cost-is-a-measured-baseline-not-a-ci-gate.md)).
+
 ### Sync strategies
 
 - **Curator → Backdrop metadata**: HTTP push after each save **that changes what Backdrop plays** — a video attach (upsert), detach, or album delete (remove) — via `POST /api/library/update` / `DELETE /api/library/:uri`, plus a full-reconcile `POST /api/library/sync`. Small, atomic, fast. (Not a literal every-save hook: an album still in Roadie's pipeline has no video to project — [ADR 0015](../adrs/0015-backdrop-sync-triggered-at-projection-changes.md), build step 9.)
