@@ -317,7 +317,10 @@ What still relies on humans, even with a green build:
 
 - Physical correctness on real hardware (LED patterns, sleeve positioning, TV connection quirks)
 - Subjective quality changes (a golden palette shifted — is the new one better or worse?)
-- Performance under real load
+- Performance under real load. **Idle** cost is the exception — it has a measured baseline and
+  budgets ([idle-cost-baseline.md](idle-cost-baseline.md)), so "is it costing more than it should
+  when nothing is happening?" is answerable in one command rather than by feel. Under _load_ it is
+  still a human call.
 - Anything above the abstraction level of individual services (does the _system_ feel good?)
 
 The point of the harness isn't to eliminate human judgment. It's to concentrate human judgment on things that require it, and free it from things that don't.
@@ -358,7 +361,11 @@ Not every test is worth writing on day one. Investment should follow discovery �
 
 - Chaos testing (once the runtime services have earned trust and you want to break them intentionally)
 - Load testing (unlikely to matter for a home system, but relevant if the design ever grows)
-- Performance regression tests (once a real regression has cost real time)
+- Performance regression tests (once a real regression has cost real time). **Idle cost was
+  evaluated for this and deliberately declined** — the deltas that matter are tenths of a percent of
+  one core, well under CI runner noise, and the measurement is wall-clock-bound by construction. It
+  is a reviewer rule plus two static assertions instead
+  ([ADR 0049](../adrs/0049-idle-cost-is-a-measured-baseline-not-a-ci-gate.md)).
 - Soak tests (for the always-on runtime services once they've been running long enough to reveal slow leaks)
 
 The "worth building now" bar: does this test catch a class of bug that would ruin an evening if it shipped? Yes → write it. No → wait.

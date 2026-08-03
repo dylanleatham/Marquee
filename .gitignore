@@ -57,6 +57,10 @@ Thumbs.db
 # Review agent reports are local run artifacts, not source
 .review-agents/
 
+# Raw samples from scripts/idle-audit.mjs — machine-specific run artifacts. The numbers that matter
+# are transcribed into docs/specs/idle-cost-baseline.md, which is where a regression gets noticed.
+perf-samples/
+
 # Hue Conductor local data store (holds the bridge application key — a secret)
 packages/hue-conductor/data/
 
