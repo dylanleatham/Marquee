@@ -122,6 +122,14 @@ class UriCache:
     Re-reading NDEF on every poll of an genuinely unwritten tag is the deliberate trade: it's a
     handful of I²C page reads against a tag nobody is waiting on, versus a working sleeve that
     silently never fires.
+
+    **Hits are scoped to one placement**, cleared by :meth:`forget_all` when the field empties (see
+    :func:`decode_poll`). That UID-stability cuts the other way too: *rewriting* a sticker doesn't
+    change its UID either, so a hit that outlives the placement outlives the album it decoded — the
+    Flipper shows the new record, the cache keeps serving the old one, and nothing short of a service
+    restart dislodges it. Lifting the sleeve is the operator saying "this may be a different record
+    now", which makes it the natural invalidation point and costs exactly one NDEF read per
+    placement — the saving the cache was for in the first place.
     """
 
     def __init__(self, max_size: int = 8) -> None:
@@ -139,6 +147,28 @@ class UriCache:
                 self._hits.clear()
             self._hits[uid] = uri
         return uri
+
+    def forget_all(self) -> None:
+        """Drop every cached decode — the next sight of any UID re-reads the tag."""
+        self._hits.clear()
+
+
+def decode_poll(
+    cache: UriCache, uid: str | None, read_ndef: Callable[[], bytes]
+) -> TagRead | None:
+    """One poll's decode: ``uid`` is what the PN532 saw (``None`` = empty field).
+
+    Pure but for the two callables, so the caching *policy* is testable without a PN532 — the
+    hardware factory below is left as nothing but wiring. An empty field invalidates the cache, so a
+    sticker rewritten between placements is decoded afresh rather than served from the last read.
+
+    A dropped read on a sleeve that never moved also lands here and costs one re-read; that is the
+    cheap side of the trade, and the removal debounce (§7) means it doesn't disturb playback.
+    """
+    if uid is None:
+        cache.forget_all()
+        return None
+    return TagRead(uid=uid, uri=cache.get_or_read(uid, read_ndef))
 
 
 def create_pn532_reader(uid_cache_size: int = 8):  # pragma: no cover - hardware path (step 11)
@@ -166,12 +196,9 @@ def create_pn532_reader(uid_cache_size: int = 8):  # pragma: no cover - hardware
     class _Pn532Reader:
         def poll(self) -> TagRead | None:
             raw = pn532.read_passive_target(timeout=0.05)
-            if raw is None:
-                return None
-            uid = ":".join(f"{b:02X}" for b in raw)
-            uri = cache.get_or_read(
-                uid, lambda: assemble_ntag_ndef(lambda p: pn532.ntag2xx_read_block(p))
+            uid = None if raw is None else ":".join(f"{b:02X}" for b in raw)
+            return decode_poll(
+                cache, uid, lambda: assemble_ntag_ndef(lambda p: pn532.ntag2xx_read_block(p))
             )
-            return TagRead(uid=uid, uri=uri)
 
     return _Pn532Reader()

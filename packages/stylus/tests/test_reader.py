@@ -1,5 +1,5 @@
 from stylus.ndef import parse_uri
-from stylus.reader import SimulatedReader, UriCache, assemble_ntag_ndef
+from stylus.reader import SimulatedReader, UriCache, assemble_ntag_ndef, decode_poll
 from stylus.state_machine import TagRead
 
 CARD = "curator:card:frn453tp"
@@ -136,6 +136,47 @@ def test_misses_are_re_read_every_time():
     for _ in range(3):
         assert cache.get_or_read("04:AA", read) is None
     assert len(reads) == 3  # deliberate: a miss must never be remembered
+
+
+def test_a_tag_rewritten_between_placements_is_re_read():
+    # The mirror of the #176 bug, on the *hit* side: rewriting a sleeve doesn't change its UID
+    # either, so a cached hit outlives the album it decoded. Lifting the sleeve is the operator
+    # saying "this may be a different record now" — the cache must not survive it.
+    content = [WRITTEN]
+    cache = UriCache()
+
+    assert cache.get_or_read("04:AA", lambda: content[0]) == "curator:album:2k7bxq9m"
+    content[0] = _ndef_text(b"curator:album:9xj2b4kd")  # operator rewrites the sticker
+    cache.forget_all()  # sleeve lifted off the reader
+    assert cache.get_or_read("04:AA", lambda: content[0]) == "curator:album:9xj2b4kd"
+
+
+def test_decode_poll_clears_the_cache_when_the_field_empties():
+    content = [WRITTEN]
+    cache = UriCache()
+
+    def read():
+        return content[0]
+
+    assert decode_poll(cache, "04:AA", read) == TagRead("04:AA", "curator:album:2k7bxq9m")
+    content[0] = _ndef_text(b"curator:album:9xj2b4kd")
+    assert decode_poll(cache, "04:AA", read).uri == "curator:album:2k7bxq9m"  # still on the stand
+
+    assert decode_poll(cache, None, read) is None  # lifted
+    assert decode_poll(cache, "04:AA", read) == TagRead("04:AA", "curator:album:9xj2b4kd")
+
+
+def test_decode_poll_serves_a_settled_sleeve_from_cache():
+    reads = []
+
+    def read():
+        reads.append(1)
+        return WRITTEN
+
+    cache = UriCache()
+    for _ in range(5):
+        decode_poll(cache, "04:AA", read)
+    assert len(reads) == 1  # the whole point of the cache: one NDEF read per placement
 
 
 def test_cache_evicts_wholesale_past_max_size():
