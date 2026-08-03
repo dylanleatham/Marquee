@@ -164,6 +164,22 @@ Rationale: fast enough that placing a sleeve feels instant, slow enough that a h
 > just doesn't work". Firing once is guaranteed by the `PLAYING` transition and `_flagged_bad`, not
 > by the comparison.
 
+> **The decoded-URI cache lives for one placement** (2026-08-02). The reader caches successful
+> decodes per UID so a settled sleeve costs one NDEF read rather than one every 200ms; that cache is
+> **cleared whenever the field goes empty**, so lifting the sleeve guarantees the next placement
+> re-reads the tag.
+>
+> Writing NDEF to a tag does not change its UID. Until this date the cache was cleared only by
+> eviction at 8 entries or a service restart, so **re-writing a sticker left Stylus serving the
+> previous album indefinitely** — the Flipper showed the new URI, `/status` showed the old one, and
+> re-placing the sleeve did not help. This is the same UID-stability trap as
+> [#176](https://github.com/dylanleatham/Marquee/issues/176) (which fixed it for cached _misses_),
+> seen from the hit side. A dropped read on a motionless sleeve also clears the cache and costs one
+> re-read — cheap, and invisible to playback behind the removal debounce.
+>
+> Residual, by design: a tag re-written **without leaving the field** is not noticed, because §7
+> `PLAYING` treats a matching UID as "same sleeve, no change" and never re-inspects the URI.
+
 **LED patterns:**
 
 - Slow breathe (2s cycle): IDLE, waiting
@@ -348,4 +364,5 @@ If you find range is insufficient with a chosen stand geometry, PN532 modules wi
 - **Ghost reads.** A sleeve moved past the reader on its way to the turntable might trigger a scan you didn't intend. The insertion debounce (400ms) helps but doesn't fully solve it. If it's annoying in practice, extend `insertion_debounce_polls` to 4 (800ms). Trade-off is slight lag on real scans.
 - **The runtime services need to be tolerant of `start` without a paired `stop`.** WiFi drops, the Pi reboots, the reader misses the removal event — many ways to leave downstream services in a "playing" state with no matching stop. Both Conductor and Player should have their own idle timeout (e.g. "if no new event in 90 minutes, return to idle").
 - **Same-URI re-scan.** Someone lifts and re-places the same sleeve. Current spec fires stop→start. Might feel jarring for the lights and video. Consider a "if same URI comes back within 5 seconds, treat as no-op" rule. Or don't — it's honest behavior, and only fires when you actually lift the sleeve.
+- **Re-writing a sticker you're testing with.** A tag keeps its UID when you write new NDEF to it, so anything Stylus remembers per UID is a candidate for going stale under you. Both directions have bitten this project: cached misses ([#176](https://github.com/dylanleatham/Marquee/issues/176)) and cached hits (§7, 2026-08-02). If a re-written sleeve reports the wrong album, check `observed.uri` on `/status` against what your writer shows — if they disagree, the tag is fine and something upstream of the state machine is stale.
 - **Multiple sleeves stacked.** PN532 will read whichever tag is closest and strongest. Behavior is deterministic but non-obvious. Design assumption: one sleeve at a time on the stand.
