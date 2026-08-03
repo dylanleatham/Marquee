@@ -86,3 +86,17 @@ runtime-overview §7 changes; this is only a new way to launch the config side.
 >
 > The reporting half of the same bug (Curator treating a 2xx `action:"ignored"` as a successful leg)
 > is recorded in [curator-spec §Preview and verification](../specs/curator-spec.md).
+
+> **Update (2026-08-02, issue #229):** decision 1's adoption rule is **narrowed** by
+> [ADR 0050](0050-the-desktop-health-gate-checks-identity-not-liveness.md).
+>
+> "Adopts an already-running instance" was decided against a gate that could only tell whether
+> _something_ answered `/healthz` — so it also adopted a stale Curator from another checkout, on a
+> different data dir, and drove it with no warning and no curator child of its own. The pins added by
+> the #164 update above are exactly what an adopted foreign service ignores.
+>
+> The shell now generates a per-launch instance token, both services report it (plus their resolved
+> directory) from `/healthz`, and the shell **adopts only a matching service** — right kind, same
+> directory. Anything else fails the boot with the port and both directories named, as does a child
+> that exits before it is healthy. Adoption itself is unchanged where it was always safe, and is now
+> logged.

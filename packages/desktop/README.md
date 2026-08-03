@@ -9,10 +9,14 @@ window — no terminals, no `localhost:` URLs. Spec/ADR:
 On launch the Electron main process ([src/main.ts](src/main.ts)):
 
 1. Starts Conductor (4737) and Curator (4739) as child processes — forked with Electron's own Node
-   (`ELECTRON_RUN_AS_NODE`), so a packaged app needs no separate Node install.
-2. Adopts an already-running instance instead of forking a duplicate (so a hand-started `pnpm
---filter @marquee/hue-conductor dev` is reused, not fought over its port).
-3. Waits for both `/healthz`, then opens the window on `http://localhost:4739`.
+   (`ELECTRON_RUN_AS_NODE`), so a packaged app needs no separate Node install. Each child gets a
+   per-launch `MARQUEE_INSTANCE_ID` and must report it back from `/healthz`.
+2. Adopts an already-running instance instead of forking a duplicate — but only a **matching** one:
+   the right service, on the same data dir. So a hand-started `pnpm --filter @marquee/hue-conductor
+dev` is reused rather than fought over its port, while a stale service from another checkout is
+   refused (see [Port conflicts](#port-conflicts)).
+3. Waits for both `/healthz` to report _this launch's_ token, then opens the window on
+   `http://localhost:4739`.
 4. Tears both services down on quit. A second launch focuses the existing window (single-instance).
 5. Writes everything it and the services log to a rotating file (see [Logs](#logs)).
 
@@ -46,6 +50,19 @@ This bundles each server with esbuild (`scripts/bundle-servers.mjs` → `staged/
 [electron-builder.yml](electron-builder.yml). The installer drops a **Desktop + Start-Menu shortcut**.
 It's **unsigned**, so Windows SmartScreen warns on first run — choose "More info → Run anyway"
 (personal use; code-signing is a later step).
+
+## Port conflicts
+
+If something else already holds 4737 or 4739, the app refuses to start and names the port and the
+directory the other service is rooted at. Close it (the usual culprit is a leftover
+`tsx watch src/server.ts` from a dev session) and launch again.
+
+It used to adopt whatever answered `/healthz` and open a normal-looking window on it — a different
+collection, a different build, and no service child of its own. Each child now carries a per-launch
+token it must report back, so the shell can tell its own services from a stranger
+([issue #229](https://github.com/dylanleatham/Marquee/issues/229),
+[ADR 0050](../../docs/adrs/0050-the-desktop-health-gate-checks-identity-not-liveness.md)). A service
+you started yourself on the **same** data dir is still adopted, and the log says so.
 
 ## Logs
 

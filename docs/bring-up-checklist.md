@@ -66,7 +66,10 @@ export PI5=marquee-pi5
 - [ ] `marquee-conductor.service` installed + `systemctl enable --now`
 - [ ] Listening room set: `GET /api/rooms` → `PUT /api/settings {"listeningRoomId":"<id>"}` (record id above)
 
-**GATE 2a:** `curl -s http://$PI5:4737/healthz` → `{"ok":true,"paired":true}`.
+**GATE 2a:** `curl -s http://$PI5:4737/healthz` → includes `"ok":true,"paired":true`. (It also
+reports `service`, `instance` and `albumAssetsDir` for the desktop shell's identity check —
+[ADR 0050](adrs/0050-the-desktop-health-gate-checks-identity-not-liveness.md). On the Pi `instance`
+is `null`: no shell started it.)
 
 **GATE 2b (proves the bridge path):**
 

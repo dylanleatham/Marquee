@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -68,6 +68,34 @@ describe("Curator HTTP API", () => {
     const res = await app.inject({ method: "GET", url: "/healthz" });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ ok: true, albums: 0 });
+  });
+
+  /**
+   * Issue #229. The desktop shell gates its window on /healthz, and a 200 alone only proves
+   * *something* is listening — it adopted a stale Curator from another checkout and drove it, with
+   * a different data dir and no curator child in its own process tree. These three fields are what
+   * let it tell "the Curator I started, on my collection" from a stranger.
+   */
+  it("/healthz identifies which Curator this is, and which collection it is rooted at", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "curator-health-"));
+    const { app } = buildServer({
+      store: new AssetStore(join(dataDir, "album-assets")),
+      config: { dataDir },
+      generate: fakeGenerate,
+    });
+    const res = await app.inject({ method: "GET", url: "/healthz" });
+    expect(res.json()).toMatchObject({ service: "curator", dataDir });
+  });
+
+  it("/healthz echoes the launching shell's instance token, and null without one", async () => {
+    const health = () => build().app.inject({ method: "GET", url: "/healthz" });
+
+    // No shell started this one — a hand-run dev server or the Pi. "Not ours" is the right answer.
+    expect((await health()).json().instance).toBeNull();
+
+    vi.stubEnv("MARQUEE_INSTANCE_ID", "launch-token");
+    expect((await health()).json().instance).toBe("launch-token");
+    vi.unstubAllEnvs();
   });
 
   it("POST /api/albums (manual) queues the album, and Roadie drives it to awaiting_review", async () => {
