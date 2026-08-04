@@ -3,9 +3,11 @@
 // auth, User-Agent, JSON parsing, pagination, and art download all run against it. Rule of thumb:
 // a fake needs its own tests.
 //
-// Auth model: a single personal access token (ADR 0016). The fake accepts requests carrying
-// `Authorization: Discogs token=<token>` for its configured token; anything else 401s exactly as
-// Discogs would. Discogs also *requires* a User-Agent header — the fake enforces that too.
+// Auth model: a single personal access token
+// ([ADR 0017](../../../../docs/adrs/0017-discogs-personal-token-and-direct-images.md)).
+// The fake accepts requests carrying `Authorization: Discogs token=<token>` for its configured
+// token; anything else 401s exactly as Discogs would. Discogs also *requires* a User-Agent
+// header — the fake enforces that too.
 
 export interface FakeRelease {
   id: number;

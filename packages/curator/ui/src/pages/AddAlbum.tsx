@@ -215,9 +215,11 @@ function SyncCollection() {
 }
 
 /**
- * Browse your Discogs collection and send albums to Roadie (issue #24 / ADR 0016). Paginated: "Load
- * more" fetches the next page. Each row's "Send to Roadie" adds it (source = "discogs"); Roadie
- * fetches the release detail + cover art off the request path. Rows already added are marked.
+ * Browse your Discogs collection and send albums to Roadie (issue #24 /
+ * [ADR 0017](../../../../../docs/adrs/0017-discogs-personal-token-and-direct-images.md)).
+ * Paginated: "Load more" fetches the next page. Each row's "Send to Roadie" adds it
+ * (source = "discogs"); Roadie fetches the release detail + cover art off the request path. Rows
+ * already added are marked.
  *
  * The per-row button is still here on purpose — sometimes you want one record, not the collection.
  * The sweep above it is for the other case.

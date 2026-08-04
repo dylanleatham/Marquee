@@ -1,5 +1,6 @@
-// Discogs OAuth 1.0a — the 3-legged "log in with Discogs" flow (issue #59 / ADR 0017). This is the
-// deferred alternative to the personal-access-token path (ADR 0016): request token → authorize
+// Discogs OAuth 1.0a — the 3-legged "log in with Discogs" flow (issue #59 /
+// [ADR 0017](../../../../docs/adrs/0017-discogs-personal-token-and-direct-images.md)). This is the
+// deferred alternative to that ADR's personal-access-token path: request token → authorize
 // redirect → access token, PLAINTEXT-signed over HTTPS (see ./oauth-sign). Shape mirrors SpotifyAuth
 // deliberately — injectable fetch/now/nonce for tests, a pending map guarding started handshakes, and
 // the session persisted via ./oauth-token-store so it survives a restart.

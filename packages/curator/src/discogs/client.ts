@@ -44,8 +44,10 @@ export interface DiscogsReleaseMeta {
 }
 
 export interface DiscogsClientOptions {
-  /** Personal access token (ADR 0016) — sent as `Authorization: Discogs token=<token>`. Provide this
-   * OR `authHeader` (OAuth 1.0a, issue #59); `authHeader` wins when both are present. */
+  /** Personal access token
+   * ([ADR 0017](../../../../docs/adrs/0017-discogs-personal-token-and-direct-images.md)) — sent as
+   * `Authorization: Discogs token=<token>`. Provide this OR `authHeader` (OAuth 1.0a, issue #59);
+   * `authHeader` wins when both are present. */
   token?: string;
   /** Supplies the full `Authorization` header value per request — used for the OAuth 1.0a session
    * (issue #59), which signs each request with a fresh nonce/timestamp. Returning `undefined` falls
@@ -150,9 +152,11 @@ const mergeGenres = (genres?: string[], styles?: string[]): string[] => [
 ];
 
 /**
- * Thin Discogs API client using a personal access token (ADR 0016 — no OAuth 1.0a for a single-user
- * home app). Reads the logged-in user's identity + collection and per-release detail (metadata +
- * cover image). Injectable `fetch`; every request carries the required User-Agent and a timeout.
+ * Thin Discogs API client using a personal access token
+ * ([ADR 0017](../../../../docs/adrs/0017-discogs-personal-token-and-direct-images.md) — no OAuth
+ * 1.0a for a single-user home app). Reads the logged-in user's identity + collection and
+ * per-release detail (metadata + cover image). Injectable `fetch`; every request carries the
+ * required User-Agent and a timeout.
  */
 export class DiscogsClient {
   private readonly fetch: FetchLike;

@@ -56,7 +56,9 @@ export function Settings() {
     }
   };
 
-  // Discogs personal access token (ADR 0016). Same store + restart-to-apply story as Spotify.
+  // Discogs personal access token
+  // ([ADR 0017](../../../../../docs/adrs/0017-discogs-personal-token-and-direct-images.md)).
+  // Same store + restart-to-apply story as Spotify.
   const { data: discogs, refresh: refreshDiscogs } = usePoll(
     api.discogsSettings,
     15000,

@@ -6,8 +6,9 @@ import { join } from "node:path";
 
 export interface CuratorSettings {
   spotify?: { clientId: string; clientSecret: string };
-  /** Discogs auth: a personal access token (ADR 0016) and/or OAuth consumer creds (issue #59), plus
-   * an optional collection username. */
+  /** Discogs auth: a personal access token
+   * ([ADR 0017](../../../docs/adrs/0017-discogs-personal-token-and-direct-images.md)) and/or OAuth
+   * consumer creds (issue #59), plus an optional collection username. */
   discogs?: {
     token?: string;
     username?: string;

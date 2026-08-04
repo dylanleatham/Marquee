@@ -84,7 +84,9 @@ describe("addDiscogsAlbum", () => {
   });
 
   it("does not dedupe a Discogs album against a Spotify album of the same title", async () => {
-    // Per-source dedupe (ADR 0016): a Spotify + Discogs pair of the same record can coexist.
+    // Per-source dedupe
+    // ([ADR 0017](../../../docs/adrs/0017-discogs-personal-token-and-direct-images.md)):
+    // a Spotify + Discogs pair of the same record can coexist.
     const fd = createFakeDiscogs([release()]);
     const s = store();
     const roadie = fakeRoadie(s, { discogs: client(fd) });

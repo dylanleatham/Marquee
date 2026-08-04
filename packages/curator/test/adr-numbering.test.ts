@@ -91,6 +91,42 @@ function brokenAdrLinksIn(files: string[], root: string): string[] {
   return broken;
 }
 
+/**
+ * ADR links in `files` whose label names a different ADR than the file it points at.
+ *
+ * The other half of the citability problem, and the one a resolving link hides: issue #233 found
+ * thirteen Discogs comments citing "ADR 0016" (Stylus) when they meant 0017 — both accepted the same
+ * day. Converting those to links is what puts them under `brokenAdrLinksIn`, but a link is only as
+ * honest as its label: `[ADR 0016](…/0017-*.md)` resolves perfectly and still tells the reader the
+ * wrong thing. A bare number can't be checked at all; a link can, so check it.
+ */
+function labelHrefMismatchesIn(files: string[], root: string): string[] {
+  const mismatched: string[] = [];
+  for (const file of files) {
+    const text = readFileSync(file, "utf8");
+    for (const [, label, href] of text.matchAll(
+      /\[ADR (\d{4})\]\(([^)]*adrs\/(\d{4})-[^)]+\.md)\)/g,
+    )) {
+      const target = href.match(/adrs\/(\d{4})-/)?.[1];
+      if (label !== target) {
+        mismatched.push(
+          `${file.slice(root.length + 1)} → [ADR ${label}](${href})`,
+        );
+      }
+    }
+  }
+  return mismatched;
+}
+
+/** Every source the citation checks scan: docs, TS/TSX under packages, and the working agreement. */
+function citingSources(repoRoot: string): string[] {
+  return [
+    ...walk(join(repoRoot, "docs"), [".md"]),
+    ...walk(join(repoRoot, "packages"), [".ts", ".tsx"]),
+    join(repoRoot, "CLAUDE.md"),
+  ];
+}
+
 describe("ADR numbering", () => {
   const adrs = collectAdrs(adrDir);
 
@@ -111,12 +147,15 @@ describe("ADR numbering", () => {
   // the uniqueness check. It found one already-broken relative path the first time it ran.
   it("resolves every link that points at an ADR file", () => {
     const repoRoot = join(adrDir, "..", "..");
-    const sources = [
-      ...walk(join(repoRoot, "docs"), [".md"]),
-      ...walk(join(repoRoot, "packages"), [".ts", ".tsx"]),
-      join(repoRoot, "CLAUDE.md"),
-    ];
-    expect(brokenAdrLinksIn(sources, repoRoot)).toEqual([]);
+    expect(brokenAdrLinksIn(citingSources(repoRoot), repoRoot)).toEqual([]);
+  });
+
+  // Issue #233: a link that resolves can still name the wrong decision. See labelHrefMismatchesIn.
+  it("gives every ADR link a label that agrees with the file it points at", () => {
+    const repoRoot = join(adrDir, "..", "..");
+    expect(labelHrefMismatchesIn(citingSources(repoRoot), repoRoot)).toEqual(
+      [],
+    );
   });
 });
 
@@ -218,6 +257,41 @@ describe("ADR numbering — the checks detect what they claim to", () => {
       "cites.md": `See ${mdLink("ADR 0033", "adrs/0033-here.md")}.\n`,
     });
     expect(brokenAdrLinksIn([join(dir, "cites.md")], dir)).toEqual([]);
+  });
+
+  // Issue #233's failure, in the shape it would have landed in: the citations converted to links by
+  // a mechanical sweep that carried the wrong number along. Every one of these resolves.
+  it("labelHrefMismatchesIn catches a link whose label names a different ADR than its target", () => {
+    const dir = fixture({
+      "adrs/0016-stylus.md": "# ADR 0016 — Stylus\n",
+      "adrs/0017-discogs.md": "# ADR 0017 — Discogs\n",
+      "cites.md": `Personal token (${mdLink("ADR 0016", "adrs/0017-discogs.md")}).\n`,
+    });
+    // It resolves — which is the point. Only the label check can see anything wrong here.
+    expect(brokenAdrLinksIn([join(dir, "cites.md")], dir)).toEqual([]);
+    expect(labelHrefMismatchesIn([join(dir, "cites.md")], dir)).toEqual([
+      `cites.md → ${mdLink("ADR 0016", "adrs/0017-discogs.md")}`,
+    ]);
+  });
+
+  it("labelHrefMismatchesIn stays quiet when the label and the target agree", () => {
+    const dir = fixture({
+      "adrs/0017-discogs.md": "# ADR 0017 — Discogs\n",
+      "cites.md": `Personal token (${mdLink("ADR 0017", "adrs/0017-discogs.md")}).\n`,
+    });
+    expect(labelHrefMismatchesIn([join(dir, "cites.md")], dir)).toEqual([]);
+  });
+
+  it("labelHrefMismatchesIn checks relative links too, whatever the depth", () => {
+    const dir = fixture({
+      "adrs/0017-discogs.md": "# ADR 0017 — Discogs\n",
+      "src/pages/cites.tsx": `// ${mdLink("ADR 0016", "../../adrs/0017-discogs.md")}\n`,
+    });
+    expect(
+      labelHrefMismatchesIn([join(dir, "src", "pages", "cites.tsx")], dir),
+    ).toEqual([
+      `${join("src", "pages", "cites.tsx")} → ${mdLink("ADR 0016", "../../adrs/0017-discogs.md")}`,
+    ]);
   });
 
   it("brokenAdrLinksIn resolves relative to the linking file, not the repo root", () => {
