@@ -15,6 +15,23 @@ export {
   parseAlbumId,
 } from "./albums/add-spotify.js";
 export {
+  addDiscogsAlbum,
+  buildDiscogsIndex,
+  type DiscogsIndex,
+} from "./albums/add-discogs.js";
+export {
+  discogsSyncRunner,
+  MAX_SYNC_PAGES,
+  type DiscogsSyncReport,
+  type DiscogsSyncOutcome,
+} from "./albums/discogs-sync.js";
+export {
+  DiscogsPoller,
+  MIN_POLL_INTERVAL_MS,
+  DEFAULT_POLL_INTERVAL_MS,
+  type DiscogsPollerStatus,
+} from "./discogs/poller.js";
+export {
   buildAlbumAsset,
   buildFreshAsset,
   deriveStatus,

@@ -10,6 +10,34 @@ import {
 import { ValidationError } from "./add-manual.js";
 import { DuplicateAlbumError } from "./add-spotify.js";
 
+/**
+ * A "have I already added this release?" lookup, `discogs:release:<id>` → curatorId.
+ *
+ * The default dedupe (`store.findByDiscogsUri`) reads every asset file on disk per call, which is
+ * fine for one add from the collection browser and quadratic for a sweep of the whole collection
+ * (issue #234): 500 releases × 500 files is a quarter-million reads to add 500 albums. A bulk caller
+ * builds this once and passes it, so the sweep costs one pass over the store instead of one per row.
+ */
+export interface DiscogsIndex {
+  get(uri: string): string | undefined;
+  add(uri: string, curatorId: string): void;
+}
+
+/** Snapshot every already-added Discogs URI in one pass over the store. */
+export function buildDiscogsIndex(store: AssetStore): DiscogsIndex {
+  const byUri = new Map<string, string>();
+  for (const asset of store.list()) {
+    const uri = asset.metadata.discogsUri;
+    if (uri) byUri.set(uri, asset.curatorId);
+  }
+  return {
+    get: (uri) => byUri.get(uri),
+    add: (uri, curatorId) => {
+      byUri.set(uri, curatorId);
+    },
+  };
+}
+
 /** What the collection browser hands off when the user clicks "Send to Roadie". */
 export interface DiscogsAddInput {
   releaseId: number;
@@ -31,7 +59,7 @@ export interface DiscogsAddInput {
  * release metadata.
  */
 export async function addDiscogsAlbum(
-  deps: { store: AssetStore; roadie: Roadie },
+  deps: { store: AssetStore; roadie: Roadie; index?: DiscogsIndex },
   input: DiscogsAddInput,
 ): Promise<{ curatorId: string; asset: AlbumAsset }> {
   const releaseId = Number(input.releaseId);
@@ -39,8 +67,12 @@ export async function addDiscogsAlbum(
     throw new ValidationError("a valid Discogs releaseId is required");
 
   const uri = discogsUri(releaseId);
-  const existing = deps.store.findByDiscogsUri(uri);
-  if (existing) throw new DuplicateAlbumError(existing.curatorId);
+  // `??` would be wrong here: an index that answers "not present" must *end* the lookup, not fall
+  // through to the full-store scan it exists to avoid.
+  const existingId = deps.index
+    ? deps.index.get(uri)
+    : deps.store.findByDiscogsUri(uri)?.curatorId;
+  if (existingId) throw new DuplicateAlbumError(existingId);
 
   const curatorId = generateCuratorId((id) => deps.store.exists(id));
 
@@ -58,6 +90,7 @@ export async function addDiscogsAlbum(
 
   const asset = buildFreshAsset({ curatorId, metadata });
   deps.store.save(asset);
+  deps.index?.add(uri, curatorId);
   deps.roadie.enqueue(curatorId);
   return { curatorId, asset };
 }

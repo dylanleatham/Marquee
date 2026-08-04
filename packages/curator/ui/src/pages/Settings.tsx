@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api";
 import { usePoll } from "../hooks";
 import { RoomAndServices } from "../components/RoomAndServices";
@@ -90,6 +90,48 @@ export function Settings() {
       setDiscogsError(err instanceof ApiError ? err.message : String(err));
     } finally {
       setDiscogsBusy(false);
+    }
+  };
+
+  // Automatic collection polling (issue #234). Unlike the credentials above, this takes effect
+  // immediately — it's only a timer, and a toggle that meant "now restart Curator" would be broken.
+  // `autoSync`/`interval` follow the server's answer until the user touches them, so the fields
+  // reflect the clamped interval the poller actually settled on rather than what was typed.
+  const { data: syncStatus, refresh: refreshSyncStatus } = usePoll(
+    api.discogsSyncStatus,
+    15000,
+  );
+  const [autoSyncEdit, setAutoSyncEdit] = useState<{
+    enabled: boolean;
+    minutes: number;
+  } | null>(null);
+  const [autoSyncBusy, setAutoSyncBusy] = useState(false);
+  const [autoSyncError, setAutoSyncError] = useState<string | null>(null);
+  const autoSync = autoSyncEdit?.enabled ?? discogs?.autoSync ?? false;
+  const intervalMinutes =
+    autoSyncEdit?.minutes ?? discogs?.autoSyncIntervalMinutes ?? 60;
+  const setIntervalMinutes = (minutes: number) =>
+    setAutoSyncEdit({ enabled: autoSync, minutes });
+
+  const saveAutoSync = async (enabled: boolean, minutes: number) => {
+    setAutoSyncEdit({ enabled, minutes });
+    setAutoSyncBusy(true);
+    setAutoSyncError(null);
+    try {
+      await api.saveDiscogsSettings({
+        autoSync: enabled,
+        ...(Number.isFinite(minutes) && minutes > 0
+          ? { autoSyncIntervalMinutes: minutes }
+          : {}),
+      });
+      // Drop the local edit so the fields fall back to the server's view — which is where the
+      // interval clamp becomes visible if what was typed was below the floor.
+      setAutoSyncEdit(null);
+      await Promise.all([refreshDiscogs(), refreshSyncStatus()]);
+    } catch (err) {
+      setAutoSyncError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setAutoSyncBusy(false);
     }
   };
 
@@ -429,6 +471,57 @@ export function Settings() {
             )}
             {discogsAuthError && (
               <div className="banner banner--error">{discogsAuthError}</div>
+            )}
+          </div>
+        )}
+
+        {/* Automatic collection polling (issue #234). Only offered once Discogs is configured —
+            a toggle that can't do anything is worse than no toggle. */}
+        {discogs?.configured && (
+          <div className="auto-sync">
+            <h3>Keep the collection in sync</h3>
+            <p className="muted">
+              Check Discogs on a timer and add anything new automatically, so a
+              record you add there turns up here without a trip to{" "}
+              <Link to="/add">Add album</Link>. Costs no AI credits — new
+              records go through Roadie for art, colours, and metadata, the same
+              as a manual sync.
+            </p>
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={autoSync}
+                onChange={(e) =>
+                  void saveAutoSync(e.target.checked, intervalMinutes)
+                }
+                disabled={autoSyncBusy}
+              />
+              Check automatically
+            </label>
+            <label>
+              How often (minutes)
+              <input
+                type="number"
+                min={5}
+                step={5}
+                value={intervalMinutes}
+                onChange={(e) => setIntervalMinutes(Number(e.target.value))}
+                onBlur={() => void saveAutoSync(autoSync, intervalMinutes)}
+                disabled={autoSyncBusy || !autoSync}
+              />
+            </label>
+            <p className="muted">
+              {syncStatus?.lastRunAt
+                ? `Last checked ${new Date(syncStatus.lastRunAt).toLocaleString()}.`
+                : autoSync
+                  ? "No automatic check has run yet."
+                  : "Automatic checks are off."}
+              {syncStatus?.lastError
+                ? ` Last attempt: ${syncStatus.lastError}`
+                : ""}
+            </p>
+            {autoSyncError && (
+              <div className="banner banner--error">{autoSyncError}</div>
             )}
           </div>
         )}

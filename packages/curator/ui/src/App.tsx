@@ -21,6 +21,8 @@ import { ConfirmProvider } from "./components/Confirm";
 import { BatchProgress } from "./components/BatchProgress";
 import { CommandPalette } from "./components/CommandPalette";
 import { attachRunningBatch } from "./batchJob";
+import { attachRunningDiscogsSync } from "./discogsSyncJob";
+import { DiscogsSyncProgress } from "./components/DiscogsSyncProgress";
 
 /**
  * The "needs you right now" count. This used to be written into `document.title` — an affordance
@@ -87,6 +89,7 @@ export function App() {
   // window during a regeneration leaves it running invisibly with no progress and no way to stop it.
   useEffect(() => {
     void attachRunningBatch();
+    void attachRunningDiscogsSync();
   }, []);
   // Per-route boundary keyed on the path: a page that throws mid-render is contained to the body
   // (header + RoadieStrip survive), and navigating to another route clears the error (issue #63).
@@ -144,7 +147,11 @@ export function App() {
           </ErrorBoundary>
         </div>
         <RoadieStrip />
-        <BatchProgress />
+        {/* Both sweeps can be running at once; the stack keeps them from sharing one corner. */}
+        <div className="job-stack">
+          <BatchProgress />
+          <DiscogsSyncProgress />
+        </div>
         <CommandPalette open={paletteOpen} onClose={closePalette} />
       </div>
     </ConfirmProvider>

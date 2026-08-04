@@ -35,6 +35,17 @@ vi.mock("../api", () => ({
   artworkUrl: (id: string) => `/api/albums/${id}/artwork`,
 }));
 
+const startDiscogsSync = vi.fn().mockResolvedValue(undefined);
+let syncJob: { job: unknown; error: null; unreachable: boolean } = {
+  job: null,
+  error: null,
+  unreachable: false,
+};
+vi.mock("../discogsSyncJob", () => ({
+  startDiscogsSync: () => startDiscogsSync(),
+  useDiscogsSyncJob: () => syncJob,
+}));
+
 import { api, type BatchAddReport } from "../api";
 import { AddAlbum } from "./AddAlbum";
 
@@ -64,6 +75,7 @@ const addAll = () =>
 
 beforeEach(() => {
   vi.mocked(api.addAlbumsBatch).mockResolvedValue(report());
+  syncJob = { job: null, error: null, unreachable: false };
 });
 
 afterEach(() => {
@@ -158,5 +170,91 @@ describe("AddAlbum — Paste URI", () => {
     addAll();
 
     await screen.findByText("Spotify not configured");
+  });
+});
+
+// The whole-collection sweep (issue #234 / ADR 0051). One button covers both the first import and
+// every later refresh, so what matters is that it's reachable, it starts the sweep, and it reflects
+// a sweep already in flight rather than offering to start a second.
+describe("AddAlbum — Discogs collection sync", () => {
+  /** Render and switch to the Discogs tab. */
+  function discogsTab() {
+    vi.mocked(api.discogsCollection).mockResolvedValue({
+      items: [],
+      page: 1,
+      pages: 1,
+      perPage: 50,
+      total: 0,
+    });
+    render(
+      <MemoryRouter>
+        <AddAlbum />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Discogs collection" }));
+  }
+
+  it("starts the sweep when the button is pressed", async () => {
+    discogsTab();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Sync collection" }),
+    );
+
+    await waitFor(() => expect(startDiscogsSync).toHaveBeenCalledTimes(1));
+  });
+
+  it("says plainly that it costs no AI credits", async () => {
+    // The reason the user asked for this feature; it belongs on the button, not only in an ADR.
+    discogsTab();
+    expect(await screen.findByText(/no AI\s+credits are spent/i)).toBeTruthy();
+  });
+
+  it("shows a sweep already running instead of offering to start another", async () => {
+    syncJob = {
+      job: {
+        id: "j1",
+        kind: "discogsSync",
+        status: "running",
+        progress: { done: 12, total: 400 },
+        createdAt: "",
+        updatedAt: "",
+      },
+      error: null,
+      unreachable: false,
+    };
+    discogsTab();
+
+    const button = await screen.findByRole("button", { name: "Syncing…" });
+    expect(button).toHaveProperty("disabled", true);
+  });
+
+  it("still offers the per-row add, for when you only want one record", async () => {
+    // The sweep is the headline, not a replacement: adding a single record stays possible.
+    vi.mocked(api.discogsCollection).mockResolvedValue({
+      items: [
+        {
+          releaseId: 42,
+          discogsUri: "discogs:release:42",
+          title: "Aja",
+          artist: "Steely Dan",
+          year: 1977,
+          genres: [],
+        },
+      ],
+      page: 1,
+      pages: 1,
+      perPage: 50,
+      total: 1,
+    });
+    render(
+      <MemoryRouter>
+        <AddAlbum />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Discogs collection" }));
+
+    expect(await screen.findByText("Aja")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Send to Roadie" })).toBeTruthy();
   });
 });

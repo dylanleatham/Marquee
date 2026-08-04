@@ -13,6 +13,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { VideoClip, CardArtCandidate } from "../albums/asset.js";
 import type { BatchPaletteReport } from "../albums/batch.js";
+import type { DiscogsSyncReport } from "../albums/discogs-sync.js";
 
 export type JobKind =
   | "video"
@@ -20,7 +21,9 @@ export type JobKind =
   | "paletteBatch"
   | "mediaTransfer"
   /** Pushing the whole library to the runtime (ADR 0045). Library-scoped: no curatorId. */
-  | "runtimeSync";
+  | "runtimeSync"
+  /** Sweeping the Discogs collection into the library (issue #234). Library-scoped: no curatorId. */
+  | "discogsSync";
 export type JobStatus = "running" | "done" | "failed" | "cancelled";
 
 /** What one runtime service made of a full push (ADR 0045). */
@@ -34,6 +37,8 @@ export interface JobResult {
   videoClips?: VideoClip[];
   cardArtCandidates?: CardArtCandidate[];
   paletteBatch?: BatchPaletteReport;
+  /** What one Discogs collection sweep added, skipped as already-present, and failed on (issue #234). */
+  discogsSync?: DiscogsSyncReport;
   /**
    * A full runtime push, per service. `backdrop` is absent when no Backdrop is configured, which is
    * a different thing from one that pushed nothing — the distinction issue #187 was about.

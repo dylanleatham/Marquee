@@ -164,6 +164,69 @@ describe("loadConfig", () => {
     expect(loadConfig().gemini?.generateVideo).toBe(true);
   });
 
+  // Discogs auto-sync (issue #234 / ADR 0051). Same opt-in shape as the generation flags above: a
+  // background job that reaches the network and writes to the library must not switch itself on.
+  it("defaults Discogs auto-sync to off, and reads it when set", () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-"));
+    process.env.MARQUEE_DATA_DIR = dir;
+    delete process.env.DISCOGS_AUTO_SYNC;
+    delete process.env.DISCOGS_AUTO_SYNC_INTERVAL_MINUTES;
+
+    withFile('[discogs]\ntoken = "t"\n');
+    process.env.MARQUEE_DATA_DIR = dir;
+    expect(loadConfig().discogs?.autoSync).toBeUndefined();
+    expect(loadConfig().discogs?.autoSyncIntervalMinutes).toBeUndefined();
+
+    withFile('[discogs]\ntoken = "t"\nauto_sync = true\n');
+    process.env.MARQUEE_DATA_DIR = dir;
+    expect(loadConfig().discogs?.autoSync).toBe(true);
+  });
+
+  it("reads the auto-sync interval, and ignores a non-numeric one", () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-"));
+    process.env.MARQUEE_DATA_DIR = dir;
+    delete process.env.DISCOGS_AUTO_SYNC;
+    delete process.env.DISCOGS_AUTO_SYNC_INTERVAL_MINUTES;
+
+    withFile('[discogs]\ntoken = "t"\nauto_sync_interval_minutes = 30\n');
+    process.env.MARQUEE_DATA_DIR = dir;
+    expect(loadConfig().discogs?.autoSyncIntervalMinutes).toBe(30);
+
+    // Garbage is dropped rather than passed through as NaN — the poller would then clamp NaN and
+    // every comparison against it would be false.
+    withFile('[discogs]\ntoken = "t"\nauto_sync_interval_minutes = "soon"\n');
+    process.env.MARQUEE_DATA_DIR = dir;
+    expect(loadConfig().discogs?.autoSyncIntervalMinutes).toBeUndefined();
+  });
+
+  it("takes auto-sync from env and settings.json, config.toml winning", () => {
+    const dir = mkdtempSync(join(tmpdir(), "md-"));
+    writeFileSync(
+      join(dir, "settings.json"),
+      JSON.stringify({
+        discogs: { token: "t", autoSync: true, autoSyncIntervalMinutes: 45 },
+      }),
+    );
+    process.env.MARQUEE_DATA_DIR = dir;
+    delete process.env.DISCOGS_AUTO_SYNC;
+    delete process.env.DISCOGS_AUTO_SYNC_INTERVAL_MINUTES;
+    noFile();
+    process.env.MARQUEE_DATA_DIR = dir;
+    expect(loadConfig().discogs).toMatchObject({
+      autoSync: true,
+      autoSyncIntervalMinutes: 45,
+    });
+
+    // env beats settings.json — "1" counts as true, matching the generation flags.
+    process.env.DISCOGS_AUTO_SYNC_INTERVAL_MINUTES = "15";
+    expect(loadConfig().discogs?.autoSyncIntervalMinutes).toBe(15);
+
+    // config.toml beats env
+    withFile('[discogs]\ntoken = "t"\nauto_sync_interval_minutes = 90\n');
+    process.env.MARQUEE_DATA_DIR = dir;
+    expect(loadConfig().discogs?.autoSyncIntervalMinutes).toBe(90);
+  });
+
   it("reads model-slug overrides from config.toml/env (default: undefined → client picks)", () => {
     const dir = mkdtempSync(join(tmpdir(), "md-"));
     process.env.MARQUEE_DATA_DIR = dir;

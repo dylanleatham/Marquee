@@ -1809,12 +1809,27 @@ kbd {
 /* --- batch progress slide-over (issue #104, curator-spec §10) ---------------------------------
    Bottom-right and above the Roadie strip: a sweep is background work, so it reports without
    taking the screen. It is app-wide (see batchJob.ts), so it must read as its own thing rather
-   than as part of whichever page is behind it. */
-.batch {
+   than as part of whichever page is behind it.
+
+   There is more than one kind of sweep now (palettes, and the Discogs collection sync — issue
+   #234), and two of them can run at once. The stack owns the corner so they sit above each other
+   instead of both claiming the same 420px and rendering one invisible. */
+.job-stack {
   position: fixed;
   right: 16px;
   bottom: 56px; /* clears the Roadie strip */
   z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  /* The stack spans the corner even when empty; only the panels themselves take clicks. */
+  pointer-events: none;
+}
+.job-stack > * {
+  pointer-events: auto;
+}
+.batch {
   width: min(420px, calc(100vw - 32px));
   max-height: min(60vh, 560px);
   overflow-y: auto;
@@ -1824,6 +1839,28 @@ kbd {
   background: var(--panel-2);
   box-shadow: 0 12px 32px rgb(0 0 0 / 45%);
 }
+/* The "sync your whole collection" call to action above the Discogs browser (issue #234). Reads as
+   the primary move on that tab; the per-row buttons below it stay the way to add just one. */
+.discogs-sync {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+}
+.discogs-sync__text {
+  flex: 1 1 260px;
+}
+.discogs-sync__text p {
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+
 .batch__head {
   display: flex;
   align-items: center;

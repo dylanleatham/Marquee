@@ -193,7 +193,15 @@ export type JobKind =
   /** Streaming a visualizer to Backdrop (issue #177). Progress is bytes, not items. */
   | "mediaTransfer"
   /** Pushing the whole library to the runtime (ADR 0045). Progress is albums. */
-  | "runtimeSync";
+  | "runtimeSync"
+  /** Sweeping the Discogs collection into the library (issue #234). Progress is collection rows. */
+  | "discogsSync";
+/**
+ * The kinds that sweep the whole library rather than one album — the ones `GET /api/jobs` will
+ * return and that the app-wide progress panels track.
+ */
+export type LibraryJobKind = "paletteBatch" | "runtimeSync" | "discogsSync";
+
 export type JobStatus = "running" | "done" | "failed" | "cancelled";
 
 /** A background generation job (issue #30 / ADR 0018). Mirrors GenerationJob on the server. */
@@ -213,6 +221,7 @@ export interface GenerationJob {
     videoClips?: VideoClip[];
     cardArtCandidates?: CardArtCandidate[];
     paletteBatch?: BatchPaletteReport;
+    discogsSync?: DiscogsSyncReport;
   };
 }
 
@@ -353,12 +362,50 @@ export interface DiscogsCollectionPage {
   total: number;
 }
 
+/** What one collection sweep did (issue #234) — the result of a `discogsSync` job. */
+export type DiscogsSyncStatus = "added" | "duplicate" | "failed";
+
+export interface DiscogsSyncOutcome {
+  releaseId: number;
+  /** "Artist — Title". */
+  label: string;
+  status: DiscogsSyncStatus;
+  curatorId?: string;
+  error?: string;
+}
+
+export interface DiscogsSyncReport {
+  total: number;
+  scanned: number;
+  added: number;
+  duplicate: number;
+  failed: number;
+  pages: number;
+  truncated: boolean;
+  truncatedReason?: "cancelled" | "page_cap" | "fetch_failed";
+  curatorIds: string[];
+  items: DiscogsSyncOutcome[];
+}
+
 /** Discogs settings status for the Settings screen (GET /api/settings/discogs). */
 export interface DiscogsSettings {
   configured: boolean;
   /** Whether OAuth consumer creds are set, so "log in with Discogs" is available (issue #59). */
   oauthConfigured: boolean;
   username: string | null;
+  /** Whether the collection is being polled for new records right now (issue #234). */
+  autoSync: boolean;
+  /** The live poll interval, already clamped to the poller's floor. */
+  autoSyncIntervalMinutes: number;
+}
+
+/** Auto-sync poller state (GET /api/discogs/sync/status). */
+export interface DiscogsPollerStatus {
+  enabled: boolean;
+  intervalMs: number;
+  lastRunAt: string | null;
+  lastJobId: string | null;
+  lastError: string | null;
 }
 
 /** Discogs OAuth login status (GET /api/discogs/auth/status). */
@@ -773,7 +820,7 @@ export const api = {
       `/api/albums/${id}/jobs${kind ? `?kind=${kind}` : ""}`,
     ),
   /** Library-scoped jobs — how the batch panel reattaches to a sweep after a reload (ADR 0029). */
-  libraryJobs: (kind: "paletteBatch" | "runtimeSync") =>
+  libraryJobs: (kind: LibraryJobKind) =>
     req<{ jobs: GenerationJob[] }>(`/api/jobs?kind=${kind}`),
   /** Re-derive every algorithmic palette. `force` includes hand-edited ones, which are otherwise skipped. */
   regeneratePalettes: (force = false) =>
@@ -913,6 +960,8 @@ export const api = {
     username?: string;
     consumerKey?: string;
     consumerSecret?: string;
+    autoSync?: boolean;
+    autoSyncIntervalMinutes?: number;
   }) =>
     req<{ ok: boolean; restartRequired: boolean }>("/api/settings/discogs", {
       method: "PUT",
@@ -939,6 +988,16 @@ export const api = {
         coverImage: item.coverImage,
       }),
     }),
+
+  /**
+   * Sweep the whole collection into the library (issue #234). 202 + a library-scoped job; the server
+   * dedups on the release id, so this is both the first import and every later refresh, and calling
+   * it during a running sweep reattaches to that one instead of starting a second.
+   */
+  syncDiscogs: () =>
+    req<GenerationJob>("/api/discogs/sync", { method: "POST" }),
+  /** Auto-sync poller state — "last checked at …" next to the Settings toggle. */
+  discogsSyncStatus: () => req<DiscogsPollerStatus>("/api/discogs/sync/status"),
 };
 
 /** URL for an album's cover art (may 404 until Roadie downloads it — handled by <img onError>). */
