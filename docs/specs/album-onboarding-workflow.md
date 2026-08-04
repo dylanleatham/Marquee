@@ -277,7 +277,7 @@ Not really a session shape, but worth naming. Four modes on the Add screen:
 
 **Paste URI** — for the "I have a list of URIs ready" case. One per line, submit all at once. Fastest bulk-add path when your albums are all on Spotify.
 
-**Discogs collection** — for the "I already catalog my records on Discogs" case. Browse your Discogs collection (art, title, artist, year), click "Send to Roadie" per album. The album carries `metadata.source: "discogs"`; Roadie fetches the release detail + cover image off the request path, then goes to palette generation like any other source ([ADR 0017](../adrs/0017-discogs-personal-token-and-direct-images.md)).
+**Discogs collection** — for the "I already catalog my records on Discogs" case. Either **sync the whole collection** in one press (the usual move: it adds every record you don't already have, and re-running it later picks up what you've added since — [ADR 0051](../adrs/0051-the-discogs-collection-is-swept-not-clicked.md)), or browse the collection (art, title, artist, year) and click "Send to Roadie" per album when you want just one. Either way the album carries `metadata.source: "discogs"`; Roadie fetches the release detail + cover image off the request path, then goes to palette generation like any other source ([ADR 0017](../adrs/0017-discogs-personal-token-and-direct-images.md)). Turning on auto-sync (Settings → Discogs) runs the same sweep on a timer, so records added on Discogs turn up here on their own. **No LLM credits are spent** by any of this — Roadie stops at `awaiting_review` ([ADR 0027](../adrs/0027-generation-is-invoked-not-pipelined.md)).
 
 **Manual entry** — for the "this isn't on Spotify" case. Fill out title, artist, year, upload art. Roadie skips the metadata/art steps and goes straight to palette + prompt generation. The album carries `metadata.source: "manual"` forever, but downstream everything works the same.
 
@@ -288,6 +288,12 @@ Once added, Roadie takes over. You can walk away.
 > auth mechanism from the Spotify login above. Cover art comes from the Discogs release image
 > directly. Dedupe is per-source on the Discogs release id, so a record you have on both Spotify and
 > Discogs can be added from either.
+>
+> **Whole-collection sync (2026-08-03, [ADR 0051](../adrs/0051-the-discogs-collection-is-swept-not-clicked.md),
+> [issue #234](https://github.com/dylanleatham/Marquee/issues/234)):** the per-row "Send to Roadie"
+> button is no longer the only way in. `POST /api/discogs/sync` sweeps the whole collection as one
+> background job, and the same route serves the initial import, the manual refresh, and an optional
+> automatic poll — dedupe on the release id is what makes one operation cover all three.
 
 > **Spotify account login (issue #23 / [ADR 0014](../adrs/0014-spotify-user-oauth-pkce.md)):** the
 > Spotify search/paste modes work with app-only catalog access and need no login. Optionally

@@ -42,6 +42,13 @@ export interface Config {
     consumerKey?: string;
     consumerSecret?: string;
     callbackUrl?: string;
+    /**
+     * Poll the collection on a timer and add new records automatically (issue #234). Opt-in,
+     * default off. The manual sweep is always available regardless.
+     */
+    autoSync?: boolean;
+    /** Minutes between polls; clamped up to the poller's floor (5 min). Default 60. */
+    autoSyncIntervalMinutes?: number;
   };
   /**
    * Gemini config, if a key is set. Powers LLM prompt drafting (always on when keyed) plus the
@@ -202,6 +209,23 @@ export function loadConfig(override: Partial<Config> = {}): Config {
       process.env.GEMINI_GENERATE_VIDEO ??
       settings.gemini?.generateVideo,
   );
+
+  // Automatic Discogs collection polling (issue #234). Opt-in like the generation flags above; the
+  // interval is a hint, clamped to the poller's floor rather than trusted.
+  const discogsAutoSync = asBool(
+    discogsFile.auto_sync ??
+      process.env.DISCOGS_AUTO_SYNC ??
+      settings.discogs?.autoSync,
+  );
+  const discogsAutoSyncRaw =
+    discogsFile.auto_sync_interval_minutes ??
+    process.env.DISCOGS_AUTO_SYNC_INTERVAL_MINUTES ??
+    settings.discogs?.autoSyncIntervalMinutes;
+  const discogsAutoSyncMinutes =
+    discogsAutoSyncRaw !== undefined &&
+    Number.isFinite(Number(discogsAutoSyncRaw))
+      ? Number(discogsAutoSyncRaw)
+      : undefined;
 
   // Model slugs (optional overrides). Google rotates/retires slugs — an override here beats a code
   // change when that happens. Undefined → the GeminiClient's own current defaults.
@@ -398,6 +422,10 @@ export function loadConfig(override: Partial<Config> = {}): Config {
                       `http://${host}:${port}/api/discogs/auth/callback`,
                   ),
                 }
+              : {}),
+            ...(discogsAutoSync ? { autoSync: true } : {}),
+            ...(discogsAutoSyncMinutes !== undefined
+              ? { autoSyncIntervalMinutes: discogsAutoSyncMinutes }
               : {}),
           },
         }

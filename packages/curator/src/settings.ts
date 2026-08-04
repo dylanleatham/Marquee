@@ -13,6 +13,13 @@ export interface CuratorSettings {
     username?: string;
     consumerKey?: string;
     consumerSecret?: string;
+    /**
+     * Poll the collection and add new records automatically (issue #234). Off unless asked for —
+     * a background job that reaches the network and writes to the library is opt-in.
+     */
+    autoSync?: boolean;
+    /** Minutes between polls; clamped to the poller's floor. */
+    autoSyncIntervalMinutes?: number;
   };
   gemini?: {
     apiKey?: string;
@@ -64,6 +71,8 @@ export function writeDiscogsSettings(
     username?: string;
     consumerKey?: string;
     consumerSecret?: string;
+    autoSync?: boolean;
+    autoSyncIntervalMinutes?: number;
   },
 ): void {
   const cur = readSettings(dataDir);
@@ -76,6 +85,9 @@ export function writeDiscogsSettings(
   if (patch.consumerKey !== undefined) discogs.consumerKey = patch.consumerKey;
   if (patch.consumerSecret !== undefined)
     discogs.consumerSecret = patch.consumerSecret;
+  if (patch.autoSync !== undefined) discogs.autoSync = patch.autoSync;
+  if (patch.autoSyncIntervalMinutes !== undefined)
+    discogs.autoSyncIntervalMinutes = patch.autoSyncIntervalMinutes;
   const next: CuratorSettings = { ...cur, discogs };
   mkdirSync(dataDir, { recursive: true });
   writeFileSync(settingsFile(dataDir), JSON.stringify(next, null, 2));

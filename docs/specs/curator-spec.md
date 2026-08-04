@@ -324,6 +324,19 @@ adopting and driving ([ADR 0050](../adrs/0050-the-desktop-health-gate-checks-ide
 > `GET`/`PUT /api/settings/discogs` store the personal access token **and/or the OAuth consumer creds**.
 > All Discogs routes **503** when neither a token nor a connected OAuth session is configured.
 >
+> **Collection sync (2026-08-03, [ADR 0051](../adrs/0051-the-discogs-collection-is-swept-not-clicked.md),
+> [issue #234](https://github.com/dylanleatham/Marquee/issues/234)):** `POST /api/discogs/sync` sweeps
+> the **whole** collection in one library-scoped job (**202 + a job**, polled like any other), adding
+> every release the library doesn't already have and handing each to Roadie. Because dedupe is on the
+> release id, the same route is the initial import, the manual refresh, and the automatic poll tick;
+> a re-run adds only what's new, and a sweep cut short simply continues on the next run. It spends
+> **no LLM credits** — Roadie's pipeline ends at `awaiting_review`
+> ([ADR 0027](../adrs/0027-generation-is-invoked-not-pipelined.md)). Optional polling (`autoSync`,
+> `autoSyncIntervalMinutes` on `GET`/`PUT /api/settings/discogs`, default off, 5-minute floor) runs
+> the same sweep on a timer and takes effect without a restart; `GET /api/discogs/sync/status`
+> reports it. `DiscogsClient` spaces API requests (default 1.1s) to stay inside the 60/min budget
+> that a sweep plus Roadie's fetches would otherwise blow through.
+>
 > **Auth (issue #24 / #59):** a **personal access token** (the simple default) _or_ full **OAuth 1.0a**
 > "log in with Discogs" (3-legged, PLAINTEXT-signed — [ADR 0017](../adrs/0017-discogs-personal-token-and-direct-images.md)).
 > The OAuth routes mirror Spotify's: `GET /api/discogs/auth/login` → `{ authorizeUrl }`;
@@ -346,15 +359,20 @@ adopting and driving ([ADR 0050](../adrs/0050-the-desktop-health-gate-checks-ide
 
 > Documented in prose above ([ADR 0017](../adrs/0017-discogs-personal-token-and-direct-images.md) / issues #24, #59);
 > tabled here 2026-07-25 so the routes are findable. All **503** when neither a personal token nor a
-> connected OAuth session is configured.
+> connected OAuth session is configured — **except `GET /api/discogs/sync/status`**, which always
+> answers (reporting `enabled: false`). It describes the poller, not the Discogs connection, and the
+> Settings screen polls it before it knows whether Discogs is configured; a 503 there would be an
+> error state standing in for the plain answer "nothing is polling."
 
-| Method | Path                           | Purpose                                                                                       |
-| ------ | ------------------------------ | --------------------------------------------------------------------------------------------- |
-| GET    | `/api/discogs/collection`      | The user's Discogs collection, paginated (`?page=&perPage=`). Backs the Add screen's browser. |
-| GET    | `/api/discogs/auth/login`      | Start the 3-legged OAuth 1.0a login. Returns `{ authorizeUrl }`.                              |
-| GET    | `/api/discogs/auth/callback`   | Browser-facing callback; exchanges the verifier and persists the session. Responds with HTML. |
-| GET    | `/api/discogs/auth/status`     | `{ connected, username? }`.                                                                   |
-| POST   | `/api/discogs/auth/disconnect` | Forget the session.                                                                           |
+| Method | Path                           | Purpose                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ------ | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/discogs/collection`      | The user's Discogs collection, paginated (`?page=&perPage=`). Backs the Add screen's browser.                                                                                                                                                                                                                                                                                                                     |
+| POST   | `/api/discogs/sync`            | Sweep the **whole** collection into the library. **202 + a library-scoped job**; poll `GET /api/jobs/:id`. Both the first import and every later refresh — dedupe is on the release id, so a re-run adds only what's new. Spends no LLM credits. _(Added 2026-08-03, [ADR 0051](../adrs/0051-the-discogs-collection-is-swept-not-clicked.md), [issue #234](https://github.com/dylanleatham/Marquee/issues/234).)_ |
+| GET    | `/api/discogs/sync/status`     | Auto-sync poller state: `{ enabled, intervalMs, lastRunAt, lastJobId, lastError }`.                                                                                                                                                                                                                                                                                                                               |
+| GET    | `/api/discogs/auth/login`      | Start the 3-legged OAuth 1.0a login. Returns `{ authorizeUrl }`.                                                                                                                                                                                                                                                                                                                                                  |
+| GET    | `/api/discogs/auth/callback`   | Browser-facing callback; exchanges the verifier and persists the session. Responds with HTML.                                                                                                                                                                                                                                                                                                                     |
+| GET    | `/api/discogs/auth/status`     | `{ connected, username? }`.                                                                                                                                                                                                                                                                                                                                                                                       |
+| POST   | `/api/discogs/auth/disconnect` | Forget the session.                                                                                                                                                                                                                                                                                                                                                                                               |
 
 ### Spotify search (for the Add screen)
 
@@ -1089,6 +1107,7 @@ Simple form-based screen accessible from a header link or a corner menu. Section
   [the runbook §A7](../runbook.md) rather than being duplicated in-app.
 
 - **Spotify** — Client ID + write-only Client Secret (needed for search/add), plus a **"Connect Spotify" / "Disconnect"** control (issue #23 / [ADR 0014](../adrs/0014-spotify-user-oauth-pkce.md)). Connect opens the Spotify authorize page in the system browser (Authorization Code + PKCE); once the loopback callback returns, the screen reflects the logged-in state. Login is optional — it routes calls through the user session (personalized search now, Connect playback later); without it Curator uses app-only catalog access. The connect button is disabled until credentials are saved.
+- **Discogs** — write-only personal access token + optional username, the OAuth consumer creds and the **"Connect Discogs" / "Disconnect"** control (issue #59), and **auto-sync**: a checkbox plus an interval that polls the collection and adds new records on its own ([ADR 0051](../adrs/0051-the-discogs-collection-is-swept-not-clicked.md)). Auto-sync is off by default, only offered once Discogs is configured, and — unlike the credentials beside it — applies **without a restart**, since it is only a timer. The interval shown is the clamped one the poller actually runs at (5-minute floor), not whatever was typed, and the block reports when the last automatic check ran and why it failed if it did. The whole-collection sweep it runs is started manually from **Add album → Discogs collection**; it reports through the same progress panel as the palette sweep. _(Built 2026-08-03, [issue #234](https://github.com/dylanleatham/Marquee/issues/234).)_
 - **Gemini** — write-only API key + the opt-in artifact-generation toggles ([ADR 0012](../adrs/0012-artifact-generation-is-opt-in.md)).
 
 Save happens on edit (debounced). Listening room push to Conductor happens synchronously — if the push fails, the setting change is rolled back and the user sees a clear error.

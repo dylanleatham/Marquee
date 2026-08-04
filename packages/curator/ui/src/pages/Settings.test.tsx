@@ -22,6 +22,7 @@ vi.mock("../api", () => ({
     discogsAuthStatus: vi.fn(),
     discogsLogin: vi.fn(),
     discogsDisconnect: vi.fn(),
+    discogsSyncStatus: vi.fn(),
   },
   ApiError: class ApiError extends Error {},
 }));
@@ -63,6 +64,8 @@ beforeEach(() => {
     configured: false,
     oauthConfigured: false,
     username: null,
+    autoSync: false,
+    autoSyncIntervalMinutes: 60,
   });
   vi.mocked(api.saveDiscogsSettings).mockResolvedValue({
     ok: true,
@@ -73,6 +76,13 @@ beforeEach(() => {
     authorizeUrl: "https://www.discogs.com/oauth/authorize?oauth_token=REQ",
   });
   vi.mocked(api.discogsDisconnect).mockResolvedValue({ ok: true });
+  vi.mocked(api.discogsSyncStatus).mockResolvedValue({
+    enabled: false,
+    intervalMs: 3_600_000,
+    lastRunAt: null,
+    lastJobId: null,
+    lastError: null,
+  });
 });
 afterEach(() => {
   cleanup();
@@ -196,6 +206,8 @@ describe("Settings", () => {
       configured: true,
       oauthConfigured: false,
       username: "dj",
+      autoSync: false,
+      autoSyncIntervalMinutes: 60,
     });
     renderSettings();
     await screen.findByText(/connected — dj/i);
@@ -209,6 +221,8 @@ describe("Settings", () => {
       configured: false,
       oauthConfigured: true,
       username: null,
+      autoSync: false,
+      autoSyncIntervalMinutes: 60,
     });
     const open = vi.spyOn(window, "open").mockReturnValue(null);
     renderSettings();
@@ -230,6 +244,8 @@ describe("Settings", () => {
       configured: false,
       oauthConfigured: true,
       username: null,
+      autoSync: false,
+      autoSyncIntervalMinutes: 60,
     });
     vi.mocked(api.discogsAuthStatus).mockResolvedValue({
       connected: true,
@@ -241,5 +257,93 @@ describe("Settings", () => {
       screen.getAllByRole("button", { name: /disconnect/i }).at(-1)!,
     );
     await waitFor(() => expect(api.discogsDisconnect).toHaveBeenCalled());
+  });
+  // Automatic collection polling (issue #234 / ADR 0051). The toggle only appears once Discogs is
+  // configured, and — unlike the credentials above — it applies without a restart.
+  describe("Discogs auto-sync", () => {
+    const configured = (patch = {}) =>
+      vi.mocked(api.discogsSettings).mockResolvedValue({
+        configured: true,
+        oauthConfigured: false,
+        username: "dj",
+        autoSync: false,
+        autoSyncIntervalMinutes: 60,
+        ...patch,
+      });
+
+    it("is hidden until Discogs is configured", async () => {
+      // A toggle that can't do anything is worse than no toggle.
+      renderSettings();
+      await screen.findByText(/not configured — discogs/i);
+      expect(screen.queryByLabelText(/check automatically/i)).toBeNull();
+    });
+
+    it("turns polling on without asking for a restart", async () => {
+      configured();
+      renderSettings();
+
+      fireEvent.click(await screen.findByLabelText(/check automatically/i));
+
+      await waitFor(() =>
+        expect(api.saveDiscogsSettings).toHaveBeenCalledWith(
+          expect.objectContaining({ autoSync: true }),
+        ),
+      );
+      expect(screen.queryByText(/restart marquee/i)).toBeNull();
+    });
+
+    it("saves a changed interval on blur", async () => {
+      configured({ autoSync: true });
+      renderSettings();
+
+      const field = await screen.findByLabelText(/how often/i);
+      fireEvent.change(field, { target: { value: "30" } });
+      fireEvent.blur(field);
+
+      await waitFor(() =>
+        expect(api.saveDiscogsSettings).toHaveBeenCalledWith(
+          expect.objectContaining({ autoSyncIntervalMinutes: 30 }),
+        ),
+      );
+    });
+
+    it("shows the interval the server settled on, not what was typed", async () => {
+      // The poller clamps to a 5-minute floor; the field has to reflect what actually happens.
+      configured({ autoSync: true, autoSyncIntervalMinutes: 5 });
+      renderSettings();
+
+      const field = (await screen.findByLabelText(
+        /how often/i,
+      )) as HTMLInputElement;
+      expect(field.value).toBe("5");
+    });
+
+    it("reports when the last automatic check ran", async () => {
+      configured({ autoSync: true });
+      vi.mocked(api.discogsSyncStatus).mockResolvedValue({
+        enabled: true,
+        intervalMs: 3_600_000,
+        lastRunAt: "2026-08-03T09:00:00.000Z",
+        lastJobId: "j1",
+        lastError: null,
+      });
+      renderSettings();
+
+      expect(await screen.findByText(/last checked/i)).toBeTruthy();
+    });
+
+    it("surfaces why the last automatic check couldn't run", async () => {
+      configured({ autoSync: true });
+      vi.mocked(api.discogsSyncStatus).mockResolvedValue({
+        enabled: true,
+        intervalMs: 3_600_000,
+        lastRunAt: "2026-08-03T09:00:00.000Z",
+        lastJobId: null,
+        lastError: "Discogs unreachable",
+      });
+      renderSettings();
+
+      expect(await screen.findByText(/discogs unreachable/i)).toBeTruthy();
+    });
   });
 });

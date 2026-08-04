@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { realSleep } from "../roadie/backoff.js";
 
 /** A `fetch`-shaped function — injectable so tests use fake-discogs instead of the network. */
 export type FetchLike = (
@@ -60,6 +61,16 @@ export interface DiscogsClientOptions {
   now?: () => number;
   /** Per-request timeout (ms). A hung Discogs connection must fail fast, not hang the request. */
   timeoutMs?: number;
+  /**
+   * Minimum spacing between *API* requests (ms). Discogs allows 60/min authenticated; a
+   * full-collection sync plus Roadie's per-release fetches blows straight through that unthrottled,
+   * and the 429s land as Roadie retries that albums exhaust and park in `errored`. Default 1100ms
+   * (~54/min) keeps the whole app under the budget in one place, so every caller inherits it. Set 0
+   * to disable (tests).
+   */
+  minIntervalMs?: number;
+  /** Injectable so tests exercise the throttle without real time. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export class DiscogsError extends Error {
@@ -148,6 +159,12 @@ export class DiscogsClient {
   private readonly apiBase: string;
   private readonly userAgent: string;
   private readonly timeoutMs: number;
+  private readonly minIntervalMs: number;
+  private readonly nowMs: () => number;
+  private readonly sleep: (ms: number) => Promise<void>;
+  /** Tail of the throttle queue — each API call awaits its predecessor's turn before taking its own. */
+  private gate: Promise<void> = Promise.resolve();
+  private lastStartedAt = Number.NEGATIVE_INFINITY;
 
   constructor(private readonly opts: DiscogsClientOptions) {
     this.fetch = opts.fetch ?? (globalThis.fetch as FetchLike);
@@ -155,8 +172,35 @@ export class DiscogsClient {
     this.userAgent =
       opts.userAgent ?? "Marquee/1.0 +https://github.com/marquee";
     this.timeoutMs = opts.timeoutMs ?? 10_000;
+    this.minIntervalMs = opts.minIntervalMs ?? 1100;
+    this.nowMs = opts.now ?? Date.now;
+    this.sleep = opts.sleep ?? realSleep;
     if (!opts.token && !opts.authHeader)
       throw new Error("DiscogsClient needs a token or an authHeader provider");
+  }
+
+  /**
+   * Wait for this request's slot in the rate budget. Callers queue behind each other and each one
+   * leaves at least `minIntervalMs` after the previous *start* — spacing request starts, not
+   * serializing whole round-trips, so a slow response doesn't compound into a slower rate.
+   */
+  private async takeSlot(): Promise<void> {
+    if (this.minIntervalMs <= 0) return;
+    const ahead = this.gate;
+    let done!: () => void;
+    this.gate = new Promise<void>((resolve) => {
+      done = resolve;
+    });
+    await ahead;
+    try {
+      const wait = this.lastStartedAt + this.minIntervalMs - this.nowMs();
+      if (wait > 0) await this.sleep(wait);
+    } finally {
+      // Always hand the queue on: a rejected sleep must fail *this* request, not wedge every
+      // Discogs call for the life of the process.
+      this.lastStartedAt = this.nowMs();
+      done();
+    }
   }
 
   /** The Authorization header for a request: an OAuth 1.0a session when connected, else the personal
@@ -198,7 +242,13 @@ export class DiscogsClient {
     }
   }
 
+  /**
+   * A rate-budgeted API call. The image host (`downloadArt`) deliberately doesn't go through here —
+   * it isn't part of the API budget, and making cover downloads queue behind it would add an hour to
+   * a large sync for nothing.
+   */
   private async api<T>(path: string): Promise<T> {
+    await this.takeSlot();
     const res = await this.fetchT(`${this.apiBase}${path}`);
     if (res.status === 404) throw new DiscogsError(`Not found: ${path}`, 404);
     if (!res.ok)

@@ -22,7 +22,11 @@ const release = (artwork = Buffer.from("IMG")): FakeRelease => ({
   artwork,
 });
 const client = (fd: ReturnType<typeof createFakeDiscogs>) =>
-  new DiscogsClient({ token: "fake-discogs-token", fetch: fd.fetch });
+  new DiscogsClient({
+    token: "fake-discogs-token",
+    fetch: fd.fetch,
+    minIntervalMs: 0, // the throttle is covered in discogs-client.test.ts; don't pay for it here
+  });
 
 describe("addDiscogsAlbum", () => {
   it("queues a fresh discogs asset, then Roadie fetches metadata + art + palette", async () => {

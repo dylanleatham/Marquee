@@ -29,6 +29,8 @@ import {
   type BatchAddItem,
 } from "./albums/batch.js";
 import { addDiscogsAlbum } from "./albums/add-discogs.js";
+import { discogsSyncRunner } from "./albums/discogs-sync.js";
+import { DiscogsPoller } from "./discogs/poller.js";
 import { SpotifyClient, SpotifyError } from "./spotify/client.js";
 import { SpotifyAuth, SpotifyAuthError } from "./spotify/auth.js";
 import { DeskAudio } from "./spotify/desk-audio.js";
@@ -54,7 +56,11 @@ import {
   type ActionDeps,
 } from "./albums/actions.js";
 import type { PaletteEditColor } from "./albums/palette.js";
-import { GenerationJobs, FileJobStore } from "./jobs/manager.js";
+import {
+  GenerationJobs,
+  FileJobStore,
+  type GenerationJob,
+} from "./jobs/manager.js";
 import { flipperNfcFile } from "./tags/flipper-nfc.js";
 import { pendingCsv } from "./tags/pending-csv.js";
 import {
@@ -115,6 +121,8 @@ export interface BuildOptions {
   discogs?: DiscogsClient;
   /** Injected Discogs OAuth manager (tests pass one with an injected fetch); prod builds from config. */
   discogsAuth?: DiscogsOAuth;
+  /** Injected Discogs auto-sync poller (tests pass one with fake timers); prod builds from config. */
+  discogsPoller?: DiscogsPoller;
   /** Injected Gemini client (tests pass one backed by fake-gemini); prod builds from config. */
   gemini?: GeminiClient;
   /** Override the opt-in generation flags (tests); prod reads them from config.gemini. */
@@ -1545,10 +1553,14 @@ export function buildServer(opts: BuildOptions = {}) {
   // are deliberately not returned here; `kind` is required so this can never become "all jobs".
   app.get("/api/jobs", async (req, reply) => {
     const kind = (req.query as { kind?: string }).kind;
-    if (kind !== "paletteBatch" && kind !== "runtimeSync")
-      return reply
-        .code(400)
-        .send({ error: "kind=paletteBatch or kind=runtimeSync is required" });
+    if (
+      kind !== "paletteBatch" &&
+      kind !== "runtimeSync" &&
+      kind !== "discogsSync"
+    )
+      return reply.code(400).send({
+        error: "kind=paletteBatch, runtimeSync, or discogsSync is required",
+      });
     return { jobs: jobs.library(kind) };
   });
 
@@ -2212,23 +2224,45 @@ export function buildServer(opts: BuildOptions = {}) {
     configured: Boolean(discogs),
     oauthConfigured: Boolean(discogsAuth),
     username: config.discogs?.username ?? null,
+    // The poller's live state, not the stored setting: after a toggle they agree, and when Discogs
+    // isn't configured the poller is the one telling the truth about whether anything is polling.
+    autoSync: discogsPoller.enabled,
+    autoSyncIntervalMinutes: Math.round(discogsPoller.intervalMs / 60_000),
   }));
 
   app.put("/api/settings/discogs", async (req, reply) => {
-    const { token, username, consumerKey, consumerSecret } = (req.body ??
-      {}) as {
+    const {
+      token,
+      username,
+      consumerKey,
+      consumerSecret,
+      autoSync,
+      autoSyncIntervalMinutes,
+    } = (req.body ?? {}) as {
       token?: string;
       username?: string;
       consumerKey?: string;
       consumerSecret?: string;
+      autoSync?: boolean;
+      autoSyncIntervalMinutes?: number;
     };
     // Accept a personal token, OAuth consumer creds, or both — but not an empty save.
     const hasToken = Boolean(token?.trim());
     const hasConsumer = Boolean(consumerKey?.trim() && consumerSecret?.trim());
-    if (!hasToken && !hasConsumer && username === undefined)
+    const hasAutoSync =
+      autoSync !== undefined || autoSyncIntervalMinutes !== undefined;
+    if (!hasToken && !hasConsumer && username === undefined && !hasAutoSync)
       return reply
         .code(400)
         .send({ error: "provide a token and/or OAuth consumer key + secret" });
+    if (
+      autoSyncIntervalMinutes !== undefined &&
+      (!Number.isFinite(autoSyncIntervalMinutes) ||
+        autoSyncIntervalMinutes <= 0)
+    )
+      return reply
+        .code(400)
+        .send({ error: "autoSyncIntervalMinutes must be a positive number" });
     writeDiscogsSettings(config.dataDir, {
       ...(hasToken ? { token: token!.trim() } : {}),
       ...(username !== undefined ? { username } : {}),
@@ -2238,9 +2272,22 @@ export function buildServer(opts: BuildOptions = {}) {
             consumerSecret: consumerSecret!.trim(),
           }
         : {}),
+      ...(autoSync !== undefined ? { autoSync } : {}),
+      ...(autoSyncIntervalMinutes !== undefined
+        ? { autoSyncIntervalMinutes }
+        : {}),
     });
-    // The Discogs client + auth are built once at boot, so new creds take effect on restart.
-    return { ok: true, restartRequired: true };
+    // Auto-sync is only a timer, so it takes effect now — a toggle that meant "restart Curator"
+    // would be a broken toggle. Credentials still need a restart: the Discogs client and OAuth
+    // manager are built once at boot.
+    if (hasAutoSync)
+      discogsPoller.reconfigure({
+        enabled: Boolean(discogs) && (autoSync ?? discogsPoller.enabled),
+        intervalMs:
+          (autoSyncIntervalMinutes ?? discogsPoller.intervalMs / 60_000) *
+          60_000,
+      });
+    return { ok: true, restartRequired: hasToken || hasConsumer };
   });
 
   // --- Discogs OAuth 1.0a "log in with Discogs" (issue #59) — mirrors the Spotify auth routes ---
@@ -2320,6 +2367,65 @@ export function buildServer(opts: BuildOptions = {}) {
     } catch (err) {
       return discogsErr(err, reply);
     }
+  });
+
+  /**
+   * Sweep the whole Discogs collection into the library (issue #234) — the "Sync collection" button,
+   * and the same call the auto-poller makes. 202 + a job, never inline: a large collection is minutes
+   * of paging and then hours of Roadie, which no HTTP request should hold open.
+   *
+   * This one route is both the initial import and every later refresh. Dedupe is on the Discogs
+   * release id, so re-running only adds what's new, and `jobs.start` dedupes library-scoped jobs of a
+   * kind — pressing the button during a running sweep reattaches to it.
+   *
+   * Costs no LLM credits: the sweep only enqueues, and Roadie's pipeline ends at `awaiting_review`
+   * (ADR 0027). Prompt drafting and generation stay deliberate per-album actions.
+   */
+  const startDiscogsSync = (): GenerationJob | undefined => {
+    if (!discogs) return undefined;
+    return jobs.start(
+      "discogsSync",
+      undefined,
+      discogsSyncRunner({
+        store,
+        roadie,
+        discogs,
+        resolveUsername: resolveDiscogsUsername,
+        logger: {
+          info: (m) => app.log.info(m),
+          warn: (m) => app.log.warn(m),
+        },
+      }),
+    );
+  };
+
+  app.post("/api/discogs/sync", async (_req, reply) => {
+    const job = startDiscogsSync();
+    if (!job) return reply.code(503).send({ error: "Discogs not configured" });
+    return reply.code(202).send(job);
+  });
+
+  // Auto-sync status — what the Settings screen shows next to the toggle ("last checked at …").
+  app.get("/api/discogs/sync/status", async () => discogsPoller.status());
+
+  /**
+   * The auto-poller (issue #234): fires the sweep above on a timer so records added on Discogs turn
+   * up without anyone pressing anything. Opt-in, and only meaningful when Discogs is configured.
+   * Stopped on app close so a test server (or a closed desktop window) leaves no timer behind.
+   */
+  const discogsPoller =
+    opts.discogsPoller ??
+    new DiscogsPoller({
+      trigger: startDiscogsSync,
+      enabled: Boolean(discogs) && Boolean(config.discogs?.autoSync),
+      ...(config.discogs?.autoSyncIntervalMinutes !== undefined
+        ? { intervalMs: config.discogs.autoSyncIntervalMinutes * 60_000 }
+        : {}),
+      logger: { info: (m) => app.log.info(m), warn: (m) => app.log.warn(m) },
+    });
+  discogsPoller.start();
+  app.addHook("onClose", async () => {
+    discogsPoller.stop();
   });
 
   // --- Spotify (read-only preview; add happens through POST /api/albums) ---

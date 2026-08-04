@@ -36,6 +36,14 @@ vi.mock("./batchJob", () => ({
   attachRunningBatch: vi.fn().mockResolvedValue(undefined),
   useBatchJob: () => ({ job: null, error: null, unreachable: false }),
   cancelBatch: vi.fn(),
+  dismissBatch: vi.fn(),
+}));
+
+vi.mock("./discogsSyncJob", () => ({
+  attachRunningDiscogsSync: vi.fn().mockResolvedValue(undefined),
+  useDiscogsSyncJob: () => ({ job: null, error: null, unreachable: false }),
+  cancelDiscogsSync: vi.fn(),
+  dismissDiscogsSync: vi.fn(),
 }));
 
 import { App } from "./App";

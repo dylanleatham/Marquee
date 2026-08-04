@@ -8,7 +8,8 @@ import {
   type DiscogsCollectionItem,
   type SpotifyAlbumMeta,
 } from "../api";
-import { Spinner } from "../components/common";
+import { AsyncButton, Spinner } from "../components/common";
+import { startDiscogsSync, useDiscogsSyncJob } from "../discogsSyncJob";
 
 type Mode = "search" | "uri" | "discogs" | "manual";
 
@@ -176,9 +177,50 @@ function PasteUri({ onAdded }: { onAdded: (ids: string[]) => void }) {
 }
 
 /**
+ * Sweep the whole collection in one go (issue #234) — the answer to "I have 400 records and I am not
+ * clicking 400 buttons".
+ *
+ * One button, not two: the first sync and every later refresh are the same operation, because dedupe
+ * is on the Discogs release id. A separate "refresh" button would be the same request with a
+ * different label, and two buttons would imply a difference that isn't there.
+ *
+ * Progress lives in the app-wide panel (DiscogsSyncProgress), not here, so you can start it and go
+ * somewhere else — a first sync of a real collection runs for minutes.
+ */
+function SyncCollection() {
+  const { job } = useDiscogsSyncJob();
+  const running = job?.status === "running";
+
+  return (
+    <div className="discogs-sync">
+      <div className="discogs-sync__text">
+        <b>Sync your whole collection</b>
+        <p className="muted">
+          Adds every record in your Discogs collection and queues Roadie to
+          fetch cover art, colours, and metadata. Run it again any time to pick
+          up new records — anything already here is left alone, and no AI
+          credits are spent.
+        </p>
+      </div>
+      <AsyncButton
+        className="btn btn--primary"
+        onClick={startDiscogsSync}
+        pendingLabel="Starting…"
+        disabled={running}
+      >
+        {running ? "Syncing…" : "Sync collection"}
+      </AsyncButton>
+    </div>
+  );
+}
+
+/**
  * Browse your Discogs collection and send albums to Roadie (issue #24 / ADR 0016). Paginated: "Load
  * more" fetches the next page. Each row's "Send to Roadie" adds it (source = "discogs"); Roadie
  * fetches the release detail + cover art off the request path. Rows already added are marked.
+ *
+ * The per-row button is still here on purpose — sometimes you want one record, not the collection.
+ * The sweep above it is for the other case.
  */
 function DiscogsCollection({ onAdded }: { onAdded: (id: string) => void }) {
   const [items, setItems] = useState<DiscogsCollectionItem[]>([]);
@@ -245,6 +287,7 @@ function DiscogsCollection({ onAdded }: { onAdded: (id: string) => void }) {
 
   return (
     <div>
+      <SyncCollection />
       {state === "error" && <div className="banner banner--error">{msg}</div>}
       {state !== "error" && msg && (
         <div className="banner banner--warn">{msg}</div>
