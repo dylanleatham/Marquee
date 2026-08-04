@@ -15,8 +15,10 @@ data_dir = "~/marquee"
 # client_secret = "..."
 
 # Optional — enables /api/discogs/* (browse your collection + add). A personal access token from
-# https://www.discogs.com/settings/developers (ADR 0016 — not OAuth). Or use env vars
-# DISCOGS_TOKEN / DISCOGS_USERNAME. `username` is optional (resolved from the token when omitted).
+# https://www.discogs.com/settings/developers
+# ([ADR 0017](../../docs/adrs/0017-discogs-personal-token-and-direct-images.md) — not OAuth).
+# Or use env vars DISCOGS_TOKEN / DISCOGS_USERNAME. `username` is optional (resolved from the
+# token when omitted).
 # [discogs]
 # token = "..."
 # username = "..."

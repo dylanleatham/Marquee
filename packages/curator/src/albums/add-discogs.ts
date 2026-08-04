@@ -54,9 +54,10 @@ export interface DiscogsAddInput {
  * Add an album from the user's Discogs collection. Dedups on the (stable) Discogs release id up
  * front — no fetch needed to reject a duplicate — then writes a `fresh` asset and hands it to Roadie,
  * which fetches the release detail, downloads the cover art, and generates the palette off the
- * request path (roadie-spec §6, ADR 0016). The collection row's display fields are stored as a
- * first cut so the queue reads well immediately; Roadie overwrites them with the authoritative
- * release metadata.
+ * request path (roadie-spec §6,
+ * [ADR 0017](../../../../docs/adrs/0017-discogs-personal-token-and-direct-images.md)). The collection
+ * row's display fields are stored as a first cut so the queue reads well immediately; Roadie
+ * overwrites them with the authoritative release metadata.
  */
 export async function addDiscogsAlbum(
   deps: { store: AssetStore; roadie: Roadie; index?: DiscogsIndex },

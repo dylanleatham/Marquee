@@ -31,10 +31,12 @@ export interface Config {
    */
   spotify?: { clientId: string; clientSecret: string; redirectUri: string };
   /**
-   * Discogs config, if a personal access token (ADR 0016) OR OAuth consumer creds (issue #59) are
-   * set. Absent → the Discogs collection/add routes 503. `username` is optional — when omitted, the
-   * client resolves it from the token's identity. The consumer key/secret + callback enable the
-   * 3-legged "log in with Discogs" OAuth 1.0a flow; the personal token remains the simpler default.
+   * Discogs config, if a personal access token
+   * ([ADR 0017](../../../docs/adrs/0017-discogs-personal-token-and-direct-images.md)) OR OAuth
+   * consumer creds (issue #59) are set. Absent → the Discogs collection/add routes 503.
+   * `username` is optional — when omitted, the client resolves it from the token's identity.
+   * The consumer key/secret + callback enable the 3-legged "log in with Discogs" OAuth 1.0a flow;
+   * the personal token remains the simpler default.
    */
   discogs?: {
     token?: string;

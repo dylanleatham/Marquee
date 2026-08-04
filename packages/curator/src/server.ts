@@ -416,7 +416,9 @@ export function buildServer(opts: BuildOptions = {}) {
       : undefined);
   // Discogs OAuth 1.0a "log in with Discogs" (issue #59): built whenever consumer creds are
   // configured. The client prefers a connected OAuth session's signed header and falls back to the
-  // personal token (ADR 0016) — so both auth mechanisms coexist behind one DiscogsClient.
+  // personal token
+  // ([ADR 0017](../../../docs/adrs/0017-discogs-personal-token-and-direct-images.md)) — so both
+  // auth mechanisms coexist behind one DiscogsClient.
   const discogsAuth =
     opts.discogsAuth ??
     (config.discogs?.consumerKey &&
@@ -2216,7 +2218,9 @@ export function buildServer(opts: BuildOptions = {}) {
     return { ok: true, restartRequired: true };
   });
 
-  // --- Settings: Discogs personal access token (ADR 0016) + OAuth consumer creds (issue #59) ---
+  // --- Settings: Discogs personal access token + OAuth consumer creds (issue #59) ---
+  // Token auth per
+  // [ADR 0017](../../../docs/adrs/0017-discogs-personal-token-and-direct-images.md).
   // Same trust model + settings.json store as Spotify. Secrets are write-only (never returned);
   // `configured` (token), `oauthConfigured` (consumer creds present), and the (optional) username are
   // the read-back so the UI can reflect them.
