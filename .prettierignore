@@ -14,6 +14,13 @@ fixtures/palettes/*.golden.json
 # pnpm's lockfile: generated, ordered by the resolver, and merged by pnpm's own strategy.
 pnpm-lock.yaml
 
+# The Curator design handoff (ADR 0052). Written by the design tool, in a bespoke streaming-HTML
+# component format whose inline styles are one-per-line by construction — prettier expands every one
+# of them into a block, which is a 10x diff that makes the reference unreadable and would be undone
+# the moment a new bundle is exported. `support.js` and `image-slot.js` are that tool's runtime, not
+# our code. These are read, never edited: nothing here is ours to format.
+docs/design_handoff_curator_overhaul/
+
 # Build output and dependencies (also gitignored; listed so a local build doesn't slow the check).
 node_modules/
 dist/

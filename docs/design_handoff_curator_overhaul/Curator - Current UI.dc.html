@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet"><style>body{margin:0;background:#0a0908;font-family:Inter,ui-sans-serif,system-ui,sans-serif}a{color:#f5a623;text-decoration:none}a:hover{color:#ffbf47}@keyframes bulb{0%,100%{opacity:.35}50%{opacity:1}}</style></helmet>
+
+<div style="display:flex;flex-direction:column;gap:56px;padding:48px 56px 96px;color:#ede6db">
+
+<div style="display:flex;flex-direction:column;gap:6px;max-width:900px">
+<div style="font:800 13px/1 Inter,sans-serif;letter-spacing:.18em;text-transform:uppercase;color:#f5a623">Recreation · current build</div>
+<h1 style="margin:0;font:700 30px/1.2 Inter,sans-serif;letter-spacing:-.01em">Curator as it stands today</h1>
+<p style="margin:0;font:400 15px/1.6 Inter,sans-serif;color:#9a8f82;text-wrap:pretty">Every screen below is rebuilt from <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;color:#ede6db">packages/curator/ui/src</code> — the same tokens from <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;color:#ede6db">styles.css</code> (warm near-black <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;color:#ede6db">#14110f</code>, theater amber <code style="font-family:ui-monospace,Menlo,monospace;font-size:13px;color:#ede6db">#f5a623</code>, Inter, tracked-uppercase cue-sheet labels), the same markup, the same copy. Album covers are placeholders; everything else is the real thing. Window width 1360px, the desktop shell's default.</p>
+</div>
+
+<!-- ============================== QUEUE ============================== -->
+<section data-screen-label="Queue view" style="display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;align-items:baseline;gap:10px"><span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.08em;padding:4px 8px;background:#f5a623;color:#1a1206;border-radius:4px">QUEUE VIEW</span><span style="font:400 12px/1 Inter,sans-serif;color:#9a8f82">pages/QueueView.tsx · route /</span></div>
+
+<div style="width:1360px;background:#14110f;border:1px solid #2e2823;border-radius:12px;overflow:hidden;font-size:15px;line-height:1.5">
+
+  <!-- header -->
+  <div style="display:flex;align-items:baseline;gap:14px;padding:16px 24px;border-bottom:1px solid #2e2823;background:#14110f">
+    <span style="font-weight:800;font-size:20px;letter-spacing:.14em;text-transform:uppercase"><span style="color:#f5a623;font-size:13px;vertical-align:middle;margin-right:9px">●</span>Curator</span>
+    <span style="color:#9a8f82;font-size:12px;letter-spacing:.08em;text-transform:uppercase">Marquee collection</span>
+    <span style="margin-left:auto;display:inline-flex;align-items:baseline;gap:6px;font-weight:700;color:#f5a623;border:1px solid #6b4e1e;border-radius:999px;padding:3px 12px;font-size:13px">7 <em style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#9a8f82;font-style:normal">needs you</em></span>
+    <span style="margin-left:14px;display:inline-flex;align-items:center;gap:8px;border:1px solid #2e2823;border-radius:999px;padding:3px 12px;color:#9a8f82;font-size:13px">Jump… <kbd style="font-family:ui-monospace,Menlo,monospace;font-size:11px;border:1px solid #2e2823;border-bottom-width:2px;border-radius:4px;padding:1px 5px;color:#9a8f82;background:#241f1b">⌘K</kbd></span>
+    <span style="margin-left:14px;color:#9a8f82;font-size:13px;letter-spacing:.04em">System</span>
+    <span style="color:#9a8f82;font-size:13px;letter-spacing:.04em">Settings</span>
+  </div>
+
+  <!-- page -->
+  <div style="max-width:920px;margin:0 auto;padding:28px 24px 40px">
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px">
+      <h1 style="font-size:26px;margin:0;margin-right:auto;letter-spacing:-.01em">Queue</h1>
+      <span style="font:inherit;background:#1e1a17;border:1px solid #2e2823;border-radius:8px;color:#9a8f82;padding:8px 12px;min-width:220px">Search title or artist… ( / )</span>
+      <span style="font-weight:600;padding:8px 15px;border-radius:8px;border:1px solid #f5a623;background:#f5a623;color:#1a1206">+ Add album</span>
+    </div>
+
+    <h3 style="margin:26px 0 10px;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#9a8f82;border-bottom:1px solid #2e2823;padding-bottom:7px">Needs you right now · 7</h3>
+
+    <!-- Awaiting review -->
+    <section style="margin-bottom:6px">
+      <h2 style="font-size:13px;font-weight:600;color:#9a8f82;margin:14px 0 6px;letter-spacing:.02em">Awaiting review <span style="font-variant-numeric:tabular-nums;color:#f5a623;font-weight:700">3</span></h2>
+      <div style="display:flex;align-items:center;gap:14px;padding:10px 12px;border:1px solid #f5a623;border-radius:10px;margin-bottom:8px;background:#241f1b">
+        <div style="width:48px;height:48px;border-radius:6px;flex:none;background:#241f1b;background-image:repeating-linear-gradient(135deg,rgba(237,230,219,.09) 0 5px,transparent 5px 10px)"></div>
+        <div style="min-width:0;flex:1"><div style="font-weight:600">Purple Rain</div><div style="color:#9a8f82;font-size:13px">Prince and The Revolution</div></div>
+        <div style="color:#9a8f82;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap">12m ago</div>
+        <span style="color:#f5a623;font-size:13px;font-weight:600;white-space:nowrap">Review palette →</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:14px;padding:10px 12px;border:1px solid #2e2823;border-radius:10px;margin-bottom:8px;background:#1e1a17">
+        <div style="width:48px;height:48px;border-radius:6px;flex:none;background:#241f1b;background-image:repeating-linear-gradient(135deg,rgba(237,230,219,.09) 0 5px,transparent 5px 10px)"></div>
+        <div style="min-width:0;flex:1"><div style="font-weight:600">The Idler Wheel Is Wiser…</div><div style="color:#9a8f82;font-size:13px">Fiona Apple</div></div>
+        <div style="color:#9a8f82;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap">31m ago</div>
+        <span style="color:#f5a623;font-size:13px;font-weight:600;white-space:nowrap">Review palette →</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:14px;padding:10px 12px;border:1px solid #2e2823;border-radius:10px;margin-bottom:8px;background:#1e1a17">
+        <div style="width:48px;height:48px;border-radius:6px;flex:none;background:#241f1b;background-image:repeating-linear-gradient(135deg,rgba(237,230,219,.09) 0 5px,transparent 5px 10px)"></div>
+        <div style="min-width:0;flex:1"><div style="font-weight:600">Aja</div><div style="color:#9a8f82;font-size:13px">Steely Dan</div></div>
+        <div style="color:#9a8f82;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap">2h ago</div>
+        <span style="color:#f5a623;font-size:13px;font-weight:600;white-space:nowrap">Review palette →</span>
+      </div>
+    </section>
+
+    <!-- Awaiting video -->
+    <section style="margin-bottom:6px">
+      <h2 style="font-size:13px;font-weight:600;color:#9a8f82;margin:14px 0 6px;letter-spacing:.02em">Awaiting video <span style="font-variant-numeric:tabular-nums;color:#f5a623;font-weight:700">2</span></h2>
+      <div style="display:flex;align-items:center;gap:14px;padding:10px 12px;border:1px solid #2e2823;border-radius:10px;margin-bottom:8px;background:#1e1a17">
+        <div style="width:48px;height:48px;border-radius:6px;flex:none;background:#241f1b;background-image:repeating-linear-gradient(135deg,rgba(237,230,219,.09) 0 5px,transparent 5px 10px)"></div>
+        <div style="min-width:0;flex:1"><div style="font-weight:600">Voodoo</div><div style="color:#9a8f82;font-size:13px">D'Angelo</div></div>
+        <div style="color:#9a8f82;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap">1d ago</div>
+        <span style="color:#f5a623;font-size:13px;font-weight:600;white-space:nowrap">Attach video →</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:14px;padding:10px 12px;border:1px solid #2e2823;border-radius:10px;margin-bottom:8px;background:#1e1a17">
+        <div style="width:48px;height:48px;border-radius:6px;flex:none;background:#241f1b;background-image:repeating-linear-gradient(135deg,rgba(237,230,219,.09) 0 5px,transparent 5px 10px)"></div>
+        <div style="min-width:0;flex:1"><div style="font-weight:600">In Rainbows</div><div style="color:#9a8f82;font-size:13px">Radiohead</div></div>
+        <div style="color:#9a8f82;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap">2d ago</div>
+        <span style="color:#f5a623;font-size:13px;font-weight:600;white-space:nowrap">Attach video →</span>
+      </div>
+    </section>
+
+    <!-- Awaiting tag write -->
+    <section style="margin-bottom:6px">
+      <h2 style="font-size:13px;font-weight:600;color:#9a8f82;margin:14px 0 6px;letter-spacing:.02em">Awaiting tag write <span style="font-variant-numeric:tabular-nums;color:#f5a623;font-weight:700">1</span></h2>
+      <div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;margin:0 0 8px">
+        <span style="font-weight:600;padding:4px 10px;font-size:13px;border-radius:8px;border:1px solid #2e2823;background:#1e1a17;color:#ede6db">Send list to Flipper</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:14px;padding:10px 12px;border:1px solid #2e2823;border-radius:10px;margin-bottom:8px;background:#1e1a17">
+        <div style="width:48px;height:48px;border-radius:6px;flex:none;background:#241f1b;background-image:repeating-linear-gradient(135deg,rgba(237,230,219,.09) 0 5px,transparent 5px 10px)"></div>
+        <div style="min-width:0;flex:1"><div style="font-weight:600">Rumours</div><div style="color:#9a8f82;font-size:13px">Fleetwood Mac</div></div>
+        <div style="color:#9a8f82;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap">3d ago</div>
+        <span style="color:#f5a623;font-size:13px;font-weight:600;white-space:nowrap">Write tag →</span>
+      </div>
+    </section>
+
+    <!-- Awaiting verification -->
+    <section style="margin-bottom:6px">
+      <h2 style="font-size:13px;font-weight:600;color:#9a8f82;margin:14px 0 6px;letter-spacing:.02em">Awaiting verification <span style="font-variant-numeric:tabular-nums;color:#f5a623;font-weight:700">1</span></h2>
+      <div style="display:flex;align-items:center;gap:14px;padding:10px 12px;border:1px solid #2e2823;border-radius:10px;margin-bottom:8px;background:#1e1a17">
+        <div style="width:48px;height:48px;border-radius:6px;flex:none;background:#241f1b;background-image:repeating-linear-gradient(135deg,rgba(237,230,219,.09) 0 5px,transparent 5px 10px)"></div>
+        <div style="min-width:0;flex:1"><div style="font-weight:600">Songs of Leonard Cohen</div><div style="color:#9a8f82;font-size:13px">Leonard Cohen</div></div>
+        <div style="color:#9a8f82;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap">4d ago</div>
+        <span style="color:#f5a623;font-size:13px;font-weight:600;white-space:nowrap">Verify physically →</span>
+      </div>
+    </section>
+
+    <h3 style="margin:26px 0 10px;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#9a8f82;border-bottom:1px solid #2e2823;padding-bottom:7px">Roadie is on it</h3>
+    <section style="margin-bottom:6px">
+      <h2 style="font-size:13px;font-weight:600;color:#9a8f82;margin:14px 0 6px;letter-spacing:.02em">Processing <span style="font-variant-numeric:tabular-nums;color:#f5a623;font-weight:700">1</span></h2>
+      <div style="display:flex;align-items:center;gap:14px;padding:10px 12px;border:1px solid #2e2823;border-radius:10px;margin-bottom:8px;background:#1e1a17">
+        <div style="width:48px;height:48px;border-radius:6px;flex:none;background:#241f1b;border:1px solid #2e2823;animation:art-loading 1.4s ease-in-out infinite;opacity:.6"></div>
+        <div style="min-width:0;flex:1"><div style="font-weight:600"><em style="color:#9a8f82;font-style:normal">fetching…</em></div><div style="color:#9a8f82;font-size:13px">Kind of Blue</div></div>
+        <div style="color:#9a8f82;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap">just now</div>
+      </div>
+    </section>
+
+    <h3 style="margin:26px 0 10px;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#9a8f82;border-bottom:1px solid #2e2823;padding-bottom:7px">Needs your attention</h3>
+    <section style="margin-bottom:6px">
+      <h2 style="font-size:13px;font-weight:600;color:#9a8f82;margin:14px 0 6px;letter-spacing:.02em">Errored <span style="font-variant-numeric:tabular-nums;color:#f5a623;font-weight:700">1</span></h2>
+      <div style="display:flex;align-items:center;gap:14px;padding:10px 12px;border:1px solid #2e2823;border-radius:10px;margin-bottom:8px;background:#1e1a17">
+        <div style="width:48px;height:48px;border-radius:6px;flex:none;display:grid;place-items:center;background:#241f1b;border:1px solid #2e2823;color:#9a8f82;font-weight:700;font-size:19px;letter-spacing:.04em">RG</div>
+        <div style="min-width:0;flex:1"><div style="font-weight:600">Rachel's Greatest Hits</div><div style="color:#9a8f82;font-size:13px">unknown artist</div></div>
+        <div style="color:#e5484d;font-size:12px;font-family:ui-monospace,Menlo,monospace">spotify_lookup_failed</div>
+        <div style="color:#9a8f82;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap">5h ago</div>
+        <span style="color:#f5a623;font-size:13px;font-weight:600;white-space:nowrap">Retry →</span>
+      </div>
+    </section>
+
+    <h3 style="margin:26px 0 10px;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#9a8f82;border-bottom:1px solid #2e2823;padding-bottom:7px">Done</h3>
+    <section style="margin-bottom:6px">
+      <h2 style="font-size:13px;font-weight:600;color:#9a8f82;margin:14px 0 6px;letter-spacing:.02em">Verified <span style="font-variant-numeric:tabular-nums;color:#f5a623;font-weight:700">2</span></h2>
+      <div style="display:flex;align-items:center;gap:14px;padding:10px 12px;border:1px solid #2e2823;border-radius:10px;margin-bottom:8px;background:#1e1a17">
+        <div style="width:48px;height:48px;border-radius:6px;flex:none;background:#241f1b;background-image:repeating-linear-gradient(135deg,rgba(237,230,219,.09) 0 5px,transparent 5px 10px)"></div>
+        <div style="min-width:0;flex:1"><div style="font-weight:600">Remain in Light</div><div style="color:#9a8f82;font-size:13px">Talking Heads</div></div>
+        <div style="color:#9a8f82;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap">1d ago</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:14px;padding:10px 12px;border:1px solid #2e2823;border-radius:10px;margin-bottom:8px;background:#1e1a17">
+        <div style="width:48px;height:48px;border-radius:6px;flex:none;background:#241f1b;background-image:repeating-linear-gradient(135deg,rgba(237,230,219,.09) 0 5px,transparent 5px 10px)"></div>
+        <div style="min-width:0;flex:1"><div style="font-weight:600">Blue</div><div style="color:#9a8f82;font-size:13px">Joni Mitchell</div></div>
+        <div style="color:#9a8f82;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap">6d ago</div>
+      </div>
+    </section>
+  </div>
+
+  <!-- roadie strip -->
+  <div style="display:flex;align-items:center;gap:14px;padding:10px 24px;border-top:1px solid #2e2823;background:#14110f;font-size:13px">
+    <span style="margin-right:auto;color:#9a8f82">Roadie: working on <code style="font-family:ui-monospace,Menlo,monospace;color:#ede6db">2k7bxq9m</code> (Generating palette)</span>
+    <span style="font-weight:600;padding:4px 10px;font-size:13px;border-radius:8px;border:1px solid #2e2823;background:transparent;color:#ede6db">Pause</span>
+    <span style="display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:5px 12px;border-radius:999px;border:1px solid #2e2823;background:#1e1a17;color:#9a8f82"><span style="width:8px;height:8px;border-radius:50%;background:#2e2823;border:1px solid #9a8f82"></span>Bench only</span>
+  </div>
+</div>
+</section>
+
+<!-- ============================== ALBUM DETAIL / LOOK ============================== -->
+<section data-screen-label="Album detail — Look" style="display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;align-items:baseline;gap:10px"><span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.08em;padding:4px 8px;background:#f5a623;color:#1a1206;border-radius:4px">ALBUM DETAIL · LOOK</span><span style="font:400 12px/1 Inter,sans-serif;color:#9a8f82">pages/AlbumDetail.tsx + components/PaletteEditor.tsx · /albums/:id/look</span></div>
+
+<div style="width:1360px;background:#14110f;border:1px solid #2e2823;border-radius:12px;overflow:hidden;font-size:15px;line-height:1.5">
+  <div style="display:flex;align-items:baseline;gap:14px;padding:16px 24px;border-bottom:1px solid #2e2823">
+    <span style="font-weight:800;font-size:20px;letter-spacing:.14em;text-transform:uppercase"><span style="color:#f5a623;font-size:13px;vertical-align:middle;margin-right:9px">●</span>Curator</span>
+    <span style="color:#9a8f82;font-size:12px;letter-spacing:.08em;text-transform:uppercase">Marquee collection</span>
+    <span style="margin-left:auto;display:inline-flex;align-items:baseline;gap:6px;font-weight:700;color:#f5a623;border:1px solid #6b4e1e;border-radius:999px;padding:3px 12px;font-size:13px">7 <em style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#9a8f82;font-style:normal">needs you</em></span>
+    <span style="margin-left:14px;display:inline-flex;align-items:center;gap:8px;border:1px solid #2e2823;border-radius:999px;padding:3px 12px;color:#9a8f82;font-size:13px">Jump… <kbd style="font-family:ui-monospace,Menlo,monospace;font-size:11px;border:1px solid #2e2823;border-bottom-width:2px;border-radius:4px;padding:1px 5px;color:#9a8f82;background:#241f1b">⌘K</kbd></span>
+    <span style="margin-left:14px;color:#9a8f82;font-size:13px">System</span><span style="color:#9a8f82;font-size:13px">Settings</span>
+  </div>
+
+  <div style="max-width:1320px;margin:0 auto;padding:28px 24px 40px;display:grid;grid-template-columns:300px minmax(0,1fr);gap:32px;align-items:start">
+    <!-- left rail -->
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <span style="font-weight:600;padding:8px 15px;border-radius:8px;border:1px solid #2e2823;background:transparent;color:#ede6db;align-self:flex-start">← Queue</span>
+      <div style="width:100%;aspect-ratio:1;border-radius:10px;border:1px solid #2e2823;background:#241f1b;background-image:repeating-linear-gradient(135deg,rgba(237,230,219,.08) 0 10px,transparent 10px 20px);display:grid;place-items:center"><span style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#9a8f82;letter-spacing:.06em">ALBUM COVER 640²</span></div>
+      <h1 style="font-size:22px;margin:4px 0 0">Purple Rain</h1>
+      <div style="color:#9a8f82">Prince and The Revolution</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;color:#9a8f82;font-size:13px">
+        <span>1984</span>
+        <span style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#9a8f82;border:1px solid #2e2823;border-radius:6px;padding:2px 8px">spotify</span>
+        <span>funk, rock, pop</span>
+      </div>
+      <div><span style="display:inline-block;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#f5a623;border:1px solid #6b4e1e;background:rgba(245,166,35,.1)">Awaiting review</span></div>
+
+      <nav style="display:flex;flex-direction:column;gap:2px;margin:6px 0;border:1px solid #2e2823;border-radius:10px;overflow:hidden">
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#241f1b;border-left:3px solid #f5a623"><span style="font-weight:600;margin-right:auto;color:#f5a623">Look</span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#9a8f82;white-space:nowrap"><span style="width:7px;height:7px;border-radius:50%;background:#6b4e1e;border:1px solid #f5a623"></span>Ready</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#1e1a17;border-left:3px solid transparent"><span style="font-weight:600;margin-right:auto">Video</span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#9a8f82;white-space:nowrap"><span style="width:7px;height:7px;border-radius:50%;background:#2e2823;border:1px solid #9a8f82"></span>Empty</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#1e1a17;border-left:3px solid transparent"><span style="font-weight:600;margin-right:auto">Card</span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#9a8f82;white-space:nowrap"><span style="width:7px;height:7px;border-radius:50%;background:#2e2823;border:1px solid #9a8f82"></span>Empty</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#1e1a17;border-left:3px solid transparent"><span style="font-weight:600;margin-right:auto">Preview</span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#9a8f82;white-space:nowrap"><span style="width:7px;height:7px;border-radius:50%;background:#6b4e1e;border:1px solid #f5a623"></span>Ready</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#1e1a17;border-left:3px solid transparent"><span style="font-weight:600;margin-right:auto">Ship</span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#9a8f82;white-space:nowrap"><span style="width:7px;height:7px;border-radius:50%;background:#2e2823;border:1px solid #9a8f82"></span>Empty</span></div>
+      </nav>
+
+      <div style="display:flex;align-items:center;gap:6px;margin:8px 0 4px;flex-wrap:wrap">
+        <span style="font-weight:600;padding:4px 8px;font-size:12px;border-radius:8px;border:1px solid #2e2823;background:#1e1a17;color:#ede6db">Next awaiting review →</span>
+        <span style="font-size:12px;color:#9a8f82;white-space:nowrap">1 of 3<em style="font-style:normal;display:block">awaiting review</em></span>
+      </div>
+
+      <div style="display:flex;gap:8px"><span style="font-weight:600;padding:8px 15px;border-radius:8px;border:1px solid rgba(229,72,77,.5);background:#1e1a17;color:#e5484d">Delete</span></div>
+      <code style="color:#9a8f82;font-size:12px;font-family:ui-monospace,Menlo,monospace">2k7bxq9m</code>
+    </div>
+
+    <!-- bench -->
+    <div>
+      <div style="margin-bottom:18px;padding-bottom:12px;border-bottom:1px solid #2e2823">
+        <h2 style="margin:0;font-size:22px;letter-spacing:-.01em">Look</h2>
+        <p style="margin:4px 0 0;font-size:13px;color:#9a8f82">Palette, pattern, and the cover the palette comes from.</p>
+        <p style="margin-top:8px;display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:0"><kbd style="font-family:ui-monospace,Menlo,monospace;font-size:11px;border:1px solid #2e2823;border-bottom-width:2px;border-radius:4px;padding:1px 5px;color:#9a8f82;background:#241f1b">⌘⏎</kbd> <span style="color:#ede6db">Save palette</span> <span style="color:#9a8f82">— no unsaved changes to the palette</span></p>
+      </div>
+
+      <!-- palette editor -->
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <div style="height:40px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:linear-gradient(90deg,#4B0082,#8A2BE2,#FFD700)"></div>
+          <div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#9a8f82">Live preview · crossfade</div>
+        </div>
+
+        <ul style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px">
+          <li style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="width:32px;height:32px;border-radius:6px;border:1px solid rgba(255,255,255,.12);flex:none;background:#4B0082"></span>
+            <span style="width:36px;height:32px;border:1px solid #2e2823;border-radius:6px;background:#4B0082;display:block"></span>
+            <span style="width:92px;font-family:ui-monospace,Menlo,monospace;text-transform:uppercase;background:#1e1a17;color:#ede6db;border:1px solid #2e2823;border-radius:6px;padding:6px 8px;font-size:13px">#4B0082</span>
+            <span style="background:#1e1a17;color:#ede6db;border:1px solid #2e2823;border-radius:6px;padding:6px 8px;font-size:13px">primary ▾</span>
+            <span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#9a8f82;min-width:62px">dominant</span>
+            <span style="display:flex;gap:4px;margin-left:auto">
+              <span style="padding:4px 10px;font-size:13px;border-radius:8px;border:1px solid #2e2823;color:#9a8f82;opacity:.5">↑</span>
+              <span style="padding:4px 10px;font-size:13px;border-radius:8px;border:1px solid #2e2823;color:#ede6db">↓</span>
+              <span style="padding:4px 10px;font-size:13px;border-radius:8px;border:1px solid #2e2823;color:#ede6db">✕</span>
+            </span>
+          </li>
+          <li style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="width:32px;height:32px;border-radius:6px;border:1px solid rgba(255,255,255,.12);flex:none;background:#8A2BE2"></span>
+            <span style="width:36px;height:32px;border:1px solid #2e2823;border-radius:6px;background:#8A2BE2;display:block"></span>
+            <span style="width:92px;font-family:ui-monospace,Menlo,monospace;text-transform:uppercase;background:#1e1a17;color:#ede6db;border:1px solid #2e2823;border-radius:6px;padding:6px 8px;font-size:13px">#8A2BE2</span>
+            <span style="background:#1e1a17;color:#ede6db;border:1px solid #2e2823;border-radius:6px;padding:6px 8px;font-size:13px">secondary ▾</span>
+            <span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#9a8f82;min-width:62px">#2</span>
+            <span style="display:flex;gap:4px;margin-left:auto">
+              <span style="padding:4px 10px;font-size:13px;border-radius:8px;border:1px solid #2e2823;color:#ede6db">↑</span>
+              <span style="padding:4px 10px;font-size:13px;border-radius:8px;border:1px solid #2e2823;color:#ede6db">↓</span>
+              <span style="padding:4px 10px;font-size:13px;border-radius:8px;border:1px solid #2e2823;color:#ede6db">✕</span>
+            </span>
+          </li>
+          <li style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="width:32px;height:32px;border-radius:6px;border:1px solid rgba(255,255,255,.12);flex:none;background:#FFD700"></span>
+            <span style="width:36px;height:32px;border:1px solid #2e2823;border-radius:6px;background:#FFD700;display:block"></span>
+            <span style="width:92px;font-family:ui-monospace,Menlo,monospace;text-transform:uppercase;background:#1e1a17;color:#ede6db;border:1px solid #2e2823;border-radius:6px;padding:6px 8px;font-size:13px">#FFD700</span>
+            <span style="background:#1e1a17;color:#ede6db;border:1px solid #2e2823;border-radius:6px;padding:6px 8px;font-size:13px">accent ▾</span>
+            <span style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#9a8f82;min-width:62px">#3</span>
+            <span style="display:flex;gap:4px;margin-left:auto">
+              <span style="padding:4px 10px;font-size:13px;border-radius:8px;border:1px solid #2e2823;color:#ede6db">↑</span>
+              <span style="padding:4px 10px;font-size:13px;border-radius:8px;border:1px solid #2e2823;color:#9a8f82;opacity:.5">↓</span>
+              <span style="padding:4px 10px;font-size:13px;border-radius:8px;border:1px solid #2e2823;color:#ede6db">✕</span>
+            </span>
+          </li>
+        </ul>
+
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <span style="font-weight:600;padding:4px 10px;font-size:13px;border-radius:8px;border:1px solid #2e2823;background:#1e1a17;color:#ede6db">+ Color</span>
+          <span style="font-weight:600;padding:4px 10px;font-size:13px;border-radius:8px;border:1px solid #f5a623;background:#f5a623;color:#1a1206;opacity:.5">Save palette</span>
+          <span style="font-weight:600;padding:4px 10px;font-size:13px;border-radius:8px;border:1px solid #2e2823;background:transparent;color:#ede6db;opacity:.5">Discard</span>
+          <span style="font-weight:600;padding:4px 10px;font-size:13px;border-radius:8px;border:1px solid #2e2823;background:transparent;color:#ede6db">Reset to auto</span>
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:10px;margin-top:20px">
+        <span style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#9a8f82;border:1px solid #2e2823;border-radius:6px;padding:2px 8px">crossfade</span>
+        <code style="color:#9a8f82;font-size:13px;font-family:ui-monospace,Menlo,monospace">{"transitionMs":12000,"holdMs":45000}</code>
+      </div>
+
+      <!-- feeling palette -->
+      <div style="margin-top:20px">
+        <p style="margin:12px 0;font-style:italic;color:#ede6db;max-width:68ch">The sleeve is almost monochrome, but the record is a purple-drenched arena rock album — a feeling palette leans into the stage lighting rather than the photograph.</p>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin:12px 0">
+          <div style="padding:12px 14px;border-radius:10px;border:1px solid #f5a623;background:#1e1a17;display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><b>From the cover</b><span style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#9a8f82;border:1px solid #2e2823;border-radius:6px;padding:2px 8px">in use</span></div>
+            <div style="display:flex;gap:4px;flex-wrap:wrap">
+              <span style="flex:1 1 40px;min-width:40px;height:44px;border-radius:6px;border:1px solid #2e2823;display:flex;align-items:flex-end;justify-content:center;padding-bottom:2px;background:#4B0082"><em style="font-family:ui-monospace,Menlo,monospace;font-size:9px;font-style:normal;color:#fff;mix-blend-mode:difference">#4B0082</em></span>
+              <span style="flex:1 1 40px;min-width:40px;height:44px;border-radius:6px;border:1px solid #2e2823;display:flex;align-items:flex-end;justify-content:center;padding-bottom:2px;background:#8A2BE2"><em style="font-family:ui-monospace,Menlo,monospace;font-size:9px;font-style:normal;color:#fff;mix-blend-mode:difference">#8A2BE2</em></span>
+              <span style="flex:1 1 40px;min-width:40px;height:44px;border-radius:6px;border:1px solid #2e2823;display:flex;align-items:flex-end;justify-content:center;padding-bottom:2px;background:#FFD700"><em style="font-family:ui-monospace,Menlo,monospace;font-size:9px;font-style:normal;color:#fff;mix-blend-mode:difference">#FFD700</em></span>
+            </div>
+            <p style="margin:0;font-size:13px;color:#9a8f82">Palette Press extraction from the resolved artwork.</p>
+          </div>
+          <div style="padding:12px 14px;border-radius:10px;border:1px solid #2e2823;background:#1e1a17;display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><b>From the feeling</b><span style="font-weight:600;padding:4px 10px;font-size:13px;border-radius:8px;border:1px solid #2e2823;background:#1e1a17;color:#ede6db">Use this</span></div>
+            <div style="display:flex;gap:4px;flex-wrap:wrap">
+              <span style="flex:1 1 40px;min-width:40px;height:44px;border-radius:6px;border:1px solid #2e2823;display:flex;align-items:flex-end;justify-content:center;padding-bottom:2px;background:#2B0B3F"><em style="font-family:ui-monospace,Menlo,monospace;font-size:9px;font-style:normal;color:#fff;mix-blend-mode:difference">#2B0B3F</em></span>
+              <span style="flex:1 1 40px;min-width:40px;height:44px;border-radius:6px;border:1px solid #2e2823;display:flex;align-items:flex-end;justify-content:center;padding-bottom:2px;background:#B23AEE"><em style="font-family:ui-monospace,Menlo,monospace;font-size:9px;font-style:normal;color:#fff;mix-blend-mode:difference">#B23AEE</em></span>
+              <span style="flex:1 1 40px;min-width:40px;height:44px;border-radius:6px;border:1px solid #2e2823;display:flex;align-items:flex-end;justify-content:center;padding-bottom:2px;background:#F7E7CE"><em style="font-family:ui-monospace,Menlo,monospace;font-size:9px;font-style:normal;color:#fff;mix-blend-mode:difference">#F7E7CE</em></span>
+            </div>
+            <p style="margin:0;font-size:13px;color:#9a8f82">Gemini, grounded in the album's sound rather than its sleeve.</p>
+          </div>
+        </div>
+      </div>
+
+      <h3 style="margin:26px 0 10px;font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#9a8f82;border-bottom:1px solid #2e2823;padding-bottom:7px">Artwork</h3>
+      <div style="display:flex;gap:16px;align-items:flex-start">
+        <div style="width:140px;height:140px;border-radius:10px;border:1px solid #2e2823;flex:none;background:#241f1b;background-image:repeating-linear-gradient(135deg,rgba(237,230,219,.08) 0 8px,transparent 8px 16px)"></div>
+        <div style="display:flex;flex-direction:column;gap:10px;align-items:flex-start">
+          <p style="margin:0;font-size:13px;color:#9a8f82">Spotify's cover. Uploading your own replaces it and re-extracts the palette.</p>
+          <div style="display:flex;gap:8px">
+            <span style="font-weight:600;padding:4px 10px;font-size:13px;border-radius:8px;border:1px solid #2e2823;background:#1e1a17;color:#ede6db">Upload override</span>
+            <span style="font-weight:600;padding:4px 10px;font-size:13px;border-radius:8px;border:1px solid #2e2823;background:transparent;color:#ede6db;opacity:.5">Remove override</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:14px;padding:10px 24px;border-top:1px solid #2e2823;font-size:13px">
+    <span style="margin-right:auto;color:#9a8f82">Roadie: idle, queue empty</span>
+    <span style="font-weight:600;padding:4px 10px;font-size:13px;border-radius:8px;border:1px solid #2e2823;background:transparent;color:#ede6db">Pause</span>
+    <span style="display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:5px 12px;border-radius:999px;border:1px solid #2e2823;background:#1e1a17;color:#9a8f82"><span style="width:8px;height:8px;border-radius:50%;background:#2e2823;border:1px solid #9a8f82"></span>Bench only</span>
+  </div>
+</div>
+</section>
+
+<!-- ============================== PREVIEW BENCH ============================== -->
+<section data-screen-label="Album detail — Preview" style="display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;align-items:baseline;gap:10px"><span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.08em;padding:4px 8px;background:#f5a623;color:#1a1206;border-radius:4px">ALBUM DETAIL · PREVIEW</span><span style="font:400 12px/1 Inter,sans-serif;color:#9a8f82">components/PreviewWorkstation.tsx</span></div>
+
+<div style="width:1360px;background:#14110f;border:1px solid #2e2823;border-radius:12px;overflow:hidden;font-size:15px;line-height:1.5">
+  <div style="max-width:1320px;margin:0 auto;padding:28px 24px;display:grid;grid-template-columns:300px minmax(0,1fr);gap:32px;align-items:start">
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="width:100%;aspect-ratio:1;border-radius:10px;border:1px solid #2e2823;background:#241f1b;background-image:repeating-linear-gradient(135deg,rgba(237,230,219,.08) 0 10px,transparent 10px 20px)"></div>
+      <h1 style="font-size:22px;margin:4px 0 0">Voodoo</h1>
+      <div style="color:#9a8f82">D'Angelo</div>
+      <div><span style="display:inline-block;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#f5a623;border:1px solid #6b4e1e;background:rgba(245,166,35,.1)">Awaiting preview</span></div>
+      <nav style="display:flex;flex-direction:column;gap:2px;margin:6px 0;border:1px solid #2e2823;border-radius:10px;overflow:hidden">
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#1e1a17;border-left:3px solid transparent"><span style="font-weight:600;margin-right:auto">Look</span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#9a8f82"><span style="width:7px;height:7px;border-radius:50%;background:#6b4e1e;border:1px solid #f5a623"></span>Ready</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#1e1a17;border-left:3px solid transparent"><span style="font-weight:600;margin-right:auto">Video</span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#9a8f82"><span style="width:7px;height:7px;border-radius:50%;background:#6bbf59;border:1px solid #6bbf59"></span>Attached</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#1e1a17;border-left:3px solid transparent"><span style="font-weight:600;margin-right:auto">Card</span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#9a8f82"><span style="width:7px;height:7px;border-radius:50%;background:#2e2823;border:1px solid #9a8f82"></span>Empty</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#241f1b;border-left:3px solid #f5a623"><span style="font-weight:600;margin-right:auto;color:#f5a623">Preview</span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#9a8f82"><span style="width:7px;height:7px;border-radius:50%;background:#6b4e1e;border:1px solid #f5a623"></span>Ready</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#1e1a17;border-left:3px solid transparent"><span style="font-weight:600;margin-right:auto">Ship</span><span style="display:inline-flex;align-items:center;gap:6px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#9a8f82"><span style="width:7px;height:7px;border-radius:50%;background:#2e2823;border:1px solid #9a8f82"></span>Empty</span></div>
+      </nav>
+      <code style="color:#9a8f82;font-size:12px;font-family:ui-monospace,Menlo,monospace">7pq3xk2b</code>
+    </div>
+
+    <div>
+      <div style="margin-bottom:18px;padding-bottom:12px;border-bottom:1px solid #2e2823">
+        <h2 style="margin:0;font-size:22px;letter-spacing:-.01em">Preview</h2>
+        <p style="margin:4px 0 0;font-size:13px;color:#9a8f82">See it whole — at the bench, or rehearsed in the real room.</p>
+        <p style="margin-top:8px;margin-bottom:0;display:flex;align-items:center;gap:8px;font-size:13px"><kbd style="font-family:ui-monospace,Menlo,monospace;font-size:11px;border:1px solid #2e2823;border-bottom-width:2px;border-radius:4px;padding:1px 5px;color:#9a8f82;background:#241f1b">⌘⏎</kbd> <span style="color:#ede6db">Looks good — approve the preview</span></p>
+      </div>
+
+      <div style="display:flex;gap:8px;margin-bottom:16px">
+        <div style="display:flex;flex-direction:column;gap:2px;align-items:flex-start;padding:9px 14px;border-radius:8px;border:1px solid #f5a623;background:#1e1a17;color:#f5a623;font-weight:600">Bench<em style="font-size:11px;font-weight:400;font-style:normal">Nothing leaves this window</em></div>
+        <div style="display:flex;flex-direction:column;gap:2px;align-items:flex-start;padding:9px 14px;border-radius:8px;border:1px solid #2e2823;background:#1e1a17;color:#ede6db;font-weight:600;opacity:.55">Room rehearsal<em style="font-size:11px;font-weight:400;font-style:normal">Room is disarmed</em></div>
+      </div>
+
+      <div style="position:relative;border-radius:10px;overflow:hidden;border:1px solid #2e2823;aspect-ratio:16/9;max-width:620px;background:#000">
+        <div style="position:absolute;inset:0;background:#2B0B3F"></div>
+        <div style="position:absolute;inset:8%;width:84%;height:84%;border-radius:6px;box-shadow:0 8px 40px rgba(0,0,0,.5);background:#0b0b0b;background-image:repeating-linear-gradient(135deg,rgba(237,230,219,.07) 0 9px,transparent 9px 18px);display:grid;place-items:center"><span style="font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#9a8f82">VISUALIZER LOOP 1920×1080</span></div>
+        <div style="position:absolute;left:12px;bottom:12px;display:flex;flex-direction:column;gap:6px;width:120px">
+          <div style="width:120px;height:120px;border-radius:8px;border:1px solid #2e2823;background:#241f1b;background-image:repeating-linear-gradient(135deg,rgba(237,230,219,.09) 0 6px,transparent 6px 12px)"></div>
+          <span style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#9a8f82;text-align:center">On the stand</span>
+        </div>
+      </div>
+
+      <div style="margin-top:14px">
+        <span style="font-weight:600;padding:8px 15px;border-radius:8px;border:1px solid #2e2823;background:#1e1a17;color:#ede6db">▶ Play at the desk — takes over Spotify</span>
+        <p style="margin:6px 0 0;font-size:12px;color:#9a8f82">Plays a track from the album on this machine's Spotify client. The room is untouched.</p>
+      </div>
+
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px">
+        <span style="font-weight:600;padding:8px 15px;border-radius:8px;border:1px solid #f5a623;background:#f5a623;color:#1a1206">Looks good →</span>
+        <span style="font-weight:600;padding:8px 15px;border-radius:8px;border:1px solid #2e2823;background:#1e1a17;color:#ede6db">Something's off — back to video</span>
+        <span style="font-weight:600;padding:8px 15px;border-radius:8px;border:1px solid #2e2823;background:transparent;color:#ede6db">Back to palette</span>
+      </div>
+      <p style="margin-top:10px;font-size:12px;color:#9a8f82">The room is disarmed — arm it in the status bar to drive the real lights, display and Sonos.</p>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ============================== SHIP ============================== -->
+<section data-screen-label="Album detail — Ship" style="display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;align-items:baseline;gap:10px"><span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.08em;padding:4px 8px;background:#f5a623;color:#1a1206;border-radius:4px">ALBUM DETAIL · SHIP</span><span style="font:400 12px/1 Inter,sans-serif;color:#9a8f82">components/workflow.tsx TagWriteSection</span></div>
+
+<div style="width:1360px;background:#14110f;border:1px solid #2e2823;border-radius:12px;overflow:hidden;font-size:15px;line-height:1.5">
+  <div style="max-width:1320px;margin:0 auto;padding:28px 24px;display:grid;grid-template-columns:300px minmax(0,1fr);gap:32px;align-items:start">
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="width:100%;aspect-ratio:1;border-radius:10px;border:1px solid #2e2823;background:#241f1b;background-image:repeating-linear-gradient(135deg,rgba(237,230,219,.08) 0 10px,transparent 10px 20px)"></div>
+      <h1 style="font-size:22px;margin:4px 0 0">Rumours</h1>
+      <div style="color:#9a8f82">Fleetwood Mac</div>
+      <div><span style="display:inline-block;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#f5a623;border:1px solid #6b4e1e;background:rgba(245,166,35,.1)">Awaiting tag write</span></div>
+      <code style="color:#9a8f82;font-size:12px;font-family:ui-monospace,Menlo,monospace">4h8mzp2n</code>
+    </div>
+
+    <div>
+      <div style="margin-bottom:18px;padding-bottom:12px;border-bottom:1px solid #2e2823">
+        <h2 style="margin:0;font-size:22px;letter-spacing:-.01em">Ship</h2>
+        <p style="margin:4px 0 0;font-size:13px;color:#9a8f82">Tag payload, sticker bookkeeping, and physical verification.</p>
+        <p style="margin-top:8px;margin-bottom:0;display:flex;align-items:center;gap:8px;font-size:13px"><kbd style="font-family:ui-monospace,Menlo,monospace;font-size:11px;border:1px solid #2e2823;border-bottom-width:2px;border-radius:4px;padding:1px 5px;color:#9a8f82;background:#241f1b">⌘⏎</kbd> <span style="color:#ede6db">Mark sleeve tag written</span></p>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;flex-direction:column;gap:3px;font-size:13px;color:#9a8f82">Write each URI to its sticker (NFC Tools), or download the Flipper .nfc. The <strong style="color:#ede6db">card</strong> plays over Sonos; the <strong style="color:#ede6db">sleeve</strong> is for the vinyl. <a href="#taghelp" style="color:#f5a623;text-decoration:underline">How do I write these?</a></div>
+        <div style="display:flex;flex-wrap:wrap;gap:14px">
+          <div style="display:flex;flex-direction:column;align-items:flex-start;gap:6px">
+            <div style="display:flex;align-items:center;gap:12px">
+              <div style="width:96px;height:96px;border-radius:6px;background:#fff;padding:4px;flex:none;display:grid;place-items:center"><div style="width:88px;height:88px;background:#000;background-image:repeating-linear-gradient(90deg,#fff 0 4px,#000 4px 8px),repeating-linear-gradient(0deg,#fff 0 4px,#000 4px 8px);background-blend-mode:multiply"></div></div>
+              <code style="color:#f5a623;word-break:break-all;font-size:13px;font-family:ui-monospace,Menlo,monospace">curator:album:4h8mzp2n</code>
+            </div>
+            <span style="font-weight:600;padding:4px 10px;font-size:13px;border-radius:8px;border:1px solid #2e2823;background:#1e1a17;color:#ede6db">Download sleeve tag .nfc</span>
+            <span style="font-weight:600;padding:4px 10px;font-size:13px;border-radius:8px;border:1px solid #2e2823;background:#1e1a17;color:#ede6db">Mark sleeve tag written</span>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-start;gap:6px">
+            <div style="display:flex;align-items:center;gap:12px">
+              <div style="width:96px;height:96px;border-radius:6px;background:#fff;padding:4px;flex:none;display:grid;place-items:center"><div style="width:88px;height:88px;background:#000;background-image:repeating-linear-gradient(90deg,#fff 0 5px,#000 5px 9px),repeating-linear-gradient(0deg,#fff 0 5px,#000 5px 9px);background-blend-mode:multiply"></div></div>
+              <code style="color:#f5a623;word-break:break-all;font-size:13px;font-family:ui-monospace,Menlo,monospace">curator:card:4h8mzp2n</code>
+            </div>
+            <span style="font-weight:600;padding:4px 10px;font-size:13px;border-radius:8px;border:1px solid #2e2823;background:#1e1a17;color:#ede6db">Download card tag .nfc</span>
+            <span style="color:#6bbf59;font-weight:600;font-size:14px">✓ card tag written</span>
+          </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;margin-top:12px;font-size:12px">
+          <span style="font-weight:600;padding:4px 10px;font-size:13px;border-radius:8px;border:1px solid #2e2823;background:#1e1a17;color:#ede6db">Add this album to Flipper</span>
+          <span style="color:#9a8f82">Done. Added — the Flipper now lists 4 albums (COM7).</span>
+        </div>
+        <div><span style="font-weight:600;padding:8px 15px;border-radius:8px;border:1px solid #f5a623;background:#f5a623;color:#1a1206;opacity:.5">Mark physically verified</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ============================== ADD ALBUM ============================== -->
+<section data-screen-label="Add album" style="display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;align-items:baseline;gap:10px"><span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.08em;padding:4px 8px;background:#f5a623;color:#1a1206;border-radius:4px">ADD ALBUM</span><span style="font:400 12px/1 Inter,sans-serif;color:#9a8f82">pages/AddAlbum.tsx · route /add</span></div>
+
+<div style="width:1360px;background:#14110f;border:1px solid #2e2823;border-radius:12px;overflow:hidden;font-size:15px;line-height:1.5">
+  <div style="max-width:920px;margin:0 auto;padding:28px 24px 40px">
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px">
+      <span style="font-weight:600;padding:8px 15px;border-radius:8px;border:1px solid #2e2823;background:transparent;color:#ede6db">← Queue</span>
+      <h1 style="font-size:26px;margin:0;letter-spacing:-.01em">Add album</h1>
+    </div>
+    <div style="display:flex;gap:4px;border-bottom:1px solid #2e2823;margin-bottom:20px">
+      <span style="color:#ede6db;padding:10px 14px;border-bottom:2px solid #f5a623;margin-bottom:-1px">Spotify search</span>
+      <span style="color:#9a8f82;padding:10px 14px;border-bottom:2px solid transparent;margin-bottom:-1px">Paste URI</span>
+      <span style="color:#9a8f82;padding:10px 14px;border-bottom:2px solid transparent;margin-bottom:-1px">Discogs collection</span>
+      <span style="color:#9a8f82;padding:10px 14px;border-bottom:2px solid transparent;margin-bottom:-1px">Manual entry</span>
+    </div>
+    <div style="min-height:200px">
+      <div style="background:#1e1a17;border:1px solid #f5a623;border-radius:8px;color:#ede6db;padding:8px 12px;width:100%">bitches brew</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;margin-top:14px">
+        <div style="display:flex;align-items:center;gap:12px;padding:10px;border:1px solid #2e2823;border-radius:10px;background:#1e1a17">
+          <div style="width:48px;height:48px;border-radius:6px;flex:none;background:#241f1b;background-image:repeating-linear-gradient(135deg,rgba(237,230,219,.09) 0 5px,transparent 5px 10px)"></div>
+          <div><div style="font-weight:600">Bitches Brew</div><div style="color:#9a8f82;font-size:13px">Miles Davis · 1970</div></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:10px;border:1px solid #2e2823;border-radius:10px;background:#1e1a17">
+          <div style="width:48px;height:48px;border-radius:6px;flex:none;background:#241f1b;background-image:repeating-linear-gradient(135deg,rgba(237,230,219,.09) 0 5px,transparent 5px 10px)"></div>
+          <div><div style="font-weight:600">Bitches Brew (Legacy Edition)</div><div style="color:#9a8f82;font-size:13px">Miles Davis · 2010</div></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:10px;border:1px solid #2e2823;border-radius:10px;background:#1e1a17">
+          <div style="width:48px;height:48px;border-radius:6px;flex:none;background:#241f1b;background-image:repeating-linear-gradient(135deg,rgba(237,230,219,.09) 0 5px,transparent 5px 10px)"></div>
+          <div><div style="font-weight:600">Live-Evil</div><div style="color:#9a8f82;font-size:13px">Miles Davis · 1971</div></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;padding:10px;border:1px solid #2e2823;border-radius:10px;background:#1e1a17">
+          <div style="width:48px;height:48px;border-radius:6px;flex:none;background:#241f1b;background-image:repeating-linear-gradient(135deg,rgba(237,230,219,.09) 0 5px,transparent 5px 10px)"></div>
+          <div><div style="font-weight:600">A Tribute to Jack Johnson</div><div style="color:#9a8f82;font-size:13px">Miles Davis · 1971</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ============================== SYSTEM STATUS ============================== -->
+<section data-screen-label="System status" style="display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;align-items:baseline;gap:10px"><span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.08em;padding:4px 8px;background:#f5a623;color:#1a1206;border-radius:4px">SYSTEM STATUS</span><span style="font:400 12px/1 Inter,sans-serif;color:#9a8f82">pages/SystemStatus.tsx · route /system</span></div>
+
+<div style="width:1360px;background:#14110f;border:1px solid #2e2823;border-radius:12px;overflow:hidden;font-size:15px;line-height:1.5">
+  <div style="max-width:1320px;margin:0 auto;padding:28px 24px 40px">
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px">
+      <h1 style="font-size:26px;margin:0;margin-right:auto;letter-spacing:-.01em">System status</h1>
+      <span style="font-weight:600;padding:8px 15px;border-radius:8px;border:1px solid #f5a623;background:#f5a623;color:#1a1206">Sync everything</span>
+    </div>
+    <p style="color:#9a8f82;margin:0 0 10px">Polled every 5s. Read-only apart from the sync button — this is the page you open when something is wrong.</p>
+
+    <section style="margin-bottom:6px">
+      <h2 style="font-size:13px;font-weight:600;color:#9a8f82;margin:14px 0 6px">Services</h2>
+      <ul style="list-style:none;padding:0;margin:14px 0 0;display:flex;flex-direction:column;gap:6px;font-size:13px">
+        <li style="display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;border-radius:50%;background:#6bbf59"></span><b>Conductor</b> reachable <span style="font-size:12px;color:#9a8f82">http://conductor.local:4741</span></li>
+        <li style="display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;border-radius:50%;background:#6bbf59"></span><b>Backdrop</b> reachable <span style="font-size:12px;color:#9a8f82">http://backdrop.local:4740</span></li>
+        <li style="display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;border-radius:50%;background:#e5484d"></span><b>Stylus</b> unreachable <em style="color:#9a8f82"> — connect ECONNREFUSED</em> <span style="font-size:12px;color:#9a8f82">http://stylus.local:4742</span></li>
+        <li style="display:flex;align-items:center;gap:8px"><span style="width:8px;height:8px;border-radius:50%;background:#6bbf59"></span><b>Amp</b> reachable <span style="font-size:12px;color:#9a8f82">http://localhost:4743</span></li>
+      </ul>
+    </section>
+
+    <section style="margin-bottom:6px">
+      <h2 style="font-size:13px;font-weight:600;color:#9a8f82;margin:14px 0 6px">Playing now</h2>
+      <p style="margin:0 0 4px"><b>Video:</b> curator:album:4h8mzp2n</p>
+      <p style="margin:0 0 4px"><b>Lights:</b> Rumours in room living-room (crossfade)</p>
+      <p style="margin:0 0 4px"><b>Audio:</b> playing → Living Room</p>
+    </section>
+
+    <section style="margin-bottom:6px">
+      <h2 style="font-size:13px;font-weight:600;color:#9a8f82;margin:14px 0 6px">The stand</h2>
+      <p style="margin:0 0 4px;color:#9a8f82">Stylus isn't reachable, so nothing can be said about the stand. Set <code style="font-family:ui-monospace,Menlo,monospace;color:#ede6db">STYLUS_URL</code> if it has never been configured.</p>
+    </section>
+
+    <section style="margin-bottom:6px">
+      <h2 style="font-size:13px;font-weight:600;color:#9a8f82;margin:14px 0 6px">In flight</h2>
+      <ul style="list-style:none;padding:0;margin:14px 0 0;display:flex;flex-direction:column;gap:6px;font-size:13px"><li style="display:flex;align-items:center;gap:8px"><b>media-sync</b> · library-wide · 3/13</li></ul>
+    </section>
+
+    <section style="margin-bottom:6px">
+      <h2 style="font-size:13px;font-weight:600;color:#9a8f82;margin:14px 0 6px">Albums across the system</h2>
+      <p style="color:#9a8f82;margin:0 0 10px">13 in Curator · 4 not on Conductor · 2 with a video Backdrop can't play</p>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:.92rem">
+          <thead><tr>
+            <th style="padding:.4rem .6rem;border-bottom:1px solid #2e2823;text-align:left;white-space:nowrap;font-weight:600;color:#9a8f82">Album</th>
+            <th style="padding:.4rem .6rem;border-bottom:1px solid #2e2823;text-align:left;white-space:nowrap;font-weight:600;color:#9a8f82">Video attached</th>
+            <th style="padding:.4rem .6rem;border-bottom:1px solid #2e2823;text-align:left;white-space:nowrap;font-weight:600;color:#9a8f82">On Conductor</th>
+            <th style="padding:.4rem .6rem;border-bottom:1px solid #2e2823;text-align:left;white-space:nowrap;font-weight:600;color:#9a8f82">In Backdrop library</th>
+            <th style="padding:.4rem .6rem;border-bottom:1px solid #2e2823;text-align:left;white-space:nowrap;font-weight:600;color:#9a8f82">Video on Backdrop</th>
+            <th style="padding:.4rem .6rem;border-bottom:1px solid #2e2823;text-align:left;white-space:nowrap;font-weight:600;color:#9a8f82">State</th>
+          </tr></thead>
+          <tbody>
+            <tr>
+              <th style="padding:.4rem .6rem;border-bottom:1px solid #2e2823;text-align:left;font-weight:500"><a href="#a1" style="color:#f5a623">Rumours</a><span style="color:#9a8f82"> — Fleetwood Mac</span></th>
+              <td style="padding:.4rem .6rem;border-bottom:1px solid #2e2823;text-align:center;color:#6bbf59">✓</td>
+              <td style="padding:.4rem .6rem;border-bottom:1px solid #2e2823;text-align:center;color:#6bbf59">✓</td>
+              <td style="padding:.4rem .6rem;border-bottom:1px solid #2e2823;text-align:center;color:#6bbf59">✓</td>
+              <td style="padding:.4rem .6rem;border-bottom:1px solid #2e2823;text-align:center;color:#6bbf59">✓</td>
+              <td style="padding:.4rem .6rem;border-bottom:1px solid #2e2823">Ready</td>
+            </tr>
+            <tr>
+              <th style="padding:.4rem .6rem;border-bottom:1px solid #2e2823;text-align:left;font-weight:500"><a href="#a2" style="color:#f5a623">Voodoo</a><span style="color:#9a8f82"> — D'Angelo</span></th>
+              <td style="padding:.4rem .6rem;border-bottom:1px solid #2e2823;text-align:center;color:#6bbf59">✓</td>
+              <td style="padding:.4rem .6rem;border-bottom:1px solid #2e2823;text-align:center;color:#6bbf59">✓</td>
+              <td style="padding:.4rem .6rem;border-bottom:1px solid #2e2823;text-align:center;color:#6bbf59">✓</td>
+              <td style="padding:.4rem .6rem;border-bottom:1px solid #2e2823;text-align:center;color:#e5484d">—</td>
+              <td style="padding:.4rem .6rem;border-bottom:1px solid #2e2823">Incomplete</td>
+            </tr>
+            <tr>
+              <th style="padding:.4rem .6rem;border-bottom:1px solid #2e2823;text-align:left;font-weight:500"><a href="#a3" style="color:#f5a623">Purple Rain</a><span style="color:#9a8f82"> — Prince and The Revolution</span></th>
+              <td style="padding:.4rem .6rem;border-bottom:1px solid #2e2823;text-align:center;color:#e5484d">—</td>
+              <td style="padding:.4rem .6rem;border-bottom:1px solid #2e2823;text-align:center;color:#e5484d">—</td>
+              <td style="padding:.4rem .6rem;border-bottom:1px solid #2e2823;text-align:center;color:#e5484d">—</td>
+              <td style="padding:.4rem .6rem;border-bottom:1px solid #2e2823;text-align:center;color:#e5484d">—</td>
+              <td style="padding:.4rem .6rem;border-bottom:1px solid #2e2823">Incomplete</td>
+            </tr>
+            <tr>
+              <th style="padding:.4rem .6rem;border-bottom:1px solid #2e2823;text-align:left;font-weight:500"><a href="#a4" style="color:#f5a623">Blue</a><span style="color:#9a8f82"> — Joni Mitchell</span></th>
+              <td style="padding:.4rem .6rem;border-bottom:1px solid #2e2823;text-align:center;color:#6bbf59">✓</td>
+              <td style="padding:.4rem .6rem;border-bottom:1px solid #2e2823;text-align:center;color:#6bbf59">✓</td>
+              <td style="padding:.4rem .6rem;border-bottom:1px solid #2e2823;text-align:center;color:#6bbf59">✓</td>
+              <td style="padding:.4rem .6rem;border-bottom:1px solid #2e2823;text-align:center;color:#6bbf59">✓</td>
+              <td style="padding:.4rem .6rem;border-bottom:1px solid #2e2823">Ready</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</div>
+</section>
+
+<!-- ============================== DEMO ROOM ============================== -->
+<section data-screen-label="Demo Room" style="display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;align-items:baseline;gap:10px"><span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.08em;padding:4px 8px;background:#f5a623;color:#1a1206;border-radius:4px">DEMO ROOM</span><span style="font:400 12px/1 Inter,sans-serif;color:#9a8f82">pages/DemoRoom.tsx · route /demo/:id — fullscreen overlay</span></div>
+
+<div style="width:1360px;height:660px;background:#000;border:1px solid #2e2823;border-radius:12px;overflow:hidden;display:grid;grid-template-rows:auto 1fr auto;color:#ede6db;font-size:15px">
+  <div style="display:flex;align-items:center;gap:14px;padding:12px 18px;background:rgba(20,17,15,.72);z-index:2">
+    <span style="font-weight:600;padding:4px 10px;font-size:13px;border-radius:8px;border:1px solid #2e2823;background:transparent;color:#ede6db">← Back</span>
+    <span style="flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">Rumours — Fleetwood Mac</span>
+    <span style="font-size:13px;color:#6bbf59;border:1px solid #2e2823;border-radius:999px;padding:4px 12px;white-space:nowrap">Lights on · living-room</span>
+    <span style="font-weight:600;padding:4px 10px;font-size:13px;border-radius:8px;border:1px solid #2e2823;background:#1e1a17;color:#ede6db">Change room</span>
+  </div>
+  <div style="position:relative;overflow:hidden;background:#000">
+    <div style="position:absolute;inset:0;background:#0b0b0b;background-image:repeating-linear-gradient(135deg,rgba(237,230,219,.06) 0 14px,transparent 14px 28px);display:grid;place-items:center"><span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#9a8f82;letter-spacing:.08em">VISUALIZER, FULL-BLEED, LOOPING</span></div>
+  </div>
+  <div style="display:flex;align-items:center;justify-content:center;gap:14px;padding:12px 18px;background:rgba(20,17,15,.72)">
+    <span style="font-weight:600;padding:8px 15px;border-radius:8px;border:1px solid #f5a623;background:#f5a623;color:#1a1206">Lift sleeve</span>
+    <span style="font-weight:600;padding:8px 15px;border-radius:8px;border:1px solid #2e2823;background:#1e1a17;color:#ede6db">Place another</span>
+  </div>
+</div>
+</section>
+
+<!-- ============================== SETTINGS ============================== -->
+<section data-screen-label="Settings" style="display:flex;flex-direction:column;gap:12px">
+<div style="display:flex;align-items:baseline;gap:10px"><span style="font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.08em;padding:4px 8px;background:#f5a623;color:#1a1206;border-radius:4px">SETTINGS</span><span style="font:400 12px/1 Inter,sans-serif;color:#9a8f82">pages/Settings.tsx · route /settings</span></div>
+
+<div style="width:1360px;background:#14110f;border:1px solid #2e2823;border-radius:12px;overflow:hidden;font-size:15px;line-height:1.5">
+  <div style="max-width:920px;margin:0 auto;padding:28px 24px 40px">
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px">
+      <span style="font-weight:600;padding:8px 15px;border-radius:8px;border:1px solid #2e2823;background:transparent;color:#ede6db">← Queue</span>
+      <h1 style="font-size:26px;margin:0;letter-spacing:-.01em">Settings</h1>
+    </div>
+
+    <section style="border-top:1px solid #2e2823;padding:18px 0">
+      <h2 style="font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#9a8f82;margin:0 0 12px">Room and services</h2>
+      <div style="display:flex;flex-direction:column;gap:14px;max-width:420px">
+        <label style="display:flex;flex-direction:column;gap:5px;font-size:13px;color:#9a8f82">Listening room<span style="background:#1e1a17;border:1px solid #2e2823;border-radius:8px;color:#ede6db;padding:8px 12px;font-size:15px">Living Room ▾</span></label>
+        <label style="display:flex;flex-direction:column;gap:5px;font-size:13px;color:#9a8f82">Conductor URL<span style="background:#1e1a17;border:1px solid #2e2823;border-radius:8px;color:#ede6db;padding:8px 12px;font-size:15px">http://conductor.local:4741</span></label>
+        <label style="display:flex;flex-direction:column;gap:5px;font-size:13px;color:#9a8f82">Backdrop URL<span style="background:#1e1a17;border:1px solid #2e2823;border-radius:8px;color:#ede6db;padding:8px 12px;font-size:15px">http://backdrop.local:4740</span></label>
+      </div>
+    </section>
+
+    <section style="border-top:1px solid #2e2823;padding:18px 0">
+      <h2 style="font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#9a8f82;margin:0 0 12px">Spotify</h2>
+      <p style="color:#9a8f82;margin:0 0 10px">Spotify search and add-by-URL need API credentials. Create an app in the <a href="https://developer.spotify.com/dashboard" style="color:#f5a623">Spotify Developer Dashboard</a> and paste its Client ID and Secret below. They're stored in your local data folder and never leave this machine. Manual album add works without them.</p>
+      <div style="padding:10px 14px;border-radius:8px;margin:10px 0;font-size:14px;background:rgba(107,191,89,.12);border:1px solid rgba(107,191,89,.4);color:#a6e59a">Connected — client 4a91c0d3….</div>
+      <div style="display:flex;flex-direction:column;gap:14px;max-width:420px">
+        <label style="display:flex;flex-direction:column;gap:5px;font-size:13px;color:#9a8f82">Client ID<span style="background:#1e1a17;border:1px solid #2e2823;border-radius:8px;color:#ede6db;padding:8px 12px;min-height:37px"></span></label>
+        <label style="display:flex;flex-direction:column;gap:5px;font-size:13px;color:#9a8f82">Client Secret<span style="background:#1e1a17;border:1px solid #2e2823;border-radius:8px;color:#ede6db;padding:8px 12px;min-height:37px"></span></label>
+        <span style="font-weight:600;padding:8px 15px;border-radius:8px;border:1px solid #f5a623;background:#f5a623;color:#1a1206;align-self:flex-start;opacity:.5">Save</span>
+      </div>
+    </section>
+
+    <section style="border-top:1px solid #2e2823;padding:18px 0">
+      <h2 style="font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#9a8f82;margin:0 0 12px">Gemini</h2>
+      <div style="padding:10px 14px;border-radius:8px;margin:10px 0;font-size:14px;background:rgba(107,191,89,.12);border:1px solid rgba(107,191,89,.4);color:#a6e59a">Connected.</div>
+      <h3 style="font-size:14px;margin:20px 0 4px">Artifact generation</h3>
+      <p style="color:#9a8f82;margin:0 0 10px">Off by default: Curator just drafts the prompts for you to copy into your own tools. Turn these on to generate the artifacts through the API instead. <b style="color:#ede6db">Card art</b> is cheap (~5 images per click); <b style="color:#ede6db">video</b> uses metered Veo credits and can be expensive — leave it off and copy the prompt into Google Flow if you'd rather.</p>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#ede6db;margin:6px 0"><span style="width:13px;height:13px;border:1px solid #6b4e1e;border-radius:3px;background:#f5a623;display:inline-block"></span>Auto-generate card art (Nano Banana)</label>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#ede6db;margin:6px 0"><span style="width:13px;height:13px;border:1px solid #2e2823;border-radius:3px;background:#1e1a17;display:inline-block"></span>Auto-generate visualizer clips (Veo — metered, can be pricey)</label>
+    </section>
+  </div>
+</div>
+</section>
+
+</div>
+</x-dc>
+</body>
+</html>

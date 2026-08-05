@@ -172,6 +172,48 @@ describe("Curator HTTP API", () => {
         .statusCode,
     ).toBe(404);
   });
+
+  // The collection screen labels each record with the first thing it still needs, derived client-side
+  // from these facts (ADR 0052). If the list stops carrying them the grid silently reads every record
+  // as "needs lights", which looks like a working screen — so assert the shape, not just the count.
+  it("carries the per-asset facts the collection derives a record's need from", async () => {
+    const { app, store, roadie } = build();
+    const { curatorId } = (
+      await addAlbum(app, "Kind of Blue", "Miles Davis")
+    ).json();
+    await roadie.drain();
+
+    const row = () =>
+      app
+        .inject({ method: "GET", url: "/api/albums" })
+        .then((r) => r.json().albums[0]);
+
+    expect(await row()).toMatchObject({
+      paletteHexes: ["#4B0082", "#FFD700"],
+      hasVideo: false,
+      hasCardArt: false,
+      tagsWritten: false,
+      previewApprovedAt: null,
+      physicallyVerifiedAt: null,
+      year: null,
+      lastError: null,
+    });
+
+    // Half-written tags are not written: one burned sticker still means a trip to the Flipper.
+    store.update(curatorId, (a) => {
+      a.tag = { payload: "curator:album:x", sleeve: { written: true } };
+      a.verification = { previewApprovedAt: "2026-08-04T10:00:00.000Z" };
+    });
+    expect(await row()).toMatchObject({
+      tagsWritten: false,
+      previewApprovedAt: "2026-08-04T10:00:00.000Z",
+    });
+
+    store.update(curatorId, (a) => {
+      a.tag!.card = { written: true };
+    });
+    expect(await row()).toMatchObject({ tagsWritten: true });
+  });
 });
 
 describe("Roadie agent endpoints", () => {

@@ -8,6 +8,16 @@ Describe the human experience of getting albums into the system. This doc is the
 
 The primary shift from the earlier version of this doc: **the queue is the entry point, not the album picker.** With Roadie automating the pre-video work, humans don't pick "which album should I work on"; they pick "which of the albums that already need me should I do next." This changes what a session is and how the UI should shape itself.
 
+> **Superseded 2026-08-04** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).
+> That shift is reversed: **the collection is the entry point**, and the queue is one filter on it.
+> Both readings of "what do I do next" turned out to be needed — the queue answers it, and the
+> collection answers "what do I own?", which is the question you actually arrive with. Two further
+> facts below are now wrong wherever they appear: the workflow is **not ordered** (lights, a
+> visualizer, a card and tags are done in any order), and none of these state names reach the screen.
+> Roadie's machinery is unchanged; this document's account of the _screens_ is historical from here
+> until the record and the room land. The live UI spec is
+> [curator-ui-ux](curator-ui-ux.md).
+
 ## 2. Two ways to be in Curator
 
 Only two, and they don't overlap:

@@ -13,6 +13,7 @@ import {
   type DemoStatus,
 } from "../api";
 import { useRoomGate } from "../roomArm";
+import { RoomArmSwitch } from "../components/RoomArmSwitch";
 
 type Phase = "idle" | "playing";
 
@@ -182,6 +183,10 @@ export function DemoRoom() {
         >
           {lightsBadge()}
         </span>
+        {/* The arm switch moved here from the app-wide status bar, which the overhaul removed
+            (ADR 0052). This is the only screen that drives the real room, so it is the only screen
+            that has to say whether it may. */}
+        <RoomArmSwitch />
       </header>
 
       {needsRoom && (

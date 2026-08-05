@@ -1,24 +1,50 @@
-/* Curator UI — "backstage marquee": warm near-black, a single theater-amber accent used with
-   restraint, tracked-uppercase labels like a stage cue sheet. The signature is the lit-bulb pulse
-   on whatever album Roadie is working right now. */
+/* ==================================================================================================
+   Curator UI — "Pressing Plant" (ADR 0052)
+
+   Light, printed, editorial. Warm paper stock, ink black, one brick-red accent. Hairline rules
+   instead of cards; grid gutters are borders, so the collection reads as ruled paper. Nothing has a
+   border radius — the only round thing in the app is a status dot. No shadows except the toast.
+
+   This replaces "backstage marquee" (warm near-black + theater amber). The two do not compose.
+
+   The overhaul lands screen by screen. Until the last one does, the LEGACY block at the bottom keeps
+   the not-yet-converted screens usable by repointing the old variables at these colours. Delete it
+   with the last screen it serves.
+   ================================================================================================ */
 
 :root {
-  --bg: #14110f; /* warm near-black, not neutral gray */
-  --panel: #1e1a17;
-  --panel-2: #241f1b;
-  --line: #2e2823;
-  --text: #ede6db; /* warm off-white */
-  --muted: #9a8f82;
-  --amber: #f5a623; /* marquee bulb */
-  --amber-soft: #6b4e1e;
-  --cyan: #48c4c4; /* Roadie at work */
-  --alert: #e5484d;
-  --sage: #6bbf59;
-  --radius: 10px;
-  --sans:
-    "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    sans-serif;
-  --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+  /* --- paper ------------------------------------------------------------------------------- */
+  --pp-paper: #f2efe8; /* app background, and reversed text on ink */
+  --pp-paper-sunk: #efebe2; /* stat bands, sidebars, secondary panels */
+  --pp-paper-raised: #f7f4ee; /* the in-use palette card, tag panels, the toast */
+  --pp-paper-log: #eae5da; /* the expanded Roadie log */
+
+  /* --- rules ------------------------------------------------------------------------------- */
+  --pp-rule: #d8d2c4; /* every hairline divider */
+  --pp-rule-soft: #c9c2b1; /* input underlines, unselected outlines */
+  --pp-dashed: #b3ab99; /* empty-state dashed borders */
+
+  /* --- ink --------------------------------------------------------------------------------- */
+  --pp-ink: #17150f; /* all primary text, bars, filled buttons */
+  --pp-ink-muted: #6f6a5c; /* secondary text, mono labels */
+  --pp-ink-faint: #8d8778; /* tertiary text, captions */
+  --pp-ink-ghost: #a49d8c; /* ids, prompt numbers */
+
+  /* --- accent ------------------------------------------------------------------------------ */
+  --pp-accent: #b4402c; /* anything not complete, Roadie's presence, the current stat */
+  --pp-accent-text: #8e3122; /* accent-coloured body text, for contrast */
+  --pp-accent-wash: #f7ece9; /* the Stuck row, a failing service, unmatched Discogs rows */
+
+  --pp-positive: #3f7d4e; /* reachable services, "written", "saved a moment ago" */
+  --pp-amber: #e0a24a; /* fader accent — inside the dark room only */
+  --pp-room-floor: #0d0a10; /* the room's base, before the palette wash */
+
+  /* --- type -------------------------------------------------------------------------------- */
+  /* Three families, each with one job. Helvetica is a system stack; the other two are webfonts
+     loaded in index.html, with real fallbacks so an offline launch degrades rather than blanks. */
+  --pp-display: "Archivo Black", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --pp-body: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --pp-mono: "IBM Plex Mono", ui-monospace, "Cascadia Code", Menlo, monospace;
 }
 
 * {
@@ -27,82 +53,813 @@
 
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--sans);
-  font-size: 15px;
-  line-height: 1.5;
+  background: var(--pp-paper);
+  color: var(--pp-ink);
+  font-family: var(--pp-body);
+  font-size: 13px;
+  line-height: 1.45;
   -webkit-font-smoothing: antialiased;
 }
 
-code,
-pre {
-  font-family: var(--mono);
-}
 a {
-  color: inherit;
+  color: var(--pp-accent-text);
   text-decoration: none;
 }
-em {
-  color: var(--muted);
-  font-style: normal;
+a:hover {
+  text-decoration: underline;
 }
 
-/* --- shell --- */
+/* The new screens lay themselves out with flex and explicit spacing, so the browser's own paragraph
+   and heading margins are only ever noise. The legacy block below re-states the ones it wants. */
+.masthead p,
+.collection p,
+.collection h1,
+.collection h2 {
+  margin: 0;
+}
+
+/* ---- motion -------------------------------------------------------------------------------- */
+
+@keyframes ppPulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes ppDrift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1.04);
+  }
+  50% {
+    transform: translate3d(-1.5%, 1%, 0) scale(1.09);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1.04);
+  }
+}
+
+@keyframes ppToast {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  12% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  88% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+/* The prototype animated regardless; it shouldn't have. The room's wash in particular is a slow
+   full-screen drift, which is exactly the kind of motion this setting exists to stop. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* ---- shared type roles ---------------------------------------------------------------------- */
+/* Every uppercase label is genuinely uppercase in the markup, not text-transform'd — so it is
+   uppercase to a screen reader and to a copy-paste too. The masthead wordmark is the one exception. */
+
+.pp-label {
+  font: 500 9.5px/1 var(--pp-mono);
+  letter-spacing: 0.18em;
+  color: var(--pp-ink-muted);
+}
+.pp-label--accent {
+  color: var(--pp-accent);
+}
+
+/* A filled ink button — the one high-emphasis control shape in the app. */
+.pp-btn {
+  font: 500 10px/1 var(--pp-mono);
+  letter-spacing: 0.14em;
+  padding: 9px 16px;
+  border: 0;
+  background: var(--pp-ink);
+  color: var(--pp-paper);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pp-btn:hover {
+  background: var(--pp-accent);
+}
+/* ---- focus ---------------------------------------------------------------------------------- */
+/* The prototype has no focus states at all. Every control here is keyboard-reachable, so every one
+   needs a visible ring: an outline is a *shape*, which is what makes it readable without colour. */
+
+:focus-visible {
+  outline: 2px solid var(--pp-ink);
+  outline-offset: 2px;
+}
+/* On ink-filled surfaces the ink ring would vanish, so it inverts. */
+.pp-btn:focus-visible,
+.masthead__nav-item[aria-current="page"]:focus-visible,
+.filterbar__chip[aria-pressed="true"]:focus-visible {
+  outline-color: var(--pp-paper);
+  outline-offset: -4px;
+}
+
+/* ==================================================================================================
+   MASTHEAD — persistent, four regions divided by hairlines
+   ================================================================================================ */
+
 .app {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-}
-.app__header {
-  display: flex;
-  align-items: baseline;
-  gap: 14px;
-  padding: 16px 24px;
-  border-bottom: 1px solid var(--line);
-  position: sticky;
-  top: 0;
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
-  backdrop-filter: blur(8px);
-  z-index: 10;
-}
-.app__brand {
-  font-weight: 800;
-  font-size: 20px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-.app__brand::before {
-  content: "●";
-  color: var(--amber);
-  margin-right: 9px;
-  font-size: 13px;
-  vertical-align: middle;
-}
-.app__nav {
-  margin-left: auto;
-  color: var(--muted);
-  font-size: 13px;
-  letter-spacing: 0.04em;
-}
-.app__nav:hover {
-  color: var(--text);
-}
-.app__tagline {
-  color: var(--muted);
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  background: var(--pp-paper);
 }
 .app__body {
   flex: 1;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.masthead {
+  display: flex;
+  align-items: stretch;
+  background: var(--pp-paper);
+  border-bottom: 3px solid var(--pp-ink); /* the one exception to the hairline rule */
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.masthead__brand {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 13px 20px;
+  border-right: 1px solid var(--pp-rule);
+  flex: none;
+  color: inherit;
+}
+.masthead__brand:hover {
+  text-decoration: none;
+}
+/* The disc mark is cropped out of the full logo. `mix-blend-mode:multiply` merges the asset's own
+   off-white paper into ours — a prototype shortcut kept until a mark-only SVG exists (ADR 0052). */
+.masthead__mark {
+  width: 52px;
+  height: 52px;
+  flex: none;
+  overflow: hidden;
+  position: relative;
+}
+.masthead__mark img {
+  position: absolute;
+  width: 130px;
+  left: -38px;
+  top: -8px;
+  mix-blend-mode: multiply;
+}
+.masthead__wordmark {
+  display: block;
+  font: 400 21px/0.9 var(--pp-display);
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+}
+.masthead__sub {
+  display: block;
+  font: 500 9px/1.4 var(--pp-mono);
+  letter-spacing: 0.2em;
+  color: var(--pp-ink-muted);
+  margin-top: 4px;
+}
+
+.masthead__nav {
+  display: flex;
+  align-items: stretch;
+}
+.masthead__nav-item {
+  display: flex;
+  align-items: center;
+  padding: 0 18px;
+  border: 0;
+  border-right: 1px solid var(--pp-rule);
+  font: 500 10.5px/1 var(--pp-mono);
+  letter-spacing: 0.14em;
+  white-space: nowrap;
+  background: transparent;
+  color: var(--pp-ink-muted);
+  cursor: pointer;
+}
+.masthead__nav-item:hover {
+  color: var(--pp-ink);
+  text-decoration: none;
+}
+.masthead__nav-item[aria-current="page"] {
+  background: var(--pp-ink);
+  color: var(--pp-paper);
+}
+
+.masthead__right {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  padding: 0 20px;
+}
+.masthead__progress {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  white-space: nowrap;
+}
+.masthead__progress-n {
+  font: 400 20px/1 var(--pp-display);
+}
+.masthead__progress-of {
+  font: 500 9.5px/1 var(--pp-mono);
+  letter-spacing: 0.14em;
+  color: var(--pp-ink-muted);
+}
+.masthead__bar {
+  width: 96px;
+  height: 6px;
+  background: #ded8c9;
+  border: 1px solid var(--pp-rule-soft);
+  flex: none;
+}
+.masthead__bar-fill {
+  height: 100%;
+  background: var(--pp-ink);
+}
+.masthead__roadie {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border-left: 1px solid var(--pp-rule);
+  padding-left: 16px;
+  white-space: nowrap;
+  font: 500 9.5px/1 var(--pp-mono);
+  letter-spacing: 0.14em;
+  color: var(--pp-ink-muted);
+}
+
+/* The dot pulses; the words beside it say the same thing. Never colour alone. */
+.pp-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%; /* the only radius in the design */
+  background: var(--pp-accent);
+  flex: none;
+}
+.pp-dot--pulse {
+  animation: ppPulse 2.4s ease-in-out infinite;
+}
+.pp-dot--positive {
+  background: var(--pp-positive);
+}
+.pp-dot--sm {
+  width: 6px;
+  height: 6px;
+}
+
+/* ==================================================================================================
+   THE COLLECTION
+   ================================================================================================ */
+
+.collection {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---- stat band ------------------------------------------------------------------------------ */
+
+.statband {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--pp-rule);
+  background: var(--pp-paper-sunk);
+}
+.statband__cell {
+  flex: 1;
+  padding: 15px 20px;
+  border-right: 1px solid var(--pp-rule);
+  min-width: 0;
+}
+.statband__n {
+  font: 400 36px/1 var(--pp-display);
+  margin-top: 7px;
+}
+.statband__n--accent {
+  color: var(--pp-accent);
+}
+.statband__detail {
+  font: 400 12px/1.4 var(--pp-body);
+  color: var(--pp-ink-muted);
+  margin-top: 5px;
+}
+
+/* The rotating stat is a button: clicking advances it. Wider than the counts because it holds a
+   chart, and it is the one cell that is about the collection rather than the work. */
+.statband__rotator {
+  flex: 1.5;
+  padding: 15px 20px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-width: 0;
+}
+.statband__rotator:hover {
+  background: var(--pp-paper-raised);
+}
+.statband__rotator-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+/* The rotator's contents are spans (it is a <button>), so each row has to be told it is a block. */
+.statband__body,
+.statband__big,
+.statband__sub,
+.statband__bar-label {
+  display: block;
+}
+.statband__which {
+  margin-left: auto;
+  font: 500 9px/1 var(--pp-mono);
+  letter-spacing: 0.1em;
+  color: var(--pp-ink-ghost);
+}
+.statband__bars {
+  display: flex;
+  gap: 5px;
+  align-items: flex-end;
+  height: 42px;
+  margin-top: 10px;
+}
+.statband__bar {
+  flex: 1;
+  min-width: 0;
+  background: var(--pp-ink);
+}
+/* The tallest bar. Marked by height first — the accent is the second channel, not the only one. */
+.statband__bar--hot {
+  background: var(--pp-accent);
+}
+.statband__bar-labels {
+  display: flex;
+  gap: 5px;
+  margin-top: 5px;
+}
+.statband__bar-label {
+  flex: 1;
+  min-width: 0;
+  font: 500 8.5px/1.3 var(--pp-mono);
+  color: var(--pp-ink-muted);
+  text-align: center;
+}
+.statband__big {
+  font: 400 21px/1.1 var(--pp-display);
+  letter-spacing: -0.01em;
+  margin-top: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.statband__sub {
+  font: 400 12px/1.4 var(--pp-body);
+  color: var(--pp-ink-muted);
+  margin-top: 5px;
+}
+
+/* ---- filter bar ----------------------------------------------------------------------------- */
+
+.filterbar {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--pp-rule);
+}
+.filterbar__chip {
+  padding: 13px 20px;
+  border: 0;
+  border-right: 1px solid var(--pp-rule);
+  cursor: pointer;
+  font: 500 10.5px/1 var(--pp-mono);
+  letter-spacing: 0.14em;
+  white-space: nowrap;
+  background: transparent;
+  color: var(--pp-ink-muted);
+}
+.filterbar__chip:hover {
+  color: var(--pp-ink);
+}
+.filterbar__chip[aria-pressed="true"] {
+  background: var(--pp-ink);
+  color: var(--pp-paper);
+}
+.filterbar__tools {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  padding: 0 20px;
+  min-width: 0;
+}
+.filterbar__search {
+  font: 400 13px/1 var(--pp-body);
+  color: var(--pp-ink);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--pp-rule-soft);
+  padding: 6px 4px;
+  width: 170px;
+  outline: none;
+}
+.filterbar__search:focus {
+  border-bottom-color: var(--pp-ink);
+  border-bottom-width: 2px;
+  padding-bottom: 5px;
+}
+.filterbar__tool {
+  font: 500 10.5px/1 var(--pp-mono);
+  letter-spacing: 0.14em;
+  color: var(--pp-ink-muted);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+  white-space: nowrap;
+}
+.filterbar__tool:hover {
+  color: var(--pp-ink);
+}
+
+/* ---- the grid ------------------------------------------------------------------------------- */
+/* Gutters are borders, not gaps: each cell carries border-right + border-bottom so the whole grid
+   reads as ruled paper rather than as a set of floating cards. */
+
+.grid {
+  display: grid;
+  border-bottom: 1px solid var(--pp-rule);
+}
+.grid--fill {
+  flex: 1;
+  align-content: start;
+}
+.tile {
+  padding: 16px;
+  border: 0;
+  border-right: 1px solid var(--pp-rule);
+  border-bottom: 1px solid var(--pp-rule);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  display: block;
+  min-width: 0;
+}
+.tile:hover {
+  background: var(--pp-paper-raised);
+  text-decoration: none;
+}
+
+/* Artwork uses `outline`, not `border`, so the state treatment never moves the layout. */
+.tile__art {
+  aspect-ratio: 1;
+  width: 100%;
+  object-fit: cover;
+  display: block;
+  outline: 1px solid var(--pp-ink);
+  background: var(--pp-paper-sunk);
+}
+/* Not complete reads three ways at once — a paler outline, reduced contrast, and the word under it.
+   Colour is doing none of the work on its own (curator-ui-ux §3.4). */
+.tile__art--needs {
+  outline-color: var(--pp-rule-soft);
+  opacity: 0.62;
+}
+/* Roadie's is marked by outline *weight* as well as hue, and narrates itself in words below. */
+.tile__art--roadie {
+  outline: 2px solid var(--pp-accent);
+}
+.tile__art--stuck {
+  outline: 1px solid var(--pp-rule-soft);
+  display: grid;
+  place-items: center;
+  font: 400 26px/1 var(--pp-body);
+  color: var(--pp-ink-ghost);
+}
+/* A tile is a link wrapping spans, so each line has to be told it is a block. */
+.tile__title {
+  display: block;
+  margin-top: 10px;
+  font: 600 12.5px/1.25 var(--pp-body);
+  color: var(--pp-ink);
+  overflow-wrap: anywhere;
+}
+.tile__byline {
+  display: block;
+  font: 400 11px/1.35 var(--pp-body);
+  color: var(--pp-ink-muted);
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+.tile__state {
+  display: block;
+  margin-top: 6px;
+  font: 500 9.5px/1 var(--pp-mono);
+  letter-spacing: 0.1em;
+  color: var(--pp-accent);
+}
+.tile__state--ready {
+  color: var(--pp-ink-muted);
+}
+
+/* The last cell of the grid: the way in for a record you don't own yet. */
+.tile--add .tile__art {
+  outline: 0;
+  border: 1px dashed var(--pp-dashed);
+  display: grid;
+  place-items: center;
+  font: 400 26px/1 var(--pp-body);
+  color: var(--pp-dashed);
+}
+.tile--add .tile__title {
+  color: var(--pp-ink-muted);
+}
+.tile--add .tile__byline {
+  color: var(--pp-ink-faint);
+}
+
+/* ---- grouped mode --------------------------------------------------------------------------- */
+
+.group__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 13px 20px 9px;
+  border-bottom: 1px solid var(--pp-rule);
+  background: var(--pp-paper-sunk);
+}
+.group__count {
+  font: 500 9.5px/1 var(--pp-mono);
+  color: var(--pp-ink-muted);
+}
+
+/* Stuck is not a missing asset, it is a failure — so it gets its own row below the groups, a wash,
+   and the sentence that says what to do rather than a code. */
+.stuck {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 20px;
+  border-bottom: 1px solid var(--pp-rule);
+  background: var(--pp-accent-wash);
+}
+.stuck__mark {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border: 1px solid var(--pp-rule-soft);
+  display: grid;
+  place-items: center;
+  font: 400 13px/1 var(--pp-body);
+  color: var(--pp-ink-ghost);
+}
+.stuck__body {
+  flex: 1;
+  min-width: 0;
+}
+.stuck__title {
+  font: 600 13px/1.3 var(--pp-body);
+}
+.stuck__why {
+  font: 400 12px/1.45 var(--pp-body);
+  color: var(--pp-accent-text);
+  margin-top: 2px;
+}
+
+/* ---- Roadie's log --------------------------------------------------------------------------- */
+
+.roadielog {
+  display: flex;
+  align-items: stretch;
+  background: var(--pp-paper-sunk);
+  border-top: 1px solid var(--pp-rule);
+}
+.roadielog__badge {
+  padding: 11px 20px;
+  border-right: 1px solid var(--pp-rule);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: none;
+  font: 500 10px/1 var(--pp-mono);
+  letter-spacing: 0.16em;
+  color: var(--pp-accent);
+}
+.roadielog__latest {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 20px;
+  font: 400 12px/1 var(--pp-body);
+  color: var(--pp-ink-muted);
+  overflow: hidden;
+}
+.roadielog__time {
+  font: 500 11px/1 var(--pp-mono);
+  color: var(--pp-ink-faint);
+  flex: none;
+}
+.roadielog__line {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.roadielog__line b {
+  color: var(--pp-ink);
+  font-weight: 600;
+}
+.roadielog__toggle {
+  padding: 11px 20px;
+  border: 0;
+  border-left: 1px solid var(--pp-rule);
+  background: transparent;
+  font: 500 10px/1 var(--pp-mono);
+  letter-spacing: 0.16em;
+  color: var(--pp-ink-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.roadielog__toggle:hover {
+  color: var(--pp-ink);
+}
+
+.roadielog__panel {
+  border-top: 1px solid var(--pp-rule);
+  background: var(--pp-paper-log);
+  padding: 14px 20px 16px;
+}
+.roadielog__panel-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.roadielog__panel-head span:last-child {
+  font: 400 12px/1 var(--pp-body);
+  color: var(--pp-ink-muted);
+}
+.roadielog__row {
+  display: flex;
+  gap: 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid #ddd7c8;
+  font: 400 12.5px/1.4 var(--pp-body);
+  color: #4a4638;
+}
+.roadielog__row:last-of-type {
+  border-bottom: 0;
+}
+.roadielog__row .roadielog__time {
+  width: 52px;
+  line-height: 1.4;
+}
+.roadielog__row b {
+  font-weight: 600;
+  color: var(--pp-ink);
+}
+/* A failure is accent *and* keeps its own words; the durable copy is the Stuck group, not this. */
+.roadielog__row--failed,
+.roadielog__row--failed .roadielog__time,
+.roadielog__row--failed b {
+  color: var(--pp-accent-text);
+}
+.roadielog__foot {
+  font: 400 11.5px/1.5 var(--pp-body);
+  color: var(--pp-ink-faint);
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #ddd7c8;
+}
+
+/* ---- states every screen owes ---------------------------------------------------------------- */
+
+.pp-page {
+  padding: 24px;
+}
+.pp-title {
+  font: 400 30px/1 var(--pp-display);
+  letter-spacing: -0.02em;
+  margin: 0 0 18px;
+}
+.pp-prose {
+  font: 400 15px/1.65 var(--pp-body);
+  max-width: 62ch;
+  text-wrap: pretty;
+}
+.pp-empty {
+  padding: 48px 24px;
+  border: 1px dashed var(--pp-dashed);
+  margin: 24px;
+  text-align: center;
+  color: var(--pp-ink-muted);
+}
+.pp-empty__title {
+  font: 400 21px/1.1 var(--pp-display);
+  letter-spacing: -0.01em;
+  color: var(--pp-ink);
+  margin-bottom: 8px;
+}
+/* Loading is carried by motion, so it never depends on reading a colour — and the reduced-motion
+   rule above stills it, leaving the word "Loading" doing the work. */
+.pp-loading {
+  padding: 48px 24px;
+  color: var(--pp-ink-muted);
+  animation: ppPulse 2.4s ease-in-out infinite;
+}
+.pp-error {
+  margin: 24px;
+  padding: 14px 16px;
+  border: 1px solid var(--pp-accent);
+  background: var(--pp-accent-wash);
+  color: var(--pp-accent-text);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ==================================================================================================
+   LEGACY — the screens the overhaul hasn't reached yet (the record, the room, add, system, settings).
+
+   These rules are the old "backstage marquee" stylesheet with its variables repointed at Pressing
+   Plant, so an unconverted screen is readable and on-brand-ish rather than unstyled. It is scaffolding
+   for a staged rollout, not a second theme: **delete this whole block with the last screen it serves.**
+   Do not add to it, and do not reach for these classes in new work.
+   ================================================================================================ */
+
+.page,
+.demo,
+.modal,
+.error-fallback {
+  --bg: var(--pp-paper);
+  --panel: var(--pp-paper-sunk);
+  --panel-2: var(--pp-paper-raised);
+  --line: var(--pp-rule);
+  --text: var(--pp-ink);
+  --muted: var(--pp-ink-muted);
+  --amber: var(--pp-accent);
+  --amber-soft: var(--pp-rule-soft);
+  --cyan: var(--pp-ink-muted);
+  --alert: var(--pp-accent);
+  --sage: var(--pp-positive);
+  --radius: 0;
+  --sans: var(--pp-body);
+  --mono: var(--pp-mono);
+  color: var(--text);
 }
 
 .page {
   max-width: 920px;
   margin: 0 auto;
   padding: 28px 24px 96px;
+  font-size: 15px;
+  line-height: 1.5;
+}
+.page--wide {
+  max-width: 1320px;
 }
 .page__head {
   display: flex;
@@ -111,84 +868,80 @@ em {
   margin-bottom: 20px;
 }
 .page__head h1 {
-  font-size: 26px;
-  margin: 0;
-  margin-right: auto;
-  letter-spacing: -0.01em;
+  font: 400 30px/1 var(--pp-display);
+  letter-spacing: -0.02em;
+  margin: 0 auto 0 0;
 }
-
-/* group headers act as the cue-sheet dividers */
 .group-head {
   margin: 26px 0 10px;
-  font-size: 12px;
-  letter-spacing: 0.16em;
+  font: 500 9.5px/1 var(--pp-mono);
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--muted);
   border-bottom: 1px solid var(--line);
   padding-bottom: 7px;
 }
 
-/* --- buttons --- */
 .btn {
-  font: inherit;
-  font-weight: 600;
-  padding: 8px 15px;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  background: var(--panel);
-  color: var(--text);
+  font: 500 10px/1 var(--pp-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 9px 16px;
+  border-radius: 0;
+  border: 1px solid var(--pp-ink);
+  background: transparent;
+  color: var(--pp-ink);
   cursor: pointer;
-  transition:
-    border-color 0.15s,
-    background 0.15s,
-    transform 0.05s;
 }
 .btn:hover {
-  border-color: var(--muted);
-}
-.btn:active {
-  transform: translateY(1px);
+  background: var(--pp-ink);
+  color: var(--pp-paper);
 }
 .btn--primary {
-  background: var(--amber);
-  border-color: var(--amber);
-  color: #1a1206;
+  background: var(--pp-ink);
+  border-color: var(--pp-ink);
+  color: var(--pp-paper);
 }
 .btn--primary:hover {
-  background: #ffbf47;
+  background: var(--pp-accent);
+  border-color: var(--pp-accent);
 }
 .btn--ghost {
-  background: transparent;
+  border-color: var(--line);
 }
 .btn--danger {
-  color: var(--alert);
-  border-color: color-mix(in srgb, var(--alert) 40%, var(--line));
+  color: var(--pp-accent-text);
+  border-color: var(--pp-accent);
 }
-.btn--danger:hover {
-  border-color: var(--alert);
-}
-.btn--sm {
-  padding: 4px 10px;
-  font-size: 13px;
+.btn--sm,
+.btn--small {
+  padding: 5px 10px;
+  font-size: 9.5px;
 }
 .btn--lg {
-  padding: 12px 28px;
-  font-size: 17px;
+  padding: 12px 24px;
+  font-size: 12px;
 }
 .btn:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: default;
+}
+.btn--spend::before {
+  content: "◈";
+  margin-right: 7px;
 }
 
 .search,
 .textarea,
-.form input {
+.form input,
+.select {
   font: inherit;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--pp-rule-soft);
+  border-radius: 0;
   color: var(--text);
-  padding: 8px 12px;
+  padding: 7px 2px;
 }
 .search {
   min-width: 220px;
@@ -196,31 +949,65 @@ em {
 .search--wide {
   width: 100%;
 }
-.search:focus,
-.textarea:focus,
-.form input:focus,
-.btn:focus-visible,
-.tab:focus-visible,
-.row:focus-visible,
-.result:focus-visible {
-  outline: 2px solid var(--amber);
-  outline-offset: 2px;
+.textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: var(--mono);
+  font-size: 13px;
+  margin-bottom: 12px;
+  border: 1px solid var(--pp-rule-soft);
+  padding: 10px;
 }
 
-/* --- queue rows: the marquee lineup --- */
-.queue-section {
-  margin-bottom: 6px;
+.row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  color: inherit;
+}
+.row:hover {
+  background: var(--panel);
+}
+.row--selected {
+  background: var(--panel-2);
+  box-shadow: inset 3px 0 0 var(--pp-accent);
+}
+.row__main {
+  min-width: 0;
+  flex: 1;
+}
+.row__title {
+  font-weight: 600;
+}
+.row__sub,
+.row__time {
+  color: var(--muted);
+  font-size: 13px;
+}
+.row__error {
+  color: var(--pp-accent-text);
+  font-size: 12px;
+}
+.row__action {
+  font: 500 10px/1 var(--pp-mono);
+  letter-spacing: 0.14em;
+  color: var(--pp-accent-text);
+  white-space: nowrap;
+}
+.count {
+  font-variant-numeric: tabular-nums;
+  color: var(--pp-accent);
+  font-weight: 700;
 }
 .queue-section h2 {
-  font-size: 13px;
-  font-weight: 600;
+  font: 500 9.5px/1 var(--pp-mono);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
   color: var(--muted);
-  margin: 14px 0 6px;
-  letter-spacing: 0.02em;
+  margin: 18px 0 6px;
 }
-/* Section-level control under a queue heading — today the "send the tag list to the Flipper" button
-   on Awaiting tag write (issue #68). Its result line wraps under the button rather than beside it,
-   since the failure text is a full sentence from the server. */
 .queue-section__aside {
   display: flex;
   flex-wrap: wrap;
@@ -232,180 +1019,103 @@ em {
   margin: 0;
   font-size: 12px;
 }
-.count {
-  font-variant-numeric: tabular-nums;
-  color: var(--amber);
-  font-weight: 700;
-}
-.row {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  margin-bottom: 8px;
-  background: var(--panel);
-  transition:
-    border-color 0.15s,
-    background 0.15s;
-}
-.row:hover {
-  border-color: var(--amber-soft);
-  background: var(--panel-2);
-}
-.row__main {
-  min-width: 0;
-  flex: 1;
-}
-.row__title {
-  font-weight: 600;
-}
-.row__sub {
-  color: var(--muted);
-  font-size: 13px;
-}
-.row__time {
-  color: var(--muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.row__error {
-  color: var(--alert);
-  font-size: 12px;
-  font-family: var(--mono);
-}
-.row__action {
-  color: var(--amber);
-  font-size: 13px;
-  font-weight: 600;
-  white-space: nowrap;
-}
 
 .thumb {
-  border-radius: 6px;
   object-fit: cover;
   background: var(--panel-2);
   flex: none;
+  outline: 1px solid var(--pp-ink);
 }
 .thumb--placeholder {
   display: grid;
   place-items: center;
   color: var(--muted);
   font-weight: 700;
-  letter-spacing: 0.04em;
-  border: 1px solid var(--line);
 }
-/* Art still on its way (issue #134). Pending is carried by *motion*, genuinely-absent art by
-   *text* (the monogram) — two channels, so neither depends on colour (curator-ui-ux §3.4). The
-   global prefers-reduced-motion rule stills this like every other animation. */
 .thumb--loading,
 .detail__art--loading {
   background: var(--panel-2);
-  border: 1px solid var(--line);
-  animation: art-loading 1.4s ease-in-out infinite;
-}
-@keyframes art-loading {
-  0%,
-  100% {
-    opacity: 0.4;
-  }
-  50% {
-    opacity: 0.85;
-  }
+  outline: 1px solid var(--pp-rule-soft);
+  animation: ppPulse 2.4s ease-in-out infinite;
 }
 
-/* --- state badges --- */
-.badge {
+.badge,
+.tag,
+.chip {
   display: inline-block;
   padding: 3px 9px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  border-radius: 0;
+  font: 500 9.5px/1.5 var(--pp-mono);
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  border: 1px solid transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  background: transparent;
+  cursor: default;
 }
+.chip {
+  cursor: pointer;
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chip--on,
 .badge--waiting {
-  color: var(--amber);
-  border-color: var(--amber-soft);
-  background: color-mix(in srgb, var(--amber) 10%, transparent);
+  color: var(--pp-accent-text);
+  border-color: var(--pp-accent);
 }
-.badge--processing {
-  color: var(--cyan);
-  border-color: color-mix(in srgb, var(--cyan) 35%, transparent);
-  background: color-mix(in srgb, var(--cyan) 10%, transparent);
+.badge--processing,
+.badge--ai {
+  color: var(--pp-ink);
+  border-color: var(--pp-ink);
 }
 .badge--alert {
-  color: var(--alert);
-  border-color: color-mix(in srgb, var(--alert) 40%, transparent);
-  background: color-mix(in srgb, var(--alert) 10%, transparent);
+  color: var(--pp-accent-text);
+  border-color: var(--pp-accent);
+  background: var(--pp-accent-wash);
 }
 .badge--done {
-  color: var(--sage);
-  border-color: color-mix(in srgb, var(--sage) 35%, transparent);
-  background: color-mix(in srgb, var(--sage) 10%, transparent);
+  color: var(--pp-positive);
+  border-color: var(--pp-positive);
 }
-/* the signature: a lit marquee bulb that pulses while Roadie is on it */
 .badge[data-processing="true"]::before {
   content: "●";
   margin-right: 6px;
-  animation: bulb 1.4s ease-in-out infinite;
-}
-@keyframes bulb {
-  0%,
-  100% {
-    opacity: 0.35;
-  }
-  50% {
-    opacity: 1;
-  }
+  animation: ppPulse 2.4s ease-in-out infinite;
 }
 
-/* --- banners / empty --- */
 .banner {
   padding: 10px 14px;
-  border-radius: 8px;
   margin: 10px 0;
   font-size: 14px;
+  border: 1px solid var(--line);
 }
 .banner--error {
-  background: color-mix(in srgb, var(--alert) 14%, transparent);
-  border: 1px solid color-mix(in srgb, var(--alert) 40%, transparent);
-  color: #ff9a9d;
+  border-color: var(--pp-accent);
+  background: var(--pp-accent-wash);
+  color: var(--pp-accent-text);
 }
 .banner--warn {
-  background: color-mix(in srgb, var(--amber) 12%, transparent);
-  border: 1px solid var(--amber-soft);
-  color: #ffcf87;
+  border-color: var(--pp-rule-soft);
+  background: var(--pp-paper-sunk);
 }
 .banner--ok {
-  background: color-mix(in srgb, var(--sage) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--sage) 40%, transparent);
-  color: #a6e59a;
+  border-color: var(--pp-positive);
+  color: var(--pp-positive);
 }
 .empty {
   padding: 40px;
   text-align: center;
   color: var(--muted);
-  border: 1px dashed var(--line);
-  border-radius: var(--radius);
-}
-.empty a,
-.banner a {
-  color: var(--amber);
+  border: 1px dashed var(--pp-dashed);
 }
 .muted {
   color: var(--muted);
 }
-
-/* --- album detail --- */
-/* The workbench uses the window (curator-ui-ux §9.3). `.page` caps at 920px — a reading measure
-   borrowed from the web — which left roughly a third of the 1360px default window empty. The rail
-   layout is what spends it; long-form text inside a bench still constrains its own measure. */
-.page--wide {
-  max-width: 1320px;
+em {
+  color: var(--muted);
+  font-style: normal;
 }
 
 .detail {
@@ -425,8 +1135,7 @@ em {
   width: 100%;
   aspect-ratio: 1;
   object-fit: cover;
-  border-radius: var(--radius);
-  border: 1px solid var(--line);
+  outline: 1px solid var(--pp-ink);
 }
 .detail__art--placeholder {
   display: grid;
@@ -435,10 +1144,10 @@ em {
   color: var(--muted);
   font-size: 48px;
   font-weight: 700;
-  letter-spacing: 0.04em;
 }
 .detail__left h1 {
-  font-size: 22px;
+  font: 400 25px/1.05 var(--pp-display);
+  letter-spacing: -0.02em;
   margin: 4px 0 0;
 }
 .detail__artist {
@@ -457,11 +1166,21 @@ em {
   gap: 8px;
 }
 .detail__id {
+  color: var(--pp-ink-ghost);
+  font: 500 10px/1 var(--pp-mono);
+}
+.detail-section {
+  border-top: 1px solid var(--line);
+  padding: 18px 0;
+}
+.detail-section h2 {
+  font: 500 9.5px/1 var(--pp-mono);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
   color: var(--muted);
-  font-size: 12px;
+  margin: 0 0 12px;
 }
 
-/* stepper — the onboarding cue list */
 .stepper {
   list-style: none;
   display: flex;
@@ -471,43 +1190,371 @@ em {
   margin: 0 0 24px;
 }
 .stepper__step {
-  font-size: 12px;
-  letter-spacing: 0.04em;
-  padding: 5px 11px;
-  border-radius: 999px;
+  font: 500 9.5px/1 var(--pp-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 6px 11px;
   border: 1px solid var(--line);
   color: var(--muted);
 }
 .stepper__step--done {
-  color: var(--sage);
-  border-color: color-mix(in srgb, var(--sage) 30%, transparent);
+  color: var(--pp-positive);
+  border-color: var(--pp-positive);
 }
 .stepper__step--current {
-  color: #1a1206;
-  background: var(--amber);
-  border-color: var(--amber);
-  font-weight: 700;
+  color: var(--pp-paper);
+  background: var(--pp-ink);
+  border-color: var(--pp-ink);
 }
 
-.detail-section {
-  border-top: 1px solid var(--line);
-  padding: 18px 0;
+.rail {
+  display: flex;
+  flex-direction: column;
+  margin: 6px 0;
+  border: 1px solid var(--line);
 }
-.detail-section h2 {
-  font-size: 12px;
+.rail__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-left: 3px solid transparent;
+  border-bottom: 1px solid var(--line);
+  color: inherit;
+}
+.rail__item:last-child {
+  border-bottom: 0;
+}
+.rail__item:hover {
+  background: var(--panel);
+}
+.rail__item.is-active {
+  background: var(--panel-2);
+  border-left-color: var(--pp-accent);
+}
+.rail__label {
+  font-weight: 600;
+  margin-right: auto;
+}
+.rail__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 500 9.5px/1 var(--pp-mono);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--muted);
-  margin: 0 0 12px;
+  white-space: nowrap;
+}
+.rail__dot,
+.legs__dot,
+.room-arm__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--pp-rule-soft);
+  flex: none;
+}
+.rail__state--attached .rail__dot,
+.legs__item--ok .legs__dot {
+  background: var(--pp-positive);
+}
+.rail__state--blocked .rail__dot,
+.legs__item--bad .legs__dot {
+  background: var(--pp-accent);
+}
+.rail__state--blocked {
+  color: var(--pp-accent-text);
+}
+.rail__state--ready .rail__dot {
+  background: var(--pp-ink);
 }
 
-/* Palette editor (curator-spec §album-detail). Order is authoritative — the top row is dominant. */
-.palette-editor {
+.bench__head {
+  margin-bottom: 18px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.bench__head h2 {
+  margin: 0;
+  font: 400 21px/1.1 var(--pp-display);
+  letter-spacing: -0.01em;
+}
+.bench__head p {
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+.bench__head .bench__primary {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.room-arm {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: 500 10px/1 var(--pp-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.room-arm--live {
+  color: var(--pp-paper);
+  background: var(--pp-accent);
+  border-color: var(--pp-accent);
+}
+.room-arm--live .room-arm__dot {
+  background: var(--pp-paper);
+  animation: ppPulse 2.4s ease-in-out infinite;
+}
+
+.modes {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.modes__tab {
+  font: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  padding: 9px 14px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+}
+.modes__tab em {
+  font-size: 11px;
+  font-weight: 400;
+}
+.modes__tab.is-active {
+  border-color: var(--pp-ink);
+  box-shadow: inset 0 -2px 0 var(--pp-accent);
+}
+.modes__tab:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 20px;
+}
+.tab {
+  font: inherit;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  padding: 11px 18px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.tab--active {
+  color: var(--text);
+  border-bottom-color: var(--pp-accent);
+}
+.tab-body {
+  min-height: 200px;
+}
+.results {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+.result {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  padding: 10px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.result:hover {
+  background: var(--panel);
+}
+.result img {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  outline: 1px solid var(--pp-ink);
+}
+.result__title {
+  font-weight: 600;
+}
+.result__sub {
+  color: var(--muted);
+  font-size: 13px;
+}
+.result__action {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.form {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  max-width: 420px;
+}
+.form label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font: 500 9.5px/1.6 var(--pp-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.form input {
+  color: var(--text);
+  font-family: var(--pp-body);
+  font-size: 13px;
+  letter-spacing: normal;
+  text-transform: none;
+}
+.settings-subhead {
+  font: 500 9.5px/1 var(--pp-mono);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 22px 0 8px;
+}
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  margin: 6px 0;
+  cursor: pointer;
+}
+.toggle input {
+  width: auto;
+  accent-color: var(--pp-ink);
 }
 
+.dropzone {
+  display: grid;
+  place-items: center;
+  min-height: 96px;
+  padding: 18px;
+  text-align: center;
+  color: var(--muted);
+  border: 1px dashed var(--pp-dashed);
+  cursor: pointer;
+}
+.dropzone:hover {
+  background: var(--panel);
+}
+.dropzone--disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.media-frame {
+  width: 100%;
+  max-width: 520px;
+  border: 1px solid var(--pp-ink);
+  background: #000;
+  display: block;
+}
+.media-frame--art {
+  background: var(--panel-2);
+  object-fit: contain;
+}
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.row-actions .muted {
+  margin-right: auto;
+  font-size: 12px;
+}
+
+.preview__stage {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--pp-ink);
+  aspect-ratio: 16 / 9;
+  max-width: 620px;
+  background: var(--pp-room-floor);
+}
+.palette-stage {
+  position: absolute;
+  inset: 0;
+}
+.preview__video {
+  position: absolute;
+  inset: 8%;
+  width: 84%;
+  height: 84%;
+  object-fit: contain;
+}
+.preview__sleeve {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 200px;
+}
+.preview__sleeve-cap {
+  font: 500 9.5px/1 var(--pp-mono);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: center;
+}
+.preview__video--empty {
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  border: 1px dashed var(--pp-dashed);
+}
+.preview__note {
+  font-size: 12px;
+  margin-top: 10px;
+}
+.desk-audio {
+  margin-top: 14px;
+}
+.desk-audio .preview__note {
+  margin-top: 6px;
+}
+.prompt-slot--empty {
+  padding: 18px;
+  border: 1px dashed var(--pp-dashed);
+}
+
+.palette-editor,
+.video,
+.cardart,
+.tagwrite,
+.splice {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 .palette-editor__preview {
   display: flex;
   flex-direction: column;
@@ -515,15 +1562,18 @@ em {
 }
 .palette-editor__preview-bar {
   height: 40px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  outline: 1px solid var(--pp-ink);
 }
-.palette-editor__preview-label {
-  font-size: 11px;
-  letter-spacing: 0.08em;
+.palette-editor__preview-label,
+.palette-editor__pos {
+  font: 500 9.5px/1 var(--pp-mono);
+  letter-spacing: 0.14em;
   text-transform: uppercase;
+  color: var(--muted);
 }
-
+.palette-editor__pos {
+  min-width: 62px;
+}
 .palette-editor__rows {
   list-style: none;
   margin: 0;
@@ -539,10 +1589,9 @@ em {
   flex-wrap: wrap;
 }
 .palette-editor__chip {
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  width: 34px;
+  height: 34px;
+  outline: 1px solid var(--pp-ink);
   flex: none;
 }
 .palette-editor__picker {
@@ -551,45 +1600,40 @@ em {
   padding: 0;
   background: none;
   border: 1px solid var(--line);
-  border-radius: 6px;
   cursor: pointer;
 }
 .palette-editor__hex {
   width: 92px;
   font-family: var(--mono);
   text-transform: uppercase;
-  background: var(--panel);
+  background: transparent;
   color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 6px 8px;
+  border: 0;
+  border-bottom: 1px solid var(--pp-rule-soft);
+  padding: 6px 2px;
 }
 .palette-editor__role {
-  background: var(--panel);
+  background: transparent;
   color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 6px 8px;
-}
-.palette-editor__pos {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-  min-width: 62px;
+  border: 0;
+  border-bottom: 1px solid var(--pp-rule-soft);
+  padding: 6px 2px;
 }
 .palette-editor__moves {
   display: flex;
   gap: 4px;
   margin-left: auto;
 }
-
-.palette-editor__actions {
+.palette-editor__actions,
+.splice__excluded,
+.prompt__variants,
+.tagwrite__objects {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
-.palette-editor__hint {
+.palette-editor__hint,
+.motion__note {
   font-size: 12px;
   margin: 0;
 }
@@ -599,19 +1643,16 @@ em {
   align-items: center;
   gap: 10px;
   margin-bottom: 8px;
-}
-.prompt__head h3 {
-  font-size: 14px;
-  margin: 0;
-  margin-right: auto;
-}
-.prompt__head {
   flex-wrap: wrap;
 }
+.prompt__head h3 {
+  font: 500 9.5px/1 var(--pp-mono);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  margin: 0 auto 0 0;
+}
 .prompt__text {
-  background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 8px;
   padding: 14px;
   white-space: pre-wrap;
   font-size: 13px;
@@ -620,54 +1661,6 @@ em {
   max-height: 320px;
   overflow: auto;
 }
-/* provenance of a drafted prompt: grounded LLM vs deterministic template */
-.badge--ai {
-  color: var(--cyan);
-  border-color: color-mix(in srgb, var(--cyan) 35%, transparent);
-  background: color-mix(in srgb, var(--cyan) 10%, transparent);
-}
-.badge--template {
-  color: var(--muted);
-  border-color: var(--line);
-}
-/* the variant chooser: one chip per drafted variant, the active one lit */
-.prompt__variants {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-.chip {
-  font: inherit;
-  font-size: 12px;
-  color: var(--text);
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 4px 12px;
-  cursor: pointer;
-  max-width: 22ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.chip:hover {
-  border-color: var(--cyan);
-}
-.chip--on {
-  color: var(--cyan);
-  border-color: color-mix(in srgb, var(--cyan) 50%, transparent);
-  background: color-mix(in srgb, var(--cyan) 12%, transparent);
-}
-/* a non-interactive chip: the option label heading each card-art prompt (ADR 0021) */
-.chip--static {
-  cursor: default;
-  margin-right: auto;
-}
-.chip--static:hover {
-  border-color: var(--line);
-}
-/* the card-art prompt set: every prompt in full, each with its own Copy + Generate (ADR 0021) */
 .prompt__list {
   list-style: none;
   margin: 0;
@@ -687,56 +1680,44 @@ em {
   flex-wrap: wrap;
   gap: 8px;
 }
-/* generated card-art candidates: a click-to-pick thumbnail grid */
-.cardart {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
+
 .cardart__gallery {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 10px;
+  gap: 16px;
 }
 .cardart__candidate {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 6px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  padding: 0;
+  background: transparent;
+  border: 0;
   cursor: pointer;
   font: inherit;
   color: var(--muted);
   text-align: left;
 }
-.cardart__candidate:hover {
-  border-color: var(--cyan);
-  color: var(--text);
-}
-.cardart__candidate:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
 .cardart__candidate img {
   width: 100%;
   aspect-ratio: 7 / 5;
   object-fit: cover;
-  border-radius: 4px;
   display: block;
+  outline: 1px solid var(--pp-ink);
 }
-.cardart__candidate span {
-  font-size: 11px;
+.cardart__candidate:disabled {
+  cursor: default;
+}
+.cardart__candidate:disabled img {
+  outline: 2px solid var(--pp-accent);
+}
+.cardart__candidate span,
+.video__clip-row span {
+  font: 500 9.5px/1.4 var(--pp-mono);
+  letter-spacing: 0.1em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-/* generated visualizer clips: a grid of downloadable previews */
-.video {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
 }
 .video__clips {
   display: grid;
@@ -747,16 +1728,13 @@ em {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 8px;
-  background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  padding: 8px;
 }
 .video__clip-vid {
   width: 100%;
   aspect-ratio: 16 / 9;
   background: #000;
-  border-radius: 4px;
 }
 .video__clip-row {
   display: flex;
@@ -764,22 +1742,10 @@ em {
   justify-content: space-between;
   gap: 8px;
 }
-.video__clip-row span {
-  font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* In-app clip splicing (issue #29): reorderable/deselectable list + the splice button. */
 .splice {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
   margin-top: 12px;
   padding: 10px;
-  background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 8px;
 }
 .splice__list {
   display: flex;
@@ -803,12 +1769,6 @@ em {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.splice__excluded {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
 .splice__opt {
   display: flex;
   align-items: center;
@@ -818,31 +1778,18 @@ em {
   cursor: pointer;
 }
 
-/* --- tag write / verify (step 11) --- */
-.tagwrite {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
 .tagwrite__payload {
   display: flex;
   flex-direction: column;
   gap: 3px;
   font-size: 13px;
 }
-.tagwrite__payload code {
-  color: var(--amber);
-  word-break: break-all;
-}
+.tagwrite__payload code,
 .tagwrite__uri {
-  color: var(--amber);
+  color: var(--pp-accent-text);
+  font-family: var(--mono);
+  font-size: 12px;
   word-break: break-all;
-  font-size: 13px;
-}
-.tagwrite__objects {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
 }
 .tagwrite__obj {
   display: flex;
@@ -850,8 +1797,6 @@ em {
   align-items: flex-start;
   gap: 6px;
 }
-/* "Add this album to Flipper" plus its outcome line (issue #68). Sits under the sleeve/card rows and
-   spans the full width, because the outcome is a sentence, not a chip. */
 .tagwrite__flipper {
   display: flex;
   flex-wrap: wrap;
@@ -861,18 +1806,33 @@ em {
   font-size: 12px;
 }
 .tagwrite__done {
-  color: var(--sage);
+  color: var(--pp-positive);
   font-weight: 600;
-  font-size: 14px;
 }
-.tag {
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+.tagwrite__payload-block {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.tagwrite__qr {
+  width: 96px;
+  height: 96px;
+  background: #fff; /* QR contrast is defined against white; paper stock would break scanning */
+  padding: 4px;
+  flex: none;
+  outline: 1px solid var(--pp-ink);
+}
+.tagwrite__qr--empty {
+  background: transparent;
+  border: 1px dashed var(--pp-dashed);
+  outline: 0;
+}
+.tagwrite__qr-error {
+  font-size: 12px;
   color: var(--muted);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 2px 8px;
+}
+.tagwrite__help {
+  text-decoration: underline;
 }
 .kv {
   display: flex;
@@ -881,554 +1841,45 @@ em {
 }
 .kv code {
   color: var(--muted);
-  font-size: 13px;
-}
-
-/* --- workflow: prompts, dropzone, media, preview --- */
-.select {
-  font: inherit;
-  background: var(--panel);
-  color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 4px 8px;
-  font-size: 12px;
-}
-.select:focus {
-  outline: 2px solid var(--amber);
-  outline-offset: 2px;
-}
-
-.dropzone {
-  display: grid;
-  place-items: center;
-  min-height: 96px;
-  padding: 18px;
-  text-align: center;
-  color: var(--muted);
-  border: 1px dashed var(--line);
-  border-radius: var(--radius);
-  cursor: pointer;
-  transition:
-    border-color 0.15s,
-    background 0.15s;
-}
-.dropzone:hover {
-  border-color: var(--amber-soft);
-  background: var(--panel);
-}
-.dropzone--disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-.dropzone--disabled:hover {
-  border-color: var(--line);
-  background: transparent;
-}
-
-.media-frame {
-  width: 100%;
-  max-width: 520px;
-  border-radius: var(--radius);
-  border: 1px solid var(--line);
-  background: #000;
-  display: block;
-}
-.media-frame--art {
-  background: var(--panel-2);
-  object-fit: contain;
-}
-
-.row-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-}
-.row-actions .muted {
-  margin-right: auto;
+  font-family: var(--mono);
   font-size: 12px;
 }
 
-.preview__stage {
-  position: relative;
-  border-radius: var(--radius);
-  overflow: hidden;
-  border: 1px solid var(--line);
-  aspect-ratio: 16 / 9;
-  max-width: 620px;
-  background: #000;
-}
-.palette-stage {
-  position: absolute;
-  inset: 0;
-}
-.preview__video {
-  position: absolute;
-  inset: 8%;
-  width: 84%;
-  height: 84%;
-  object-fit: contain;
-  border-radius: 6px;
-  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
-}
-
-/* --- add screen --- */
-.tabs {
-  display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--line);
-  margin-bottom: 20px;
-}
-.tab {
-  font: inherit;
-  background: none;
-  border: none;
-  color: var(--muted);
-  padding: 10px 14px;
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-}
-.tab--active {
-  color: var(--text);
-  border-bottom-color: var(--amber);
-}
-.tab-body {
-  min-height: 200px;
-}
-.results {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 10px;
-  margin-top: 14px;
-}
-.result {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  text-align: left;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-.result:hover {
-  border-color: var(--amber-soft);
-}
-.result img {
-  width: 48px;
-  height: 48px;
-  border-radius: 6px;
-  object-fit: cover;
-}
-.result__title {
-  font-weight: 600;
-}
-.result__sub {
-  color: var(--muted);
-  font-size: 13px;
-}
-/* Push a row's trailing action (e.g. Discogs "Send to Roadie") to the right edge. */
-.result__action {
-  margin-left: auto;
-  flex-shrink: 0;
-}
-.textarea {
-  width: 100%;
-  resize: vertical;
-  font-family: var(--mono);
-  font-size: 13px;
-  margin-bottom: 12px;
-}
-.form {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  max-width: 420px;
-}
-.form label {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  font-size: 13px;
-  color: var(--muted);
-}
-.form input {
-  color: var(--text);
-}
-.settings-subhead {
-  font-size: 14px;
-  margin: 20px 0 4px;
-}
-.toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--text);
-  margin: 6px 0;
-  cursor: pointer;
-}
-.toggle input {
-  width: auto;
-}
-.toggle input:disabled {
-  cursor: not-allowed;
-}
-
-/* --- Roadie strip --- */
-.roadie-strip {
-  position: sticky;
-  bottom: 0;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 10px 24px;
-  border-top: 1px solid var(--line);
-  background: color-mix(in srgb, var(--bg) 92%, transparent);
-  backdrop-filter: blur(8px);
-  font-size: 13px;
-}
-.roadie-strip__summary {
-  margin-right: auto;
-  color: var(--muted);
-}
-.roadie-strip code {
-  color: var(--text);
-}
-
-/* --- error boundary fallback (issue #63) --- */
-.error-fallback {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
-  text-align: center;
-  padding: 48px 24px;
-}
-.error-fallback--app {
-  min-height: 100vh;
-}
-.error-fallback--route {
-  min-height: 50vh;
-}
-.error-fallback__title {
-  font-size: 22px;
-  margin: 0;
-  color: var(--alert);
-}
-.error-fallback__msg {
-  max-width: 560px;
-  margin: 0;
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: 13px;
-  word-break: break-word;
-}
-.error-fallback__actions {
-  display: flex;
-  gap: 10px;
-}
-
-.spinner {
-  display: inline-block;
-  width: 13px;
-  height: 13px;
-  border: 2px solid var(--line);
-  border-top-color: var(--amber);
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
-  vertical-align: -2px;
-}
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (max-width: 720px) {
-  .detail {
-    grid-template-columns: 1fr;
-  }
-  .detail__left {
-    position: static;
-  }
-  .page__head {
-    flex-wrap: wrap;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  * {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-  }
-}
-
-/* --- Demo Room (runtime preview): a fullscreen overlay above the app chrome. --- */
-.demo {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: grid;
-  grid-template-rows: auto 1fr auto;
-  background: #000;
-  color: var(--text);
-}
-.demo__bar {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 12px 18px;
-  background: rgba(20, 17, 15, 0.72);
-  backdrop-filter: blur(6px);
-  z-index: 2;
-}
-.demo__bar--bottom {
-  justify-content: center;
-}
-.demo__title {
-  flex: 1;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-.demo__lights {
-  font-size: 13px;
-  color: var(--sage);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 4px 12px;
-  white-space: nowrap;
-}
-.demo__lights--off {
-  color: var(--muted);
-}
-.demo__roompick {
-  position: absolute;
-  top: 60px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 3;
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 10px 14px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
-}
-.demo__stage {
-  position: relative;
-  overflow: hidden;
-  background: #000;
-}
-.demo__video {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transition: opacity 500ms ease-in-out; /* Backdrop-spec §7 crossfade feel */
-}
-.demo__idle {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  transition: opacity 600ms ease-in-out;
-  /* A dim, non-distracting idle wash — the "waiting for a sleeve" state. */
-  background: radial-gradient(
-    120% 100% at 50% 40%,
-    #241d16 0%,
-    #0c0a08 70%,
-    #000 100%
-  );
-}
-.demo__idle-hint {
-  color: var(--muted);
-  font-size: 15px;
-  letter-spacing: 0.02em;
-}
-.demo__lights-error {
-  position: absolute;
-  left: 50%;
-  bottom: 16px;
-  transform: translateX(-50%);
-  z-index: 3;
-  font-size: 13px;
-  color: var(--text);
-  background: rgba(229, 72, 77, 0.85);
-  border-radius: 999px;
-  padding: 5px 14px;
-  max-width: 80vw;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* =========================================================================================   The workbench rail (ADR 0026 / curator-ui-ux §5). Five workstations, always reachable. The
-   readiness chip reports what a bench holds; it never decides whether you can open it.
-   ============================================================================================== */
-.rail {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin: 6px 0;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-.rail__item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  background: var(--panel);
-  border-left: 3px solid transparent;
-  transition:
-    background 0.15s,
-    border-color 0.15s;
-}
-.rail__item:hover {
-  background: var(--panel-2);
-}
-.rail__item.is-active {
-  background: var(--panel-2);
-  border-left-color: var(--amber);
-}
-.rail__label {
-  font-weight: 600;
-  margin-right: auto;
-}
-.rail__item.is-active .rail__label {
-  color: var(--amber);
-}
-/* Readiness is a dot *plus a word* — never colour alone (curator-ui-ux §3.4). Backdrop already
-   shipped a colour-only indicator that was unreadable without colour vision (PR #85). */
-.rail__state {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted);
-  white-space: nowrap;
-}
-.rail__dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--line);
-  border: 1px solid var(--muted);
-}
-.rail__state--ready .rail__dot {
-  background: var(--amber-soft);
-  border-color: var(--amber);
-}
-.rail__state--attached .rail__dot {
-  background: var(--sage);
-  border-color: var(--sage);
-}
-.rail__state--blocked .rail__dot {
-  background: var(--alert);
-  border-color: var(--alert);
-}
-.rail__state--blocked {
-  color: var(--alert);
-}
-
-.bench__head {
-  margin-bottom: 18px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--line);
-}
-.bench__head h2 {
-  margin: 0;
-  font-size: 22px;
+.taghelp h2 {
+  font: 400 21px/1.1 var(--pp-display);
   letter-spacing: -0.01em;
+  margin: 0 0 8px;
 }
-.bench__head p {
-  margin: 4px 0 0;
+.taghelp p,
+.taghelp li {
+  max-width: 62ch;
+  font-size: 15px;
+  line-height: 1.65;
+}
+.taghelp__list,
+.taghelp__steps ol {
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.taghelp__steps {
+  margin: 18px 0;
+}
+.taghelp__warn {
+  margin: 20px 0;
+  padding: 14px 16px;
+  border: 1px solid var(--pp-accent);
+  background: var(--pp-accent-wash);
+}
+.taghelp__warn h2 {
+  color: var(--pp-accent-text);
+}
+.taghelp__more {
+  margin-top: 28px;
   font-size: 13px;
 }
 
-/* --- room-arm switch: the safety posture, always visible while it's on (§6.3) --- */
-.room-arm {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: 5px 12px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  background: var(--panel);
-  color: var(--muted);
-  cursor: pointer;
-}
-.room-arm__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--line);
-  border: 1px solid var(--muted);
-}
-.room-arm--live {
-  color: var(--amber);
-  border-color: var(--amber);
-}
-.room-arm--live .room-arm__dot {
-  background: var(--amber);
-  border-color: var(--amber);
-  animation: bulb 1.6s ease-in-out infinite;
-}
-
-/* --- bench/room mode picker --- */
-.modes {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-.modes__tab {
-  font: inherit;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  align-items: flex-start;
-  padding: 9px 14px;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  background: var(--panel);
-  color: var(--text);
-  font-weight: 600;
-  cursor: pointer;
-}
-.modes__tab em {
-  font-size: 11px;
-  font-weight: 400;
-}
-.modes__tab.is-active {
-  border-color: var(--amber);
-  color: var(--amber);
-}
-.modes__tab:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-/* --- per-service rehearsal report --- */
 .legs {
   list-style: none;
   padding: 0;
@@ -1443,633 +1894,27 @@ em {
   align-items: center;
   gap: 8px;
 }
-.legs__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--line);
-}
-.legs__item--ok .legs__dot {
-  background: var(--sage);
-}
 .legs__item--off .legs__dot {
   background: var(--muted);
 }
-
-/* --- preview bench: the sleeve sits alongside the light show and the video --- */
-.preview__sleeve {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  width: 200px;
-}
-.preview__sleeve-cap {
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--muted);
-  text-align: center;
-}
-.preview__video--empty {
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  text-align: center;
-  color: var(--muted);
-  font-size: 13px;
-  border: 1px dashed var(--line);
-  border-radius: var(--radius);
-}
-.preview__note {
-  font-size: 12px;
-  margin-top: 10px;
-}
-/* Desk audio (ADR 0037): the bench's audio leg sits under the stage, with its state in words. */
-.desk-audio {
-  margin-top: 14px;
-}
-.desk-audio .preview__note {
-  margin-top: 6px;
-}
-
-/* --- prompt slot: drafting is on request (ADR 0027), so an undrafted section says so --- */
-.prompt-slot--empty {
-  padding: 18px;
-  border: 1px dashed var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
-}
-/* A control that spends money must not look like one that doesn't (curator-ui-ux §7 rule 3). */
-.btn--spend {
-  border-color: var(--amber-soft);
-}
-.btn--spend::before {
-  content: "◈";
-  margin-right: 7px;
-  color: var(--amber);
-}
-
-/* --- the needs-you count, in the header where it can actually be read (§8) --- */
-.needs-you {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  font-weight: 700;
-  color: var(--amber);
-  border: 1px solid var(--amber-soft);
-  border-radius: 999px;
-  padding: 3px 12px;
-  font-size: 13px;
-}
-.needs-you em {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-/* The count takes the auto margin when present, so the nav link only claims it when absent. */
-.needs-you + .app__nav {
-  margin-left: 14px;
-}
-
-/* --- ⌘K's mouse path: the palette has to be findable without reading the keyboard table (§9.1) --- */
-.app__jump {
-  margin-left: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  background: none;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 3px 12px;
-  color: var(--muted);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-}
-.app__jump:hover {
-  color: var(--text);
-  border-color: var(--amber-soft);
-}
-.needs-you + .app__jump,
-.app__jump + .app__nav {
-  margin-left: 14px;
-}
-
-kbd {
-  font-family: var(--mono);
-  font-size: 11px;
-  border: 1px solid var(--line);
-  border-bottom-width: 2px;
-  border-radius: 4px;
-  padding: 1px 5px;
-  color: var(--muted);
-  background: var(--panel-2);
-  white-space: nowrap;
-}
-
-/* --- the command palette (§9.1, ADR 0043) --- */
-/* Sits high rather than centred: the list grows downward, and a centred box would walk up the
-   screen as you type. */
-.command-palette-scrim {
-  align-items: start;
-  padding-top: 12vh;
-}
-.command-palette {
-  width: min(620px, calc(100vw - 48px));
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
-  overflow: hidden;
-}
-.command-palette__input {
-  width: 100%;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: 17px;
-  padding: 15px 18px;
-  outline: none;
-}
-.command-palette__list {
-  list-style: none;
-  margin: 0;
-  padding: 6px;
-  max-height: 46vh;
-  overflow-y: auto;
-}
-.command-palette__row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: 7px;
-  cursor: pointer;
-}
-/* The selected row carries a caret and a border as well as the tint — colour alone is not a state
-   (§3.4), and this list is navigated entirely by eye. */
-.command-palette__row.is-active {
-  background: var(--panel-2);
-  box-shadow: inset 0 0 0 1px var(--amber-soft);
-}
-.command-palette__caret {
-  width: 12px;
-  flex: none;
-  color: var(--amber);
-}
-.command-palette__label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.command-palette__sub {
-  color: var(--muted);
-  font-size: 13px;
-}
-.command-palette__hint {
-  flex: none;
-  color: var(--muted);
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-.command-palette__empty,
-.command-palette__error,
-.command-palette__foot {
-  margin: 0;
-  padding: 12px 18px;
-  font-size: 13px;
-  color: var(--muted);
-}
-.command-palette__error {
-  color: var(--alert);
-}
-.command-palette__foot {
-  border-top: 1px solid var(--line);
-  font-size: 12px;
-}
-
-/* --- what ⌘⏎ does on this bench, stated before it is pressed (§9.1, ADR 0044) --- */
-.bench__head .bench__primary {
-  margin-top: 8px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-}
-.bench__primary-label {
-  color: var(--text);
-}
-
-/* --- in-app confirm, replacing window.confirm (§2) --- */
-.modal-scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: grid;
-  place-items: center;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(3px);
-}
-.modal {
-  width: min(460px, calc(100vw - 48px));
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 22px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
-}
-.modal__title {
-  margin: 0 0 8px;
-  font-size: 18px;
-}
-.modal__body {
-  margin: 0 0 18px;
-  color: var(--muted);
-  font-size: 14px;
-}
-
-/* Keyboard selection in the queue (curator-ui-ux §9.1). Distinct from :hover — the mouse and the
-   keyboard can point at different rows, and the keyboard's row is the one Enter opens. */
-.row--selected {
-  border-color: var(--amber);
-  background: var(--panel-2);
-}
-
-/* --- artwork override (issue #100): the cover the palette is derived from --- */
-.artwork-section__main {
-  display: flex;
-  gap: 16px;
-  align-items: flex-start;
-}
-.artwork-section__img {
-  width: 140px;
-  height: 140px;
-  object-fit: cover;
-  border-radius: var(--radius);
-  border: 1px solid var(--line);
-  flex: none;
-}
-.artwork-section__body {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  align-items: flex-start;
-}
-/* Keeps the file input operable by keyboard and screen readers while the styled button fronts it —
-   `display:none` would drop it from the accessibility tree entirely. */
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-  border: 0;
-}
-
-/* --- tag payload QR (issue #102): the phone path, beside the Flipper's .nfc download --- */
-.tagwrite__payload-block {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.tagwrite__qr {
-  width: 96px;
-  height: 96px;
-  border-radius: 6px;
-  background: #fff; /* QR contrast is defined against white; the warm panel would break scanning */
-  padding: 4px;
-  flex: none;
-}
-.tagwrite__qr--empty {
-  background: var(--panel-2);
-  border: 1px dashed var(--line);
-}
-.tagwrite__qr-error {
-  font-size: 12px;
-  color: var(--muted);
-}
-/* Service reachability rows (issue #101) — reuse the rehearsal leg list, plus the probed URL. */
 .health__url {
   font-size: 12px;
   color: var(--muted);
-}
-.legs__item--bad .legs__dot {
-  background: var(--alert);
-}
-
-/* --- tag-writing help (issue #103): read standing at the shelf, so generous measure + spacing --- */
-.taghelp h2 {
-  font-size: 17px;
-  margin: 0 0 8px;
-}
-.taghelp p,
-.taghelp li {
-  max-width: 68ch; /* a text column inside a wide window — §9.3's "text-column decision" */
-}
-.taghelp__list,
-.taghelp__steps ol {
-  padding-left: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.taghelp__steps {
-  margin: 18px 0;
-}
-/* The two warnings earn the alert treatment: both describe silent, hard-to-undo mistakes. */
-.taghelp__warn {
-  margin: 20px 0;
-  padding: 14px 16px;
-  border-radius: var(--radius);
-  border: 1px solid color-mix(in srgb, var(--alert) 35%, var(--line));
-  background: color-mix(in srgb, var(--alert) 8%, transparent);
-}
-.taghelp__warn h2 {
-  color: #ff9a9d;
-}
-.taghelp__more {
-  margin-top: 28px;
-  font-size: 13px;
-}
-.tagwrite__help {
-  color: var(--amber);
-  text-decoration: underline;
-}
-
-/* --- batch progress slide-over (issue #104, curator-spec §10) ---------------------------------
-   Bottom-right and above the Roadie strip: a sweep is background work, so it reports without
-   taking the screen. It is app-wide (see batchJob.ts), so it must read as its own thing rather
-   than as part of whichever page is behind it.
-
-   There is more than one kind of sweep now (palettes, and the Discogs collection sync — issue
-   #234), and two of them can run at once. The stack owns the corner so they sit above each other
-   instead of both claiming the same 420px and rendering one invisible. */
-.job-stack {
-  position: fixed;
-  right: 16px;
-  bottom: 56px; /* clears the Roadie strip */
-  z-index: 40;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 10px;
-  /* The stack spans the corner even when empty; only the panels themselves take clicks. */
-  pointer-events: none;
-}
-.job-stack > * {
-  pointer-events: auto;
-}
-.batch {
-  width: min(420px, calc(100vw - 32px));
-  max-height: min(60vh, 560px);
-  overflow-y: auto;
-  padding: 14px 16px;
-  border-radius: var(--radius);
-  border: 1px solid var(--line);
-  background: var(--panel-2);
-  box-shadow: 0 12px 32px rgb(0 0 0 / 45%);
-}
-/* The "sync your whole collection" call to action above the Discogs browser (issue #234). Reads as
-   the primary move on that tab; the per-row buttons below it stay the way to add just one. */
-.discogs-sync {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  margin-bottom: 16px;
-  padding: 14px 16px;
-  border-radius: var(--radius);
-  border: 1px solid var(--line);
-  background: var(--panel-2);
-}
-.discogs-sync__text {
-  flex: 1 1 260px;
-}
-.discogs-sync__text p {
-  margin: 4px 0 0;
-  font-size: 13px;
-}
-
-.batch__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.batch__head h2 {
-  margin: 0;
-  font-size: 15px;
-}
-.batch__bar {
-  margin: 10px 0 6px;
-  height: 6px;
-  border-radius: 3px;
-  background: var(--line);
-  overflow: hidden;
-}
-.batch__fill {
-  height: 100%;
-  background: var(--amber);
-  transition: width 240ms ease; /* the bar is the one place motion earns its keep here */
-}
-.batch__count {
-  margin: 0 0 10px;
-  font-size: 13px;
-  color: var(--muted);
-}
-.batch__rows,
-.batch-add__rows {
-  list-style: none;
-  margin: 12px 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 13px;
-}
-.batch__row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 2px 10px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  border-left: 3px solid var(--line);
-  background: var(--panel);
-}
-/* Tone is a second channel, never the only one — every row also carries its outcome in words
-   (curator-ui-ux §3.4). */
-.batch__row--ok {
-  border-left-color: var(--sage);
-}
-.batch__row--bad {
-  border-left-color: var(--alert);
-}
-.batch__label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.batch__outcome {
-  color: var(--muted);
-  white-space: nowrap;
-}
-.batch__error {
-  grid-column: 1 / -1;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-/* --- batch add report (issue #104): which pasted line did what --- */
-.batch-add {
-  margin: 12px 0;
-  padding: 12px 14px;
-  border-radius: var(--radius);
-  border: 1px solid var(--line);
-  background: var(--panel);
-}
-.batch-add__summary {
-  margin: 0;
-  font-weight: 600;
-}
-.batch-add__row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px;
-}
-.batch-add__row code {
-  color: var(--muted);
   font-family: var(--mono);
-  overflow-wrap: anywhere;
 }
 
-/* --- where the colours come from (ADR 0030, issue #105) --------------------------------------
-   Below the palette editor: the cover is the default, and this is the escape hatch for a record
-   whose sleeve doesn't look like it sounds. Presented as options side by side so the choice is a
-   comparison rather than a leap. */
-.feel {
-  margin-top: 20px;
-}
-.feel__rationale {
-  margin: 12px 0;
-  font-style: italic;
-  color: var(--text);
-  max-width: 68ch;
-}
-.feel__options {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
-  margin: 12px 0;
-}
-.feel__option {
-  padding: 12px 14px;
-  border-radius: var(--radius);
-  border: 1px solid var(--line);
-  background: var(--panel);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-/* The one in force is marked by a border *and* an "in use" tag — never colour alone (§3.4). */
-.feel__option.is-current {
-  border-color: var(--amber);
-}
-.feel__option-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.feel__option p {
-  margin: 0;
-  font-size: 13px;
-}
-.feel__swatches {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-.feel__swatch {
-  flex: 1 1 40px;
-  min-width: 40px;
-  height: 44px;
-  border-radius: 6px;
-  border: 1px solid var(--line);
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  padding-bottom: 2px;
-}
-/* The hex sits on the swatch rather than only in a tooltip: a strip of colour is unreadable to
-   anyone who can't distinguish the hues, and mix-blend keeps it legible on light and dark alike. */
-.feel__swatch em {
-  font-family: var(--mono);
-  font-size: 9px;
-  font-style: normal;
-  color: #fff;
-  mix-blend-mode: difference;
-}
-
-/* A compact button for dense rows — the batch panel's dismiss (issue #104) and the peer navigator
-   (issue #94) both reference this. It was referenced before it existed; defined here so those
-   controls are actually smaller rather than silently full-size. */
-.btn--small {
-  padding: 4px 8px;
-  font-size: 12px;
-}
-
-/* --- next album at this state (issue #94) ----------------------------------------------------
-   Sits with the Queue link in the detail sidebar: both answer "where do I go next", and keeping
-   them together means the flow affordance is found by anyone already looking for the way out. */
-.peernav {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 8px 0 4px;
-  flex-wrap: wrap;
-}
-.peernav__count {
-  font-size: 12px;
-  color: var(--muted);
-  white-space: nowrap;
-}
-.peernav__count em {
-  font-style: normal;
-  display: block;
-}
-
-/* --- Motion picker (ADR 0039): the Look tab's one list of how this record moves the lights ------ */
 .motion {
   display: grid;
   gap: 8px;
   margin: 14px 0 4px;
 }
-.motion__head {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
-}
+.motion__head,
 .motion__options {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
 }
-/* The hardware-gated three, set apart by a rule rather than by colour — the label carries the
-   reason in words, so the grouping never has to be inferred from a hue (curator-ui-ux §3.4). */
 .motion__options--streaming {
   border-top: 1px dashed var(--line);
   padding-top: 8px;
@@ -2078,18 +1923,11 @@ kbd {
   font-size: 12px;
   width: 100%;
 }
-.motion__note {
-  font-size: 12.5px;
-  margin: 0;
-}
-/* The chosen pattern's knobs (ADR 0036/0039). Ranges come from PATTERN_PARAM_SPECS, not from here. */
 .motion__params {
   display: grid;
   gap: 10px;
   padding: 10px 12px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel-2);
   justify-items: start;
 }
 .motion__param {
@@ -2110,89 +1948,486 @@ kbd {
   font-variant-numeric: tabular-nums;
   color: var(--text);
 }
-.motion__param input[type="range"] {
+.motion__param input[type="range"],
+input[type="range"] {
   width: 100%;
-  accent-color: var(--amber);
+  accent-color: var(--pp-ink);
 }
 
-/* Media transfer to Backdrop (issue #177). A transfer can run for an hour over a poor link, so it
-   gets real estate and real numbers rather than a spinner — see MediaTransfer.tsx. */
+.feel {
+  margin-top: 20px;
+}
+.feel__rationale {
+  margin: 12px 0;
+  font-size: 15px;
+  line-height: 1.65;
+  max-width: 62ch;
+}
+.feel__options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  border: 1px solid var(--pp-ink);
+  margin: 12px 0;
+}
+.feel__option {
+  padding: 14px;
+  background: var(--pp-paper-sunk);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-right: 1px solid var(--line);
+}
+.feel__option:last-child {
+  border-right: 0;
+}
+.feel__option.is-current {
+  background: var(--pp-paper-raised);
+}
+.feel__option-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.feel__option p {
+  margin: 0;
+  font-size: 13px;
+}
+.feel__swatches {
+  display: flex;
+  outline: 1px solid var(--pp-ink);
+}
+.feel__swatch {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 2px;
+  border-left: 1px solid rgba(0, 0, 0, 0.25);
+}
+.feel__swatch:first-child {
+  border-left: 0;
+}
+.feel__swatch em {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-style: normal;
+  color: #fff;
+  mix-blend-mode: difference;
+}
+
+.peernav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 4px;
+  flex-wrap: wrap;
+}
+.peernav__count {
+  font: 500 9.5px/1.4 var(--pp-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.peernav__count em {
+  font-style: normal;
+  display: block;
+}
+
+.job-stack {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  pointer-events: none;
+}
+.job-stack > * {
+  pointer-events: auto;
+}
+.batch,
+.batch-add,
+.transfer,
+.discogs-sync {
+  width: min(420px, calc(100vw - 32px));
+  padding: 14px 16px;
+  border: 1px solid var(--pp-ink);
+  background: var(--pp-paper-raised);
+}
+.batch {
+  max-height: min(60vh, 560px);
+  overflow-y: auto;
+  box-shadow: 0 10px 30px rgba(23, 21, 15, 0.24);
+}
+.batch__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.batch__head h2 {
+  margin: 0;
+  font: 500 9.5px/1 var(--pp-mono);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.batch__bar,
+.transfer__bar {
+  margin: 10px 0 6px;
+  height: 5px;
+  background: #ded8c9;
+  border: 1px solid var(--pp-rule-soft);
+  overflow: hidden;
+}
+.batch__fill,
+.transfer__fill {
+  display: block;
+  height: 100%;
+  background: var(--pp-ink);
+  transition: width 240ms ease;
+}
+.batch__count,
+.batch__outcome,
+.batch__error,
+.transfer__note {
+  font-size: 12px;
+  color: var(--muted);
+}
+.batch__rows,
+.batch-add__rows {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+}
+.batch__row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+.batch__row--bad {
+  color: var(--pp-accent-text);
+}
+.batch__label,
+.batch-add__row code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.batch__error {
+  grid-column: 1 / -1;
+}
+.batch-add {
+  width: auto;
+  margin: 12px 0;
+}
+.batch-add__summary {
+  margin: 0;
+  font-weight: 600;
+}
+.batch-add__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
 .transfer {
-  margin: 0.75rem 0 0;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--line);
-  border-radius: 0.5rem;
-  background: var(--panel);
+  width: auto;
+  margin: 12px 0 0;
 }
 .transfer__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 16px;
 }
-.transfer__label {
-  font-size: 0.9rem;
-}
-.transfer__bar {
-  margin-top: 0.5rem;
-  height: 0.4rem;
-  border-radius: 0.2rem;
-  background: var(--line);
-  overflow: hidden;
-}
-.transfer__fill {
-  display: block;
-  height: 100%;
-  background: var(--amber);
-  transition: width 240ms ease; /* matches .batch__fill — one progress-bar idiom, not two */
-}
-.transfer__note {
-  display: block;
-  margin-top: 0.4rem;
-  font-size: 0.8rem;
-  color: var(--muted);
-}
-/* Failure is never colour alone (curator-ui-ux §3.4) — the copy leads with what happened. */
 .transfer--failed {
-  border-color: var(--alert);
+  border-color: var(--pp-accent);
+  background: var(--pp-accent-wash);
+}
+.discogs-sync {
+  width: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.discogs-sync__text {
+  flex: 1 1 260px;
+}
+.discogs-sync__text p {
+  margin: 4px 0 0;
+  font-size: 13px;
 }
 
-/* --- System status page ------------------------------------------------------------------------
-   The album matrix is the page's reason to exist: the only view that says "Curator has thirteen
-   albums and the runtime has six". Wide by nature, so it scrolls inside its own container rather
-   than pushing the page sideways. */
 .matrix__scroll {
   overflow-x: auto;
 }
 .matrix {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.92rem;
+  font-size: 13px;
 }
 .matrix th,
 .matrix td {
-  padding: 0.4rem 0.6rem;
+  padding: 9px 12px 9px 0;
   border-bottom: 1px solid var(--line);
   text-align: left;
   white-space: nowrap;
 }
 .matrix thead th {
-  font-weight: 600;
+  font: 500 9.5px/1 var(--pp-mono);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
   color: var(--muted);
 }
 .matrix tbody th {
   font-weight: 500;
   white-space: normal;
 }
-/* Present/absent reads from the glyph, never the colour alone (curator-ui-ux §3.4); the tint is a
-   second channel for people who do perceive it, and every cell also carries screen-reader text. */
 .matrix__cell {
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
-.matrix__cell--yes {
-  color: var(--ok, inherit);
-}
 .matrix__cell--no {
-  color: var(--alert, inherit);
+  color: var(--pp-accent-text);
+}
+
+.modal-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: rgba(23, 21, 15, 0.45);
+}
+.modal {
+  width: min(460px, calc(100vw - 48px));
+  background: var(--pp-paper-raised);
+  border: 1px solid var(--pp-ink);
+  padding: 22px;
+  box-shadow: 0 10px 30px rgba(23, 21, 15, 0.24);
+}
+.modal__title {
+  margin: 0 0 8px;
+  font: 400 21px/1.1 var(--pp-display);
+  letter-spacing: -0.01em;
+}
+.modal__body {
+  margin: 0 0 18px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.error-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  text-align: center;
+  padding: 48px 24px;
+  background: var(--pp-paper);
+}
+.error-fallback--app {
+  min-height: 100vh;
+}
+.error-fallback--route {
+  min-height: 50vh;
+}
+.error-fallback__title {
+  font: 400 30px/1 var(--pp-display);
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+.error-fallback__msg {
+  max-width: 62ch;
+  margin: 0;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+  word-break: break-word;
+}
+.error-fallback__actions {
+  display: flex;
+  gap: 10px;
+}
+
+.spinner {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  background: var(--pp-accent);
+  border-radius: 50%;
+  animation: ppPulse 2.4s ease-in-out infinite;
+  vertical-align: baseline;
+}
+
+.artwork-section__main {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+.artwork-section__img {
+  width: 140px;
+  height: 140px;
+  object-fit: cover;
+  outline: 1px solid var(--pp-ink);
+  flex: none;
+}
+.artwork-section__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.demo {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  background: var(--pp-room-floor);
+  color: var(--pp-paper);
+}
+.demo__bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 18px;
+  background: rgba(10, 7, 12, 0.94);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.25);
+  z-index: 2;
+}
+.demo__bar--bottom {
+  justify-content: center;
+  border-bottom: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.25);
+}
+.demo__bar .btn,
+.demo__bar .room-arm {
+  border-color: rgba(255, 255, 255, 0.35);
+  color: var(--pp-paper);
+}
+.demo__bar .btn:hover {
+  background: var(--pp-paper);
+  color: var(--pp-ink);
+}
+.demo__bar input[type="range"] {
+  accent-color: var(--pp-amber);
+}
+.demo__title {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font: 400 17px/1 var(--pp-display);
+  letter-spacing: -0.01em;
+}
+.demo__lights {
+  font: 500 10px/1 var(--pp-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  padding: 6px 12px;
+  white-space: nowrap;
+}
+.demo__lights--off {
+  color: rgba(255, 255, 255, 0.55);
+}
+.demo__roompick {
+  position: absolute;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  background: var(--pp-paper-raised);
+  color: var(--pp-ink);
+  border: 1px solid var(--pp-ink);
+  padding: 10px 14px;
+}
+.demo__stage {
+  position: relative;
+  overflow: hidden;
+  background: var(--pp-room-floor);
+}
+.demo__video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: opacity 500ms ease-in-out;
+}
+.demo__idle {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  transition: opacity 600ms ease-in-out;
+  background: radial-gradient(
+    130% 100% at 50% 18%,
+    #241d16 0%,
+    #14100c 55%,
+    var(--pp-room-floor) 100%
+  );
+}
+.demo__idle-hint {
+  color: rgba(255, 255, 255, 0.7);
+  font: 500 10px/1 var(--pp-mono);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.demo__lights-error {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 3;
+  font-size: 12px;
+  color: var(--pp-paper);
+  background: var(--pp-accent);
+  padding: 6px 14px;
+  max-width: 80vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+kbd {
+  font-family: var(--pp-mono);
+  font-size: 11px;
+  border: 1px solid var(--pp-rule-soft);
+  padding: 1px 5px;
+  color: var(--pp-ink-muted);
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .detail {
+    grid-template-columns: 1fr;
+  }
+  .detail__left {
+    position: static;
+  }
+  .page__head {
+    flex-wrap: wrap;
+  }
 }

@@ -148,6 +148,18 @@ export interface BuildOptions {
   flipperAppend?: FlipperAppender;
 }
 
+/**
+ * One row of `GET /api/albums`.
+ *
+ * The second half of this — from `year` down — exists for the collection screen (ADR 0052). That
+ * screen shows every record at once and labels each with the *first thing it still needs*, which is
+ * a predicate over the assets (is a visualizer attached? are both tags written and checked?) rather
+ * than a reading of `roadie.state`. Deriving it needs those facts in the list response; fetching
+ * forty assets to answer one grid is not a trade worth making.
+ *
+ * Deliberately facts, not a verdict: the client derives the need through one shared pure module
+ * (`ui/src/needs.ts`) so the collection and the record page cannot disagree about it.
+ */
 const summary = (a: AlbumAsset) => ({
   curatorId: a.curatorId,
   title: a.metadata.name,
@@ -160,6 +172,19 @@ const summary = (a: AlbumAsset) => ({
   paletteInsufficient: a.roadie.flags.palette_insufficient,
   // The Demo Room lists albums with a video to swap between; palette drives the lights either way.
   hasVideo: Boolean(a.visualizer),
+
+  year: a.metadata.year ?? null,
+  genres: a.metadata.genres ?? [],
+  /** In order — `[0]` is the dominant. The collection draws its art placeholder from these. */
+  paletteHexes: a.palette?.colors.map((c) => c.hex) ?? [],
+  hasCardArt: Boolean(a.cardArt),
+  /** Both tags burned. One of two is not "written" — the record still needs a trip to the Flipper. */
+  tagsWritten: Boolean(a.tag?.sleeve?.written && a.tag?.card?.written),
+  previewApprovedAt: a.verification?.previewApprovedAt ?? null,
+  physicallyVerifiedAt: a.verification?.physicallyVerifiedAt ?? null,
+  /** What Roadie is doing right now, so the grid can narrate ("finding the sleeve") in place. */
+  subState: a.roadie.subState,
+  lastError: a.roadie.lastError,
 });
 
 // A newly-added album has only been queued — palette/prompts land later, off the request path.

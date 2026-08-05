@@ -16,6 +16,26 @@ This document ratifies the former and replaces the latter. It records the design
 - [ADR 0027](../adrs/0027-generation-is-invoked-not-pipelined.md) — generation is invoked, never pipelined
 - [ADR 0028](../adrs/0028-preview-bench-and-room-modes.md) — preview has bench and room modes; hardware requires arming
 
+> ### Status, 2026-08-04 — the overhaul is landing screen by screen
+>
+> [**ADR 0052**](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md) replaces this app's
+> information architecture and its whole visual language: Curator becomes **three places** — the
+> collection, the record, the room — and "backstage marquee" becomes **"Pressing Plant"**. The design
+> handoff it implements is in `docs/design_handoff_curator_overhaul/`.
+>
+> It ships in stages, so this spec is part new and part historical. Read it accordingly:
+>
+> | Section                        | State                                                                                                                                                    |
+> | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+> | §3 design language             | **Rewritten.** Pressing Plant, as built.                                                                                                                 |
+> | §8 the collection              | **Rewritten.** Replaces the queue view, as built.                                                                                                        |
+> | §9.1 keyboard                  | **Withdrawn.** The accelerator layer is removed.                                                                                                         |
+> | §4–§6 workbench, rail, preview | **Superseded but still the code.** The record and the room are not built yet; the rail and the bench described there are what is running until they are. |
+> | §8.5 system, §9.2–§10          | Unchanged so far.                                                                                                                                        |
+>
+> Nothing below is deleted — a spec that loses its history can't explain why the code looks the way it
+> does mid-migration.
+
 ## 2. The frame — a desktop app, not a website
 
 Curator ships as an Electron app ([ADR 0008](../adrs/0008-desktop-app-supervises-services.md)):
@@ -37,60 +57,91 @@ Curator is a **workstation tool**. It is not designed for phones or tablets; a v
 `minWidth` is not a supported configuration. Responsiveness exists to serve window resizing on a
 desktop, not device classes.
 
-## 3. Design language — "backstage marquee"
+## 3. Design language — "Pressing Plant"
 
-**Ratified as-is.** It is coherent, on-theme, and already implemented throughout; this section
-promotes it from a CSS comment to a specified contract.
+> **Rewritten 2026-08-04** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).
+> This section used to specify **"backstage marquee"** — warm near-black `#14110f`, theater-amber
+> `#f5a623`, `10px` radii, Inter. That theme is gone. It is named here only so a screen still wearing
+> it is recognisable as one the overhaul hasn't reached: `styles.css` carries a marked **legacy
+> block** that repoints the old `--bg`/`--panel`/`--amber` variables at the tokens below, and that
+> block is deleted with the last screen it serves.
 
-> Warm near-black, a single theater-amber accent used with restraint, tracked-uppercase labels like a
-> stage cue sheet. The signature is the lit-bulb pulse on whatever album Roadie is working right now.
+Light, printed, editorial.
+
+> Warm paper stock, ink black, one brick-red accent. Hairline rules instead of cards; grid gutters
+> are borders, so the collection reads as ruled paper. Nothing is rounded. The signature is the
+> pulsing accent dot wherever Roadie is present.
 
 ### 3.1 Tokens
 
-Defined in `:root` in `styles.css`. These names are the contract; components reference tokens, never
-literal hex.
+Defined in `:root` in `styles.css` as `--pp-*`. These names are the contract; components reference
+tokens, never literal hex.
 
-| Token          | Value     | Role                                                         |
-| -------------- | --------- | ------------------------------------------------------------ |
-| `--bg`         | `#14110f` | Page ground. Warm near-black, deliberately not neutral gray. |
-| `--panel`      | `#1e1a17` | Cards, rows, controls.                                       |
-| `--panel-2`    | `#241f1b` | Raised or nested surface.                                    |
-| `--line`       | `#2e2823` | Borders, dividers, control outlines.                         |
-| `--text`       | `#ede6db` | Primary text. Warm off-white.                                |
-| `--muted`      | `#9a8f82` | Secondary text, labels, timestamps.                          |
-| `--amber`      | `#f5a623` | **The** accent: marquee bulb, primary action, next action.   |
-| `--amber-soft` | `#6b4e1e` | Amber at rest — dim bulb, inactive accent.                   |
-| `--cyan`       | `#48c4c4` | Roadie is working. Reserved; means nothing else.             |
-| `--alert`      | `#e5484d` | Error, destructive action.                                   |
-| `--sage`       | `#6bbf59` | Healthy, connected, verified.                                |
-| `--radius`     | `10px`    | Panels and cards. Buttons use `8px`.                         |
+| Token               | Value     | Role                                                               |
+| ------------------- | --------- | ------------------------------------------------------------------ |
+| `--pp-paper`        | `#f2efe8` | App ground, and reversed text on ink.                              |
+| `--pp-paper-sunk`   | `#efebe2` | Stat bands, sidebars, secondary panels.                            |
+| `--pp-paper-raised` | `#f7f4ee` | The in-use palette card, tag panels, the toast.                    |
+| `--pp-paper-log`    | `#eae5da` | The expanded Roadie log.                                           |
+| `--pp-rule`         | `#d8d2c4` | Every hairline divider.                                            |
+| `--pp-rule-soft`    | `#c9c2b1` | Input underlines, unselected outlines.                             |
+| `--pp-dashed`       | `#b3ab99` | Empty-state dashed borders.                                        |
+| `--pp-ink`          | `#17150f` | All primary text, bars, filled buttons.                            |
+| `--pp-ink-muted`    | `#6f6a5c` | Secondary text, mono labels.                                       |
+| `--pp-ink-faint`    | `#8d8778` | Tertiary text, captions.                                           |
+| `--pp-ink-ghost`    | `#a49d8c` | Ids, prompt numbers.                                               |
+| `--pp-accent`       | `#b4402c` | **The** accent: not complete, Roadie's presence, the current stat. |
+| `--pp-accent-text`  | `#8e3122` | The accent as body text, where the lighter one loses contrast.     |
+| `--pp-accent-wash`  | `#f7ece9` | The Stuck row, a failing service, unmatched Discogs rows.          |
+| `--pp-positive`     | `#3f7d4e` | Reachable services, "written", "saved a moment ago".               |
+| `--pp-amber`        | `#e0a24a` | Fader accent — **inside the dark room only**.                      |
+| `--pp-room-floor`   | `#0d0a10` | The room's base, before the palette wash.                          |
 
-**Amber is scarce by design.** It marks the one thing to do next. A screen with three amber elements
-has no next action — it has three, which is none. If everything needs emphasis, the layout is wrong.
+Three rules the tokens don't carry on their own:
+
+- **Nothing has a border radius. Zero.** Buttons, inputs, panels and the toast are all square. The
+  one round thing in the app is a status dot (`border-radius: 50%`).
+- **No shadows anywhere except the toast** (`0 10px 30px rgba(23,21,15,.24)`).
+- **Album artwork uses `outline`, never `border`**, so the state treatment can't move the layout: ink
+  for ready, `--pp-rule-soft` for not complete, `2px` accent for Roadie-is-on-it.
+
+**The accent is scarce by design**, and it does more work than amber did — it now carries
+"not complete" across a whole wall of records. That makes §3.4 load-bearing rather than advisory.
 
 ### 3.2 Type
 
-`Inter` with a system fallback stack; `ui-monospace` for identifiers, payloads, and prompts. Base
-`15px / 1.5`.
+Three families, each with one job:
 
-The one distinctive move is the **cue-sheet label**: `12px`, `letter-spacing: 0.16em`,
-`text-transform: uppercase`, `--muted`, underlined by a `--line` rule. It marks section and group
-boundaries. It is a _label_, never body copy — nothing longer than about four words gets tracked
-uppercase.
+| Family  | Stack                              | Job                                       |
+| ------- | ---------------------------------- | ----------------------------------------- |
+| Display | Archivo Black 400 only             | Numbers, screen titles, record titles.    |
+| Body    | Helvetica Neue / Helvetica / Arial | Everything readable.                      |
+| Mono    | IBM Plex Mono 500/600              | Labels, counts, times, hex, ids, buttons. |
+
+Archivo Black and IBM Plex Mono are loaded from Google Fonts in `index.html`; Helvetica is a system
+stack and is never loaded. Both webfonts have real fallbacks, because Curator is a desktop app that
+is expected to work away from the internet.
+
+Base body is `13px / 1.45`; prose is `15px / 1.65` capped at `62ch`.
+
+The distinctive move is the **mono label**: `9.5px`, `letter-spacing: .18em`, uppercase,
+`--pp-ink-muted`. **Every uppercase label is genuinely uppercase in the markup**, not
+`text-transform`-ed — so it is uppercase to a screen reader and to a copy-paste too. The masthead
+wordmark is the single exception.
 
 ### 3.3 Motion
 
-Motion carries state, never decoration. Three sanctioned uses:
+Motion carries state, never decoration. Four sanctioned animations, all named `pp*`:
 
-- **The bulb pulse** — the album Roadie is working on, in `--cyan`. The signature; do not reuse the
-  animation for anything else.
-- **The artwork skeleton** — a cover that is still downloading (§10, issue
-  [#134](https://github.com/dylanleatham/Marquee/issues/134)). Distinct from the bulb pulse: it
-  stands in for the art itself rather than annotating a row.
-- **Transitions** — `150ms` for hover/focus affordances, `500–600ms` crossfades where the runtime
-  itself crossfades (Preview, Demo Room), so what you rehearse matches what Backdrop does.
+- **`ppPulse`** (`2.4s`) — Roadie is present: the masthead dot, the log's dot, a loading screen.
+- **`ppDrift`** (`26s`) — the room's palette wash. Inset `-6%` on all sides so the drift never
+  reveals an edge.
+- **`ppToast`** (`5s`, forwards) — the ready toast's whole life.
+- **Transitions** — `500–600ms` crossfades where the runtime itself crossfades, so what you rehearse
+  matches what Backdrop does.
 
-`prefers-reduced-motion: reduce` disables animation globally. Already implemented; keep it.
+`prefers-reduced-motion: reduce` disables animation globally, `ppDrift` included. The prototype did
+not respect it and should have — a slow full-screen drift is exactly what that setting exists for.
 
 Animation that loops runs **only while it can be seen** — gated on tab visibility, and on an
 `IntersectionObserver` where the element can scroll away. The shared `useVisibleCycle` hook owns
@@ -106,14 +157,25 @@ This is a **repeat class**, not a hypothetical: Backdrop shipped a connection in
 unreadable without colour vision (`37ffdae`, PR #85). The rail's readiness dots (§5) are the exact
 same shape of risk, so the rule is written down here rather than rediscovered a third time.
 
+This section is the reason the accent can carry "not complete" across a whole wall of records. On the
+collection, a record that isn't finished is marked **three ways at once** — a paler outline, reduced
+contrast on the artwork, and the need spelled out in words underneath. Roadie's is marked by outline
+_weight_ as well as hue. Remove the words and the grid becomes unreadable to this project's own user.
+
 ### 3.5 Focus
 
-Every interactive element has a visible focus ring that meets 3:1 against its own background. This
-is not optional once the app has a keyboard path (§9) — an invisible focus ring makes keyboard
-navigation unusable.
+Every interactive element has a visible focus ring that meets 3:1 against its own background. This is
+not negotiable: the accelerator layer went away (§9.1) but keyboard _reachability_ did not, and it is
+an accessibility floor rather than a power-user feature.
 
-Contrast was audited at ratification: `--muted` on `--bg` is ≈6.0:1 and `--amber` on `--bg` is
-≈9.4:1, both clearing AA for body text. Any new token pair must be checked before it lands.
+Pressing Plant's ring is `2px solid --pp-ink` at `2px` offset — a **shape**, which is what makes it
+readable without colour. On ink-filled controls it inverts to paper and moves inside, so it never
+disappears into the fill. The design prototype had no focus states at all; they were added here.
+
+Contrast: `--pp-ink-muted` on `--pp-paper` is ≈4.7:1 and `--pp-accent-text` on `--pp-paper` is
+≈5.6:1, both clearing AA for body text. `--pp-accent` is used for large type, rules and fills rather
+than small body copy, which is why `--pp-accent-text` exists at all. Any new token pair must be
+checked before it lands.
 
 ## 4. The workbench principle
 
@@ -294,24 +356,63 @@ Three rules:
 
 The template fallback path costs nothing and is unaffected; it stays available on demand.
 
-## 8. Queue view
+## 8. The collection
 
-Essentially as built, and the strongest screen in the app: grouped by which step is next, one row per
-album with cover, title/artist, wait time, and a single next-action link. Sections in attention
-order — _Needs you right now_, _Roadie is on it_, _Needs your attention_, _Done_. Keep all of it.
+> **Rewritten 2026-08-04** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).
+> This section used to specify the **queue view**: albums grouped into nine machine-state buckets,
+> in attention order, one row each with a next-action link, and a "needs you right now" count in the
+> header. That screen only ever showed work-in-progress — there was no view that answered "what do I
+> own?", which is the question you actually have when you sit down. The queue survives as one filter
+> chip. `pages/QueueView.tsx` and `queueKeys.ts` are deleted.
 
-Two corrections:
+Home. Every record you own, art-first, in a shuffled grid.
 
-- **The "needs you right now" count needs a real home.** It is currently written into
-  `document.title`, an affordance that assumes a browser tab (§2). In a single-window app that count
-  belongs **in the app header**, visible while you work. Optionally mirror it to the taskbar/dock
-  badge for when the window is not focused — that is where an OS-level count is actually read.
-- **Empty is a positive state.** "All caught up. Roadie is idle," not an empty container. Already
-  specified in the onboarding workflow; keep it true.
+**A record shows its first outstanding need, and only that** — never a count, never "+1". The need is
+derived from the assets, not read off `roadie.state`: lights until the preview is approved, a
+visualizer until one is attached, a card until one is attached, tags until both are written _and_
+checked. Precedence is lights → visualizer → card → tags, which is a reading order, not a dependency.
+One pure module (`ui/src/needs.ts`) owns the derivation for both this screen and the record page, so
+they cannot disagree about the same record.
 
-The onboarding workflow's rule stands: the needs-you number is the only number that gets this
-treatment. Adding queue depth or total albums beside it muddies the one signal that answers "should I
-sit down now?"
+The vocabulary is fixed and was settled over three rounds of review. Not cosmetic — the old words
+were rejected:
+
+| Say                                         | Never say                            |
+| ------------------------------------------- | ------------------------------------ |
+| the collection                              | the wall, the queue                  |
+| Not complete / Ready                        | wants you / fully lit, lit, verified |
+| Needs Lights / Visualizer / Card / Sign-off | needs colours, awaiting anything     |
+| Roadie is on it                             | processing, generating palette       |
+| Stuck                                       | errored                              |
+
+**No machine state name and no album id appears anywhere on this screen.** Roadie's log says "Pulled
+the lights from **Kind of Blue**". A failure reads as a sentence with a way out, not as
+`spotify_lookup_failed`.
+
+Four regions:
+
+- **The stat band** — Not complete (accent) · Ready · Not started, each with a one-line detail; then
+  a **rotating statistic** you advance by clicking. The pool is built from the statistics there is
+  data for, so it is four today and becomes five when `label` is stored on an asset.
+- **The filter bar** — Everything · Not complete · Ready, a search over title and artist, `SHUFFLED ↻`,
+  and a density cycler (5 / 7 / 9 columns). Filter, query and density live in the URL so a session
+  survives a reload.
+- **The grid** — gutters are **borders, not gaps**. Selecting _Not complete_ regroups it under one
+  heading per need; **empty groups are not rendered at all**. Stuck records get their own row on
+  `--pp-accent-wash` below the groups, with the sentence and a `FIX IT` button.
+- **Roadie's log** — a footer strip with the newest entry, expanding into a panel. **Session-only and
+  not persisted**; the panel says so. Failures live durably in the Stuck group instead.
+
+**Order is shuffled on every visit**, seeded so it is stable across the poll's re-renders within a
+visit and different next time. `SHUFFLED ↻` reseeds. A grid that reorders under the cursor every
+three seconds would be unusable, so the seed is load-bearing, not decorative.
+
+**Empty is a positive state.** "Your collection is empty" with a way to add the first record — never
+an empty container, and never a blank wall when a search matches nothing.
+
+The header's count is now **progress across the whole collection** ("18 of 40 ready"), not a
+needs-you tally. It answers "how far am I?" rather than "how much is nagging me?", which is the
+question a wall of records raises.
 
 ## 8.5 System status — the page you open when something is wrong
 
@@ -354,7 +455,25 @@ Two rules this page must not break:
 
 ## 9. Desktop affordances
 
-### 9.1 Keyboard
+### 9.1 Keyboard — withdrawn
+
+> **Withdrawn 2026-08-04** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).
+> **Every binding in the table below is removed**, along with the command palette
+> ([ADR 0043](../adrs/0043-command-palette-carries-commands.md)) and the declared per-workstation
+> primary action ([ADR 0044](../adrs/0044-workstations-declare-their-primary-action.md)). `⌘K`,
+> `j`/`k`, `1`–`5`, `⌘⏎`, `n`, `⌘,` and `/` do nothing.
+>
+> The premise below — "the success criterion is working through ten albums in one session" — is what
+> changed. The user asked to optimise for **clarity** instead: an accelerator layer earns its cost
+> when the screen underneath is dense and ordered, and the collection is neither. `[`/`]` become the
+> record sidebar's `↑ PREV` / `NEXT ↓` buttons, which are the same affordance without a hidden key.
+>
+> **Keyboard _reachability_ is not withdrawn** — every control remains focusable and operable, with a
+> visible ring (§3.5). That is an accessibility floor, not an accelerator. Do not reinstate any of
+> these bindings without asking; they were removed deliberately, not lost.
+>
+> The rest of this section is kept for the two bugs it records (#119 and #225), which are about React
+> painting before it flushes effects and will bite again in a different shape.
 
 The success criterion is working through ten albums in one session. Ten albums × mousing to every
 control is what turns a session into a chore.
@@ -378,6 +497,9 @@ control is what turns a session into a chore.
 > built 2026-07-31 ([issue #95](https://github.com/dylanleatham/Marquee/issues/95)), each of which
 > needed a surface rather than a handler — see below. **The table is now complete: every binding
 > specified here is implemented.**
+>
+> **Superseded 2026-08-04:** every row above now reads `removed`. See the withdrawal note at the top
+> of §9.1.
 
 `[` / `]` implement the onboarding workflow's "next album at this state is a first-class affordance"
 (§12 there). The neighbours come from the **server**, sharing the queue's own bucketing
@@ -402,7 +524,12 @@ intermittently does nothing is worse than one that doesn't exist, because the us
 they have. The decision itself lives in `ui/src/queueKeys.ts` as a pure function of the live rows, so
 the clamping rules are checkable without racing a render.
 
-#### The command palette (`Ctrl/⌘ K`)
+#### The command palette (`Ctrl/⌘ K`) — removed
+
+> **Removed 2026-08-04** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).
+> `CommandPalette.tsx`, `commandPalette.ts` and the header's **Jump…** button are deleted. Nothing
+> below is live. Kept because the one durable finding is worth keeping: a shortcut needs a _surface_,
+> not just a handler.
 
 Ranks **albums and commands in one list, albums first**
 ([ADR 0043](../adrs/0043-command-palette-carries-commands.md)). An empty input lists the commands
@@ -417,7 +544,11 @@ a failed fetch still leaves the commands working and says why the albums are mis
 
 The palette has a mouse path — the header's **Jump…** button — but no app-menu item (§9.2).
 
-#### The primary action (`Ctrl/⌘ Enter`)
+#### The primary action (`Ctrl/⌘ Enter`) — removed
+
+> **Removed 2026-08-04** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).
+> The binding is gone. `primaryAction.tsx` and the bench header's label go with the rail when the
+> record page lands; until then they are still running and still correct about what they say.
 
 Each workstation **declares its own** primary action into a slot the detail page owns
 ([ADR 0044](../adrs/0044-workstations-declare-their-primary-action.md)); the answer depends on state
@@ -459,6 +590,12 @@ fullscreen), Help (docs) — makes the shortcuts discoverable and the OS integra
 > **The command palette is not in the menu either (2026-07-31).** Loading a route is exactly what it
 > must not do: the palette is an overlay over wherever you already are, and a menu item would have to
 > reload the window to open it. Its discoverable half is the header's **Jump…** button instead.
+>
+> **Amended 2026-08-04** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)):
+> the palette is gone, so that last paragraph is moot. Two live corrections to the menu itself —
+> **View › Queue is now View › Collection**, and the **room-arm switch moved from the status bar to
+> the room's own top bar** (the status bar was removed with the queue), so the reason it stays out of
+> the menu is unchanged but the place it lives is not.
 
 ### 9.3 Window
 

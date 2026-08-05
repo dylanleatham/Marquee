@@ -414,7 +414,14 @@ export interface DiscogsAuthStatus {
   username?: string;
 }
 
-/** A row from GET /api/albums — the Demo Room uses `hasVideo` to build its swap list. */
+/**
+ * A row from GET /api/albums — the Demo Room uses `hasVideo` to build its swap list, and the
+ * collection reads the rest.
+ *
+ * Everything from `year` down is a *fact about the asset*, not a verdict: the collection derives
+ * what a record still needs from these through `needs.ts` (ADR 0052), so the grid and the record
+ * page can't disagree about it.
+ */
 export interface AlbumSummary {
   curatorId: string;
   title: string;
@@ -424,6 +431,17 @@ export interface AlbumSummary {
   artwork: string | null;
   paletteColors: number;
   hasVideo: boolean;
+  year: number | null;
+  genres: string[];
+  /** In order — `[0]` is the dominant. Drives the collection's art placeholder. */
+  paletteHexes: string[];
+  hasCardArt: boolean;
+  /** Both stickers burned. One of two is not "written". */
+  tagsWritten: boolean;
+  previewApprovedAt: string | null;
+  physicallyVerifiedAt: string | null;
+  subState: string | null;
+  lastError: LastError | null;
 }
 
 /** A Hue room/zone Conductor can drive (GET /api/demo/rooms). */

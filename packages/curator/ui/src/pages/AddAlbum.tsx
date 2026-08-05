@@ -397,8 +397,14 @@ function ManualEntry({ onAdded }: { onAdded: (id: string) => void }) {
   );
 }
 
-export function AddAlbum() {
-  const [mode, setMode] = useState<Mode>("search");
+export function AddAlbum({
+  /** Which tab to open on. The masthead's DISCOGS item lands here until Discogs gets its own
+   * screen (ADR 0052), so that nav item goes somewhere real rather than nowhere. */
+  initialTab = "search",
+}: {
+  initialTab?: Mode;
+} = {}) {
+  const [mode, setMode] = useState<Mode>(initialTab);
   const navigate = useNavigate();
   const goToAlbum = (id: string) => navigate(`/albums/${id}`);
   const goToQueue = () => navigate("/");
@@ -407,9 +413,9 @@ export function AddAlbum() {
     <div className="page">
       <div className="page__head">
         <button className="btn btn--ghost" onClick={goToQueue}>
-          ← Queue
+          ← The collection
         </button>
-        <h1>Add album</h1>
+        <h1>Add a record</h1>
       </div>
 
       <div className="tabs">

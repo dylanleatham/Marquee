@@ -7,7 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
-import type { AlbumAsset } from "../api";
+import type { AlbumAsset, AlbumSummary } from "../api";
 
 // Mock the API module: the Demo Room's whole job is orchestrating these calls, so we assert on them.
 vi.mock("../api", () => ({
@@ -134,28 +134,43 @@ describe("DemoRoom", () => {
   });
 
   it("next swaps to the other video album and crossfades its lights", async () => {
+    // The Demo Room reads only `hasVideo` off a row; the rest of AlbumSummary is what the collection
+    // derives a record's need from (ADR 0052) and is filled in here just to satisfy the type.
+    const row = (
+      over: Partial<AlbumSummary> & { curatorId: string },
+    ): AlbumSummary => ({
+      title: "Untitled",
+      artist: "Nobody",
+      source: "manual",
+      state: "verified",
+      artwork: null,
+      paletteColors: 2,
+      hasVideo: true,
+      year: null,
+      genres: [],
+      paletteHexes: [],
+      hasCardArt: false,
+      tagsWritten: false,
+      previewApprovedAt: null,
+      physicallyVerifiedAt: null,
+      subState: null,
+      lastError: null,
+      ...over,
+    });
     vi.mocked(api.albums).mockResolvedValue({
       albums: [
-        {
+        row({
           curatorId: "abcd1234",
           title: "Purple Rain",
           artist: "Prince",
-          source: "manual",
           state: "awaiting_preview",
-          artwork: null,
-          paletteColors: 2,
-          hasVideo: true,
-        },
-        {
+        }),
+        row({
           curatorId: "wxyz5678",
           title: "Kind of Blue",
           artist: "Miles Davis",
-          source: "manual",
-          state: "verified",
-          artwork: null,
           paletteColors: 3,
-          hasVideo: true,
-        },
+        }),
       ],
     });
 

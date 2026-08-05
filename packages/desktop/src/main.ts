@@ -252,7 +252,7 @@ function buildMenu(): void {
         label: "File",
         submenu: [
           {
-            label: "Add album…",
+            label: "Add a record…",
             accelerator: "CmdOrCtrl+N",
             click: go("/add"),
           },
@@ -263,7 +263,12 @@ function buildMenu(): void {
       {
         label: "View",
         submenu: [
-          { label: "Queue", accelerator: "CmdOrCtrl+1", click: go("/") },
+          // "The collection", not "Queue" — the home screen changed and so did its name (ADR 0052).
+          {
+            label: "The collection",
+            accelerator: "CmdOrCtrl+1",
+            click: go("/"),
+          },
           {
             label: "Settings",
             accelerator: "CmdOrCtrl+,",

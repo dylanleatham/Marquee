@@ -1,6 +1,6 @@
-// The global keyboard path (curator-ui-ux §9.1): the shortcuts that work from anywhere, and the
-// rule they all share — none of them fires while the user is typing into a field, so a search query
-// never navigates the app out from under you.
+// The shell (ADR 0052). What it wires together, and — just as deliberately — what it no longer
+// binds: the whole global keyboard layer was withdrawn in favour of clarity, so a reappearing ⌘K is
+// a regression, not a feature.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   render,
@@ -11,34 +11,55 @@ import {
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
+// Inline in the factory: `vi.mock` is hoisted above every top-level binding in the file.
 vi.mock("./api", () => ({
   api: {
-    queue: vi.fn().mockResolvedValue({
-      awaiting_review: [],
-      awaiting_video: [],
-      awaiting_preview: [],
-      awaiting_tag_write: [],
-      awaiting_verify: [],
-      processing: [],
-      errored: [],
-      needs_manual: [],
-      done_recently: [],
+    albums: vi.fn().mockResolvedValue({
+      albums: [
+        {
+          curatorId: "6m3ntb8v",
+          title: "Kind of Blue",
+          artist: "Miles Davis",
+          source: "spotify",
+          state: "awaiting_review",
+          artwork: null,
+          paletteColors: 3,
+          hasVideo: false,
+          year: 1959,
+          genres: ["jazz"],
+          paletteHexes: ["#132632", "#1F4F6B"],
+          hasCardArt: false,
+          tagsWritten: false,
+          previewApprovedAt: null,
+          physicallyVerifiedAt: null,
+          subState: null,
+          lastError: null,
+        },
+      ],
     }),
-    queueCounts: vi.fn().mockResolvedValue({ needsYou: 0 }),
-    status: vi.fn().mockResolvedValue({ paused: false, current: null }),
-    albums: vi.fn().mockResolvedValue({ albums: [] }),
-    pushTagListToFlipper: vi.fn(),
+    status: vi.fn().mockResolvedValue({
+      paused: false,
+      current: "6m3ntb8v",
+      queueDepth: 1,
+      activity: [
+        {
+          curatorId: "6m3ntb8v",
+          from: "generating_palette",
+          to: "awaiting_review",
+          at: "2026-08-04T19:04:00.000Z",
+        },
+      ],
+    }),
   },
   artworkUrl: (id: string) => `/api/albums/${id}/artwork`,
 }));
-// The batch reattach is a startup side effect with its own tests; it has nothing to say about keys.
+// Startup side effects with their own tests; they have nothing to say about the shell.
 vi.mock("./batchJob", () => ({
   attachRunningBatch: vi.fn().mockResolvedValue(undefined),
   useBatchJob: () => ({ job: null, error: null, unreachable: false }),
   cancelBatch: vi.fn(),
   dismissBatch: vi.fn(),
 }));
-
 vi.mock("./discogsSyncJob", () => ({
   attachRunningDiscogsSync: vi.fn().mockResolvedValue(undefined),
   useDiscogsSyncJob: () => ({ job: null, error: null, unreachable: false }),
@@ -47,51 +68,73 @@ vi.mock("./discogsSyncJob", () => ({
 }));
 
 import { App } from "./App";
+import { resetRoadieLog } from "./roadieLog";
 
-const renderApp = () =>
+const renderApp = (at = "/") =>
   render(
-    <MemoryRouter initialEntries={["/"]}>
+    <MemoryRouter initialEntries={[at]}>
       <App />
     </MemoryRouter>,
   );
 
-const palette = () => screen.queryByRole("dialog");
+/** The record's tile in the grid. By role, because its title also appears in Roadie's log line. */
+const tile = () => screen.findByRole("link", { name: /Kind of Blue/ });
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  resetRoadieLog();
+});
 afterEach(cleanup);
 
-describe("App — global shortcuts", () => {
-  it("opens the command palette on ⌘K", async () => {
+describe("App — the shell", () => {
+  it("opens on the collection", async () => {
     renderApp();
-    expect(palette()).toBeNull();
+    expect(await tile()).toBeTruthy();
+    expect(screen.getByRole("link", { name: "COLLECTION" })).toBeTruthy();
+  });
+
+  it("feeds the masthead and the collection from one poll of the album list", async () => {
+    const { api } = await import("./api");
+    renderApp();
+    await tile();
+    // Two consumers, one request — the masthead's progress and the grid read the same fetch.
+    expect(api.albums).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("OF 1 READY")).toBeTruthy();
+  });
+
+  it("turns Roadie's activity into a sentence in the log", async () => {
+    renderApp();
+    await waitFor(() =>
+      expect(screen.getByText(/Pulled the lights from/)).toBeTruthy(),
+    );
+    expect(screen.getByText("ROADIE WORKING")).toBeTruthy();
+  });
+});
+
+describe("App — the retired keyboard layer", () => {
+  it("binds no global keydown handler at all", () => {
+    const spy = vi.spyOn(window, "addEventListener");
+    renderApp();
+    expect(spy.mock.calls.filter(([type]) => type === "keydown")).toHaveLength(
+      0,
+    );
+    spy.mockRestore();
+  });
+
+  it("does not open a command palette on ⌘K, and offers no Jump button", async () => {
+    renderApp();
+    await tile();
     fireEvent.keyDown(window, { key: "k", metaKey: true });
-    expect(await screen.findByRole("dialog")).toBeTruthy();
-  });
-
-  it("opens it on Ctrl+K too, and with the shift key down", async () => {
-    renderApp();
-    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
-    expect(await screen.findByRole("dialog")).toBeTruthy();
-    fireEvent.keyDown(screen.getByRole("combobox"), {
-      key: "Escape",
-    });
-    await waitFor(() => expect(palette()).toBeNull());
-    // Caps lock or a held shift sends "K" — a shortcut that only works in lower case is one that
-    // intermittently does nothing, which §9.1 rules out.
     fireEvent.keyDown(window, { key: "K", ctrlKey: true });
-    expect(await screen.findByRole("dialog")).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByText(/jump/i)).toBeNull();
   });
 
-  it("is reachable by mouse from the header, not only by keyboard", async () => {
+  it("does not navigate away when a letter is typed", async () => {
     renderApp();
-    fireEvent.click(screen.getByTitle(/Jump to an album/i));
-    expect(await screen.findByRole("dialog")).toBeTruthy();
-  });
-
-  it("does not open while the user is typing in a field", async () => {
-    renderApp();
-    const search = await screen.findByPlaceholderText(/Search title or artist/);
-    fireEvent.keyDown(search, { key: "k", metaKey: true, bubbles: true });
-    expect(palette()).toBeNull();
+    await tile();
+    // `n` used to open the Add screen from anywhere, including mid-thought.
+    fireEvent.keyDown(window, { key: "n" });
+    expect(screen.getByRole("link", { name: /Kind of Blue/ })).toBeTruthy();
   });
 });
