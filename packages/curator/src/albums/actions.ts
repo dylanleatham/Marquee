@@ -336,6 +336,11 @@ export function editPalette(
     algorithm: asset.palette.algorithm,
     handEdited: true,
     source: "hand",
+    // Carried, not dropped (ADR 0052). The rationale is Roadie's prose about *this record* — why
+    // the sleeve reads the way it does — not a claim about the exact hexes. Nudging one swatch by a
+    // shade used to delete it, and the record page shows it above the editor, so it would vanish
+    // the first time you touched anything.
+    ...(asset.palette.rationale ? { rationale: asset.palette.rationale } : {}),
   };
   asset.roadie.flags.palette_insufficient = false;
   asset.status = deriveStatus(asset.roadie);
@@ -412,9 +417,30 @@ export async function regeneratePalette(
         ? { insufficient: true, reason: payload.palette.reason }
         : {}),
     };
-    // Candidates described the palette being replaced; keeping them would offer a "feeling" option
-    // blended against a cover that no longer exists.
-    delete a.paletteCandidates;
+    // The candidates *followed* the palette being replaced, so they are re-pointed at the new
+    // extraction rather than deleted (ADR 0052).
+    //
+    // Deleting them was right about `cover` and `blend` — both describe a cover that no longer
+    // exists — and wrong about `feeling`, which is about how the record *sounds*. Re-extracting the
+    // sleeve does not change that, and the record page promises the two source palettes are
+    // permanent: "nothing you do to this list destroys either". Under the old behaviour, pressing
+    // "back to Roadie's original" silently threw away a palette that costs a Gemini call to recover.
+    const prior = a.paletteCandidates;
+    if (prior) {
+      const cover = payload.palette.colors.map((c) => ({ hex: c.hex }));
+      a.paletteCandidates = {
+        ...prior,
+        cover: sanitizePaletteEdit(cover),
+        // Re-blended against the palette that now exists — a stale blend is the thing the old
+        // comment was rightly worried about.
+        blend: sanitizePaletteEdit(
+          blendPalettes(
+            cover,
+            prior.feeling.map((c) => ({ hex: c.hex })),
+          ),
+        ),
+      };
+    }
     a.pattern = {
       type: payload.pattern.type,
       params: payload.pattern.params,

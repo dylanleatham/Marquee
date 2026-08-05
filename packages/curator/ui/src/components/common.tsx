@@ -5,7 +5,7 @@ import {
   type ReactNode,
 } from "react";
 import { artworkUrl, type RoadieState } from "../api";
-import { STATE_LABEL, isProcessing } from "../format";
+import { isProcessing } from "../format";
 import { usePending } from "../hooks";
 
 const initialsOf = (title: string): string =>
@@ -21,7 +21,10 @@ const initialsOf = (title: string): string =>
 // the `failed` latch never resets — so the art never appears until the component remounts (issue #25).
 // A `version` token that changes when the art lands (contentHash on detail, the artwork path on the
 // queue) both cache-busts the URL and clears the latch, letting the cover recover in place.
-const artworkSrc = (curatorId: string, version?: string | null): string =>
+export const artworkSrc = (
+  curatorId: string,
+  version?: string | null,
+): string =>
   version
     ? `${artworkUrl(curatorId)}?v=${encodeURIComponent(version)}`
     : artworkUrl(curatorId);
@@ -192,24 +195,10 @@ export function Cover({
   );
 }
 
-/** State pill. Processing states pulse; terminal/error states carry a distinct color. */
-export function StateBadge({ state }: { state: RoadieState }) {
-  const tone = isProcessing(state)
-    ? "processing"
-    : state === "errored" || state === "needs_manual"
-      ? "alert"
-      : state === "verified"
-        ? "done"
-        : "waiting";
-  return (
-    <span
-      className={`badge badge--${tone}`}
-      data-processing={isProcessing(state)}
-    >
-      {STATE_LABEL[state]}
-    </span>
-  );
-}
+// `StateBadge` lived here until 2026-08-05 (ADR 0052): a pill reading "Awaiting tag write" beside
+// every row. It went with the queue — the overhaul does not name a machine state at the user, so a
+// component whose entire job was rendering one had nothing left to do. What a record still needs is
+// `needs.ts`, and the collection and the record page each draw it their own way.
 
 export function Spinner() {
   return <span className="spinner" aria-label="loading" />;

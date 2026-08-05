@@ -25,13 +25,15 @@ This document ratifies the former and replaces the latter. It records the design
 >
 > It ships in stages, so this spec is part new and part historical. Read it accordingly:
 >
-> | Section                        | State                                                                                                                                                    |
-> | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-> | §3 design language             | **Rewritten.** Pressing Plant, as built.                                                                                                                 |
-> | §8 the collection              | **Rewritten.** Replaces the queue view, as built.                                                                                                        |
-> | §9.1 keyboard                  | **Withdrawn.** The accelerator layer is removed.                                                                                                         |
-> | §4–§6 workbench, rail, preview | **Superseded but still the code.** The record and the room are not built yet; the rail and the bench described there are what is running until they are. |
-> | §8.5 system, §9.2–§10          | Unchanged so far.                                                                                                                                        |
+> | Section                | State                                                                                                                                                 |
+> | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+> | §3 design language     | **Rewritten.** Pressing Plant, as built.                                                                                                              |
+> | §8 the collection      | **Rewritten.** Replaces the queue view, as built.                                                                                                     |
+> | §5 the record          | **Rewritten in part.** The shell and the Lights panel are built; §5.2's rail still runs the visualizer, card and tags panels underneath the new tabs. |
+> | §9.1 keyboard          | **Withdrawn.** The accelerator layer is removed.                                                                                                      |
+> | §4 workbench principle | **Kept, its rail deleted.** "Providing an artifact is never gated" survives; the five stations that expressed it do not.                              |
+> | §6 preview             | **Superseded but still the code.** The room is not built yet, so the bench described there is what is running.                                        |
+> | §8.5 system, §9.2–§10  | Unchanged so far.                                                                                                                                     |
 >
 > Nothing below is deleted — a spec that loses its history can't explain why the code looks the way it
 > does mid-migration.
@@ -179,6 +181,18 @@ checked before it lands.
 
 ## 4. The workbench principle
 
+> **The principle survives; the rail that carried it does not (2026-08-05,
+> [ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).** "Providing an
+> artifact is never gated" was right, and the record page keeps it — all four needs are open at all
+> times. What went is the **five-station rail** that expressed it, along with the readiness chips,
+> the stepper and the `1`–`5` keys. `rail.ts`, `PeerNav.tsx`, `PaletteEditor.tsx` and
+> `AlbumDetail.tsx` are deleted; the record page is specified in §5 below.
+>
+> The rail's own failure was subtler than gating: it asserted an **order** — Look → Video → Card →
+> Preview → Ship — that the system does not have. Nothing requires lights before a visualizer. The
+> replacement makes the four needs independent predicates over the assets, so "any order" is true by
+> construction rather than by a rule the UI has to keep.
+
 **The album detail page is a workbench, not a guided session** ([ADR 0026](../adrs/0026-album-detail-is-a-workbench.md)).
 
 You frequently arrive holding an artifact for a _later_ stage without having done an _earlier_ one —
@@ -210,7 +224,85 @@ from `awaiting_review` onward, so a video you already have can be attached witho
 prompt") but never stated as a rule — which is why sections added afterward re-litigated it
 privately and two of them landed the other way.
 
-## 5. Album detail — the rail
+## 5. The record
+
+> **Rewritten in part, 2026-08-05** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).
+> The shell and the Lights panel are built; the visualizer, card and tags panels still run on the
+> pre-overhaul workstation components underneath the new tabs, and are rebuilt next. The rail
+> description further down is kept for those three and is deleted with them.
+
+One page listing the four things a record still needs — **Lights · A visualizer · A card · Tags** —
+done in any order. No stepper, no rail, no machine-state name.
+
+**A 310px sidebar**, top to bottom: `← THE COLLECTION`, the cover, a 26px strip of the live palette,
+the title in Archivo Black 25px, the byline, the state label, and a full-width ink
+`▶ SEE IT IN THE ROOM`. Pinned to the bottom: `↑ PREV`, `NEXT ↓`, and **the one place in the app an
+album id may appear** — small, muted, never inside a sentence.
+
+`↑ PREV` / `NEXT ↓` walk the collection in `GET /api/albums` order, deliberately **not**
+`GET /api/albums/:id/peers`: that endpoint walks same-state buckets, which is the nine-state model
+the UI no longer shows, so a run through it would step by a rule nothing on screen explains. The run
+does not wrap — at the end the honest answer is "that was the last one", and the button says so.
+
+**The needs tabs.** Each carries a filled `●` or hollow `○` glyph plus screen-reader text saying
+"done" or "still needed", so the two questions — which tab am I on, what is left — never share one
+channel. The open tab is ink text with a `2px` accent underline. **Every tab is always open**: §4's
+principle, minus the rail.
+
+**Opening a record always lands on Lights**, whatever is outstanding. A click from the collection is
+then predictable rather than dependent on state you can't see from the tile.
+
+**Preview is not a tab.** Signing the lights off means having watched them, so that lives in the room.
+
+### 5.0 The Lights panel
+
+- **Edits autosave**, debounced, with a quiet "saved a moment ago — edits save as you make them"
+  line that states the _rule_ as well as the state. There is no Save button, no Discard and no `⌘⏎`.
+  Three things this has to get right, because autosave that loses work is worse than a button:
+  a half-typed hex holds the write back rather than being sent and rejected; a burst of picker
+  drags coalesces into one write; and an edit still inside the debounce window is **flushed on
+  unmount**, so navigating away cannot silently discard it.
+- **Roadie's note**, as prose at 15px/1.65 capped at 62ch — when there is one. A plain cover
+  extraction has no note, and the panel shows nothing rather than inventing a sentence.
+- **Two source palettes side by side** — FROM THE SLEEVE and FROM THE FEELING — inside one ink
+  border. The one in use is raised, marked `· IN USE`, and its action reads "IN USE"; the other reads
+  "USE THIS INSTEAD →". A feeling palette that has not been proposed yet offers `◈ ASK FOR THESE`,
+  marked as a control that spends money (§7). **Both are permanent**: switching destroys neither, and
+  the feeling palette does not disappear once suggested — see the API note below, because that was
+  not true of the server until ADR 0052.
+- **THE LIGHTS, IN ORDER** — one row per colour: swatch, hex, role, and **where it lands in the
+  room** ("the wall wash", "the far corner", "the glow behind the stand"), then reorder/remove.
+  Order is the meaning, so the role follows position and the old per-row role dropdown is gone. Past
+  the third colour the row reads "held in reserve" rather than naming a place the lights don't have.
+- `+ ADD A LIGHT` and **BACK TO ROADIE'S ORIGINAL** (which replaces "reset to auto"/"start over"),
+  then the line promising both palettes are recoverable.
+
+Dropped from the old Look station and **not** to be reinstated: the artwork override, the source
+badge, the genre tags, and the raw `{"transitionMs":…,"holdMs":…}` JSON.
+
+**Moved, not dropped: how the lights _move_.** The Motion picker
+([ADR 0039](../adrs/0039-one-motion-picker-clip-patterns-are-selectable.md), driving
+`PUT /api/albums/:curatorId/pattern-override`) belongs in the room's control dock — **LIGHT
+PATTERN**, beside transition, hold and brightness — because those are things you judge by watching,
+not by reading a list. That is the whole reason colour editing stays here and movement goes there.
+
+> **This is a real gap until the room lands (2026-08-05).** The picker was deleted with the rail and
+> its replacement does not exist yet, so **there is currently no way to set an album's motion from
+> the UI.** The route is unaffected and the stored `patternOverride` still plays; only the control is
+> missing. Recorded here rather than discovered later as a bug report.
+
+> **Two API changes this panel required** (ADR 0052), both because the screen makes a promise the
+> server did not keep:
+>
+> - `POST /palette/generate` no longer deletes `paletteCandidates`. It re-points `cover` and `blend`
+>   at the new extraction and **keeps `feeling`** — which is about how the record _sounds_, and which
+>   re-extracting a sleeve does not invalidate. Before, "back to Roadie's original" silently threw
+>   away a palette that costs a Gemini call to recover.
+> - `PUT /palette` carries `rationale` forward instead of dropping it. The note is prose about the
+>   record, not a claim about exact hexes, and the panel shows it above the editor — so nudging one
+>   swatch used to erase it.
+
+## 5.2 Album detail — the rail (superseded; still the code for three panels)
 
 The detail page is a **left rail of five workstations** beside a full-width canvas. The selected
 workstation gets the whole canvas; the rail is always visible.
@@ -277,6 +369,22 @@ reproduced, and saves on release rather than on every drag frame. Ranges come fr
 the result in **Room rehearsal** (§6.2) — bench preview never drives the lights.
 
 ## 6. Preview — bench and room
+
+> **The two modes survive; the screen split does not (2026-08-05,
+> [ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).** Bench and room
+> become one screen — **the room** — with the arm toggle choosing between them, so approving a record
+> always means having just watched it. The safety reasoning below is unchanged and is why the toggle
+> exists at all.
+>
+> **What is unreachable until the room is built.** Preview stopped being a station when the rail
+> went, and its replacement does not exist yet, so three things currently have no control in the UI:
+> **bench preview** (sleeve + palette + video with no hardware touched), **desk audio**
+> ([ADR 0037](../adrs/0037-bench-preview-audio-via-spotify-connect.md)), and **room rehearsal**
+> (`simulate-scan`). `PreviewWorkstation.tsx` and `workflow.tsx`'s `PreviewSection` are retained but
+> unmounted — they go with the room, per ADR 0052's rule that a component is deleted with the screen
+> it served, and the room is the screen these serve. The Demo Room at `/demo/:curatorId` still works
+> and is what the record's **▶ SEE IT IN THE ROOM** opens, so playing a record is not affected.
+> Approving a preview is also currently only reachable through the Demo Room.
 
 Preview has **two modes** ([ADR 0028](../adrs/0028-preview-bench-and-room-modes.md)). The split is
 not stylistic; it exists because the listening room may contain other people, and taking over their

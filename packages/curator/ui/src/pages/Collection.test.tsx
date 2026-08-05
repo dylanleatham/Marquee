@@ -132,6 +132,24 @@ describe("Collection — the grid", () => {
     expect(tile("Purple Rain").getAttribute("href")).toBe("/albums/2k7bxq9m");
   });
 
+  it("keys the cover on the artwork path, so one that lands later actually appears", () => {
+    // The grid polls every 3s. With a static src, a cover Roadie writes *after* first paint never
+    // shows up and the tile stays a stripe until the page is reloaded (issue #25). The path is the
+    // freshness token: it changes when the art lands, busting the cache and clearing the latch.
+    show([
+      album({
+        curatorId: "abc12345",
+        title: "Purple Rain",
+        artwork: "media/artwork/abc12345.jpg",
+      }),
+    ]);
+    const src = tile("Purple Rain").querySelector("img")!.getAttribute("src")!;
+    expect(src).toContain("/api/albums/abc12345/artwork");
+    expect(src).toContain(
+      `?v=${encodeURIComponent("media/artwork/abc12345.jpg")}`,
+    );
+  });
+
   it("falls back to the record's own lights when a cover won't load", () => {
     // The asset records a path, but the file can still be missing or mid-write. A wall of the
     // browser's broken-image glyphs reads as a broken app (the lesson of issue #134).

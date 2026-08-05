@@ -232,8 +232,14 @@ describe("palette feeling + choose routes", () => {
     expect(saved.palette!.source).toBe("cover");
     expect(saved.palette!.handEdited).toBe(false); // back under the sweep's care
     expect(saved.palette!.algorithm).toBe("fake@0"); // genuinely re-extracted
-    // Candidates described the palette that was just replaced.
-    expect(saved.paletteCandidates).toBeUndefined();
+    // Amended 2026-08-05 (ADR 0052): this used to assert `paletteCandidates` was deleted, on the
+    // grounds that they described the palette just replaced. True of `cover` and `blend`, which are
+    // now re-pointed at the new extraction — and false of `feeling`, which is about how the record
+    // *sounds*. The undo undoes the choice; it does not spend the user's Gemini call again.
+    expect(saved.paletteCandidates!.feeling[0]!.hex).toBe("#1B2A4A");
+    expect(saved.paletteCandidates!.cover.map((c) => c.hex)).toEqual(
+      saved.palette!.colors.map((c) => c.hex),
+    );
   });
 
   it("rejects an unknown source, and a choice with nothing to choose from", async () => {
@@ -304,5 +310,92 @@ describe("a chosen palette and the library sweep (ADR 0029 × ADR 0030)", () => 
 
     expect(paletteBatch.regenerated).toBe(1);
     expect(store.read("feelalb1")!.palette!.source).toBe("cover");
+  });
+});
+
+// The record page (ADR 0052) tells the user, in as many words, that "Roadie's original extraction
+// and the feeling palette are always here — nothing you do to this list destroys either". These are
+// the two ways that promise was false before the overhaul.
+describe("both source palettes survive (ADR 0052)", () => {
+  it("keeps the feeling colours when the cover is re-extracted", async () => {
+    const store = seeded();
+    const app = server(store, fakeGemini().client);
+    await app.inject({
+      method: "POST",
+      url: "/api/albums/feelalb1/palette/feeling",
+    });
+    const proposed = store.read("feelalb1")!.paletteCandidates!;
+    expect(proposed.feeling[0]!.hex).toBe("#1B2A4A");
+
+    // "Back to Roadie's original" is a re-extraction. It used to delete the candidates outright,
+    // so the one stored copy of the feeling palette went with it — and getting it back costs a
+    // Gemini call the user never asked to spend twice.
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/albums/feelalb1/palette/generate?force=1",
+    });
+    expect(res.statusCode).toBe(200);
+
+    const after = store.read("feelalb1")!;
+    expect(after.palette!.source).toBe("cover");
+    expect(after.paletteCandidates?.feeling.map((c) => c.hex)).toEqual(
+      proposed.feeling.map((c) => c.hex),
+    );
+    expect(after.paletteCandidates?.rationale).toBe(proposed.rationale);
+  });
+
+  it("re-points cover and blend at the extraction that now exists", async () => {
+    // The old comment was right that a *stale* blend is worse than none: it would offer colours
+    // mixed against a cover that has been replaced. Re-blending is what makes keeping them honest.
+    const store = seeded();
+    const app = server(store, fakeGemini().client);
+    await app.inject({
+      method: "POST",
+      url: "/api/albums/feelalb1/palette/feeling",
+    });
+    await app.inject({
+      method: "POST",
+      url: "/api/albums/feelalb1/palette/generate?force=1",
+    });
+
+    const after = store.read("feelalb1")!;
+    const cover = after.palette!.colors.map((c) => c.hex);
+    expect(after.paletteCandidates!.cover.map((c) => c.hex)).toEqual(cover);
+    expect(after.paletteCandidates!.blend.map((c) => c.hex)).toEqual(
+      blendPalettes(
+        cover.map((hex) => ({ hex })),
+        after.paletteCandidates!.feeling.map((c) => ({ hex: c.hex })),
+      ).map((c) => c.hex),
+    );
+  });
+
+  it("keeps Roadie's note when a colour is nudged by hand", async () => {
+    // The note is prose about the record, not a claim about the exact hexes. The record page shows
+    // it above the editor, so dropping it on edit meant it vanished the first time you touched
+    // anything — and there is no other source for it.
+    const store = seeded();
+    const app = server(store, fakeGemini().client);
+    await app.inject({
+      method: "POST",
+      url: "/api/albums/feelalb1/palette/feeling",
+    });
+    await app.inject({
+      method: "POST",
+      url: "/api/albums/feelalb1/palette/choose",
+      payload: { source: "feeling" },
+    });
+    expect(store.read("feelalb1")!.palette!.rationale).toBe(
+      "Late-night and smoky.",
+    );
+
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/albums/feelalb1/palette",
+      payload: { colors: [{ hex: "#1B2A4B" }, { hex: "#C2410C" }] },
+    });
+    expect(res.statusCode).toBe(200);
+    const after = store.read("feelalb1")!.palette!;
+    expect(after.handEdited).toBe(true);
+    expect(after.rationale).toBe("Late-night and smoky.");
   });
 });

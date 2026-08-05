@@ -6,7 +6,7 @@ import {
   fireEvent,
   waitFor,
 } from "@testing-library/react";
-import { AlbumThumb, AsyncButton, Cover, StateBadge } from "./common";
+import { AlbumThumb, AsyncButton, Cover } from "./common";
 
 afterEach(cleanup);
 
@@ -225,16 +225,6 @@ describe("AsyncButton", () => {
   });
 });
 
-describe("StateBadge", () => {
-  it("labels the state and marks processing states for the pulse animation", () => {
-    const { container } = render(<StateBadge state="generating_palette" />);
-    expect(screen.getByText("Generating palette")).toBeTruthy();
-    expect(container.querySelector('[data-processing="true"]')).not.toBeNull();
-  });
-
-  it("does not mark a parked state as processing", () => {
-    const { container } = render(<StateBadge state="awaiting_review" />);
-    expect(screen.getByText("Awaiting review")).toBeTruthy();
-    expect(container.querySelector('[data-processing="true"]')).toBeNull();
-  });
-});
+// The `StateBadge` cases were removed 2026-08-05 with the component (ADR 0052). They asserted that
+// a pill read "Generating palette" and "Awaiting review" — which is now precisely what the UI must
+// never say. `needs.test.ts` asserts the replacement rule from the other direction.

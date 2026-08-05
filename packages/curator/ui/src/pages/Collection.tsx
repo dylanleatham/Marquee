@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { artworkUrl, type AlbumSummary } from "../api";
+import { type AlbumSummary } from "../api";
+import { artworkSrc } from "../components/common";
 import {
   collectionCounts,
   densityColumns,
@@ -67,9 +68,12 @@ function TileArt({ tile }: { tile: Tile }) {
     );
   if (album.artwork && !broken)
     return (
+      /* The artwork path is the freshness token here (the list carries no contentHash): it changes
+         when Roadie writes the cover, which both busts the cache and clears the `broken` latch, so a
+         tile recovers in place instead of staying a stripe until the page is reloaded (issue #25). */
       <img
         className={className}
-        src={artworkUrl(album.curatorId)}
+        src={artworkSrc(album.curatorId, album.artwork)}
         alt=""
         loading="lazy"
         onError={() => setBroken(true)}

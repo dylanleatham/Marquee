@@ -74,7 +74,10 @@ a:hover {
 .masthead p,
 .collection p,
 .collection h1,
-.collection h2 {
+.collection h2,
+.record p,
+.record h1,
+.record h2 {
   margin: 0;
 }
 
@@ -314,6 +317,41 @@ a:hover {
   font: 500 9.5px/1 var(--pp-mono);
   letter-spacing: 0.14em;
   color: var(--pp-ink-muted);
+}
+
+/* The masthead is four fixed-width regions in a row, and at the 900×600 minimum window the spec
+   supports (§2) they do not fit — the whole app scrolled sideways. What gives way is chosen by what
+   each part *carries*: the progress bar is the redundant channel (the words "18 OF 40 READY" say the
+   same thing and stay), and the brand's sub-label is decoration. Nothing that is the only copy of
+   something is dropped — in particular "ROADIE WORKING" survives, because a lone pulsing dot would
+   be state encoded in colour alone (§3.4). */
+@media (max-width: 1180px) {
+  .masthead__nav-item {
+    padding: 0 12px;
+  }
+  .masthead__brand {
+    gap: 11px;
+    padding: 13px 14px;
+  }
+  .masthead__sub {
+    display: none;
+  }
+  .masthead__mark {
+    width: 40px;
+    height: 40px;
+  }
+  .masthead__mark img {
+    width: 100px;
+    left: -29px;
+    top: -6px;
+  }
+  .masthead__bar {
+    display: none;
+  }
+  .masthead__right {
+    gap: 12px;
+    padding: 0 14px;
+  }
 }
 
 /* The dot pulses; the words beside it say the same thing. Never colour alone. */
@@ -822,7 +860,321 @@ a:hover {
 }
 
 /* ==================================================================================================
-   LEGACY — the screens the overhaul hasn't reached yet (the record, the room, add, system, settings).
+   THE RECORD — a 310px sidebar and the four needs, done in any order
+   ================================================================================================ */
+
+.record {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  min-height: 0;
+}
+
+.record__side {
+  width: 310px;
+  flex: none;
+  border-right: 1px solid var(--pp-rule);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+  background: var(--pp-paper-sunk);
+}
+.record__art {
+  aspect-ratio: 1;
+  width: 100%;
+  object-fit: cover;
+  display: block;
+  outline: 1px solid var(--pp-ink);
+  background: var(--pp-paper-raised);
+}
+/* The live palette as one strip: what the room will actually wash with, at a glance. */
+.record__strip {
+  display: flex;
+  height: 26px;
+  outline: 1px solid var(--pp-ink);
+}
+.record__strip span {
+  flex: 1;
+  min-width: 0;
+}
+.record__strip span + span {
+  border-left: 1px solid rgba(0, 0, 0, 0.25);
+}
+.record__title {
+  font: 400 25px/1.05 var(--pp-display);
+  letter-spacing: -0.02em;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.record__byline {
+  font: 400 13px/1.4 var(--pp-body);
+  color: var(--pp-ink-muted);
+  margin: 6px 0 0;
+}
+.record__state {
+  font: 500 9.5px/1 var(--pp-mono);
+  letter-spacing: 0.14em;
+  color: var(--pp-accent);
+  margin: 0;
+}
+.record__state--ready {
+  color: var(--pp-ink-muted);
+}
+.record__toroom {
+  margin-top: 2px;
+  padding: 13px 18px;
+  text-align: center;
+  letter-spacing: 0.16em;
+  font-size: 11px;
+}
+.record__toroom:hover {
+  text-decoration: none;
+}
+/* Pinned to the bottom, so the run controls sit where your hand already is. */
+.record__peers {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid var(--pp-rule);
+  padding-top: 12px;
+}
+.record__peers button:disabled {
+  color: var(--pp-rule-soft);
+  cursor: default;
+}
+/* The one place an id may appear: small, muted, and never inside a sentence. */
+.record__id {
+  margin-left: auto;
+  font: 500 10px/1 var(--pp-mono);
+  color: var(--pp-ink-ghost);
+}
+
+.record__main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.record__tabs-head {
+  border-bottom: 1px solid var(--pp-rule);
+  padding: 17px 24px 0;
+}
+.record__tabs {
+  display: flex;
+  margin-top: 13px;
+}
+.record__tab {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 18px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  font: 400 13px/1 var(--pp-body);
+  color: var(--pp-ink-muted);
+}
+.record__tab:hover {
+  color: var(--pp-ink);
+}
+/* The open tab is marked by an accent rule *and* ink text — and each tab's own ●/○ says whether
+   that need is met, so "which am I on" and "what is left" never share one channel. */
+.record__tab[aria-current="page"] {
+  color: var(--pp-ink);
+  border-bottom-color: var(--pp-accent);
+}
+.record__tab-glyph {
+  font: 500 13px/1 var(--pp-mono);
+}
+.record__panel {
+  flex: 1;
+  padding: 22px 24px;
+  overflow: auto;
+  min-height: 0;
+}
+
+/* ---- the Lights panel ------------------------------------------------------------------------ */
+
+.lights {
+  max-width: 820px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+/* Autosave's whole visible surface. It states the *rule* as well as the state, because the missing
+   Save button is otherwise an absence the user has to infer. */
+.lights__saved {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 400 11.5px/1 var(--pp-body);
+  color: var(--pp-positive);
+  margin: 0;
+}
+.lights__saved--failed {
+  color: var(--pp-accent-text);
+}
+.lights__note {
+  margin: 0;
+  color: #4a4638;
+}
+
+.lights__sources {
+  display: flex;
+  border: 1px solid var(--pp-ink);
+}
+.lights__source {
+  flex: 1;
+  min-width: 0;
+  padding: 16px;
+  background: var(--pp-paper-sunk);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.lights__source + .lights__source {
+  border-left: 1px solid var(--pp-rule);
+}
+.lights__source--inuse {
+  background: var(--pp-paper-raised);
+}
+/* Fixed height with nowrap spans, so the two swatch bars sit on a shared baseline whatever the
+   label lengths do. */
+.lights__source-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  height: 12px;
+  width: 100%;
+  margin: 0;
+  font: 500 9.5px/1 var(--pp-mono);
+  letter-spacing: 0.16em;
+  white-space: nowrap;
+}
+.lights__inuse {
+  color: var(--pp-accent);
+  letter-spacing: 0;
+}
+.lights__source-bar {
+  display: flex;
+  height: 52px;
+  width: 100%;
+  margin: 14px 0 11px;
+  outline: 1px solid var(--pp-ink);
+}
+.lights__source-bar span {
+  flex: 1;
+  min-width: 0;
+}
+.lights__source-bar span + span {
+  border-left: 1px solid rgba(0, 0, 0, 0.25);
+}
+.lights__source-bar--empty {
+  outline: 0;
+  border: 1px dashed var(--pp-dashed);
+}
+
+.lights__heading {
+  margin: 0 0 12px;
+}
+.lights__rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--pp-rule);
+}
+.lights__row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--pp-rule);
+}
+.lights__swatch {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  outline: 1px solid var(--pp-ink);
+}
+.lights__picker {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  padding: 0;
+  background: none;
+  border: 1px solid var(--pp-rule-soft);
+  cursor: pointer;
+}
+.lights__hex {
+  width: 88px;
+  flex: none;
+  font: 500 13px/1 var(--pp-mono);
+  text-transform: uppercase;
+  color: var(--pp-ink);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  padding: 4px 0;
+}
+.lights__hex:focus {
+  border-bottom-color: var(--pp-ink);
+  outline: none;
+}
+.lights__role {
+  width: 96px;
+  flex: none;
+  font: 500 9.5px/1 var(--pp-mono);
+  letter-spacing: 0.14em;
+  color: var(--pp-ink-muted);
+}
+/* Where the colour lands in the room — the reason the order is worth caring about. */
+.lights__where {
+  flex: 1;
+  min-width: 0;
+  font: 400 12px/1.4 var(--pp-body);
+  color: var(--pp-ink-faint);
+}
+.lights__moves {
+  display: flex;
+  gap: 10px;
+  flex: none;
+}
+.lights__moves button {
+  font: 500 11px/1 var(--pp-mono);
+  color: var(--pp-ink-ghost);
+  background: transparent;
+  border: 0;
+  padding: 2px;
+  cursor: pointer;
+}
+.lights__moves button:hover:not(:disabled) {
+  color: var(--pp-ink);
+}
+.lights__moves button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.lights__actions {
+  display: flex;
+  gap: 22px;
+  margin-top: 14px;
+}
+.lights__reassure {
+  font: 400 11.5px/1.55 var(--pp-body);
+  color: var(--pp-ink-faint);
+  margin: 9px 0 0;
+  max-width: 62ch;
+}
+
+/* ==================================================================================================
+   LEGACY — the screens the overhaul hasn't reached yet (the room, add, system, settings), and the
+   three record panels not yet rebuilt (a visualizer, a card, tags).
 
    These rules are the old "backstage marquee" stylesheet with its variables repointed at Pressing
    Plant, so an unconverted screen is readable and on-brand-ish rather than unstyled. It is scaffolding

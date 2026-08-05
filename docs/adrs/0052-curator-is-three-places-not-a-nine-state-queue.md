@@ -86,8 +86,15 @@ keyboard-_reachable_ — that is an accessibility floor, not an accelerator, and
   each with the screen it served, which is why they do not all go at once. Gone with the collection:
   `QueueView.tsx`, `queueKeys.ts`, `RoadieStrip.tsx`, and `commandPalette.ts` /
   `CommandPalette.tsx` (the palette outlives no screen — the whole keyboard layer is withdrawn).
-  `rail.ts` and `primaryAction.tsx` go with the record page, and are still the running code until it
-  lands. "Deprecated" would mean leaving them reachable; nothing new may use them.
+  `rail.ts`, `PeerNav.tsx`, `PaletteEditor.tsx`, `ArtworkSection.tsx`, `FeelingPalette.tsx` and
+  `MotionPicker.tsx` went with the record page (2026-08-05). `PreviewWorkstation.tsx` and
+  `PreviewSection` go with **the room** and are retained, unmounted, until it lands.
+  "Deprecated" would mean leaving them reachable; nothing new may use them.
+- **A screen landing before its successor leaves real gaps, and they are written down rather than
+  discovered.** Deleting the rail took three controls with it that the room has not yet replaced:
+  the motion picker, bench preview with desk audio, and room rehearsal. Each is recorded in
+  curator-ui-ux (§5.0 and §6) with where it is going. The routes and stored values are untouched —
+  only the controls are missing — and the Demo Room still plays a record.
 - **Some of the design needs backend work that does not exist yet**, flagged here so it is not
   rediscovered as a bug: palette edits must autosave; brightness and light pattern become per-record;
   four visualizer prompt variants rather than one; Discogs as a standing synced collection with

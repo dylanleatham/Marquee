@@ -4,7 +4,7 @@ import { api } from "./api";
 import { usePoll } from "./hooks";
 import { recordActivity } from "./roadieLog";
 import { Collection } from "./pages/Collection";
-import { AlbumDetail } from "./pages/AlbumDetail";
+import { Record } from "./pages/Record";
 import { AddAlbum } from "./pages/AddAlbum";
 import { DemoRoom } from "./pages/DemoRoom";
 import { Settings } from "./pages/Settings";
@@ -80,10 +80,15 @@ export function App() {
                 path="/discogs"
                 element={<AddAlbum initialTab="discogs" />}
               />
-              <Route path="/albums/:curatorId" element={<AlbumDetail />} />
+              {/* No segment → Lights. The record always opens on the same tab (ADR 0052), so a
+                  click from the collection is predictable rather than state-dependent. */}
+              <Route
+                path="/albums/:curatorId"
+                element={<Record albums={albums} />}
+              />
               <Route
                 path="/albums/:curatorId/:section"
-                element={<AlbumDetail />}
+                element={<Record albums={albums} />}
               />
               <Route path="/demo/:curatorId" element={<DemoRoom />} />
               <Route path="/system" element={<SystemStatus />} />
