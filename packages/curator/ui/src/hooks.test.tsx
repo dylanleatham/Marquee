@@ -27,6 +27,36 @@ describe("usePoll", () => {
     });
   });
 
+  it("refetches at once when the resetKey changes, without waiting out the interval", async () => {
+    // React Router reuses a component when only a route param changes, so `/room/a` → `/room/b`
+    // never remounts: the fetcher ref updates silently and the previous record stays on screen for a
+    // whole interval while the room already plays the new one.
+    const fetcher = vi.fn().mockResolvedValue("ok");
+    const { rerender } = renderHook(
+      ({ id }: { id: string }) => usePoll(() => fetcher(id), 5000, id),
+      { initialProps: { id: "a" } },
+    );
+    await flush();
+    expect(fetcher).toHaveBeenCalledWith("a");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    rerender({ id: "b" });
+    await flush();
+    expect(fetcher).toHaveBeenCalledWith("b");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not restart when the resetKey is unchanged", async () => {
+    // Otherwise every re-render — and this polls, so there are many — would refetch.
+    const fetcher = vi.fn().mockResolvedValue("ok");
+    const { rerender } = renderHook(() => usePoll(fetcher, 5000, "a"));
+    await flush();
+    rerender();
+    rerender();
+    await flush();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
   it("fetches on mount and once per interval", async () => {
     const fetcher = vi.fn().mockResolvedValue("ok");
     renderHook(() => usePoll(fetcher, 1000));

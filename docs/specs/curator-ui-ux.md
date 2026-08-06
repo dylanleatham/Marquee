@@ -32,8 +32,11 @@ This document ratifies the former and replaces the latter. It records the design
 > | §5 the record          | **Rewritten.** All four panels built; the rail is deleted.                                                               |
 > | §9.1 keyboard          | **Withdrawn.** The accelerator layer is removed.                                                                         |
 > | §4 workbench principle | **Kept, its rail deleted.** "Providing an artifact is never gated" survives; the five stations that expressed it do not. |
-> | §6 preview             | **Superseded but still the code.** The room is not built yet, so the bench described there is what is running.           |
+> | §6 the room            | **Rewritten.** Bench and the Demo Room are one screen; §8.6 adds the ready toast.                                        |
 > | §8.5 system, §9.2–§10  | Unchanged so far.                                                                                                        |
+>
+> **The three places are built.** What remains on the old theme: add a record, Discogs, system and
+> settings — and `styles.css`'s legacy block goes with the last of them.
 >
 > Nothing below is deleted — a spec that loses its history can't explain why the code looks the way it
 > does mid-migration.
@@ -453,21 +456,50 @@ the result in **Room rehearsal** (§6.2) — bench preview never drives the ligh
 
 ## 6. Preview — bench and room
 
-> **The two modes survive; the screen split does not (2026-08-05,
-> [ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).** Bench and room
-> become one screen — **the room** — with the arm toggle choosing between them, so approving a record
-> always means having just watched it. The safety reasoning below is unchanged and is why the toggle
-> exists at all.
+> **Built 2026-08-06** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).
+> Bench and room are **one screen**, `/room/:curatorId`, with the arm toggle choosing between them.
+> `PreviewWorkstation.tsx` and `DemoRoom.tsx` are deleted; `/demo/:curatorId` still resolves, because
+> that address is in the old screen's own history. The safety reasoning below is unchanged and is
+> exactly why the toggle exists.
 >
-> **What is unreachable until the room is built.** Preview stopped being a station when the rail
-> went, and its replacement does not exist yet, so three things currently have no control in the UI:
-> **bench preview** (sleeve + palette + video with no hardware touched), **desk audio**
-> ([ADR 0037](../adrs/0037-bench-preview-audio-via-spotify-connect.md)), and **room rehearsal**
-> (`simulate-scan`). `PreviewWorkstation.tsx` and `workflow.tsx`'s `PreviewSection` are retained but
-> unmounted — they go with the room, per ADR 0052's rule that a component is deleted with the screen
-> it served, and the room is the screen these serve. The Demo Room at `/demo/:curatorId` still works
-> and is what the record's **▶ SEE IT IN THE ROOM** opens, so playing a record is not affected.
-> Approving a preview is also currently only reachable through the Demo Room.
+> **The screen.** A flex _column_: the stage flexes and the dock is a real footer sibling, never
+> absolutely positioned — the sleeve-on-the-stand has to sit in the space actually left over or it
+> ends up behind the controls on a short window. The wash is the record's own palette, inset `-6%`
+> so `ppDrift` never reveals an edge, and stilled by `prefers-reduced-motion`.
+>
+> **Bench plays everything except the hardware.** The clip loops and the wash drifts whether or not
+> the room is armed; gating those on being armed would make the safe mode the useless one. `♪ PLAY
+THE ALBUM` follows the switch — desk audio on the bench
+> ([ADR 0037](../adrs/0037-bench-preview-audio-via-spotify-connect.md)), the room's own speakers when
+> armed. Arming starts the room and un-arming stops it, as does leaving the screen: nothing should
+> keep a room lit for a window nobody is looking at.
+>
+> **Conductor failing degrades the room to a window.** The wash, the clip and the sleeve do not
+> depend on it, so an unreachable Conductor shows a line and leaves the screen working.
+>
+> **Sign-off lives here and nowhere else** — approving a record's lights means having just watched
+> them, which is not a claim a form can make for you. It returns to the collection and fires the
+> ready toast (§8.6). Gated by the state machine, so it disables with its reason (§4).
+>
+> ### The control dock's sliders are the pattern's own knobs
+>
+> The design draws three fixed sliders — Transition, Hold, **Brightness** — and the walkthrough is
+> explicit that all three are per record. Two of the three ship. **Brightness does not, and cannot
+> yet**: `palette-payload.schema.json` admits no global brightness, and `static` is specified as
+> `maxProperties: 0`, so a brightness slider on HOLD STILL would build a payload Conductor's own
+> contract rejects. ADR 0036 already settled the principle — "a UI that offers a value the server
+> refuses is worse than no slider".
+>
+> So the movement group renders **`PATTERN_PARAM_SPECS` for the chosen pattern**: Fade and Hold for
+> crossfade, Breath / Dim to / Rise to for pulse, and a plain sentence for hold still, which has
+> nothing to tune. Every slider shown does something. **Getting the design's brightness needs a
+> contract change** across the payload schema, Conductor and Palette Press — recorded in ADR 0052,
+> not silently dropped.
+>
+> The dock names CROSSFADE · PULSE · HOLD STILL. A record already on one of the three **streaming**
+> patterns ([ADR 0035](../adrs/0035-streaming-effect-is-a-per-album-opt-in.md)) gets a fourth chip
+> for the one it is on — a dock with nothing pressed reads as "no pattern" rather than "one you can't
+> see from here".
 
 Preview has **two modes** ([ADR 0028](../adrs/0028-preview-bench-and-room-modes.md)). The split is
 not stylistic; it exists because the listening room may contain other people, and taking over their
@@ -643,6 +675,28 @@ Two rules this page must not break:
 - **State the limits rather than implying completeness.** Conductor's playback view covers only CLIP
   playback and carries no `curatorId`, so an album on a streaming pattern reports nothing. The page
   says so in place instead of showing a confident blank.
+
+## 8.6 The ready toast
+
+Built 2026-08-06. What the "record finished" screen became.
+
+A screen is a stop: you have just signed a record off and the next one is what you want, so being
+made to acknowledge the last one is friction dressed as celebration. This is a corner of the
+collection — `#F7F4EE`, ink border, **the one shadow in the design**, because it is the only element
+that floats above the paper rather than being printed on it.
+
+"<Title> is ready", then "Lights, visualizer, card and tags — all done. Tap to watch it." **The whole
+toast is one button**, and tapping it opens the room for that record — the only reason to look back
+at a record you have just finished is to watch it. That also cancels its timer, so it cannot fade out
+from under the screen it just opened. Otherwise it goes after ~5s on its own and **never blocks
+moving to the next record**.
+
+It is fired by the room and outlives the navigation back, so it lives in a module store rather than a
+component, and it is **mounted in the shell** rather than on the collection — which means it floats
+over whatever screen you are on when its five seconds run out. That is the point: signing off and
+immediately opening the next record must not cut it short, and it must not be something you have to
+come back to the collection to see. A record it cannot name is not shown at all — "Untitled is ready"
+is worse than the quiet it replaced.
 
 ## 9. Desktop affordances
 

@@ -88,13 +88,32 @@ keyboard-_reachable_ — that is an accessibility floor, not an accelerator, and
   `CommandPalette.tsx` (the palette outlives no screen — the whole keyboard layer is withdrawn).
   `rail.ts`, `PeerNav.tsx`, `PaletteEditor.tsx`, `ArtworkSection.tsx`, `FeelingPalette.tsx`,
   `MotionPicker.tsx` and finally `workflow.tsx` itself — the five workstations — went with the record
-  page (2026-08-05). `PreviewWorkstation.tsx` goes with **the room** and is retained, unmounted,
-  until it lands. "Deprecated" would mean leaving them reachable; nothing new may use them.
+  page (2026-08-05). `PreviewWorkstation.tsx`, `DemoRoom.tsx`, `RoomArmSwitch.tsx` and
+  `primaryAction.tsx` went with the room (2026-08-06). "Deprecated" would mean leaving them
+  reachable; nothing new may use them. `/demo/:curatorId` still resolves — to the room — because that
+  address is in the old screen's own history.
 - **A screen landing before its successor leaves real gaps, and they are written down rather than
-  discovered.** Deleting the rail took four controls with it. Three go to the room and are recorded
-  in curator-ui-ux §5.0 and §6: the motion picker, bench preview with desk audio, and room
-  rehearsal. The routes and stored values are untouched — only the controls are missing — and the
-  Demo Room still plays a record.
+  discovered.** Deleting the rail took four controls with it. Three came back with the room on
+  2026-08-06 — the motion picker (as the dock's LIGHT PATTERN and its knobs), bench preview, and desk
+  audio. **Room rehearsal (`simulate-scan`) did not**: the room drives the lights through
+  `demo/play` rather than replaying a scan, so the rehearsal's fan-out to Backdrop and Amp has no
+  control. Its routes are untouched. Worth restoring if "does a scan of this actually work
+  end-to-end" turns out to be a question the room can't answer.
+- **"Something's off" is obsolete rather than dropped.** The old Preview bench had a reject control
+  (`POST /preview/reject`) that sent a record _back_ to review or video. It existed because the rail
+  was linear: going back was a transition you had to ask for. On the record page every tab is always
+  open, so if the lights are wrong you open Lights and change them — there is no "back" left to
+  request. The route and `api.rejectPreview` stay (the state machine still supports the transition,
+  and it is the escape hatch if a record is somehow stuck forward of where it should be); the room
+  simply has one verdict, `Looks right ✓`, which is what the design draws.
+- **The design's brightness slider is not built, because no contract can carry it.**
+  `palette-payload.schema.json` has no global brightness and specifies `static` as
+  `maxProperties: 0`, so a brightness knob on HOLD STILL would build a payload Conductor's own
+  contract rejects. ADR 0036 settled the principle: a UI offering a value the server refuses is
+  worse than no slider. The dock therefore renders `PATTERN_PARAM_SPECS` for the chosen pattern —
+  every slider shown does something. Delivering the design's brightness means a change across the
+  payload schema, Conductor and Palette Press, and is a decision about what brightness _means_ on a
+  Hue lamp (a dimmed colour, or the lamp's own brightness channel) as much as a plumbing job.
 - **The clip gallery and splice are replaced by one press (issue #29).** `generateVideoSet` produces
   **several `videoClips`, not an attached visualizer**; the old bench showed a gallery and let you
   reorder, deselect and splice them into a loop. The design has neither, and shows only a player —

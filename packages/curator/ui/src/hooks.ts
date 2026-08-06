@@ -17,6 +17,16 @@ export interface Poll<T> {
 export function usePoll<T>(
   fetcher: () => Promise<T>,
   intervalMs = 2000,
+  /**
+   * What the fetcher is *about*. Change it and the poll refetches immediately instead of waiting out
+   * the interval.
+   *
+   * React Router reuses a component when only a route param changes, so `/room/a` → `/room/b` never
+   * remounts and the fetcher ref updates silently — leaving the previous record on screen for a
+   * whole interval while the room already plays the new one. Pass `curatorId` here and the screen
+   * catches up at once.
+   */
+  resetKey?: string | number,
 ): Poll<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -58,7 +68,8 @@ export function usePoll<T>(
       stop();
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [run, intervalMs]);
+    // `resetKey` restarts the whole cycle, which fetches immediately — the point of passing it.
+  }, [run, intervalMs, resetKey]);
 
   return { data, error, loading, refresh: run };
 }

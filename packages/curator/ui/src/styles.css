@@ -1559,7 +1559,359 @@ a:hover {
 }
 
 /* ==================================================================================================
-   LEGACY — the screens the overhaul hasn't reached yet (the room, add, system, settings).
+   THE ROOM — the record, at full size, in its own light
+
+   A flex **column**: the stage flexes and the dock is a real footer sibling. The dock is deliberately
+   not absolutely positioned — the sleeve-on-the-stand has to sit in the space actually left over, or
+   it ends up behind the controls on a short window.
+   ================================================================================================ */
+
+.room {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--pp-room-floor);
+}
+.room__loading {
+  color: rgba(255, 255, 255, 0.7);
+  padding: 48px 24px;
+  font: 500 10px/1 var(--pp-mono);
+  letter-spacing: 0.16em;
+}
+
+.room__stage {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  min-height: 320px;
+}
+/* Inset on all sides so the drift never reveals an edge. `prefers-reduced-motion` stills it via the
+   global rule — the prototype animated regardless, and a slow full-screen drift is exactly what that
+   setting exists for. */
+.room__wash {
+  position: absolute;
+  inset: -6%;
+  animation: ppDrift 26s ease-in-out infinite;
+}
+
+.room__bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 24px;
+  z-index: 3;
+}
+.room__back {
+  font: 500 10px/1 var(--pp-mono);
+  letter-spacing: 0.16em;
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  padding: 9px 15px;
+  white-space: nowrap;
+  flex: none;
+}
+.room__back:hover {
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  text-decoration: none;
+}
+.room__title {
+  font: 400 17px/1 var(--pp-display);
+  letter-spacing: -0.01em;
+  color: #fff;
+  margin: 0;
+}
+.room__byline {
+  font: 400 13px/1 var(--pp-body);
+  color: rgba(255, 255, 255, 0.5);
+  margin: 0;
+}
+/* The posture, stated continuously while you are in here — never a dot on its own. */
+.room__arm {
+  margin-left: auto;
+  flex: none;
+  font: 500 10px/1 var(--pp-mono);
+  letter-spacing: 0.16em;
+  padding: 9px 15px;
+  white-space: nowrap;
+  cursor: pointer;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+.room__arm--live {
+  background: var(--pp-accent);
+  border-color: var(--pp-accent);
+  color: var(--pp-paper);
+}
+
+.room__scene {
+  position: absolute;
+  inset: 74px 0 22px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+.room__visualizer {
+  width: 70%;
+  flex: 1;
+  max-height: 56%;
+  min-height: 0;
+  object-fit: contain;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+.room__visualizer--empty {
+  display: grid;
+  place-items: center;
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.11) 0 10px,
+    transparent 10px 20px
+  );
+  font: 500 10px/1 var(--pp-mono);
+  letter-spacing: 0.2em;
+  color: rgba(255, 255, 255, 0.6);
+  text-align: center;
+  padding: 12px;
+}
+.room__sleeve {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.room__sleeve-art {
+  width: 70px;
+  height: 70px;
+  object-fit: cover;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.2) 0 6px,
+    transparent 6px 12px
+  );
+}
+.room__sleeve-cap {
+  font: 500 9.5px/1 var(--pp-mono);
+  letter-spacing: 0.2em;
+  color: rgba(255, 255, 255, 0.4);
+  white-space: nowrap;
+}
+/* Conductor being unreachable degrades the room to a window; it never blanks the screen. */
+.room__problem {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  bottom: 10px;
+  z-index: 3;
+  margin: 0;
+  font: 400 12px/1.4 var(--pp-body);
+  color: var(--pp-paper);
+  background: rgba(180, 64, 44, 0.9);
+  padding: 7px 12px;
+}
+
+/* ---- the control dock ------------------------------------------------------------------------- */
+
+.room__dock {
+  flex: none;
+  background: rgba(10, 7, 12, 0.94);
+  border-top: 1px solid rgba(255, 255, 255, 0.25);
+  padding: 18px 24px;
+  display: flex;
+  align-items: flex-start;
+  gap: 34px;
+  flex-wrap: wrap;
+}
+.dock__group {
+  flex: none;
+}
+.dock__group--movers {
+  width: 250px;
+}
+.dock__group--signoff {
+  margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-end;
+}
+.dock__label {
+  font: 500 9.5px/1 var(--pp-mono);
+  letter-spacing: 0.18em;
+  color: rgba(255, 255, 255, 0.5);
+  margin: 0 0 14px;
+}
+.dock__label span {
+  color: var(--pp-amber);
+}
+.dock__group--signoff .dock__label {
+  margin: 0;
+}
+.dock__movers {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+}
+.dock__none {
+  font: 400 11.5px/1.5 var(--pp-body);
+  color: rgba(255, 255, 255, 0.45);
+  margin: 0;
+}
+.mover {
+  display: block;
+}
+.mover__head {
+  display: flex;
+  justify-content: space-between;
+  font: 400 11.5px/1 var(--pp-body);
+  color: rgba(255, 255, 255, 0.8);
+}
+.mover__value {
+  font-family: var(--pp-mono);
+  color: rgba(255, 255, 255, 0.55);
+}
+/* Amber, and only here: the one place the palette allows it is inside the dark room. */
+.mover input[type="range"] {
+  width: 100%;
+  margin: 6px 0 0;
+  accent-color: var(--pp-amber);
+  cursor: pointer;
+}
+
+.dock__stack {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  align-items: flex-start;
+}
+.dock__btn {
+  font: 500 10px/1 var(--pp-mono);
+  letter-spacing: 0.14em;
+  color: rgba(255, 255, 255, 0.85);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  padding: 8px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.dock__btn:hover:not(:disabled) {
+  border-color: #fff;
+  color: #fff;
+}
+/* The chosen pattern is filled paper — readable as "this one" without relying on the hue. */
+.dock__btn[aria-pressed="true"] {
+  background: var(--pp-paper);
+  border-color: var(--pp-paper);
+  color: var(--pp-ink);
+}
+.dock__btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.dock__rooms {
+  font: 400 12px/1 var(--pp-body);
+  color: #fff;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  padding: 7px 9px;
+}
+.dock__room {
+  font: 400 11.5px/1.4 var(--pp-body);
+  color: rgba(255, 255, 255, 0.45);
+  margin: 0;
+}
+
+.dock__approve {
+  padding: 15px 30px;
+  background: var(--pp-paper);
+  color: var(--pp-ink);
+  border: 0;
+  font: 400 15px/1 var(--pp-display);
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.dock__approve:hover:not(:disabled) {
+  background: #fff;
+}
+.dock__approve:disabled {
+  background: rgba(255, 255, 255, 0.25);
+  color: rgba(255, 255, 255, 0.6);
+  cursor: default;
+}
+.dock__signoff-note {
+  font: 400 11.5px/1.5 var(--pp-body);
+  color: rgba(255, 255, 255, 0.45);
+  max-width: 220px;
+  text-align: right;
+  margin: 0;
+}
+
+/* The room is dark, so the ink focus ring would vanish. */
+.room :focus-visible,
+.room__dock :focus-visible {
+  outline-color: var(--pp-paper);
+}
+
+/* ---- the ready toast --------------------------------------------------------------------------- */
+/* The one shadow in the design, and the reason for it: this is the only element that floats above
+   the paper instead of being printed on it. */
+
+.toast {
+  position: fixed;
+  right: 26px;
+  bottom: 26px;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: 360px;
+  padding: 14px 16px;
+  background: var(--pp-paper-raised);
+  border: 1px solid var(--pp-ink);
+  box-shadow: 0 10px 30px rgba(23, 21, 15, 0.24);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  animation: ppToast 5s ease forwards;
+}
+.toast__art {
+  width: 46px;
+  height: 46px;
+  flex: none;
+  object-fit: cover;
+  outline: 1px solid var(--pp-ink);
+  background: var(--pp-paper-sunk);
+}
+.toast__body {
+  flex: 1;
+  min-width: 0;
+}
+.toast__title {
+  display: block;
+  font: 400 16px/1.15 var(--pp-display);
+  letter-spacing: -0.01em;
+}
+.toast__sub {
+  display: block;
+  font: 400 11.5px/1.4 var(--pp-body);
+  color: var(--pp-ink-muted);
+  margin-top: 4px;
+}
+
+/* ==================================================================================================
+   LEGACY — the screens the overhaul hasn't reached yet (add, system, settings).
 
    These rules are the old "backstage marquee" stylesheet with its variables repointed at Pressing
    Plant, so an unconverted screen is readable and on-brand-ish rather than unstyled. It is scaffolding

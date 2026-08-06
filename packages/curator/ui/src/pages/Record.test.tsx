@@ -147,7 +147,7 @@ describe("Record — the sidebar", () => {
       screen
         .getByRole("link", { name: /SEE IT IN THE ROOM/ })
         .getAttribute("href"),
-    ).toBe("/demo/2k7bxq9m");
+    ).toBe("/room/2k7bxq9m");
   });
 
   it("walks the collection with prev/next, and does not wrap", async () => {

@@ -6,7 +6,7 @@ import { recordActivity } from "./roadieLog";
 import { Collection } from "./pages/Collection";
 import { Record } from "./pages/Record";
 import { AddAlbum } from "./pages/AddAlbum";
-import { DemoRoom } from "./pages/DemoRoom";
+import { Room } from "./pages/Room";
 import { Settings } from "./pages/Settings";
 import { SystemStatus } from "./pages/SystemStatus";
 import { TagHelp } from "./pages/TagHelp";
@@ -17,6 +17,7 @@ import { BatchProgress } from "./components/BatchProgress";
 import { attachRunningBatch } from "./batchJob";
 import { attachRunningDiscogsSync } from "./discogsSyncJob";
 import { DiscogsSyncProgress } from "./components/DiscogsSyncProgress";
+import { ReadyToast } from "./components/ReadyToast";
 
 /**
  * The shell (ADR 0052): a masthead, a screen, and the two background-sweep panels.
@@ -90,7 +91,16 @@ export function App() {
                 path="/albums/:curatorId/:section"
                 element={<Record albums={albums} />}
               />
-              <Route path="/demo/:curatorId" element={<DemoRoom />} />
+              <Route
+                path="/room/:curatorId"
+                element={<Room albums={albums} />}
+              />
+              {/* The old address, kept working: it is in the Demo Room's own history and in any
+                  link written before the overhaul. Same screen, one name. */}
+              <Route
+                path="/demo/:curatorId"
+                element={<Room albums={albums} />}
+              />
               <Route path="/system" element={<SystemStatus />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/help/tags" element={<TagHelp />} />
@@ -110,6 +120,7 @@ export function App() {
           </ErrorBoundary>
         </div>
         {/* Both sweeps can run at once; the stack keeps them from sharing one corner. */}
+        <ReadyToast albums={albums} />
         <div className="job-stack">
           <BatchProgress />
           <DiscogsSyncProgress />

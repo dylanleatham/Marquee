@@ -37,7 +37,7 @@ export function Record({ albums }: { albums: AlbumSummary[] | null }) {
     data: asset,
     error,
     refresh,
-  } = usePoll<AlbumAsset>(() => api.album(curatorId), 3000);
+  } = usePoll<AlbumAsset>(() => api.album(curatorId), 3000, curatorId);
   const { data: gemini } = usePoll(api.geminiSettings, 30000);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -143,7 +143,7 @@ export function Record({ albums }: { albums: AlbumSummary[] | null }) {
           </p>
         )}
 
-        <Link to={`/demo/${curatorId}`} className="pp-btn record__toroom">
+        <Link to={`/room/${curatorId}`} className="pp-btn record__toroom">
           ▶ SEE IT IN THE ROOM
         </Link>
 
