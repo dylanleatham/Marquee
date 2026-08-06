@@ -86,20 +86,34 @@ keyboard-_reachable_ — that is an accessibility floor, not an accelerator, and
   each with the screen it served, which is why they do not all go at once. Gone with the collection:
   `QueueView.tsx`, `queueKeys.ts`, `RoadieStrip.tsx`, and `commandPalette.ts` /
   `CommandPalette.tsx` (the palette outlives no screen — the whole keyboard layer is withdrawn).
-  `rail.ts`, `PeerNav.tsx`, `PaletteEditor.tsx`, `ArtworkSection.tsx`, `FeelingPalette.tsx` and
-  `MotionPicker.tsx` went with the record page (2026-08-05). `PreviewWorkstation.tsx` and
-  `PreviewSection` go with **the room** and are retained, unmounted, until it lands.
-  "Deprecated" would mean leaving them reachable; nothing new may use them.
+  `rail.ts`, `PeerNav.tsx`, `PaletteEditor.tsx`, `ArtworkSection.tsx`, `FeelingPalette.tsx`,
+  `MotionPicker.tsx` and finally `workflow.tsx` itself — the five workstations — went with the record
+  page (2026-08-05). `PreviewWorkstation.tsx` goes with **the room** and is retained, unmounted,
+  until it lands. "Deprecated" would mean leaving them reachable; nothing new may use them.
 - **A screen landing before its successor leaves real gaps, and they are written down rather than
-  discovered.** Deleting the rail took three controls with it that the room has not yet replaced:
-  the motion picker, bench preview with desk audio, and room rehearsal. Each is recorded in
-  curator-ui-ux (§5.0 and §6) with where it is going. The routes and stored values are untouched —
-  only the controls are missing — and the Demo Room still plays a record.
+  discovered.** Deleting the rail took four controls with it. Three go to the room and are recorded
+  in curator-ui-ux §5.0 and §6: the motion picker, bench preview with desk audio, and room
+  rehearsal. The routes and stored values are untouched — only the controls are missing — and the
+  Demo Room still plays a record.
+- **The fourth gap needs a decision, not just a note: the clip gallery and splice (issue #29).**
+  `LET ROADIE MAKE IT` calls `generateVideoSet`, which produces **several `videoClips`, not an
+  attached visualizer** — the old bench then showed a gallery and let you reorder, deselect and
+  splice them into one loop. The design has no gallery and no splice: it shows a player, the drafts,
+  and that button, which implies generation should hand back a finished visualizer. So the two do
+  not currently meet, and pressing the button produces clips the record page cannot show. It is
+  low-urgency in practice — video generation is opt-in and off by default — but the honest options
+  are to splice automatically after a successful generate, or to restore a minimal gallery. Recorded
+  here rather than left as a button that quietly does nothing visible.
 - **Some of the design needs backend work that does not exist yet**, flagged here so it is not
-  rediscovered as a bug: palette edits must autosave; brightness and light pattern become per-record;
-  four visualizer prompt variants rather than one; Discogs as a standing synced collection with
-  durable unmatched rows; pressing collapse; and collection statistics. `label` in particular is not
-  stored on an asset today, so the "top label" statistic cannot be computed — the statistic rotation
-  is built from the statistics that _have_ data, and grows to five on its own when it lands.
+  rediscovered as a bug: brightness and light pattern become per-record; Discogs as a standing synced
+  collection with durable unmatched rows; pressing collapse; collection statistics; and editing a
+  drafted prompt by hand. `label` in particular is not stored on an asset today, so the "top label"
+  statistic cannot be computed — the statistic rotation is built from the statistics that _have_
+  data, and grows to five on its own when it lands. Palette autosave and the one-press tag
+  verification landed with the record page.
+- **The design's counts are not always requirements.** It asks for four visualizer drafts where the
+  backend writes five; the requirement underneath was "every draft visible and separately copyable,
+  not one behind a chooser", and that is met by rendering however many exist. Cutting to four would
+  mean deleting one of five named options from a metaprompt — a content decision, not a constant.
 - The overhaul lands screen by screen. While it does, `styles.css` carries a marked legacy block so
   the not-yet-converted screens stay usable; it is deleted with the last of them.

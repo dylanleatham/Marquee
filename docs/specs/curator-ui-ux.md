@@ -25,15 +25,15 @@ This document ratifies the former and replaces the latter. It records the design
 >
 > It ships in stages, so this spec is part new and part historical. Read it accordingly:
 >
-> | Section                | State                                                                                                                                                 |
-> | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-> | §3 design language     | **Rewritten.** Pressing Plant, as built.                                                                                                              |
-> | §8 the collection      | **Rewritten.** Replaces the queue view, as built.                                                                                                     |
-> | §5 the record          | **Rewritten in part.** The shell and the Lights panel are built; §5.2's rail still runs the visualizer, card and tags panels underneath the new tabs. |
-> | §9.1 keyboard          | **Withdrawn.** The accelerator layer is removed.                                                                                                      |
-> | §4 workbench principle | **Kept, its rail deleted.** "Providing an artifact is never gated" survives; the five stations that expressed it do not.                              |
-> | §6 preview             | **Superseded but still the code.** The room is not built yet, so the bench described there is what is running.                                        |
-> | §8.5 system, §9.2–§10  | Unchanged so far.                                                                                                                                     |
+> | Section                | State                                                                                                                    |
+> | ---------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+> | §3 design language     | **Rewritten.** Pressing Plant, as built.                                                                                 |
+> | §8 the collection      | **Rewritten.** Replaces the queue view, as built.                                                                        |
+> | §5 the record          | **Rewritten.** All four panels built; the rail is deleted.                                                               |
+> | §9.1 keyboard          | **Withdrawn.** The accelerator layer is removed.                                                                         |
+> | §4 workbench principle | **Kept, its rail deleted.** "Providing an artifact is never gated" survives; the five stations that expressed it do not. |
+> | §6 preview             | **Superseded but still the code.** The room is not built yet, so the bench described there is what is running.           |
+> | §8.5 system, §9.2–§10  | Unchanged so far.                                                                                                        |
 >
 > Nothing below is deleted — a spec that loses its history can't explain why the code looks the way it
 > does mid-migration.
@@ -226,10 +226,8 @@ privately and two of them landed the other way.
 
 ## 5. The record
 
-> **Rewritten in part, 2026-08-05** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).
-> The shell and the Lights panel are built; the visualizer, card and tags panels still run on the
-> pre-overhaul workstation components underneath the new tabs, and are rebuilt next. The rail
-> description further down is kept for those three and is deleted with them.
+> **Rewritten 2026-08-05** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).
+> All four panels are built and the rail is deleted. §5.2 below is kept as the record of what it was.
 
 One page listing the four things a record still needs — **Lights · A visualizer · A card · Tags** —
 done in any order. No stepper, no rail, no machine-state name.
@@ -302,7 +300,83 @@ not by reading a list. That is the whole reason colour editing stays here and mo
 >   record, not a claim about exact hexes, and the panel shows it above the editor — so nudging one
 >   swatch used to erase it.
 
-## 5.2 Album detail — the rail (superseded; still the code for three panels)
+### 5.1 The visualizer, card and tags panels
+
+Built 2026-08-05. Together with §5.0 they replace the Video, Card and Ship workstations outright.
+
+**A visualizer.** The attached clip **plays here, looping, washed in the record's own palette** —
+the same `radial-gradient` the room uses, because judging whether a clip belongs to _this_ record is
+the only thing this panel is for, and a still frame on paper stock cannot answer that. Its position
+and resolution sit in the corners. `REPLACE · REMOVE · PICK A FILE`; **no "paste a link"** — a URL is
+not a file, and the one that mattered was always local.
+
+Beneath it, the **Backdrop strip carries all three of its states**: uploading (percent _and_ bytes,
+never the bar alone), a quiet green "on Backdrop", and a failure with its **RETRY right here** rather
+than only on the System screen. A clip attached in Curator that never reached Backdrop plays as a
+black screen in the room, and the old panel said nothing at all once the transfer stopped — success
+and failure looked identical, which is the case
+[ADR 0038](../adrs/0038-curator-pushes-media-over-http.md) exists to prevent.
+
+A 280px side panel lists **every drafted prompt, numbered, each separately copyable**. The old bench
+showed one behind a variant chooser, so the rest may as well not have been written. `LET ROADIE MAKE
+IT` is marked `◈` as a control that spends, and says why it is off when it is.
+
+> **`LET ROADIE MAKE IT` currently produces clips this panel cannot show.** `generateVideoSet`
+> returns several `videoClips`; the old bench had a gallery and a splice step
+> ([issue #29](https://github.com/dylanleatham/Marquee/issues/29)) to combine them into the attached
+> visualizer, and the design has neither — it implies generation hands back a finished clip. Needs a
+> decision: splice automatically after a successful generate, or restore a minimal gallery. Low
+> urgency (video generation is opt-in and off by default), recorded in ADR 0052 so it is not
+> rediscovered as "the button does nothing".
+
+> **The design asks for four drafts; the backend writes five, and it still writes five.**
+> `PROMPT_VARIANTS` is shared with card art, and the narrative metaprompt names its five options in
+> prose — so cutting to four means choosing an option to delete, which is a content decision with no
+> obvious winner, not a constant to edit. The requirement that actually mattered ("four, **not
+> one**" — every draft visible and separately copyable) is met by rendering however many exist. The
+> panel is headed `ROADIE'S DRAFTS · n`, so it stays honest if the count ever changes.
+
+**A card.** The candidates, **7:5 landscape, two up** — the old gallery was a 140px auto-fill grid,
+and thumbnails that small cannot be judged, which is the only thing this screen is for. The one in
+use gets a `2px` accent outline, full opacity, an `IN USE` mark and a `DOWNLOAD`; the rest sit at
+`opacity:.5` with `USE THIS ONE INSTEAD`.
+
+> The design shows four. **The grid renders however many exist** — `generateCardArtSet` draws one per
+> drafted prompt, which is `PROMPT_VARIANTS` (5) today, the same count the visualizer drafts carry
+> and for the same shared reason. Two-up at 7:5 is the requirement; four was the mock's arithmetic. **"Use", never "keep"** — keep read as a commitment when
+> the choice is free to change. **Download, not a print sheet**: you take the one you are using, and
+> `/card-art/print` belonged to a workflow that no longer exists.
+
+The attached card is matched to its candidate by **`fileId`, not index** — a regeneration renumbers
+the candidates, and matching on index would put the `IN USE` mark on whichever card landed in that
+slot. A candidate whose image won't load is dropped rather than shown as a broken glyph.
+
+> **`EDIT THE PROMPT` is not built.** The design lists it beside "ask for more" and "upload my own",
+> but there is no API for editing a drafted prompt's text by hand — only selecting a variant or
+> asking Gemini to redraft. Left out rather than faked; it needs a backend before it needs a button.
+
+**Tags.** THE SLEEVE and THE SHELF CARD side by side, each with its **real QR** (the server renders
+it from the URI; the prototype's checkerboard was a stand-in), its `curator:album:` / `curator:card:`
+URI, and its written state as a word plus a tick. Then `SEND THIS RECORD TO THE FLIPPER ·
+DOWNLOAD .NFC · HOW DO I WRITE THESE?` — **per record only**; the bulk "send the whole list" went
+with the queue, because you write these standing at the shelf, one at a time.
+
+Below a hairline, set apart on purpose: **THEN CHECK THEM**, and **one `TAGS VERIFIED` button
+covering both tags**. Marking the sleeve written and the card written were bookkeeping about a single
+act at the Flipper; the _check_ — tapping each tag and confirming it opens the right record — is the
+only part that is a decision, and it is where a mis-written sticker turns up. So verification stays
+its own visually separated step, and it is one press.
+
+> **The gate is shown, not hidden (§4).** The human path through the state machine is still linear
+> even though the four needs are done in any order, so `TAGS VERIFIED` is **disabled with its reason**
+> until the record reaches the tag step, rather than offering a press that 409s. That tension between
+> "any order" and a linear machine is real and is not resolved here — it is simply not hidden.
+
+## 5.2 Album detail — the rail (superseded, and now deleted)
+
+> **Deleted 2026-08-05.** `workflow.tsx` — the five workstations, the prompt blocks, the splice
+> controls and the tag payload — is gone with the panels above. What survived it is the `Run` type,
+> now `ui/src/run.ts`. The section below is kept only as the record of what the rail was.
 
 The detail page is a **left rail of five workstations** beside a full-width canvas. The selected
 workstation gets the whole canvas; the rail is always visible.

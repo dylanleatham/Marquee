@@ -927,6 +927,16 @@ export const api = {
       state: RoadieState;
       verify: { ok: boolean; discrepancies: string[] };
     }>(`/api/albums/${id}/verify-physical`, { method: "POST" }),
+  /**
+   * The record page's one button for the whole tag step (ADR 0052): both stickers recorded as
+   * written, and the physical check recorded, in one action. `409` until the record reaches the tag
+   * step — the panel disables the button with the reason rather than offering a press that fails.
+   */
+  verifyTags: (id: string) =>
+    req<{
+      state: RoadieState;
+      verify: { ok: boolean; discrepancies: string[] };
+    }>(`/api/albums/${id}/tags-verified`, { method: "POST" }),
   // --- Settings: Spotify credentials (packaged app has no repo .env) ---
   spotifySettings: () => req<SpotifySettings>("/api/settings/spotify"),
   saveSpotifySettings: (clientId: string, clientSecret: string) =>
@@ -1031,5 +1041,8 @@ export const videoClipDownloadUrl = (id: string, index: number) =>
 export const cardArtUrl = (id: string) => `/api/albums/${id}/card-art`;
 export const cardArtPrintUrl = (id: string, bleed = false) =>
   `/api/albums/${id}/card-art/print${bleed ? "?bleed=1" : ""}`;
+/** A ready-to-write `.nfc` for the Flipper (issue #67). One object per file, as the writer expects. */
+export const tagNfcUrl = (id: string, object: "sleeve" | "card") =>
+  `/api/albums/${id}/tag.nfc?object=${object}`;
 export const cardArtCandidateUrl = (id: string, index: number) =>
   `/api/albums/${id}/card-art/candidate/${index}`;

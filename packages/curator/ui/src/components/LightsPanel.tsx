@@ -15,7 +15,7 @@ import {
 } from "../lights";
 import { relativeTime } from "../format";
 import { AsyncButton } from "./common";
-import type { Run } from "./workflow";
+import type { Run } from "../run";
 
 /**
  * The Lights panel (ADR 0052) — the record's default tab.

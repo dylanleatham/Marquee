@@ -201,6 +201,13 @@ Two important properties:
 > single-album verify (`syncAlbum`'s counterpart `verifyAlbum`) that records any drift as
 > `syncIssues`; the manual full-library `POST /api/backdrop/verify-sync` remains for recovery.
 >
+> **Update (2026-08-05, [ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)):
+> there are now two endpoints that reach `verified`, and both fire this.** The record page's tags
+> panel presses `POST /api/albums/:curatorId/tags-verified`, which records both stickers written and
+> the physical check in one action and then runs the identical push-then-★verify tail — the claim
+> being made ("I put the sleeve on the stand and it worked") is the same one, so the trigger must be
+> too. `verify-physical` is unchanged and remains the per-step route. See curator-spec §Tag writing.
+>
 > **Update (2026-08-01, [ADR 0045](../adrs/0045-curator-pushes-album-assets-to-conductor.md)): ★ now
 > covers the whole runtime, not just Backdrop.** The **album-assets store** Conductor reads at scan
 > time — and Amp reads from the same directory — is pushed over HTTP too

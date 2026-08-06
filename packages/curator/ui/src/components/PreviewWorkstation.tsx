@@ -17,7 +17,7 @@ import { Cover, AsyncButton } from "./common";
 import { useVisibleCycle } from "../hooks";
 import { useRoomGate } from "../roomArm";
 import { usePrimaryAction } from "../primaryAction";
-import type { Run } from "./workflow";
+import type { Run } from "../run";
 
 /** The palette animating under the runtime's own pattern — the light show, at the bench. */
 function PaletteStage({

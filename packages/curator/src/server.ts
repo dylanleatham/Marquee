@@ -1657,6 +1657,31 @@ export function buildServer(opts: BuildOptions = {}) {
     }
   });
 
+  /**
+   * **Tags verified** (ADR 0052) — the record page's one button for the whole tag step: both
+   * stickers recorded as written, and the physical check recorded, in one action.
+   *
+   * Shares `verify-physical`'s tail exactly (push to the runtime, then ★verify), because the *claim*
+   * being made is identical — "I put the sleeve on the stand and it worked" — and that claim is only
+   * honest about a runtime that has actually been given the album.
+   */
+  app.post("/api/albums/:curatorId/tags-verified", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    try {
+      const asset = actions.verifyTags(actionDeps, curatorId);
+      const push = await pushAlbumToRuntime(asset);
+      const verify = await backdrop.verifyAlbum(asset).catch((err) => ({
+        ok: false,
+        discrepancies: [
+          `Backdrop verify unreachable: ${(err as Error).message}`,
+        ],
+      }));
+      return { state: asset.roadie.state, push, verify };
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
+  });
+
   // Mark the album physically verified: awaiting_verify → verified, record physicallyVerifiedAt, then
   // fire the ★verify Backdrop reconcile (roadie-spec §6 / ADR 0015) — the last human step of onboarding.
   app.post("/api/albums/:curatorId/verify-physical", async (req, reply) => {

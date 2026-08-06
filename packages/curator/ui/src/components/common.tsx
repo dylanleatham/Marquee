@@ -200,6 +200,24 @@ export function Cover({
 // component whose entire job was rendering one had nothing left to do. What a record still needs is
 // `needs.ts`, and the collection and the record page each draw it their own way.
 
+/**
+ * Open the OS file chooser and hand back what was picked.
+ *
+ * A detached input rather than a hidden one in the tree: nothing here needs to be tabbed to — the
+ * visible button is the control, and it is a real `<button>`. Shared by the visualizer and card
+ * panels, which differ only in what they accept.
+ */
+export function pickFile(accept: string, onFile: (f: File) => void): void {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = accept;
+  input.onchange = () => {
+    const f = input.files?.[0];
+    if (f) onFile(f);
+  };
+  input.click();
+}
+
 export function Spinner() {
   return <span className="spinner" aria-label="loading" />;
 }

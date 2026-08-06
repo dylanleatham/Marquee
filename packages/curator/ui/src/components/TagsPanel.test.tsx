@@ -1,0 +1,215 @@
+// The tags panel (ADR 0052) — two stickers, and the one check that catches real bugs.
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import {
+  render,
+  screen,
+  cleanup,
+  fireEvent,
+  waitFor,
+} from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+
+vi.mock("../api", () => ({
+  api: {
+    tagPayload: vi.fn().mockResolvedValue({
+      payload: "curator:album:abc12345",
+      qrDataUrl: "data:image/png;base64,AA",
+    }),
+    pushAlbumToFlipper: vi.fn().mockResolvedValue({
+      ok: true,
+      total: 3,
+      port: "COM4",
+      bytes: 90,
+      path: "x",
+    }),
+    verifyTags: vi.fn().mockResolvedValue({ state: "verified" }),
+  },
+  tagNfcUrl: (id: string, object: string) =>
+    `/api/albums/${id}/tag.nfc?object=${object}`,
+}));
+
+import { api, type AlbumAsset, type RoadieState } from "../api";
+import { TagsPanel } from "./TagsPanel";
+
+const asset = (
+  state: RoadieState,
+  over: Partial<AlbumAsset> = {},
+): AlbumAsset =>
+  ({
+    curatorId: "abc12345",
+    createdAt: "2026-08-01T00:00:00.000Z",
+    metadata: { name: "Voodoo", artist: "D'Angelo", source: "manual" },
+    roadie: {
+      state,
+      subState: null,
+      flags: {
+        palette_insufficient: false,
+        album_not_on_spotify: false,
+        art_override_active: false,
+      },
+      history: [],
+      lastError: null,
+      retryCount: 0,
+    },
+    status: { highLevel: "", next: null, issues: [] },
+    ...over,
+  }) as AlbumAsset;
+
+const show = (a: AlbumAsset = asset("awaiting_tag_write")) =>
+  render(
+    <MemoryRouter>
+      <TagsPanel
+        curatorId="abc12345"
+        asset={a}
+        run={async (fn) => {
+          await fn();
+        }}
+      />
+    </MemoryRouter>,
+  );
+
+beforeEach(() => vi.clearAllMocks());
+afterEach(cleanup);
+
+describe("TagsPanel — the two objects", () => {
+  it("shows each tag's URI and its written state in words", async () => {
+    show(
+      asset("awaiting_verify", {
+        tag: {
+          payload: "curator:album:abc12345",
+          sleeve: { written: true },
+        },
+      }),
+    );
+    expect(screen.getByText("curator:album:abc12345")).toBeTruthy();
+    expect(screen.getByText("curator:card:abc12345")).toBeTruthy();
+    // Written-ness is a word plus a tick, never the tick alone.
+    expect(screen.getByText("✓ written")).toBeTruthy();
+    expect(screen.getByText("not written yet")).toBeTruthy();
+  });
+
+  it("renders the real QR the server generates, not a placeholder", async () => {
+    show();
+    await waitFor(() =>
+      expect(screen.getAllByRole("img", { name: /QR code/ })).toHaveLength(2),
+    );
+    expect(api.tagPayload).toHaveBeenCalledWith("abc12345", "sleeve");
+    expect(api.tagPayload).toHaveBeenCalledWith("abc12345", "card");
+  });
+
+  it("shows the payload the server holds, not a locally derived guess", async () => {
+    // A sleeve that already had a payload recorded keeps it, so it need not equal the derived
+    // `curator:album:<id>`. Deriving the visible text separately would let the words disagree with
+    // what the QR encodes — on the one screen whose whole job is catching that.
+    vi.mocked(api.tagPayload).mockResolvedValue({
+      object: "sleeve",
+      payload: "curator:album:legacy-payload",
+      qrDataUrl: "data:image/png;base64,AA",
+    });
+    show();
+    await waitFor(() =>
+      expect(screen.getAllByText("curator:album:legacy-payload").length).toBe(
+        2,
+      ),
+    );
+  });
+
+  it("says so when it had to fall back to the derived URI", async () => {
+    vi.mocked(api.tagPayload).mockRejectedValue(new Error("nope"));
+    show();
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole("img", { name: /QR unavailable/ }).length,
+      ).toBe(2),
+    );
+    // The panel still says what the URI *should* be — and marks it as exactly that.
+    expect(screen.getByText("curator:album:abc12345")).toBeTruthy();
+    expect(
+      screen.getAllByText(/what it should say, not what was read/).length,
+    ).toBe(2);
+  });
+});
+
+describe("TagsPanel — getting them written", () => {
+  it("sends this record to the Flipper, and says what landed", async () => {
+    show();
+    fireEvent.click(
+      screen.getByRole("button", { name: /SEND THIS RECORD TO THE FLIPPER/ }),
+    );
+    await waitFor(() =>
+      expect(screen.getByText(/on the Flipper/)).toBeTruthy(),
+    );
+    expect(api.pushAlbumToFlipper).toHaveBeenCalledWith("abc12345");
+  });
+
+  it("offers no bulk send — the queue's list went with the queue", () => {
+    show();
+    expect(screen.queryByText(/send list|whole list|all albums/i)).toBeNull();
+  });
+
+  it("links the .nfc and the how-to", () => {
+    show();
+    expect(
+      screen.getByRole("link", { name: "DOWNLOAD .NFC" }).getAttribute("href"),
+    ).toContain("tag.nfc?object=sleeve");
+    expect(
+      screen
+        .getByRole("link", { name: /HOW DO I WRITE THESE/ })
+        .getAttribute("href"),
+    ).toBe("/help/tags");
+  });
+});
+
+describe("TagsPanel — the check", () => {
+  it("is one button for both tags", async () => {
+    show();
+    expect(screen.getAllByRole("button", { name: /VERIFIED/ })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "TAGS VERIFIED" }));
+    await waitFor(() =>
+      expect(api.verifyTags).toHaveBeenCalledWith("abc12345"),
+    );
+  });
+
+  it("says why it can't be pressed yet rather than failing when it is", () => {
+    // The human path through the machine is still linear even though the needs are done in any
+    // order — curator-ui-ux §4: the gate is shown, not hidden.
+    show(asset("awaiting_review"));
+    const btn = screen.getByRole("button", { name: "TAGS VERIFIED" });
+    expect((btn as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/this is the last step/i)).toBeTruthy();
+  });
+
+  it("is pressable from awaiting_verify too, not only from the tag step", () => {
+    show(asset("awaiting_verify"));
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "TAGS VERIFIED",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+  });
+
+  it("keeps the check visually its own step, with the reason it matters", () => {
+    show();
+    expect(screen.getByText("THEN CHECK THEM")).toBeTruthy();
+    expect(screen.getByText(/This is where the bugs turn up/)).toBeTruthy();
+  });
+
+  it("says so once it has been done", () => {
+    show(
+      asset("verified", {
+        verification: { physicallyVerifiedAt: "2026-08-01T00:00:00.000Z" },
+      }),
+    );
+    expect(
+      screen.getByRole("button", { name: /TAGS VERIFIED ✓/ }),
+    ).toBeTruthy();
+  });
+
+  it("never says 'I've put it on the shelf'", () => {
+    show();
+    expect(screen.queryByText(/shelf\b(?!.*card)/i)).toBeNull();
+    expect(screen.queryByText(/physically verified/i)).toBeNull();
+  });
+});

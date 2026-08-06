@@ -1435,6 +1435,40 @@ export function markTagWritten(
 }
 
 /**
+ * **Tags verified** — the record page's one button for the whole tag step (ADR 0052).
+ *
+ * The old bench had three controls in sequence: mark the sleeve written, mark the card written, then
+ * mark physically verified. Two of those are bookkeeping about an act that happened at the Flipper,
+ * not decisions — you write both stickers in one sitting, and nothing downstream distinguishes them.
+ * The one that *is* a decision is the check: tapping each tag on a phone and confirming it opens the
+ * right record, which is where the bugs turn up. So one button records the writes and the check
+ * together, and verification stays a distinct, deliberate step rather than a third click.
+ *
+ * Both tags are marked written whatever their prior state, so pressing this after writing only the
+ * sleeve does not leave the card claiming otherwise. Idempotent for the writes; the transition
+ * throws once the album is already `verified`.
+ */
+export function verifyTags(deps: ActionDeps, curatorId: string): AlbumAsset {
+  const asset = load(deps.store, curatorId);
+  const now = clock(deps);
+  const at = now();
+  const tag = asset.tag ?? { payload: `curator:album:${curatorId}` };
+  for (const object of ["sleeve", "card"] as const)
+    if (!tag[object]?.written) tag[object] = { written: true, writtenAt: at };
+  asset.tag = tag;
+  // `awaiting_tag_write` has to step through `awaiting_verify` — the machine's human path is linear
+  // (asset.ts HUMAN_TRANSITIONS) even though the record page lets the four needs be done in any
+  // order. Anything earlier than the tag step throws, and the panel disables the button with the
+  // reason rather than offering a press that 409s.
+  if (asset.roadie.state === "awaiting_tag_write")
+    transitionTo(asset, "awaiting_verify", now);
+  transitionTo(asset, "verified", now);
+  asset.verification = { ...asset.verification, physicallyVerifiedAt: at };
+  deps.store.save(asset);
+  return asset;
+}
+
+/**
  * Mark the album physically verified (step 11): record `verification.physicallyVerifiedAt` and
  * transition `awaiting_verify → verified` (throws if not in `awaiting_verify`). The ★verify Backdrop
  * reconcile (ADR 0015) is fired by the route after this, so it stays out of the store transaction.

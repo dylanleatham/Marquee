@@ -13,14 +13,10 @@ import {
 } from "../needs";
 import { artworkSrc } from "../components/common";
 import { LightsPanel } from "../components/LightsPanel";
-import { MediaTransfer } from "../components/MediaTransfer";
-import { PrimaryActionProvider } from "../primaryAction";
-import type { Run } from "../components/workflow";
-import {
-  CardArtSection,
-  TagWriteSection,
-  VideoSection,
-} from "../components/workflow";
+import { VisualizerPanel } from "../components/VisualizerPanel";
+import { CardPanel } from "../components/CardPanel";
+import { TagsPanel } from "../components/TagsPanel";
+import type { Run } from "../run";
 
 /**
  * The record (ADR 0052) — one page listing the four things a record still needs, done in any order.
@@ -31,21 +27,10 @@ import {
  *
  * Preview is not a tab. Signing the lights off means having watched them, so that lives in the room.
  */
-export function Record({ albums }: { albums: AlbumSummary[] | null }) {
-  // The three panels still served by the old workstation components register a primary action
-  // through this context. The provider stays until they are rebuilt; nothing fires it any more
-  // (⌘⏎ was withdrawn with the rest of the keyboard layer), so it is inert plumbing, not a feature.
-  return (
-    <PrimaryActionProvider>
-      <RecordPage albums={albums} />
-    </PrimaryActionProvider>
-  );
-}
-
 const isNeed = (s: string | undefined): s is Need =>
   NEED_ORDER.includes(s as Need);
 
-function RecordPage({ albums }: { albums: AlbumSummary[] | null }) {
+export function Record({ albums }: { albums: AlbumSummary[] | null }) {
   const { curatorId = "", section } = useParams();
   const navigate = useNavigate();
   const {
@@ -232,39 +217,26 @@ function RecordPage({ albums }: { albums: AlbumSummary[] | null }) {
               run={run}
             />
           )}
-          {/* The remaining three still run on the pre-overhaul workstations, under the legacy
-              styles. They are rebuilt in the next stage; leaving them mounted keeps the record
-              fully usable meanwhile rather than showing three "coming soon" panels. */}
           {need === "visualizer" && (
-            <div className="page">
-              <VideoSection
-                curatorId={curatorId}
-                asset={asset}
-                run={run}
-                refresh={refresh}
-                canGenerate={gemini?.generateVideo ?? false}
-              />
-              {/* The Backdrop transfer runs after the attach returns (issue #177), and the design
-                  puts its progress strip directly beneath the player. Without it a transfer that
-                  takes an hour over a poor link looks like nothing happened. */}
-              <MediaTransfer curatorId={curatorId} />
-            </div>
+            <VisualizerPanel
+              curatorId={curatorId}
+              asset={asset}
+              refresh={refresh}
+              run={run}
+              canGenerate={gemini?.generateVideo ?? false}
+            />
           )}
           {need === "card" && (
-            <div className="page">
-              <CardArtSection
-                curatorId={curatorId}
-                asset={asset}
-                run={run}
-                refresh={refresh}
-                canGenerate={gemini?.generateCardArt ?? false}
-              />
-            </div>
+            <CardPanel
+              curatorId={curatorId}
+              asset={asset}
+              refresh={refresh}
+              run={run}
+              canGenerate={gemini?.generateCardArt ?? false}
+            />
           )}
           {need === "tags" && (
-            <div className="page">
-              <TagWriteSection curatorId={curatorId} asset={asset} run={run} />
-            </div>
+            <TagsPanel curatorId={curatorId} asset={asset} run={run} />
           )}
         </div>
       </div>
