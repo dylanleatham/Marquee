@@ -321,13 +321,22 @@ A 280px side panel lists **every drafted prompt, numbered, each separately copya
 showed one behind a variant chooser, so the rest may as well not have been written. `LET ROADIE MAKE
 IT` is marked `◈` as a control that spends, and says why it is off when it is.
 
-> **`LET ROADIE MAKE IT` currently produces clips this panel cannot show.** `generateVideoSet`
-> returns several `videoClips`; the old bench had a gallery and a splice step
-> ([issue #29](https://github.com/dylanleatham/Marquee/issues/29)) to combine them into the attached
-> visualizer, and the design has neither — it implies generation hands back a finished clip. Needs a
-> decision: splice automatically after a successful generate, or restore a minimal gallery. Low
-> urgency (video generation is opt-in and off by default), recorded in ADR 0052 so it is not
-> rediscovered as "the button does nothing".
+**`LET ROADIE MAKE IT` generates and then joins, in one press.** `generateVideoSet` returns several
+`videoClips`; this page shows a _visualizer_. The old bench closed that gap with a gallery and a
+manual splice step ([issue #29](https://github.com/dylanleatham/Marquee/issues/29)); the design has
+neither, so the button does it — a clip per draft, spliced in index order into the attached loop.
+Stopping at the clips would leave the button looking like it did nothing, because nothing on this
+page can render them.
+
+While it runs, the panel reports **items done of total** (a clip is a multi-minute call and there is
+one per draft, so this is a long wait) and offers `STOP`. It re-attaches to a running job on mount,
+so a reload mid-run resumes and still splices.
+
+> **Two cases the automatic join cannot cover**, and one strip that covers both: the app was closed
+> while the job ran — `useGenerationJob` adopts an already-finished job without re-firing its
+> completion — or the splice itself failed. Either way the clips are on disk with nothing attached,
+> which is invisible on a page that only renders a visualizer. So when clips exist and no visualizer
+> does, the panel says how many there are and offers **MAKE THE LOOP**.
 
 > **The design asks for four drafts; the backend writes five, and it still writes five.**
 > `PROMPT_VARIANTS` is shared with card art, and the narrative metaprompt names its five options in

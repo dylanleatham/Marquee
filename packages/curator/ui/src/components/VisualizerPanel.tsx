@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { api, videoUrl, type AlbumAsset, type PaletteColor } from "../api";
-import { useMediaTransferJob } from "../hooks";
+import { useGenerationJob, useMediaTransferJob } from "../hooks";
 import { etaSeconds, formatBytes, humanEta } from "../transfer";
 import { AsyncButton, pickFile } from "./common";
 import type { Run } from "../run";
@@ -124,10 +124,12 @@ export function VisualizerPanel({
   const [at, setAt] = useState(0);
   const [length, setLength] = useState(0);
   const [copied, setCopied] = useState<number | null>(null);
+  const [splicing, setSplicing] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const visualizer = asset.visualizer;
   const drafts = asset.promptDrafts?.video?.variants ?? [];
+  const clips = asset.videoClips ?? [];
   const wash = paletteWash(asset.palette?.colors ?? []);
 
   const upload = (file: File) =>
@@ -137,6 +139,47 @@ export function VisualizerPanel({
       await api.uploadVideo(curatorId, form);
       refresh();
     });
+
+  /**
+   * Join every generated clip, in index order, into the one looping visualizer (issue #29).
+   *
+   * Generation returns *clips*; the record page shows a *visualizer*. Something has to close that
+   * gap, and the design has no gallery and no splice step — so "let Roadie make it" means exactly
+   * that, end to end.
+   */
+  const splice = () =>
+    run(async () => {
+      // Both entry points — the automatic one and the button — go through here, and the button's
+      // strip becomes visible the instant the job reports `done`, which is *before* the automatic
+      // splice resolves. One flag covers both, so a press in that window can't start a second
+      // ffmpeg join over the same clips.
+      if (splicing) return;
+      setSplicing(true);
+      try {
+        await api.spliceVisualizer(curatorId);
+        refresh();
+      } finally {
+        setSplicing(false);
+      }
+    });
+
+  /**
+   * Generate a clip per draft, then splice — the button's whole job, not half of it.
+   *
+   * `onDone` fires when the job reaches `done`, which is the case that matters: a set of clips with
+   * nothing attached is invisible on this page, so leaving them unspliced would make the button look
+   * like it did nothing. Two cases it deliberately cannot cover — the app was closed while the job
+   * ran, or the splice itself failed — are why the strip below exists.
+   */
+  const gen = useGenerationJob(
+    curatorId,
+    "video",
+    () => api.generateVideoSet(curatorId),
+    () => void splice(),
+    // Always re-attach, even with generation switched off: a job started before it was turned off
+    // must still finish and splice, or its clips are stranded.
+    true,
+  );
 
   const copy = (text: string, i: number) =>
     run(async () => {
@@ -185,6 +228,38 @@ export function VisualizerPanel({
               result back.
             </span>
           </button>
+        )}
+
+        {/* The two cases auto-splice can't reach: the app was closed while the job ran (the hook
+            adopts a finished job without re-firing `onDone`), or the splice failed. Both leave clips
+            on disk and nothing attached — invisible on this page without something to say so. */}
+        {!visualizer &&
+          clips.length > 0 &&
+          gen.status !== "running" &&
+          !splicing && (
+            <p className="bdstrip" role="status">
+              <span className="pp-dot" aria-hidden="true" />
+              <span className="bdstrip__text">
+                Roadie made {clips.length} clip{clips.length === 1 ? "" : "s"}{" "}
+                but they aren&apos;t joined up yet.
+              </span>
+              <AsyncButton
+                className="pp-action"
+                onClick={splice}
+                pendingLabel="JOINING…"
+              >
+                MAKE THE LOOP
+              </AsyncButton>
+            </p>
+          )}
+
+        {splicing && (
+          <p className="bdstrip" role="status" aria-live="polite">
+            <span className="pp-dot pp-dot--pulse" aria-hidden="true" />
+            <span className="bdstrip__text">
+              Joining the clips into a loop…
+            </span>
+          </p>
         )}
 
         <BackdropStrip
@@ -262,22 +337,52 @@ export function VisualizerPanel({
         )}
 
         <div className="drafts__foot">
-          <AsyncButton
-            className="pp-btn pp-btn--wide pp-btn--outline"
-            disabled={!canGenerate || drafts.length === 0}
-            onClick={() => run(() => api.generateVideoSet(curatorId))}
-            pendingLabel="ASKING…"
-            title={
-              canGenerate
-                ? "Generates a clip from each draft"
-                : "Turn video generation on in Settings first"
-            }
-          >
-            ◈ LET ROADIE MAKE IT
-          </AsyncButton>
+          {gen.status === "running" ? (
+            <>
+              {/* A clip is a multi-minute call and there is one per draft, so this runs for a long
+                  while. Progress in items, plus a way out — never a spinner and a hope. */}
+              {/* Same signal as the Backdrop strip — a dot plus the words — so the two long-running
+                  jobs on this page read as one system. The layout differs because this one lives in
+                  a 280px column, not a full-width row. */}
+              <p className="drafts__progress" role="status" aria-live="polite">
+                <span className="pp-dot pp-dot--pulse" aria-hidden="true" />
+                Roadie is making them
+                {gen.progress && gen.progress.total > 0
+                  ? ` — ${gen.progress.done} of ${gen.progress.total}`
+                  : "…"}
+              </p>
+              <button
+                type="button"
+                className="pp-btn pp-btn--wide pp-btn--outline"
+                onClick={gen.cancel}
+              >
+                STOP
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="pp-btn pp-btn--wide pp-btn--outline"
+              disabled={!canGenerate || drafts.length === 0}
+              onClick={gen.start}
+              title={
+                canGenerate
+                  ? "Makes a clip from each draft, then joins them into the loop"
+                  : "Turn video generation on in Settings first"
+              }
+            >
+              ◈ LET ROADIE MAKE IT
+            </button>
+          )}
+          {gen.status === "failed" && (
+            <p className="drafts__failed" role="status">
+              <span className="pp-dot" aria-hidden="true" />
+              That didn&apos;t finish — {gen.error}
+            </p>
+          )}
           <p className="drafts__cost">
             {canGenerate
-              ? "costs Veo credits"
+              ? "costs Veo credits · one clip per draft, joined into a loop"
               : "costs Veo credits — off unless you turn it on in settings"}
           </p>
         </div>

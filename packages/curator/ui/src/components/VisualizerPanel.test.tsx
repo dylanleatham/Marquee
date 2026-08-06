@@ -15,8 +15,12 @@ vi.mock("../api", () => ({
     detachVideo: vi.fn().mockResolvedValue({}),
     draftPrompt: vi.fn().mockResolvedValue({}),
     generateVideoSet: vi.fn().mockResolvedValue({}),
+    spliceVisualizer: vi.fn().mockResolvedValue({}),
     markPromptCopied: vi.fn().mockResolvedValue({}),
     pushAlbum: vi.fn().mockResolvedValue({}),
+    cancelJob: vi.fn().mockResolvedValue({}),
+    job: vi.fn(),
+    albumJobs: vi.fn().mockResolvedValue({ jobs: [] }),
   },
   videoUrl: (id: string) => `/api/albums/${id}/video`,
   activePromptText: () => "",
@@ -276,6 +280,141 @@ describe("VisualizerPanel — the drafts", () => {
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(false);
+  });
+
+  it("generates and then joins the clips, because the panel can only show a loop", async () => {
+    // `generateVideoSet` returns *clips*; this page shows a *visualizer*. Stopping at the clips
+    // would leave the button looking like it did nothing (issue #29).
+    vi.mocked(api.albumJobs).mockResolvedValue({ jobs: [] });
+    vi.mocked(api.generateVideoSet).mockResolvedValue({
+      id: "j9",
+      kind: "video",
+      status: "running",
+      progress: { done: 0, total: 3 },
+      createdAt: "",
+      updatedAt: "",
+    });
+    vi.mocked(api.job).mockResolvedValue({
+      id: "j9",
+      kind: "video",
+      status: "done",
+      progress: { done: 3, total: 3 },
+      createdAt: "",
+      updatedAt: "",
+    });
+
+    show(withDrafts, true);
+    fireEvent.click(screen.getByRole("button", { name: /LET ROADIE MAKE IT/ }));
+    await waitFor(() => expect(api.generateVideoSet).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(api.spliceVisualizer).toHaveBeenCalledWith("abc12345"),
+    );
+  });
+
+  it("says what went wrong rather than falling silent", async () => {
+    vi.mocked(api.albumJobs).mockResolvedValue({ jobs: [] });
+    vi.mocked(api.generateVideoSet).mockResolvedValue({
+      id: "j9",
+      kind: "video",
+      status: "running",
+      progress: { done: 0, total: 3 },
+      createdAt: "",
+      updatedAt: "",
+    });
+    vi.mocked(api.job).mockResolvedValue({
+      id: "j9",
+      kind: "video",
+      status: "failed",
+      progress: { done: 1, total: 3 },
+      error: "Veo refused the prompt",
+      createdAt: "",
+      updatedAt: "",
+    });
+
+    show(withDrafts, true);
+    fireEvent.click(screen.getByRole("button", { name: /LET ROADIE MAKE IT/ }));
+    await waitFor(() =>
+      expect(screen.getByText(/Veo refused the prompt/)).toBeTruthy(),
+    );
+    // And a failed run must not splice — there is nothing whole to join.
+    expect(api.spliceVisualizer).not.toHaveBeenCalled();
+    // The button comes back, so a retry doesn't need a reload.
+    expect(
+      screen.getByRole("button", { name: /LET ROADIE MAKE IT/ }),
+    ).toBeTruthy();
+  });
+
+  it("says how far along it is, and offers a way out", async () => {
+    vi.mocked(api.albumJobs).mockResolvedValue({ jobs: [] });
+    vi.mocked(api.generateVideoSet).mockResolvedValue({
+      id: "j9",
+      kind: "video",
+      status: "running",
+      progress: { done: 1, total: 4 },
+      createdAt: "",
+      updatedAt: "",
+    });
+    vi.mocked(api.job).mockResolvedValue({
+      id: "j9",
+      kind: "video",
+      status: "running",
+      progress: { done: 1, total: 4 },
+      createdAt: "",
+      updatedAt: "",
+    });
+
+    show(withDrafts, true);
+    fireEvent.click(screen.getByRole("button", { name: /LET ROADIE MAKE IT/ }));
+    await waitFor(() => expect(screen.getByText(/1 of 4/)).toBeTruthy());
+    expect(screen.getByRole("button", { name: "STOP" })).toBeTruthy();
+  });
+});
+
+describe("VisualizerPanel — clips left unjoined", () => {
+  // Auto-splice covers the happy path, but it fires from the job completing. Close the app mid-run
+  // (the hook adopts a finished job without re-firing it) or have the splice fail, and the clips sit
+  // on disk with nothing attached — which is invisible on a page that only renders a visualizer.
+  const stranded = asset({
+    visualizer: undefined,
+    videoClips: [
+      { index: 0, fileId: "c0", generatedAt: "" },
+      { index: 1, fileId: "c1", generatedAt: "" },
+    ],
+  });
+
+  it("says the clips exist and offers to join them", async () => {
+    show(stranded, true);
+    expect(screen.getByText(/Roadie made 2 clips/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "MAKE THE LOOP" }));
+    await waitFor(() =>
+      expect(api.spliceVisualizer).toHaveBeenCalledWith("abc12345"),
+    );
+  });
+
+  it("stays quiet once there is a visualizer", () => {
+    show(asset({ videoClips: [{ index: 0, fileId: "c0", generatedAt: "" }] }));
+    expect(screen.queryByText(/aren't joined up yet/)).toBeNull();
+  });
+
+  it("joins only once, however hard the button is pressed", async () => {
+    // The strip becomes visible the instant the job reports done — before the automatic splice
+    // resolves — so the two paths overlap by construction. A second press must not start a second
+    // ffmpeg join over the same clips.
+    let release!: () => void;
+    vi.mocked(api.spliceVisualizer).mockReturnValue(
+      new Promise((r) => {
+        release = () => r({} as never);
+      }),
+    );
+    show(stranded, true);
+    fireEvent.click(screen.getByRole("button", { name: "MAKE THE LOOP" }));
+    await waitFor(() =>
+      expect(screen.getByText(/Joining the clips into a loop/)).toBeTruthy(),
+    );
+    // While it runs the offer is gone, so there is nothing left to press twice.
+    expect(screen.queryByRole("button", { name: "MAKE THE LOOP" })).toBeNull();
+    release();
+    await waitFor(() => expect(api.spliceVisualizer).toHaveBeenCalledTimes(1));
   });
 });
 

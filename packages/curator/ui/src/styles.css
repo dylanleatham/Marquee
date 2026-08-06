@@ -1361,6 +1361,23 @@ a:hover {
   color: var(--pp-accent-text);
   margin-top: 8px;
 }
+/* A clip is a multi-minute call and there is one per draft, so this is a long wait — reported in
+   items, with a way out, rather than carried by a spinner. */
+.drafts__progress,
+.drafts__failed {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font: 400 11.5px/1.5 var(--pp-body);
+}
+.drafts__progress {
+  color: var(--pp-ink);
+  margin-bottom: 8px;
+}
+.drafts__failed {
+  color: var(--pp-accent-text);
+  margin-top: 8px;
+}
 
 /* ---- the card panel --------------------------------------------------------------------------- */
 /* 7:5 landscape, two up. Four thumbnails at 140px are impossible to judge, which is the only thing

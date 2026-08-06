@@ -919,6 +919,22 @@ _Manual entry_ — form with title, artist, year, optional genres, and required 
 > without first performing steps you don't need. See ADR 0026; the layout rationale is in
 > [curator-ui-ux.md](curator-ui-ux.md) §4–5.
 
+> **Superseded 2026-08-05** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).
+> The rail is **deleted**; the album page is now **the record** — four needs (lights, a visualizer, a
+> card, tags) done in any order, specified in [curator-ui-ux §5](curator-ui-ux.md#5-the-record). Three
+> rows below are wrong about what ships and are kept only as the record of what the rail was:
+>
+> - **Video's clip gallery and manual splice are gone.** `LET ROADIE MAKE IT` generates a clip per
+>   draft and splices them in index order in one press; reordering and deselecting went with the
+>   gallery (issue #29, ADR 0052).
+> - **Card's "Download print version" is gone** — you download the card in use; there is no print
+>   sheet.
+> - **Ship's separate sleeve/card "mark as written" toggles and Verify physical are one button**,
+>   `TAGS VERIFIED`, backed by `POST /api/albums/:curatorId/tags-verified`.
+>
+> **Look's Motion picker has no replacement yet** and is the one live gap — it belongs in the room's
+> control dock (curator-ui-ux §5.0).
+
 _Left, fixed_ — art (large), metadata, state badge, album actions (Demo Room, delete), curatorId.
 
 _Below it, the **rail**_ — five workstations. The selected one gets the full canvas; each is

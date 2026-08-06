@@ -95,15 +95,24 @@ keyboard-_reachable_ — that is an accessibility floor, not an accelerator, and
   in curator-ui-ux §5.0 and §6: the motion picker, bench preview with desk audio, and room
   rehearsal. The routes and stored values are untouched — only the controls are missing — and the
   Demo Room still plays a record.
-- **The fourth gap needs a decision, not just a note: the clip gallery and splice (issue #29).**
-  `LET ROADIE MAKE IT` calls `generateVideoSet`, which produces **several `videoClips`, not an
-  attached visualizer** — the old bench then showed a gallery and let you reorder, deselect and
-  splice them into one loop. The design has no gallery and no splice: it shows a player, the drafts,
-  and that button, which implies generation should hand back a finished visualizer. So the two do
-  not currently meet, and pressing the button produces clips the record page cannot show. It is
-  low-urgency in practice — video generation is opt-in and off by default — but the honest options
-  are to splice automatically after a successful generate, or to restore a minimal gallery. Recorded
-  here rather than left as a button that quietly does nothing visible.
+- **The clip gallery and splice are replaced by one press (issue #29).** `generateVideoSet` produces
+  **several `videoClips`, not an attached visualizer**; the old bench showed a gallery and let you
+  reorder, deselect and splice them into a loop. The design has neither, and shows only a player —
+  so **`LET ROADIE MAKE IT` generates and then splices**, in index order, and the manual step is
+  gone. Stopping at the clips would leave the button looking like it did nothing, because nothing on
+  the record page can render them.
+
+  Reordering and deselecting go with the gallery. That is a real reduction, and the right one for
+  now: choosing among four clips you have not watched is not a decision the old UI supported well
+  either (the gallery showed thumbnails), and the loop is re-makeable at any time by generating
+  again. If picking among clips turns out to matter, it belongs in the room, where you can watch
+  them.
+
+  **The automatic join cannot cover two cases** — the app closed while the job ran (the job hook
+  adopts an already-finished job without re-firing completion), or the splice itself failed — so the
+  panel says when clips exist with no visualizer and offers to join them. Without that, those clips
+  are invisible.
+
 - **Some of the design needs backend work that does not exist yet**, flagged here so it is not
   rediscovered as a bug: brightness and light pattern become per-record; Discogs as a standing synced
   collection with durable unmatched rows; pressing collapse; collection statistics; and editing a
