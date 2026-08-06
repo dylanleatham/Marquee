@@ -16,6 +16,7 @@ const album = (over: Partial<AlbumSummary> = {}): AlbumSummary => ({
   title: "Kind of Blue",
   artist: "Miles Davis",
   source: "manual",
+  createdAt: "2026-08-01T00:00:00.000Z",
   state: "awaiting_review",
   artwork: "/art.jpg",
   paletteColors: 3,

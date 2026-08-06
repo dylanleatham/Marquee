@@ -20,6 +20,7 @@ const album = (over: Partial<AlbumSummary> & { curatorId: string }) =>
     title: "Untitled",
     artist: "Nobody",
     source: "manual",
+    createdAt: "2026-08-01T00:00:00.000Z",
     state: "awaiting_review",
     artwork: null,
     paletteColors: 3,

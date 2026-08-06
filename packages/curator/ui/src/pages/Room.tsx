@@ -12,6 +12,7 @@ import {
 } from "../api";
 import { usePoll } from "../hooks";
 import { artworkSrc } from "../components/common";
+import { errorMessage } from "../errors";
 import { paletteWash } from "../components/VisualizerPanel";
 import { setRoomArm, useRoomArm } from "../roomArm";
 import { showReadyToast } from "../readyToast";
@@ -82,8 +83,8 @@ export function Room({ albums }: { albums: AlbumSummary[] | null }) {
     setProblem(null);
     try {
       await fn();
-    } catch (e) {
-      setProblem((e as Error).message);
+    } catch (err) {
+      setProblem(errorMessage(err));
     }
   }, []);
 
@@ -138,11 +139,11 @@ export function Room({ albums }: { albums: AlbumSummary[] | null }) {
       void serial(() =>
         api
           .demoStop()
-          .catch((e: unknown) =>
+          .catch((err: unknown) =>
             console.error(
               "[curator-ui] the room may still be running:",
               curatorId,
-              e,
+              err,
             ),
           ),
       );
@@ -164,12 +165,12 @@ export function Room({ albums }: { albums: AlbumSummary[] | null }) {
           .setPatternOverride(curatorId, last.type, last.params)
           // The screen is gone, so there is nowhere left to say this — but the values go to the
           // console with it, the way the Lights panel's flush does, so the loss is diagnosable.
-          .catch((e: unknown) =>
+          .catch((err: unknown) =>
             console.error(
               "[curator-ui] a room setting was lost on the way out:",
               curatorId,
               last,
-              e,
+              err,
             ),
           );
     },

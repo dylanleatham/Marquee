@@ -89,9 +89,10 @@ keyboard-_reachable_ — that is an accessibility floor, not an accelerator, and
   `rail.ts`, `PeerNav.tsx`, `PaletteEditor.tsx`, `ArtworkSection.tsx`, `FeelingPalette.tsx`,
   `MotionPicker.tsx` and finally `workflow.tsx` itself — the five workstations — went with the record
   page (2026-08-05). `PreviewWorkstation.tsx`, `DemoRoom.tsx`, `RoomArmSwitch.tsx` and
-  `primaryAction.tsx` went with the room (2026-08-06). "Deprecated" would mean leaving them
-  reachable; nothing new may use them. `/demo/:curatorId` still resolves — to the room — because that
-  address is in the old screen's own history.
+  `primaryAction.tsx` went with the room (2026-08-06). `AddAlbum.tsx`, `SystemStatus.tsx`,
+  `Settings.tsx` and `RoomAndServices.tsx` went with the last four screens (2026-08-06).
+  "Deprecated" would mean leaving them reachable; nothing new may use them. `/demo/:curatorId` still
+  resolves — to the room — because that address is in the old screen's own history.
 - **A screen landing before its successor leaves real gaps, and they are written down rather than
   discovered.** Deleting the rail took four controls with it. Three came back with the room on
   2026-08-06 — the motion picker (as the dock's LIGHT PATTERN and its knobs), bench preview, and desk
@@ -143,5 +144,40 @@ keyboard-_reachable_ — that is an accessibility floor, not an accelerator, and
   backend writes five; the requirement underneath was "every draft visible and separately copyable,
   not one behind a chooser", and that is met by rendering however many exist. Cutting to four would
   mean deleting one of five named options from a metaprompt — a content decision, not a constant.
-- The overhaul lands screen by screen. While it does, `styles.css` carries a marked legacy block so
-  the not-yet-converted screens stay usable; it is deleted with the last of them.
+- The overhaul lands screen by screen. While it did, `styles.css` carried a marked legacy block so
+  the not-yet-converted screens stayed usable; it was **deleted 2026-08-06** with the last of them,
+  taking ~1070 lines with it.
+
+- **Three things the last four screens decided, all of them "say the true thing rather than build a
+  control that lies" (2026-08-06):**
+
+  - **The System screen's album matrix is deleted, replaced by an exception list.** The matrix cost
+    reading time proportional to the collection to answer a question whose answer is usually "yes".
+    The four facts survive as a predicate: an album with no visualizer belongs on Conductor and
+    nowhere else, so its missing Backdrop rows are mid-workflow, not faults.
+  - **Service addresses in Settings are read-only.** They are resolved once at boot from
+    `config.toml` or the environment, and `settings.json` sits _below_ `config.toml` in that chain —
+    an editable field could be silently overridden by a file the user can't see from that screen.
+    Same principle as the brightness slider above: a control the system will refuse is worse than no
+    control.
+  - **"Suggest a second palette" is not a permission, and no flag was added for it.** The design
+    draws it beside the three Gemini/Discogs permissions, but the palette is extracted locally and
+    free; a flag would put a paid call inside Roadie's pipeline, which
+    [ADR 0027](0027-generation-is-invoked-not-pipelined.md) rules out and which is exactly what lets
+    a whole-collection Discogs sweep cost nothing ([ADR 0051](0051-the-discogs-collection-is-swept-not-clicked.md)).
+    The screen says so in a note. This is one of the design's gaps closing in the opposite direction
+    from the others — not "build it later", but "this one should not exist".
+
+- **Discogs stops being a picker.** The browse-and-"Send to Roadie" list is deleted: the sweep adds
+  everything, so nothing is waiting to be chosen. Its screen answers "are the two collections the
+  same size", "what arrived today", and "what did Roadie fail to finish" — the last being the only
+  real to-do, since a stranded record never leaves that list on its own. Everything but the upstream
+  total is derived from the library, so the screen costs one Discogs request.
+  `GET /api/discogs/collection` survives as the source of that one number.
+
+  **Its heading is not the design's.** The handoff labels that section "couldn't match to Spotify",
+  which is not a state a Discogs record can reach — its metadata comes from Discogs, and the Spotify
+  step is a best-effort cover-art lookup that never fails the add (roadie-spec §5.2). Built as drawn,
+  the section would have been empty forever, which is the worst possible failure for the one part of
+  the screen that is a to-do list. It reads **ROADIE COULDN'T FINISH THESE**, keyed off the states
+  that actually strand a record, with each row's reason in words.

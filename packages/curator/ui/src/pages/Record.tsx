@@ -12,6 +12,7 @@ import {
   type Need,
 } from "../needs";
 import { artworkSrc } from "../components/common";
+import { errorMessage } from "../errors";
 import { LightsPanel } from "../components/LightsPanel";
 import { VisualizerPanel } from "../components/VisualizerPanel";
 import { CardPanel } from "../components/CardPanel";
@@ -51,8 +52,8 @@ export function Record({ albums }: { albums: AlbumSummary[] | null }) {
       try {
         await fn();
         refresh();
-      } catch (e) {
-        setActionError((e as Error).message);
+      } catch (err) {
+        setActionError(errorMessage(err));
       }
     },
     [refresh],

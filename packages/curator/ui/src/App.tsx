@@ -5,10 +5,11 @@ import { usePoll } from "./hooks";
 import { recordActivity } from "./roadieLog";
 import { Collection } from "./pages/Collection";
 import { Record } from "./pages/Record";
-import { AddAlbum } from "./pages/AddAlbum";
+import { AddRecord } from "./pages/AddRecord";
+import { Discogs } from "./pages/Discogs";
 import { Room } from "./pages/Room";
 import { Settings } from "./pages/Settings";
-import { SystemStatus } from "./pages/SystemStatus";
+import { System } from "./pages/System";
 import { TagHelp } from "./pages/TagHelp";
 import { Masthead } from "./components/Masthead";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -73,14 +74,8 @@ export function App() {
                   <Collection albums={albums} error={albumsPoll.error} />
                 }
               />
-              <Route path="/add" element={<AddAlbum />} />
-              {/* Discogs becomes its own screen (a synced collection, not an album picker). Until
-                  that lands the nav item opens the Add screen's Discogs tab, which is where that
-                  browser lives today — a real destination rather than a dead nav item. */}
-              <Route
-                path="/discogs"
-                element={<AddAlbum initialTab="discogs" />}
-              />
+              <Route path="/add" element={<AddRecord />} />
+              <Route path="/discogs" element={<Discogs albums={albums} />} />
               {/* No segment → Lights. The record always opens on the same tab (ADR 0052), so a
                   click from the collection is predictable rather than state-dependent. */}
               <Route
@@ -101,7 +96,7 @@ export function App() {
                 path="/demo/:curatorId"
                 element={<Room albums={albums} />}
               />
-              <Route path="/system" element={<SystemStatus />} />
+              <Route path="/system" element={<System />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/help/tags" element={<TagHelp />} />
               <Route

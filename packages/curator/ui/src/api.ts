@@ -431,6 +431,8 @@ export interface AlbumSummary {
   artwork: string | null;
   paletteColors: number;
   hasVideo: boolean;
+  /** When Curator first saw it. The Discogs screen's "came in today" is a question about this. */
+  createdAt: string;
   year: number | null;
   genres: string[];
   /** In order — `[0]` is the dominant. Drives the collection's art placeholder. */

@@ -116,6 +116,58 @@ describe("usePoll", () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
+  it("drops interval ticks that land on a request still in flight", async () => {
+    // The System screen fans out to four services, each probe bounded at 5s, and it is open exactly
+    // when the runtime is down — so a request takes about as long as the interval. Without this,
+    // every tick stacks another fan-out on a host that is already not answering.
+    let settle: (v: string) => void = () => {};
+    const fetcher = vi
+      .fn()
+      .mockImplementation(() => new Promise<string>((r) => (settle = r)));
+    renderHook(() => usePoll(fetcher, 1000));
+    await flush();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(3500); // three ticks, all while the first is still open
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      settle("ok");
+      await Promise.resolve();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("still honours a refresh() made during a request, once that one lands", async () => {
+    // A refresh usually follows a mutation, so joining the in-flight request would show the state
+    // from before it — the one case where dropping the call is the wrong answer.
+    let settle: (v: string) => void = () => {};
+    const fetcher = vi
+      .fn()
+      .mockImplementation(() => new Promise<string>((r) => (settle = r)));
+    const { result } = renderHook(() => usePoll(fetcher, 1_000_000));
+    await flush();
+
+    act(() => {
+      result.current.refresh();
+      result.current.refresh();
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      settle("ok");
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    // One follow-up, not two: both refreshes would have read the same state.
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
   it("surfaces a fetch failure as error, not a throw", async () => {
     const fetcher = vi.fn().mockRejectedValue(new Error("boom"));
     const { result } = renderHook(() => usePoll(fetcher, 1000));

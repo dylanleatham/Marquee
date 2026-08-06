@@ -16,30 +16,32 @@ This document ratifies the former and replaces the latter. It records the design
 - [ADR 0027](../adrs/0027-generation-is-invoked-not-pipelined.md) — generation is invoked, never pipelined
 - [ADR 0028](../adrs/0028-preview-bench-and-room-modes.md) — preview has bench and room modes; hardware requires arming
 
-> ### Status, 2026-08-04 — the overhaul is landing screen by screen
+> ### Status, 2026-08-06 — the overhaul has landed
 >
 > [**ADR 0052**](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md) replaces this app's
 > information architecture and its whole visual language: Curator becomes **three places** — the
 > collection, the record, the room — and "backstage marquee" becomes **"Pressing Plant"**. The design
 > handoff it implements is in `docs/design_handoff_curator_overhaul/`.
 >
-> It ships in stages, so this spec is part new and part historical. Read it accordingly:
+> It shipped in stages, so this spec is part new and part historical. Read it accordingly:
 >
 > | Section                | State                                                                                                                    |
 > | ---------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 > | §3 design language     | **Rewritten.** Pressing Plant, as built.                                                                                 |
 > | §8 the collection      | **Rewritten.** Replaces the queue view, as built.                                                                        |
 > | §5 the record          | **Rewritten.** All four panels built; the rail is deleted.                                                               |
+> | §6 the room            | **Rewritten.** Bench and the Demo Room are one screen; §8.6 adds the ready toast.                                        |
+> | §8.5 system            | **Rewritten.** The album matrix is replaced by an exception list.                                                        |
+> | §8.7–§8.9              | **New.** Add a record, Discogs, Settings.                                                                                |
 > | §9.1 keyboard          | **Withdrawn.** The accelerator layer is removed.                                                                         |
 > | §4 workbench principle | **Kept, its rail deleted.** "Providing an artifact is never gated" survives; the five stations that expressed it do not. |
-> | §6 the room            | **Rewritten.** Bench and the Demo Room are one screen; §8.6 adds the ready toast.                                        |
-> | §8.5 system, §9.2–§10  | Unchanged so far.                                                                                                        |
+> | §9.2–§10               | Unchanged.                                                                                                               |
 >
-> **The three places are built.** What remains on the old theme: add a record, Discogs, system and
-> settings — and `styles.css`'s legacy block goes with the last of them.
+> **Every screen is on the new theme**, and `styles.css`'s legacy block — which repointed the old
+> variables so an un-migrated screen still rendered — is deleted with the last screen that needed it.
 >
 > Nothing below is deleted — a spec that loses its history can't explain why the code looks the way it
-> does mid-migration.
+> does, or why a decision was reversed.
 
 ## 2. The frame — a desktop app, not a website
 
@@ -66,10 +68,10 @@ desktop, not device classes.
 
 > **Rewritten 2026-08-04** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).
 > This section used to specify **"backstage marquee"** — warm near-black `#14110f`, theater-amber
-> `#f5a623`, `10px` radii, Inter. That theme is gone. It is named here only so a screen still wearing
-> it is recognisable as one the overhaul hasn't reached: `styles.css` carries a marked **legacy
-> block** that repoints the old `--bg`/`--panel`/`--amber` variables at the tokens below, and that
-> block is deleted with the last screen it serves.
+> `#f5a623`, `10px` radii, Inter. That theme is gone. While the overhaul was mid-flight `styles.css`
+> carried a marked **legacy block** repointing the old `--bg`/`--panel`/`--amber` variables at the
+> tokens below, so an un-migrated screen still rendered; it was **deleted 2026-08-06** with the last
+> screen that needed it. The old names are recorded here only to make an old screenshot legible.
 
 Light, printed, editorial.
 
@@ -637,30 +639,50 @@ The header's count is now **progress across the whole collection** ("18 of 40 re
 needs-you tally. It answers "how far am I?" rather than "how much is nagging me?", which is the
 question a wall of records raises.
 
-## 8.5 System status — the page you open when something is wrong
+## 8.5 System — the page you open when something is wrong
 
-Added 2026-08-01, at `/system`. Every runtime service already had a status endpoint; what was
-missing is that **the failures worth catching are disagreements between hosts**, and answering one
-meant curling four services and diffing the results by hand.
+Added 2026-08-01 at `/system`. Every runtime service already had a status endpoint; what was missing
+is that **the failures worth catching are disagreements between hosts**, and answering one meant
+curling four services and diffing the results by hand.
 
-So the heart of the page is the **album matrix** — the only view that says "Curator has thirteen
-albums and the runtime has six". One row per album, one column per host that should be holding part
-of it:
+> **Rewritten 2026-08-06** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).
+> The **album matrix is deleted.** It answered "is everything fine?" by making you read every album
+> against every host and compare ticks — work that grows with the collection to answer a question that
+> is usually "yes". The page now shows **the exceptions**: it is as long as the number of things
+> actually wrong, and says "Every record is everywhere it should be." when that number is zero. The
+> four facts below are unchanged — they are now a predicate rather than four columns.
 
-| Column              | Answers                                                                                                                     |
+The four facts about each album, and what each one being false means:
+
+| Fact                | Answers                                                                                                                     |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | Video attached      | Curator has a visualizer — without one there is nothing downstream to hold                                                  |
 | On Conductor        | The asset was pushed, so a scan can drive the lights ([ADR 0045](../adrs/0045-curator-pushes-album-assets-to-conductor.md)) |
 | In Backdrop library | Backdrop can resolve the scan URI to a file path                                                                            |
 | Video on Backdrop   | …and the bytes are actually there ([ADR 0038](../adrs/0038-curator-pushes-media-over-http.md))                              |
 
-The last two are deliberately separate columns. The entry and the bytes travel on different legs, so
-"listed but unplayable" is a real state — and it is exactly how an album sat in the library with no
-mp4 for a day, looking healthy from every angle.
+The last two stay separate. The entry and the bytes travel on different legs, so "listed but
+unplayable" is a real state — and it is exactly how an album sat in the library with no mp4 for a day,
+looking healthy from every angle.
 
-Also on the page: service reachability, what is playing (video / lights / audio), **the stand**, jobs
-in flight, and one **Sync everything** button. Read-only apart from that button — this is the page
-you open when something is wrong, so it must never be the reason something is wrong.
+**An album is an exception when it is missing from somewhere it belongs**, which depends on whether it
+has a visualizer at all: no video means Conductor is the only host that should hold it, so the
+Backdrop facts are not failures — a mid-workflow record must not read as broken. Each exception says
+which host in words (`NOT ON CONDUCTOR`, `NOT IN BACKDROP'S LIBRARY`, `NO VISUALIZER ON BACKDROP`) and
+links to the record.
+
+Each service is named with **what it is for**, not just its port — Conductor is "the lights", Backdrop
+"the screen", Stylus "the stand", Amp "the sound". Two failures are kept apart in words as well as
+style: **not set up** (never configured — Amp normally) is not **not answering** (configured and
+unreachable, which is a fault).
+
+Also on the page: what is playing (screen / lights / sound / **the stand**), jobs in flight with a
+count as well as a bar, and one **Sync everything** button. Read-only apart from that button — this is
+the page you open when something is wrong, so it must never be the reason something is wrong.
+
+This is **the one place a raw error code belongs.** `connect ECONNREFUSED` is the actionable text for
+a service that won't answer; paraphrasing it takes away the string you paste into a search. It comes
+with **Retry** and **Copy error**. Everywhere else in the app, an error is a sentence.
 
 **The stand** is the section that pays for itself during bring-up. It reports Stylus's _reader_ view,
 not its state machine (stylus-spec §8), which distinguishes three things that used to be one blank:
@@ -669,9 +691,10 @@ something unactionable. The last refusal is kept after the sleeve is lifted.
 
 Two rules this page must not break:
 
-- **Never colour alone (§3.4).** Every matrix cell is a glyph plus screen-reader text naming what it
-  means _for that column_ — "no" is not equally bad everywhere; no video attached is mid-workflow,
-  missing from Conductor is broken. Each album also carries a **word**, Ready or Incomplete.
+- **Never colour alone (§3.4).** A service's dot is the glance; the line under its name is what says
+  which state it is in. An exception names the missing host in words. A job's bar is always paired
+  with its count. (Under the matrix this rule was carried by a glyph plus screen-reader text in every
+  cell, for the same reason: "no" is not equally bad everywhere.)
 - **State the limits rather than implying completeness.** Conductor's playback view covers only CLIP
   playback and carries no `curatorId`, so an album on a streaming pattern reports nothing. The page
   says so in place instead of showing a confident blank.
@@ -697,6 +720,93 @@ over whatever screen you are on when its five seconds run out. That is the point
 immediately opening the next record must not cut it short, and it must not be something you have to
 come back to the collection to see. A record it cannot name is not shown at all — "Untitled is ready"
 is worse than the quiet it replaced.
+
+## 8.7 Add a record
+
+Built 2026-08-06 at `/add`, replacing the old add-album screen.
+
+The behaviour that changed: **adding does not take you anywhere.** The old screen navigated to the
+record you had just added, which is exactly wrong for the actual task — you came here because you have
+a stack of sleeves, not one. The search box keeps its query, added results are marked `ADDED` and
+cannot be added twice, and a running "added just now:" line accumulates what has landed with a link to
+each. Leaving is a deliberate act.
+
+Three ways in, as tabs: **SEARCH** (Spotify, debounced as you type, results four up with artist and
+year), **TYPE IT IN** (title, artist, and a sleeve — the sleeve is required, and the screen says why:
+it is where the lights come from), and **SYNC DISCOGS ›**, which is a link out, not a tab. Discogs is
+a standing collection with its own screen ([ADR 0051](../adrs/0051-the-discogs-collection-is-swept-not-clicked.md)),
+not a way to pick one record.
+
+Pasting a Spotify link is **removed**. It existed because search was unreliable before the client was
+fixed; it asked the user to know what a URI is, and every link it accepted, search also finds.
+
+## 8.8 Discogs
+
+Built 2026-08-06 at `/discogs`. The sweep ([ADR 0051](../adrs/0051-the-discogs-collection-is-swept-not-clicked.md))
+already writes every release into the library on a timer, so this screen is **not a picker** — there is
+no browse-and-approve list, because nothing is waiting for approval.
+
+It answers three questions instead:
+
+1. **Are the two collections the same size?** A stat band: in Discogs, in Curator, came in today, and
+   last synced. Only the first needs an upstream call — one row is enough, since the response carries
+   the total. Discogs refusing to answer shows an em dash and says so; `0` would read as an empty
+   collection, which is a different and much more alarming fact. The unmatched count is **not** in the
+   band: it is the only number here you are meant to act on, and it lives on the section that lets you
+   act, rather than being read twice.
+2. **What arrived today?** The records added on the local calendar day, newest first, labelled with the
+   same words the collection uses (§8) — not a second vocabulary for the same states.
+3. **What did Roadie fail to finish?** The only real to-do here, and the reason the screen exists.
+   They **never leave this list on their own**, so each offers `SEARCH BY HAND` (which opens §8.7 with
+   the title already in the box) and `SKIP`, which hides the row for this session without pretending
+   it is resolved.
+
+   The design labels this **"couldn't match to Spotify"**, and it is not built that way, because that
+   is not a state a Discogs record can reach: its metadata comes from Discogs, and the Spotify step is
+   a best-effort _cover art_ lookup that never fails the add (roadie-spec §5.2). Keying the section
+   off `album_not_on_spotify` would have made it empty forever. What actually strands one of these is
+   the release fetch — `release_not_on_discogs`, `invalid_discogs_release` — or an ordinary pipeline
+   failure, so the section reads **ROADIE COULDN'T FINISH THESE** and each row carries its own reason
+   in words.
+
+The page also says when the sync last ran and whether it runs itself, offers `SYNC NOW`, and names the
+two behaviours that would otherwise surprise you: multiple pressings of one record collapse to one
+entry, and removing something from Discogs does not remove it from Curator.
+
+## 8.9 Settings
+
+Built 2026-08-06 at `/settings`. Two columns: **the room and the services** and then **accounts** on
+the left, **what Roadie may do on its own** on the right — what the room is and what it is plugged
+into reads as one thing, and the permissions are the only part of the screen that is a decision.
+
+Three things this screen is deliberate about:
+
+- **Service addresses are shown, not edited.** They are resolved once at startup from `config.toml` or
+  the environment, and `settings.json` sits _below_ `config.toml` in that chain — so a text field here
+  could be silently overridden by a file the user can't see from this screen. Showing the value and
+  saying where it comes from beats a box that appears to work.
+- **Credentials live behind `CHANGE`.** The steady state of this screen is "everything is connected",
+  and a wall of half-filled secret fields makes a working system look broken. A secret is never sent
+  back to the client, so the field says it has to be typed again rather than showing a masked
+  placeholder that implies it could be left alone. Spotify and Discogs each keep **both** ways in —
+  the credentials form, and the OAuth login beneath it when consumer creds are configured
+  ([ADR 0014](../adrs/0014-spotify-user-oauth-pkce.md),
+  [ADR 0017](../adrs/0017-discogs-personal-token-and-direct-images.md)). An account is **connected
+  when either** is good: app-level credentials work with no user session, so a signed-out session must
+  not report a working account as broken.
+- **Permissions, not feature flags.** The three checkboxes are things Roadie may do on its own —
+  draw card art, make the visualizers, follow the Discogs collection — and each names its cost, since
+  that is the actual decision. The Discogs sweep's **interval is not editable here**: "how many
+  minutes" is a worse question to put in this column than "may it at all", and the answer is nearly
+  always the default. It remains a real setting on `PUT /api/settings/discogs`, and the permission's
+  note is generated from the configured value rather than asserting "once a day". "Suggest a second palette" is **not** among them: the palette is
+  extracted locally and free, and a flag putting a paid call in Roadie's pipeline is what
+  [ADR 0027](../adrs/0027-generation-is-invoked-not-pipelined.md) rules out and what lets a
+  whole-collection sync stay free ([ADR 0051](../adrs/0051-the-discogs-collection-is-swept-not-clicked.md)). The
+  screen says so in a note rather than offering a checkbox that would have to lie.
+
+The room picker lists Conductor's rooms; when Conductor isn't answering it says that, rather than
+rendering an empty picker that reads as "you have no rooms".
 
 ## 9. Desktop affordances
 
@@ -837,10 +947,11 @@ fullscreen), Help (docs) — makes the shortcuts discoverable and the OS integra
 > reload the window to open it. Its discoverable half is the header's **Jump…** button instead.
 >
 > **Amended 2026-08-04** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)):
-> the palette is gone, so that last paragraph is moot. Two live corrections to the menu itself —
-> **View › Queue is now View › Collection**, and the **room-arm switch moved from the status bar to
-> the room's own top bar** (the status bar was removed with the queue), so the reason it stays out of
-> the menu is unchanged but the place it lives is not.
+> the palette is gone, so that last paragraph is moot. Three live corrections to the menu itself —
+> **View › Queue is now View › Collection**, **File › Add album is now File › Add a record…** (§8.7),
+> and the **room-arm switch moved from the status bar to the room's own top bar** (the status bar was
+> removed with the queue), so the reason it stays out of the menu is unchanged but the place it lives
+> is not.
 
 ### 9.3 Window
 

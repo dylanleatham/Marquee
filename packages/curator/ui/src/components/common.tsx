@@ -74,6 +74,13 @@ type AsyncButtonProps = Omit<
  * disables itself (blocking double-submits), shows a spinner, and can swap in a "…ing" label. Drop
  * it in for the slow, generative actions — regenerate/splice/generate — and any other run-routed
  * action, so each control gives its own feedback instead of relying on one page-level boolean.
+ *
+ * **Showing a failure is the caller's job.** This cannot render one — it is a `<button>`, and where
+ * the sentence goes is a layout decision only the screen can make — so an `onClick` that can reject
+ * must catch and surface it (`run` on the record page, `attempt`/`setSyncProblem` elsewhere). A
+ * handler that doesn't gets the rejection logged rather than dropped: the button settling back with
+ * no explanation has been a review finding three times, and a silent console is what made it hard to
+ * spot each time.
  */
 export function AsyncButton({
   onClick,
@@ -89,9 +96,13 @@ export function AsyncButton({
       disabled={disabled || pending}
       aria-busy={pending || undefined}
       onClick={() => {
-        // Errors are the caller's job (the run helper surfaces them); swallow here only so a
-        // rejected action can't raise an unhandled rejection. The finally in wrap still clears pending.
-        if (!pending) void wrap(onClick).catch(() => {});
+        // Caught here only so a rejected action can't raise an unhandled rejection — and logged,
+        // never dropped, so a handler that forgot to surface its own failure is findable. The
+        // finally in wrap still clears pending.
+        if (!pending)
+          void wrap(onClick).catch((err: unknown) =>
+            console.error("[curator-ui] a button's action failed:", err),
+          );
       }}
     >
       {pending ? (

@@ -10,6 +10,7 @@
 // behaviour: two copies of a polling state machine is two places for the backoff to drift.
 import { useSyncExternalStore } from "react";
 import { api, type GenerationJob, type LibraryJobKind } from "./api";
+import { errorMessage } from "./errors";
 
 /** Poll cadence. A sweep ticks once per item over minutes; a second is well inside human reading speed. */
 export const POLL_MS = 1000;
@@ -182,7 +183,7 @@ export function createLibraryJobStore(
       } catch (err) {
         set({
           job: null,
-          error: err instanceof Error ? err.message : String(err),
+          error: errorMessage(err),
           unreachable: false,
         });
       }
@@ -208,7 +209,7 @@ export function createLibraryJobStore(
       try {
         set({ job: await api.cancelJob(id) });
       } catch (err) {
-        set({ error: err instanceof Error ? err.message : String(err) });
+        set({ error: errorMessage(err) });
       }
       endPolling();
     },
