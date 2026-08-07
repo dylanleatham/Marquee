@@ -63,6 +63,14 @@ export interface Config {
     apiKey: string;
     generateCardArt: boolean;
     generateVideo: boolean;
+    /**
+     * Whether each flag is pinned **above** `settings.json` — set in `config.toml` or the
+     * environment. Settings writes `settings.json`, the lowest link in the chain, so a pinned flag
+     * cannot be changed from the UI and the screen has to say so instead of offering a checkbox
+     * that silently loses ([#240](https://github.com/dylanleatham/Marquee/issues/240)).
+     */
+    generateCardArtPinned: boolean;
+    generateVideoPinned: boolean;
     /** Model slugs, overridable so a Google model rotation is a config change, not a code change. */
     textModel?: string;
     imageModel?: string;
@@ -211,6 +219,15 @@ export function loadConfig(override: Partial<Config> = {}): Config {
       process.env.GEMINI_GENERATE_VIDEO ??
       settings.gemini?.generateVideo,
   );
+  // Pinned = set above `settings.json`, which Settings is the only writer of. Computed here rather
+  // than at the route because this is where the chain lives; a second copy of the precedence would
+  // be a second thing to keep in step.
+  const generateCardArtPinned =
+    (geminiFile.generate_card_art ?? process.env.GEMINI_GENERATE_CARD_ART) !==
+    undefined;
+  const generateVideoPinned =
+    (geminiFile.generate_video ?? process.env.GEMINI_GENERATE_VIDEO) !==
+    undefined;
 
   // Automatic Discogs collection polling (issue #234). Opt-in like the generation flags above; the
   // interval is a hint, clamped to the poller's floor rather than trusted.
@@ -438,6 +455,8 @@ export function loadConfig(override: Partial<Config> = {}): Config {
             apiKey: geminiApiKey,
             generateCardArt,
             generateVideo,
+            generateCardArtPinned,
+            generateVideoPinned,
             ...geminiModels,
           },
         }

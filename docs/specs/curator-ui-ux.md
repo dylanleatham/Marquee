@@ -799,7 +799,16 @@ Three things this screen is deliberate about:
   that is the actual decision. The Discogs sweep's **interval is not editable here**: "how many
   minutes" is a worse question to put in this column than "may it at all", and the answer is nearly
   always the default. It remains a real setting on `PUT /api/settings/discogs`, and the permission's
-  note is generated from the configured value rather than asserting "once a day". "Suggest a second palette" is **not** among them: the palette is
+  note is generated from the configured value rather than asserting "once a day".
+
+  Two of the three take effect **on restart** — the Gemini flags are read once at boot — so the box
+  shows what you have _asked for_ (the stored setting, not the running value) and a line under the
+  column says when it becomes true. The Discogs poller applies immediately, so it shows no such line.
+  A flag pinned above `settings.json` in `config.toml` or the environment is rendered as a
+  **statement, not a checkbox**, naming where it is set — the same call as the service URLs above.
+  Binding the box to the _running_ value instead is what made these look unclickable: the click
+  saved, the next poll answered with the boot value, and the tick sprang back
+  ([#240](https://github.com/dylanleatham/Marquee/issues/240)). "Suggest a second palette" is **not** among them: the palette is
   extracted locally and free, and a flag putting a paid call in Roadie's pipeline is what
   [ADR 0027](../adrs/0027-generation-is-invoked-not-pipelined.md) rules out and what lets a
   whole-collection sync stay free ([ADR 0051](../adrs/0051-the-discogs-collection-is-swept-not-clicked.md)). The

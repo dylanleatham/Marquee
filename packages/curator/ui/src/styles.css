@@ -2525,6 +2525,18 @@ a:hover {
   margin: 2px 0 0;
   accent-color: var(--pp-ink);
 }
+/* Pinned above settings.json: a statement, not a control. Not a cursor, not clickable. */
+.perm--pinned {
+  cursor: default;
+}
+.perm__box--pinned {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--pp-rule-soft);
+  color: var(--pp-ink-faint);
+  font: 600 11px/1 var(--pp-mono);
+}
 .perm__label {
   display: block;
   font: 600 13.5px/1.3 var(--pp-body);

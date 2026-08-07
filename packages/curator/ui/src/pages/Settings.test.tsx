@@ -112,6 +112,13 @@ beforeEach(() => {
     authorizeUrl: "https://discogs.test/authorize",
   });
   vi.mocked(api.spotifyAuthStatus).mockResolvedValue({ connected: true });
+  vi.mocked(api.geminiSettings).mockResolvedValue({
+    configured: true,
+    generateCardArt: true,
+    generateVideo: false,
+    generateCardArtPinned: false,
+    generateVideoPinned: false,
+  });
 });
 afterEach(cleanup);
 
@@ -319,6 +326,58 @@ describe("Settings — what Roadie may do on its own", () => {
     await waitFor(() =>
       expect(api.saveDiscogsSettings).toHaveBeenCalledWith({ autoSync: false }),
     );
+  });
+
+  it("says where a toggle takes effect, in the column you clicked in", async () => {
+    // The notice used to render only under ACCOUNTS, so a permission's only confirmation appeared in
+    // the other column — and since the Gemini flags are read at boot, the box looked inert too (#240).
+    render(<Settings />);
+    fireEvent.click(
+      await screen.findByRole("checkbox", { name: /Make the visualizers/ }),
+    );
+    const notice = await screen.findByText(
+      /Roadie picks this up when you restart/,
+    );
+    expect(notice.closest(".settings__col")).toBe(
+      screen
+        .getByRole("checkbox", { name: /Make the visualizers/ })
+        .closest(".settings__col"),
+    );
+  });
+
+  it("states a flag pinned in config.toml instead of offering a checkbox that loses", async () => {
+    vi.mocked(api.geminiSettings).mockResolvedValue({
+      configured: true,
+      generateCardArt: true,
+      generateVideo: true,
+      generateCardArtPinned: false,
+      generateVideoPinned: true,
+    });
+    render(<Settings />);
+    expect(await screen.findByText(/Make the visualizers — on/)).toBeTruthy();
+    expect(screen.getByText(/change it there and restart/)).toBeTruthy();
+    expect(
+      screen.queryByRole("checkbox", { name: /Make the visualizers/ }),
+    ).toBeNull();
+    // The unpinned one is still a real control.
+    expect(
+      screen.getByRole("checkbox", { name: /Draw card art/ }),
+    ).toBeTruthy();
+  });
+
+  it("doesn't tell you the visualizers are off while the box is ticked", async () => {
+    vi.mocked(api.geminiSettings).mockResolvedValue({
+      configured: true,
+      generateCardArt: true,
+      generateVideo: true,
+      generateCardArtPinned: false,
+      generateVideoPinned: false,
+    });
+    render(<Settings />);
+    expect(
+      await screen.findByText(/Roadie will spend Veo credits/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Off — Roadie just drafts/)).toBeNull();
   });
 
   it("explains why the second palette is not a permission", async () => {

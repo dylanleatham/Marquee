@@ -41,6 +41,7 @@ import {
   writeSpotifyCreds,
   writeDiscogsSettings,
   updateGeminiSettings,
+  readSettings,
 } from "./settings.js";
 import { Roadie } from "./roadie/worker.js";
 import { isCuratorId } from "./ids.js";
@@ -2215,11 +2216,32 @@ export function buildServer(opts: BuildOptions = {}) {
 
   // Gemini settings: same trust model + settings.json store as Spotify. The key is write-only (never
   // returned); `configured` + the opt-in generation flags are the read-back so the UI can reflect them.
-  app.get("/api/settings/gemini", async () => ({
-    configured: Boolean(gemini),
-    generateCardArt: genCardArt,
-    generateVideo: genVideo,
-  }));
+  /**
+   * What the flags will be **after the next restart** — which is what a control bound to them has to
+   * show. `genCardArt`/`genVideo` are captured at boot and drive the running pipeline; answering with
+   * those meant a PUT was never reflected, so Settings' checkboxes snapped back on the next poll and
+   * the setting looked broken ([#240](https://github.com/dylanleatham/Marquee/issues/240)).
+   *
+   * `settings.json` is the *lowest* link in the boot chain (config.ts), so a flag pinned in
+   * `config.toml` or the environment still answers with the pinned value, and says it is pinned —
+   * a click on it genuinely cannot take effect, and the screen must say so rather than lose quietly.
+   */
+  app.get("/api/settings/gemini", async () => {
+    const stored = readSettings(config.dataDir).gemini ?? {};
+    const cardArtPinned = config.gemini?.generateCardArtPinned ?? false;
+    const videoPinned = config.gemini?.generateVideoPinned ?? false;
+    return {
+      configured: Boolean(gemini),
+      generateCardArt: cardArtPinned
+        ? genCardArt
+        : (opts.generateCardArt ?? stored.generateCardArt ?? genCardArt),
+      generateVideo: videoPinned
+        ? genVideo
+        : (opts.generateVideo ?? stored.generateVideo ?? genVideo),
+      generateCardArtPinned: cardArtPinned,
+      generateVideoPinned: videoPinned,
+    };
+  });
 
   // Update the key and/or the generation toggles. Any provided field is applied (the others are
   // preserved), so you can toggle generation without re-entering the key. Everything is built once

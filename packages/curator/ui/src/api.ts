@@ -555,8 +555,19 @@ export interface SpotifyAuthStatus {
 /** Gemini status + opt-in generation flags for the Settings screen (GET /api/settings/gemini). */
 export interface GeminiSettings {
   configured: boolean;
+  /**
+   * What the flag will be after the next restart — i.e. what you have asked for, not what the
+   * running pipeline is doing. The two differ until Marquee is restarted, and binding a checkbox to
+   * the *running* value is what made these look unclickable (#240).
+   */
   generateCardArt: boolean;
   generateVideo: boolean;
+  /**
+   * Set above `settings.json` (in `config.toml` or the environment), so Settings cannot change it.
+   * The screen states the value instead of offering a checkbox that would silently lose.
+   */
+  generateCardArtPinned: boolean;
+  generateVideoPinned: boolean;
 }
 
 export interface GeminiSettingsPatch {

@@ -90,7 +90,13 @@ describe("Gemini settings", () => {
 
     const app1 = serverAt(dir);
     expect((await app1.inject({ url: "/api/settings/gemini" })).json()).toEqual(
-      { configured: false, generateCardArt: false, generateVideo: false },
+      {
+        configured: false,
+        generateCardArt: false,
+        generateVideo: false,
+        generateCardArtPinned: false,
+        generateVideoPinned: false,
+      },
     );
 
     const put = await app1.inject({
@@ -113,6 +119,8 @@ describe("Gemini settings", () => {
       configured: true,
       generateCardArt: false,
       generateVideo: false,
+      generateCardArtPinned: false,
+      generateVideoPinned: false,
     });
     // The key is write-only — the GET must not leak it.
     expect(JSON.stringify(status)).not.toContain("key-123");
@@ -140,6 +148,61 @@ describe("Gemini settings", () => {
       apiKey: "key-123",
       generateCardArt: true,
     });
+  });
+
+  it("reports a toggled flag back, so the checkbox bound to it stays where you put it", async () => {
+    // The GET used to answer from consts captured at boot, so it never reflected a PUT until the
+    // next restart — a checkbox bound to it snapped straight back and the setting looked broken
+    // ([#240](https://github.com/dylanleatham/Marquee/issues/240)). The test above only ever
+    // asserted on the *file*, which is why this survived.
+    const dir = mkdtempSync(join(tmpdir(), "curator-gem-"));
+    const app = serverAt(dir);
+    await app.inject({
+      method: "PUT",
+      url: "/api/settings/gemini",
+      payload: { generateCardArt: true, generateVideo: true },
+    });
+
+    const after = (await app.inject({ url: "/api/settings/gemini" })).json();
+    expect(after.generateCardArt).toBe(true);
+    expect(after.generateVideo).toBe(true);
+
+    // And back off again — the direction that actually bit.
+    await app.inject({
+      method: "PUT",
+      url: "/api/settings/gemini",
+      payload: { generateVideo: false },
+    });
+    const off = (await app.inject({ url: "/api/settings/gemini" })).json();
+    expect(off.generateVideo).toBe(false);
+    expect(off.generateCardArt).toBe(true);
+  });
+
+  it("says a flag pinned above settings.json cannot be changed from the UI", async () => {
+    // config.toml and the environment both sit *above* settings.json in the boot chain, so a click
+    // there genuinely cannot take effect. The screen has to say so rather than offer a control that
+    // silently loses — the same call as the read-only service URLs (curator-ui-ux §8.9).
+    const dir = mkdtempSync(join(tmpdir(), "curator-gem-"));
+    // The flags hang off `config.gemini`, which only exists once a key is set — pinning generation
+    // with no key to generate with isn't a state worth modelling. The key goes through the API
+    // rather than the environment because `serverAt` clears `GEMINI_API_KEY` for isolation (#32).
+    await serverAt(dir).inject({
+      method: "PUT",
+      url: "/api/settings/gemini",
+      payload: { apiKey: "key-123", generateVideo: false },
+    });
+
+    process.env.GEMINI_GENERATE_VIDEO = "true";
+    try {
+      const app = serverAt(dir);
+      const status = (await app.inject({ url: "/api/settings/gemini" })).json();
+      // The pin wins over the stored `false`, and says why it won.
+      expect(status.generateVideo).toBe(true);
+      expect(status.generateVideoPinned).toBe(true);
+      expect(status.generateCardArtPinned).toBe(false);
+    } finally {
+      delete process.env.GEMINI_GENERATE_VIDEO;
+    }
   });
 
   it("keeps Spotify creds intact when saving a Gemini key (merge, not overwrite)", async () => {
