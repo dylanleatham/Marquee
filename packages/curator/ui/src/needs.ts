@@ -30,10 +30,19 @@ export const NEED_ORDER: Need[] = ["lights", "visualizer", "card", "tags"];
  * The vocabulary, settled with the user over three rounds of review (see the design handoff). These
  * words are not cosmetic: "wants you", "fully lit", "awaiting verification" were all rejected.
  *
- * `tags` reads as NEEDS SIGN-OFF because the outstanding act is checking the tags, not burning them.
+ * **Each label names the act you still have to perform, never the artifact.** `visualizer` and `card`
+ * happen to read as the artifact because there genuinely isn't one yet. The other two don't:
+ * `tags` reads as NEEDS SIGN-OFF because the outstanding act is checking the tags, not burning them,
+ * and `lights` reads as NEEDS A LOOK because the palette has existed since seconds after the record
+ * landed — what's outstanding is watching it in the room.
+ *
+ * `lights` was NEEDS LIGHTS until 2026-08-07 and it actively misled: on a 500-record collection it
+ * reads as "Roadie never derived a palette", which sent this project's own user looking for a broken
+ * pipeline that had in fact finished (ADR 0056). 458 of the 482 records carrying that label had a
+ * full four-colour palette at the time.
  */
 export const NEED_LABEL: Record<Need, string> = {
-  lights: "NEEDS LIGHTS",
+  lights: "NEEDS A LOOK",
   visualizer: "NEEDS VISUALIZER",
   card: "NEEDS CARD",
   tags: "NEEDS SIGN-OFF",

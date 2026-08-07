@@ -47,7 +47,7 @@ const done = {
 };
 
 const LIBRARY: AlbumSummary[] = [
-  album({ curatorId: "a", title: "Purple Rain", artist: "Prince" }), // needs lights
+  album({ curatorId: "a", title: "Purple Rain", artist: "Prince" }), // needs a look
   album({
     curatorId: "b",
     title: "Aja",
@@ -136,7 +136,7 @@ describe("grouping", () => {
 
   it("groups under the same labels the tiles use", () => {
     expect(groupByNeed(tiles).map((g) => g.label)).toEqual([
-      "NEEDS LIGHTS",
+      "NEEDS A LOOK",
       "NEEDS VISUALIZER",
     ]);
   });
@@ -183,7 +183,7 @@ describe("counts", () => {
 
   it("spells the detail line as a sentence, and agrees with itself", () => {
     expect(notCompleteDetail(collectionCounts(LIBRARY))).toBe(
-      "one still needs lights",
+      "one still needs a look",
     );
     expect(
       notCompleteDetail(
@@ -193,7 +193,7 @@ describe("counts", () => {
           album({ curatorId: "g", title: "Voodoo", artist: "D'Angelo" }),
         ]),
       ),
-    ).toBe("three still need lights");
+    ).toBe("three still need a look");
     expect(
       notCompleteDetail(
         collectionCounts(LIBRARY.filter((a) => a.curatorId === "d")),
