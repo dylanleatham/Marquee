@@ -156,6 +156,29 @@ Where they apply here:
 
 Where they don't apply: anything where the expected output is a specific concrete value (Spotify API mappings, UI rendering). Example-based tests are more natural there.
 
+### 3.7 Tests must not read the developer's machine
+
+A test that resolves configuration reads whatever the machine already has — a repo `.env`, an
+exported shell variable, a real credential store. That makes the suite pass on CI and fail on a
+working setup, which is the worst possible split: the failure is invisible to the people who could
+fix it and constant for the person who can't tell it from a real regression.
+
+Curator's `test/setup-env.ts` closes this globally, via vitest `setupFiles`, rather than per file —
+a per-file `beforeEach` is exactly what the next new test file forgets (issue #32).
+
+**The list of variables is the part that rots.** #32 hand-wrote three names while `loadConfig` read
+twenty-nine, so twenty-six leaked, and the suite failed 49 tests locally that CI was green on. Most
+were not even assertion failures: the config handed the tests a real Pi address, they dialled it, and
+it hung ~5s against vitest's 5000ms default (issue #247).
+
+So the list lives in one place — `CONFIG_ENV_VARS`, exported from `config.ts` next to the reads it
+describes — and `env-isolation.test.ts` scans the source and fails if the two drift **in either
+direction**: a `process.env.X` that isn't cleared, or a cleared name nothing reads any more.
+
+The general rule: **when isolation is driven by a hand-maintained list, the list needs a test.**
+Getting the mechanism right is the easy half; keeping its coverage complete is what actually fails,
+and it fails silently, months later, on someone else's machine.
+
 ## 4. Per-service strategy
 
 Each service has the same shape but different emphasis based on what's most likely to break.

@@ -140,6 +140,49 @@ export interface Config {
 const DEFAULT_MAX_UPLOAD_MB = 2048;
 
 /**
+ * Every environment variable `loadConfig` consults, in one place.
+ *
+ * This exists for the test suite, not for the runtime: `test/setup-env.ts` clears all of them so a
+ * developer's configured workstation tests like a clean CI box. That isolation used to carry its own
+ * hand-written list of three names while this file read twenty-nine, so everything else leaked and
+ * the suite failed 49 tests locally that CI was green on (issue #247).
+ *
+ * **Add the name here when you add a `process.env` read below.** `env-isolation.test.ts` scans this
+ * file and fails if the two drift, in either direction — so this is enforced rather than remembered.
+ */
+export const CONFIG_ENV_VARS: readonly string[] = [
+  "CURATOR_CONFIG",
+  "MARQUEE_DATA_DIR",
+  "CURATOR_PORT",
+  "CURATOR_MAX_UPLOAD_MB",
+  "SPOTIFY_CLIENT_ID",
+  "SPOTIFY_CLIENT_SECRET",
+  "SPOTIFY_REDIRECT_URI",
+  "DISCOGS_TOKEN",
+  "DISCOGS_USERNAME",
+  "DISCOGS_CONSUMER_KEY",
+  "DISCOGS_CONSUMER_SECRET",
+  "DISCOGS_CALLBACK_URL",
+  "DISCOGS_AUTO_SYNC",
+  "DISCOGS_AUTO_SYNC_INTERVAL_MINUTES",
+  "GEMINI_API_KEY",
+  "GEMINI_GENERATE_CARD_ART",
+  "GEMINI_GENERATE_VIDEO",
+  "GEMINI_TEXT_MODEL",
+  "GEMINI_IMAGE_MODEL",
+  "GEMINI_VIDEO_MODEL",
+  "CONDUCTOR_URL",
+  "CURATOR_CONDUCTOR_PUSH_ASSETS",
+  "BACKDROP_URL",
+  "BACKDROP_MEDIA_TRANSFER",
+  "BACKDROP_SYNC_MEDIA_LOCALLY",
+  "BACKDROP_MEDIA_DIR",
+  "AMP_URL",
+  "STYLUS_URL",
+  "TRIGGER_SHARED_SECRET",
+];
+
+/**
  * Curator config from config.toml / env / defaults. Curator's own UI+API runs unauthenticated
  * on the LAN (like Home Assistant, per runtime-overview §8); the shared secret only matters for
  * the outbound pushes to Conductor/Backdrop, which arrive in a later step. `override` wins (tests).
