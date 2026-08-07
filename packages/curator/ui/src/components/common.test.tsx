@@ -1,4 +1,10 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+// What is left of the shared components (ADR 0052).
+//
+// `AlbumThumb`, `Cover` and `StateBadge` went with the screens that mounted them, and their cases
+// went with them: they asserted a monogram placeholder and a machine-state pill, neither of which
+// the overhauled screens have. `artworkSrc` outlived them because the freshness token is the part
+// that was genuinely shared.
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   render,
   screen,
@@ -6,173 +12,49 @@ import {
   fireEvent,
   waitFor,
 } from "@testing-library/react";
-import { AlbumThumb, AsyncButton, Cover, StateBadge } from "./common";
+import { AsyncButton, artworkSrc, pickFile } from "./common";
 
 afterEach(cleanup);
 
-// The cover <img> is decorative (alt=""), so it has no "img" role — query it directly.
-const img = (root: HTMLElement) => root.querySelector("img");
-
-describe("AlbumThumb", () => {
-  it("renders the cover img keyed on the artwork endpoint", () => {
-    const { container } = render(
-      <AlbumThumb curatorId="abcd1234" title="Purple Rain" />,
+describe("artworkSrc", () => {
+  it("keys the URL on the version, so a late cover actually appears", () => {
+    expect(artworkSrc("abc12345", "hash-1")).toBe(
+      "/api/albums/abc12345/artwork?v=hash-1",
     );
-    expect(img(container)?.getAttribute("src")).toBe(
-      "/api/albums/abcd1234/artwork",
+    // A path is a legal token too, and it has to survive the query string intact.
+    expect(artworkSrc("abc12345", "media/art/a.jpg")).toContain(
+      "?v=media%2Fart%2Fa.jpg",
     );
   });
 
-  it("falls back to a two-letter monogram when the image 404s", () => {
-    const { container } = render(
-      <AlbumThumb curatorId="abcd1234" title="Purple Rain" />,
-    );
-    fireEvent.error(img(container)!);
-    expect(screen.getByText("PR")).toBeTruthy();
-    expect(img(container)).toBeNull();
-  });
-
-  // Issue #25: on a polling page, a transient 404 (art not downloaded yet) latched the placeholder
-  // forever. When Roadie later writes the art, the freshness token changes and the cover must
-  // re-request rather than waiting for a remount.
-  it("recovers from a transient 404 when the artwork version changes", () => {
-    const { container, rerender } = render(
-      <AlbumThumb curatorId="abcd1234" title="Purple Rain" version={null} />,
-    );
-    fireEvent.error(img(container)!);
-    expect(img(container)).toBeNull();
-
-    rerender(
-      <AlbumThumb
-        curatorId="abcd1234"
-        title="Purple Rain"
-        version="deadbeef"
-      />,
-    );
-    const el = img(container);
-    expect(el).not.toBeNull();
-    expect(el?.getAttribute("src")).toBe(
-      "/api/albums/abcd1234/artwork?v=deadbeef",
-    );
+  it("falls back to the bare URL when there is nothing to key on", () => {
+    expect(artworkSrc("abc12345")).toBe("/api/albums/abc12345/artwork");
+    expect(artworkSrc("abc12345", null)).toBe("/api/albums/abc12345/artwork");
   });
 });
 
-// Issue #134: before the cover lands, both components mounted an <img> whose src is known to 404,
-// so the browser painted its broken-image glyph and only then fell back to the monogram. Both read
-// as "this art is broken" when it is merely still downloading.
-describe("artwork while Roadie is still working", () => {
-  const loader = (root: HTMLElement) =>
-    root.querySelector('[data-art="loading"]');
-
-  it("AlbumThumb issues no artwork request while the album is processing", () => {
-    const { container } = render(
-      <AlbumThumb
-        curatorId="abcd1234"
-        title="Purple Rain"
-        state="downloading_art"
-      />,
-    );
-    expect(img(container)).toBeNull();
-    expect(loader(container)).not.toBeNull();
-  });
-
-  it("AlbumThumb does not show the monogram while processing — that means absent, not pending", () => {
-    const { container } = render(
-      <AlbumThumb curatorId="abcd1234" title="Purple Rain" state="fresh" />,
-    );
-    expect(screen.queryByText("PR")).toBeNull();
-    expect(loader(container)).not.toBeNull();
-  });
-
-  it("AlbumThumb requests the cover once the album leaves the processing states", () => {
-    const { container, rerender } = render(
-      <AlbumThumb
-        curatorId="abcd1234"
-        title="Purple Rain"
-        state="downloading_art"
-      />,
-    );
-    expect(img(container)).toBeNull();
-
-    rerender(
-      <AlbumThumb
-        curatorId="abcd1234"
-        title="Purple Rain"
-        state="awaiting_review"
-        version="deadbeef"
-      />,
-    );
-    expect(img(container)?.getAttribute("src")).toBe(
-      "/api/albums/abcd1234/artwork?v=deadbeef",
-    );
-  });
-
-  it("Cover issues no artwork request while the album is processing", () => {
-    const { container } = render(
-      <Cover
-        curatorId="abcd1234"
-        title="Purple Rain"
-        state="generating_palette"
-      />,
-    );
-    expect(img(container)).toBeNull();
-    expect(screen.queryByText("PR")).toBeNull();
-    expect(loader(container)).not.toBeNull();
-  });
-
-  it("keeps the img unpainted until it actually loads", () => {
-    // The request is in flight the moment the element mounts, and the glyph is what the browser
-    // paints in the gap. Hiding the element until onLoad closes that window for every caller —
-    // including the ones that pass no state at all.
-    const { container } = render(
-      <AlbumThumb curatorId="abcd1234" title="Purple Rain" />,
-    );
-    expect(img(container)?.style.display).toBe("none");
-
-    fireEvent.load(img(container)!);
-    expect(img(container)?.style.display).toBe("");
-  });
-
-  it("distinguishes pending from absent by more than colour", () => {
-    // curator-ui-ux §3.4: never colour alone. Pending is motion (a pulsing skeleton), absent is
-    // text (the monogram) — two different channels, so they can't be confused.
-    const { container: pending } = render(
-      <Cover curatorId="abcd1234" title="Purple Rain" state="fresh" />,
-    );
-    const { container: absent } = render(
-      <Cover curatorId="abcd1234" title="Purple Rain" state="verified" />,
-    );
-    fireEvent.error(img(absent)!);
-
-    expect(loader(pending)).not.toBeNull();
-    expect(pending.textContent).toBe("");
-    expect(loader(absent)).toBeNull();
-    expect(absent.textContent).toContain("PR");
+describe("pickFile", () => {
+  it("asks for the kind of file the caller wants, and hands back the pick", () => {
+    const onFile = vi.fn();
+    const file = new File(["x"], "a.mp4", { type: "video/mp4" });
+    const real = document.createElement.bind(document);
+    const spy = vi
+      .spyOn(document, "createElement")
+      .mockImplementation((tag: string) => {
+        const el = real(tag);
+        if (tag === "input") {
+          Object.defineProperty(el, "files", { value: [file] });
+          (el as HTMLInputElement).click = () =>
+            (el as HTMLInputElement).onchange?.(new Event("change"));
+        }
+        return el;
+      });
+    pickFile("video/*", onFile);
+    spy.mockRestore();
+    expect(onFile).toHaveBeenCalledWith(file);
   });
 });
 
-describe("Cover", () => {
-  it("recovers from a transient 404 when the artwork version changes", () => {
-    const { container, rerender } = render(
-      <Cover curatorId="abcd1234" title="Purple Rain" version={undefined} />,
-    );
-    fireEvent.error(img(container)!);
-    expect(img(container)).toBeNull();
-    expect(screen.getByText("PR")).toBeTruthy();
-
-    rerender(
-      <Cover curatorId="abcd1234" title="Purple Rain" version="deadbeef" />,
-    );
-    const el = img(container);
-    expect(el).not.toBeNull();
-    expect(el?.getAttribute("src")).toBe(
-      "/api/albums/abcd1234/artwork?v=deadbeef",
-    );
-  });
-});
-
-// Issue #62: the slow generative actions gave no in-flight feedback. AsyncButton is the primitive
-// that fixes it — each button owns its own spinner + disabled state for the life of its click.
 describe("AsyncButton", () => {
   it("renders its children and is enabled while idle", () => {
     render(<AsyncButton onClick={() => Promise.resolve()}>Go</AsyncButton>);
@@ -225,16 +107,6 @@ describe("AsyncButton", () => {
   });
 });
 
-describe("StateBadge", () => {
-  it("labels the state and marks processing states for the pulse animation", () => {
-    const { container } = render(<StateBadge state="generating_palette" />);
-    expect(screen.getByText("Generating palette")).toBeTruthy();
-    expect(container.querySelector('[data-processing="true"]')).not.toBeNull();
-  });
-
-  it("does not mark a parked state as processing", () => {
-    const { container } = render(<StateBadge state="awaiting_review" />);
-    expect(screen.getByText("Awaiting review")).toBeTruthy();
-    expect(container.querySelector('[data-processing="true"]')).toBeNull();
-  });
-});
+// The `StateBadge` cases were removed 2026-08-05 with the component (ADR 0052). They asserted that
+// a pill read "Generating palette" and "Awaiting review" — which is now precisely what the UI must
+// never say. `needs.test.ts` asserts the replacement rule from the other direction.

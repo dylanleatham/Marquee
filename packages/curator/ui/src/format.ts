@@ -1,54 +1,22 @@
 // Pure presentation helpers — no React, no DOM — so they're trivially unit-testable.
-import type { RoadieState, QueueBucket } from "./api";
-
-/** Human label for each Roadie state. */
-export const STATE_LABEL: Record<RoadieState, string> = {
-  fresh: "Queued",
-  fetching_metadata: "Fetching metadata",
-  downloading_art: "Downloading art",
-  generating_palette: "Generating palette",
-  drafting_prompts: "Drafting prompts",
-  awaiting_review: "Awaiting review",
-  awaiting_video: "Awaiting video",
-  awaiting_preview: "Awaiting preview",
-  awaiting_tag_write: "Awaiting tag write",
-  awaiting_verify: "Awaiting verification",
-  verified: "Verified",
-  errored: "Errored",
-  needs_manual: "Needs manual",
-};
-
-/** The onboarding stepper, in order — the milestones a human walks an album through (spec §10). */
-export const STEPPER: RoadieState[] = [
-  "awaiting_review",
-  "awaiting_video",
-  "awaiting_preview",
-  "awaiting_tag_write",
-  "awaiting_verify",
-  "verified",
-];
-
-export const QUEUE_SECTIONS: Array<{ bucket: QueueBucket; label: string }> = [
-  { bucket: "awaiting_review", label: "Awaiting review" },
-  { bucket: "awaiting_video", label: "Awaiting video" },
-  { bucket: "awaiting_preview", label: "Awaiting preview" },
-  { bucket: "awaiting_tag_write", label: "Awaiting tag write" },
-  { bucket: "awaiting_verify", label: "Awaiting verification" },
-];
+//
+// **Trimmed 2026-08-05 (ADR 0052).** This file used to be the queue's vocabulary: `STATE_LABEL`
+// spelling out all thirteen Roadie states, `STEPPER` / `stepperIndex` for the five-step score,
+// `QUEUE_SECTIONS` / `QUEUE_LABEL` for the nine buckets, and `NEXT_ACTION` for the row links. Every
+// one of those named a machine state at the user, which the overhaul forbids — what a record still
+// needs now lives in `needs.ts`, derived from its assets. They went with the screens that read them.
+//
+// What remains is the part that was never about the state machine: whether Roadie currently holds a
+// record, and how long ago something happened.
+import type { RoadieState } from "./api";
 
 /**
- * Every bucket's label, including the ones QUEUE_SECTIONS omits because they render under their own
- * headings. Used where a bucket has to be named in a sentence — the peer navigator's "3 of 7
- * awaiting review" (issue #94).
+ * The states in which Roadie owns the record and a human can't act on it.
+ *
+ * Still the machine's own list, deliberately: this is the one question the UI genuinely has to ask
+ * of `roadie.state`, and `needs.ts` asks it here rather than growing a second copy. The *words* the
+ * user sees for these come from `roadieNarration`, which never repeats a state name.
  */
-export const QUEUE_LABEL: Record<QueueBucket, string> = {
-  ...Object.fromEntries(QUEUE_SECTIONS.map((s) => [s.bucket, s.label])),
-  processing: "Processing",
-  errored: "Errored",
-  needs_manual: "Needs manual",
-  done_recently: "Done recently",
-} as Record<QueueBucket, string>;
-
 export const PROCESSING_STATES: RoadieState[] = [
   "fresh",
   "fetching_metadata",
@@ -60,22 +28,12 @@ export const PROCESSING_STATES: RoadieState[] = [
 export const isProcessing = (s: RoadieState): boolean =>
   PROCESSING_STATES.includes(s);
 
-/**
- * Where an album sits on the stepper: the index of `state`, or — while Roadie is still processing —
- * -1 (nothing done yet), so the stepper renders all steps as upcoming. `verified` is the last index.
- */
-export function stepperIndex(state: RoadieState): number {
-  if (isProcessing(state)) return -1;
-  const i = STEPPER.indexOf(state);
-  return i; // -1 for errored/needs_manual (off the happy path)
-}
-
 /** Compact "3m ago" / "2h ago" / "just now" from an ISO timestamp. */
 export function relativeTime(iso: string, now: number = Date.now()): string {
   const then = Date.parse(iso);
   if (Number.isNaN(then)) return "";
   const secs = Math.max(0, Math.round((now - then) / 1000));
-  if (secs < 45) return "just now";
+  if (secs < 45) return "a moment ago";
   const mins = Math.round(secs / 60);
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.round(mins / 60);
@@ -96,14 +54,3 @@ export const promptIsStale = (
   paletteGeneratedAt != null &&
   promptGeneratedAt != null &&
   promptGeneratedAt < paletteGeneratedAt;
-
-/** The next action label for an album parked in a human/terminal state (mirrors the API's status). */
-export const NEXT_ACTION: Partial<Record<RoadieState, string>> = {
-  awaiting_review: "Review palette",
-  awaiting_video: "Attach video",
-  awaiting_preview: "Preview & approve",
-  awaiting_tag_write: "Write tag",
-  awaiting_verify: "Verify physically",
-  errored: "Retry",
-  needs_manual: "Resolve manually",
-};

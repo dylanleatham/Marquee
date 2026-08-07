@@ -336,6 +336,11 @@ export function editPalette(
     algorithm: asset.palette.algorithm,
     handEdited: true,
     source: "hand",
+    // Carried, not dropped (ADR 0052). The rationale is Roadie's prose about *this record* — why
+    // the sleeve reads the way it does — not a claim about the exact hexes. Nudging one swatch by a
+    // shade used to delete it, and the record page shows it above the editor, so it would vanish
+    // the first time you touched anything.
+    ...(asset.palette.rationale ? { rationale: asset.palette.rationale } : {}),
   };
   asset.roadie.flags.palette_insufficient = false;
   asset.status = deriveStatus(asset.roadie);
@@ -412,9 +417,30 @@ export async function regeneratePalette(
         ? { insufficient: true, reason: payload.palette.reason }
         : {}),
     };
-    // Candidates described the palette being replaced; keeping them would offer a "feeling" option
-    // blended against a cover that no longer exists.
-    delete a.paletteCandidates;
+    // The candidates *followed* the palette being replaced, so they are re-pointed at the new
+    // extraction rather than deleted (ADR 0052).
+    //
+    // Deleting them was right about `cover` and `blend` — both describe a cover that no longer
+    // exists — and wrong about `feeling`, which is about how the record *sounds*. Re-extracting the
+    // sleeve does not change that, and the record page promises the two source palettes are
+    // permanent: "nothing you do to this list destroys either". Under the old behaviour, pressing
+    // "back to Roadie's original" silently threw away a palette that costs a Gemini call to recover.
+    const prior = a.paletteCandidates;
+    if (prior) {
+      const cover = payload.palette.colors.map((c) => ({ hex: c.hex }));
+      a.paletteCandidates = {
+        ...prior,
+        cover: sanitizePaletteEdit(cover),
+        // Re-blended against the palette that now exists — a stale blend is the thing the old
+        // comment was rightly worried about.
+        blend: sanitizePaletteEdit(
+          blendPalettes(
+            cover,
+            prior.feeling.map((c) => ({ hex: c.hex })),
+          ),
+        ),
+      };
+    }
     a.pattern = {
       type: payload.pattern.type,
       params: payload.pattern.params,
@@ -1404,6 +1430,40 @@ export function markTagWritten(
   asset.tag = tag;
   if (object === "sleeve" && asset.roadie.state === "awaiting_tag_write")
     transitionTo(asset, "awaiting_verify", now); // recomputes status
+  deps.store.save(asset);
+  return asset;
+}
+
+/**
+ * **Tags verified** — the record page's one button for the whole tag step (ADR 0052).
+ *
+ * The old bench had three controls in sequence: mark the sleeve written, mark the card written, then
+ * mark physically verified. Two of those are bookkeeping about an act that happened at the Flipper,
+ * not decisions — you write both stickers in one sitting, and nothing downstream distinguishes them.
+ * The one that *is* a decision is the check: tapping each tag on a phone and confirming it opens the
+ * right record, which is where the bugs turn up. So one button records the writes and the check
+ * together, and verification stays a distinct, deliberate step rather than a third click.
+ *
+ * Both tags are marked written whatever their prior state, so pressing this after writing only the
+ * sleeve does not leave the card claiming otherwise. Idempotent for the writes; the transition
+ * throws once the album is already `verified`.
+ */
+export function verifyTags(deps: ActionDeps, curatorId: string): AlbumAsset {
+  const asset = load(deps.store, curatorId);
+  const now = clock(deps);
+  const at = now();
+  const tag = asset.tag ?? { payload: `curator:album:${curatorId}` };
+  for (const object of ["sleeve", "card"] as const)
+    if (!tag[object]?.written) tag[object] = { written: true, writtenAt: at };
+  asset.tag = tag;
+  // `awaiting_tag_write` has to step through `awaiting_verify` — the machine's human path is linear
+  // (asset.ts HUMAN_TRANSITIONS) even though the record page lets the four needs be done in any
+  // order. Anything earlier than the tag step throws, and the panel disables the button with the
+  // reason rather than offering a press that 409s.
+  if (asset.roadie.state === "awaiting_tag_write")
+    transitionTo(asset, "awaiting_verify", now);
+  transitionTo(asset, "verified", now);
+  asset.verification = { ...asset.verification, physicallyVerifiedAt: at };
   deps.store.save(asset);
   return asset;
 }

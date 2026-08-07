@@ -16,6 +16,33 @@ This document ratifies the former and replaces the latter. It records the design
 - [ADR 0027](../adrs/0027-generation-is-invoked-not-pipelined.md) — generation is invoked, never pipelined
 - [ADR 0028](../adrs/0028-preview-bench-and-room-modes.md) — preview has bench and room modes; hardware requires arming
 
+> ### Status, 2026-08-06 — the overhaul has landed
+>
+> [**ADR 0052**](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md) replaces this app's
+> information architecture and its whole visual language: Curator becomes **three places** — the
+> collection, the record, the room — and "backstage marquee" becomes **"Pressing Plant"**. The design
+> handoff it implements is in `docs/design_handoff_curator_overhaul/`.
+>
+> It shipped in stages, so this spec is part new and part historical. Read it accordingly:
+>
+> | Section                | State                                                                                                                    |
+> | ---------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+> | §3 design language     | **Rewritten.** Pressing Plant, as built.                                                                                 |
+> | §8 the collection      | **Rewritten.** Replaces the queue view, as built.                                                                        |
+> | §5 the record          | **Rewritten.** All four panels built; the rail is deleted.                                                               |
+> | §6 the room            | **Rewritten.** Bench and the Demo Room are one screen; §8.6 adds the ready toast.                                        |
+> | §8.5 system            | **Rewritten.** The album matrix is replaced by an exception list.                                                        |
+> | §8.7–§8.9              | **New.** Add a record, Discogs, Settings.                                                                                |
+> | §9.1 keyboard          | **Withdrawn.** The accelerator layer is removed.                                                                         |
+> | §4 workbench principle | **Kept, its rail deleted.** "Providing an artifact is never gated" survives; the five stations that expressed it do not. |
+> | §9.2–§10               | Unchanged.                                                                                                               |
+>
+> **Every screen is on the new theme**, and `styles.css`'s legacy block — which repointed the old
+> variables so an un-migrated screen still rendered — is deleted with the last screen that needed it.
+>
+> Nothing below is deleted — a spec that loses its history can't explain why the code looks the way it
+> does, or why a decision was reversed.
+
 ## 2. The frame — a desktop app, not a website
 
 Curator ships as an Electron app ([ADR 0008](../adrs/0008-desktop-app-supervises-services.md)):
@@ -37,60 +64,91 @@ Curator is a **workstation tool**. It is not designed for phones or tablets; a v
 `minWidth` is not a supported configuration. Responsiveness exists to serve window resizing on a
 desktop, not device classes.
 
-## 3. Design language — "backstage marquee"
+## 3. Design language — "Pressing Plant"
 
-**Ratified as-is.** It is coherent, on-theme, and already implemented throughout; this section
-promotes it from a CSS comment to a specified contract.
+> **Rewritten 2026-08-04** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).
+> This section used to specify **"backstage marquee"** — warm near-black `#14110f`, theater-amber
+> `#f5a623`, `10px` radii, Inter. That theme is gone. While the overhaul was mid-flight `styles.css`
+> carried a marked **legacy block** repointing the old `--bg`/`--panel`/`--amber` variables at the
+> tokens below, so an un-migrated screen still rendered; it was **deleted 2026-08-06** with the last
+> screen that needed it. The old names are recorded here only to make an old screenshot legible.
 
-> Warm near-black, a single theater-amber accent used with restraint, tracked-uppercase labels like a
-> stage cue sheet. The signature is the lit-bulb pulse on whatever album Roadie is working right now.
+Light, printed, editorial.
+
+> Warm paper stock, ink black, one brick-red accent. Hairline rules instead of cards; grid gutters
+> are borders, so the collection reads as ruled paper. Nothing is rounded. The signature is the
+> pulsing accent dot wherever Roadie is present.
 
 ### 3.1 Tokens
 
-Defined in `:root` in `styles.css`. These names are the contract; components reference tokens, never
-literal hex.
+Defined in `:root` in `styles.css` as `--pp-*`. These names are the contract; components reference
+tokens, never literal hex.
 
-| Token          | Value     | Role                                                         |
-| -------------- | --------- | ------------------------------------------------------------ |
-| `--bg`         | `#14110f` | Page ground. Warm near-black, deliberately not neutral gray. |
-| `--panel`      | `#1e1a17` | Cards, rows, controls.                                       |
-| `--panel-2`    | `#241f1b` | Raised or nested surface.                                    |
-| `--line`       | `#2e2823` | Borders, dividers, control outlines.                         |
-| `--text`       | `#ede6db` | Primary text. Warm off-white.                                |
-| `--muted`      | `#9a8f82` | Secondary text, labels, timestamps.                          |
-| `--amber`      | `#f5a623` | **The** accent: marquee bulb, primary action, next action.   |
-| `--amber-soft` | `#6b4e1e` | Amber at rest — dim bulb, inactive accent.                   |
-| `--cyan`       | `#48c4c4` | Roadie is working. Reserved; means nothing else.             |
-| `--alert`      | `#e5484d` | Error, destructive action.                                   |
-| `--sage`       | `#6bbf59` | Healthy, connected, verified.                                |
-| `--radius`     | `10px`    | Panels and cards. Buttons use `8px`.                         |
+| Token               | Value     | Role                                                               |
+| ------------------- | --------- | ------------------------------------------------------------------ |
+| `--pp-paper`        | `#f2efe8` | App ground, and reversed text on ink.                              |
+| `--pp-paper-sunk`   | `#efebe2` | Stat bands, sidebars, secondary panels.                            |
+| `--pp-paper-raised` | `#f7f4ee` | The in-use palette card, tag panels, the toast.                    |
+| `--pp-paper-log`    | `#eae5da` | The expanded Roadie log.                                           |
+| `--pp-rule`         | `#d8d2c4` | Every hairline divider.                                            |
+| `--pp-rule-soft`    | `#c9c2b1` | Input underlines, unselected outlines.                             |
+| `--pp-dashed`       | `#b3ab99` | Empty-state dashed borders.                                        |
+| `--pp-ink`          | `#17150f` | All primary text, bars, filled buttons.                            |
+| `--pp-ink-muted`    | `#6f6a5c` | Secondary text, mono labels.                                       |
+| `--pp-ink-faint`    | `#8d8778` | Tertiary text, captions.                                           |
+| `--pp-ink-ghost`    | `#a49d8c` | Ids, prompt numbers.                                               |
+| `--pp-accent`       | `#b4402c` | **The** accent: not complete, Roadie's presence, the current stat. |
+| `--pp-accent-text`  | `#8e3122` | The accent as body text, where the lighter one loses contrast.     |
+| `--pp-accent-wash`  | `#f7ece9` | The Stuck row, a failing service, unmatched Discogs rows.          |
+| `--pp-positive`     | `#3f7d4e` | Reachable services, "written", "saved a moment ago".               |
+| `--pp-amber`        | `#e0a24a` | Fader accent — **inside the dark room only**.                      |
+| `--pp-room-floor`   | `#0d0a10` | The room's base, before the palette wash.                          |
 
-**Amber is scarce by design.** It marks the one thing to do next. A screen with three amber elements
-has no next action — it has three, which is none. If everything needs emphasis, the layout is wrong.
+Three rules the tokens don't carry on their own:
+
+- **Nothing has a border radius. Zero.** Buttons, inputs, panels and the toast are all square. The
+  one round thing in the app is a status dot (`border-radius: 50%`).
+- **No shadows anywhere except the toast** (`0 10px 30px rgba(23,21,15,.24)`).
+- **Album artwork uses `outline`, never `border`**, so the state treatment can't move the layout: ink
+  for ready, `--pp-rule-soft` for not complete, `2px` accent for Roadie-is-on-it.
+
+**The accent is scarce by design**, and it does more work than amber did — it now carries
+"not complete" across a whole wall of records. That makes §3.4 load-bearing rather than advisory.
 
 ### 3.2 Type
 
-`Inter` with a system fallback stack; `ui-monospace` for identifiers, payloads, and prompts. Base
-`15px / 1.5`.
+Three families, each with one job:
 
-The one distinctive move is the **cue-sheet label**: `12px`, `letter-spacing: 0.16em`,
-`text-transform: uppercase`, `--muted`, underlined by a `--line` rule. It marks section and group
-boundaries. It is a _label_, never body copy — nothing longer than about four words gets tracked
-uppercase.
+| Family  | Stack                              | Job                                       |
+| ------- | ---------------------------------- | ----------------------------------------- |
+| Display | Archivo Black 400 only             | Numbers, screen titles, record titles.    |
+| Body    | Helvetica Neue / Helvetica / Arial | Everything readable.                      |
+| Mono    | IBM Plex Mono 500/600              | Labels, counts, times, hex, ids, buttons. |
+
+Archivo Black and IBM Plex Mono are loaded from Google Fonts in `index.html`; Helvetica is a system
+stack and is never loaded. Both webfonts have real fallbacks, because Curator is a desktop app that
+is expected to work away from the internet.
+
+Base body is `13px / 1.45`; prose is `15px / 1.65` capped at `62ch`.
+
+The distinctive move is the **mono label**: `9.5px`, `letter-spacing: .18em`, uppercase,
+`--pp-ink-muted`. **Every uppercase label is genuinely uppercase in the markup**, not
+`text-transform`-ed — so it is uppercase to a screen reader and to a copy-paste too. The masthead
+wordmark is the single exception.
 
 ### 3.3 Motion
 
-Motion carries state, never decoration. Three sanctioned uses:
+Motion carries state, never decoration. Four sanctioned animations, all named `pp*`:
 
-- **The bulb pulse** — the album Roadie is working on, in `--cyan`. The signature; do not reuse the
-  animation for anything else.
-- **The artwork skeleton** — a cover that is still downloading (§10, issue
-  [#134](https://github.com/dylanleatham/Marquee/issues/134)). Distinct from the bulb pulse: it
-  stands in for the art itself rather than annotating a row.
-- **Transitions** — `150ms` for hover/focus affordances, `500–600ms` crossfades where the runtime
-  itself crossfades (Preview, Demo Room), so what you rehearse matches what Backdrop does.
+- **`ppPulse`** (`2.4s`) — Roadie is present: the masthead dot, the log's dot, a loading screen.
+- **`ppDrift`** (`26s`) — the room's palette wash. Inset `-6%` on all sides so the drift never
+  reveals an edge.
+- **`ppToast`** (`5s`, forwards) — the ready toast's whole life.
+- **Transitions** — `500–600ms` crossfades where the runtime itself crossfades, so what you rehearse
+  matches what Backdrop does.
 
-`prefers-reduced-motion: reduce` disables animation globally. Already implemented; keep it.
+`prefers-reduced-motion: reduce` disables animation globally, `ppDrift` included. The prototype did
+not respect it and should have — a slow full-screen drift is exactly what that setting exists for.
 
 Animation that loops runs **only while it can be seen** — gated on tab visibility, and on an
 `IntersectionObserver` where the element can scroll away. The shared `useVisibleCycle` hook owns
@@ -106,16 +164,39 @@ This is a **repeat class**, not a hypothetical: Backdrop shipped a connection in
 unreadable without colour vision (`37ffdae`, PR #85). The rail's readiness dots (§5) are the exact
 same shape of risk, so the rule is written down here rather than rediscovered a third time.
 
+This section is the reason the accent can carry "not complete" across a whole wall of records. On the
+collection, a record that isn't finished is marked **three ways at once** — a paler outline, reduced
+contrast on the artwork, and the need spelled out in words underneath. Roadie's is marked by outline
+_weight_ as well as hue. Remove the words and the grid becomes unreadable to this project's own user.
+
 ### 3.5 Focus
 
-Every interactive element has a visible focus ring that meets 3:1 against its own background. This
-is not optional once the app has a keyboard path (§9) — an invisible focus ring makes keyboard
-navigation unusable.
+Every interactive element has a visible focus ring that meets 3:1 against its own background. This is
+not negotiable: the accelerator layer went away (§9.1) but keyboard _reachability_ did not, and it is
+an accessibility floor rather than a power-user feature.
 
-Contrast was audited at ratification: `--muted` on `--bg` is ≈6.0:1 and `--amber` on `--bg` is
-≈9.4:1, both clearing AA for body text. Any new token pair must be checked before it lands.
+Pressing Plant's ring is `2px solid --pp-ink` at `2px` offset — a **shape**, which is what makes it
+readable without colour. On ink-filled controls it inverts to paper and moves inside, so it never
+disappears into the fill. The design prototype had no focus states at all; they were added here.
+
+Contrast: `--pp-ink-muted` on `--pp-paper` is ≈4.7:1 and `--pp-accent-text` on `--pp-paper` is
+≈5.6:1, both clearing AA for body text. `--pp-accent` is used for large type, rules and fills rather
+than small body copy, which is why `--pp-accent-text` exists at all. Any new token pair must be
+checked before it lands.
 
 ## 4. The workbench principle
+
+> **The principle survives; the rail that carried it does not (2026-08-05,
+> [ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).** "Providing an
+> artifact is never gated" was right, and the record page keeps it — all four needs are open at all
+> times. What went is the **five-station rail** that expressed it, along with the readiness chips,
+> the stepper and the `1`–`5` keys. `rail.ts`, `PeerNav.tsx`, `PaletteEditor.tsx` and
+> `AlbumDetail.tsx` are deleted; the record page is specified in §5 below.
+>
+> The rail's own failure was subtler than gating: it asserted an **order** — Look → Video → Card →
+> Preview → Ship — that the system does not have. Nothing requires lights before a visualizer. The
+> replacement makes the four needs independent predicates over the assets, so "any order" is true by
+> construction rather than by a rule the UI has to keep.
 
 **The album detail page is a workbench, not a guided session** ([ADR 0026](../adrs/0026-album-detail-is-a-workbench.md)).
 
@@ -148,7 +229,168 @@ from `awaiting_review` onward, so a video you already have can be attached witho
 prompt") but never stated as a rule — which is why sections added afterward re-litigated it
 privately and two of them landed the other way.
 
-## 5. Album detail — the rail
+## 5. The record
+
+> **Rewritten 2026-08-05** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).
+> All four panels are built and the rail is deleted. §5.2 below is kept as the record of what it was.
+
+One page listing the four things a record still needs — **Lights · A visualizer · A card · Tags** —
+done in any order. No stepper, no rail, no machine-state name.
+
+**A 310px sidebar**, top to bottom: `← THE COLLECTION`, the cover, a 26px strip of the live palette,
+the title in Archivo Black 25px, the byline, the state label, and a full-width ink
+`▶ SEE IT IN THE ROOM`. Pinned to the bottom: `↑ PREV`, `NEXT ↓`, and **the one place in the app an
+album id may appear** — small, muted, never inside a sentence.
+
+`↑ PREV` / `NEXT ↓` walk the collection in `GET /api/albums` order, deliberately **not**
+`GET /api/albums/:id/peers`: that endpoint walks same-state buckets, which is the nine-state model
+the UI no longer shows, so a run through it would step by a rule nothing on screen explains. The run
+does not wrap — at the end the honest answer is "that was the last one", and the button says so.
+
+**The needs tabs.** Each carries a filled `●` or hollow `○` glyph plus screen-reader text saying
+"done" or "still needed", so the two questions — which tab am I on, what is left — never share one
+channel. The open tab is ink text with a `2px` accent underline. **Every tab is always open**: §4's
+principle, minus the rail.
+
+**Opening a record always lands on Lights**, whatever is outstanding. A click from the collection is
+then predictable rather than dependent on state you can't see from the tile.
+
+**Preview is not a tab.** Signing the lights off means having watched them, so that lives in the room.
+
+### 5.0 The Lights panel
+
+- **Edits autosave**, debounced, with a quiet "saved a moment ago — edits save as you make them"
+  line that states the _rule_ as well as the state. There is no Save button, no Discard and no `⌘⏎`.
+  Three things this has to get right, because autosave that loses work is worse than a button:
+  a half-typed hex holds the write back rather than being sent and rejected; a burst of picker
+  drags coalesces into one write; and an edit still inside the debounce window is **flushed on
+  unmount**, so navigating away cannot silently discard it.
+- **Roadie's note**, as prose at 15px/1.65 capped at 62ch — when there is one. A plain cover
+  extraction has no note, and the panel shows nothing rather than inventing a sentence.
+- **Two source palettes side by side** — FROM THE SLEEVE and FROM THE FEELING — inside one ink
+  border. The one in use is raised, marked `· IN USE`, and its action reads "IN USE"; the other reads
+  "USE THIS INSTEAD →". A feeling palette that has not been proposed yet offers `◈ ASK FOR THESE`,
+  marked as a control that spends money (§7). **Both are permanent**: switching destroys neither, and
+  the feeling palette does not disappear once suggested — see the API note below, because that was
+  not true of the server until ADR 0052.
+- **THE LIGHTS, IN ORDER** — one row per colour: swatch, hex, role, and **where it lands in the
+  room** ("the wall wash", "the far corner", "the glow behind the stand"), then reorder/remove.
+  Order is the meaning, so the role follows position and the old per-row role dropdown is gone. Past
+  the third colour the row reads "held in reserve" rather than naming a place the lights don't have.
+- `+ ADD A LIGHT` and **BACK TO ROADIE'S ORIGINAL** (which replaces "reset to auto"/"start over"),
+  then the line promising both palettes are recoverable.
+
+Dropped from the old Look station and **not** to be reinstated: the artwork override, the source
+badge, the genre tags, and the raw `{"transitionMs":…,"holdMs":…}` JSON.
+
+**Moved, not dropped: how the lights _move_.** The Motion picker
+([ADR 0039](../adrs/0039-one-motion-picker-clip-patterns-are-selectable.md), driving
+`PUT /api/albums/:curatorId/pattern-override`) belongs in the room's control dock — **LIGHT
+PATTERN**, beside transition, hold and brightness — because those are things you judge by watching,
+not by reading a list. That is the whole reason colour editing stays here and movement goes there.
+
+> **This is a real gap until the room lands (2026-08-05).** The picker was deleted with the rail and
+> its replacement does not exist yet, so **there is currently no way to set an album's motion from
+> the UI.** The route is unaffected and the stored `patternOverride` still plays; only the control is
+> missing. Recorded here rather than discovered later as a bug report.
+
+> **Two API changes this panel required** (ADR 0052), both because the screen makes a promise the
+> server did not keep:
+>
+> - `POST /palette/generate` no longer deletes `paletteCandidates`. It re-points `cover` and `blend`
+>   at the new extraction and **keeps `feeling`** — which is about how the record _sounds_, and which
+>   re-extracting a sleeve does not invalidate. Before, "back to Roadie's original" silently threw
+>   away a palette that costs a Gemini call to recover.
+> - `PUT /palette` carries `rationale` forward instead of dropping it. The note is prose about the
+>   record, not a claim about exact hexes, and the panel shows it above the editor — so nudging one
+>   swatch used to erase it.
+
+### 5.1 The visualizer, card and tags panels
+
+Built 2026-08-05. Together with §5.0 they replace the Video, Card and Ship workstations outright.
+
+**A visualizer.** The attached clip **plays here, looping, washed in the record's own palette** —
+the same `radial-gradient` the room uses, because judging whether a clip belongs to _this_ record is
+the only thing this panel is for, and a still frame on paper stock cannot answer that. Its position
+and resolution sit in the corners. `REPLACE · REMOVE · PICK A FILE`; **no "paste a link"** — a URL is
+not a file, and the one that mattered was always local.
+
+Beneath it, the **Backdrop strip carries all three of its states**: uploading (percent _and_ bytes,
+never the bar alone), a quiet green "on Backdrop", and a failure with its **RETRY right here** rather
+than only on the System screen. A clip attached in Curator that never reached Backdrop plays as a
+black screen in the room, and the old panel said nothing at all once the transfer stopped — success
+and failure looked identical, which is the case
+[ADR 0038](../adrs/0038-curator-pushes-media-over-http.md) exists to prevent.
+
+A 280px side panel lists **every drafted prompt, numbered, each separately copyable**. The old bench
+showed one behind a variant chooser, so the rest may as well not have been written. `LET ROADIE MAKE
+IT` is marked `◈` as a control that spends, and says why it is off when it is.
+
+**`LET ROADIE MAKE IT` generates and then joins, in one press.** `generateVideoSet` returns several
+`videoClips`; this page shows a _visualizer_. The old bench closed that gap with a gallery and a
+manual splice step ([issue #29](https://github.com/dylanleatham/Marquee/issues/29)); the design has
+neither, so the button does it — a clip per draft, spliced in index order into the attached loop.
+Stopping at the clips would leave the button looking like it did nothing, because nothing on this
+page can render them.
+
+While it runs, the panel reports **items done of total** (a clip is a multi-minute call and there is
+one per draft, so this is a long wait) and offers `STOP`. It re-attaches to a running job on mount,
+so a reload mid-run resumes and still splices.
+
+> **Two cases the automatic join cannot cover**, and one strip that covers both: the app was closed
+> while the job ran — `useGenerationJob` adopts an already-finished job without re-firing its
+> completion — or the splice itself failed. Either way the clips are on disk with nothing attached,
+> which is invisible on a page that only renders a visualizer. So when clips exist and no visualizer
+> does, the panel says how many there are and offers **MAKE THE LOOP**.
+
+> **The design asks for four drafts; the backend writes five, and it still writes five.**
+> `PROMPT_VARIANTS` is shared with card art, and the narrative metaprompt names its five options in
+> prose — so cutting to four means choosing an option to delete, which is a content decision with no
+> obvious winner, not a constant to edit. The requirement that actually mattered ("four, **not
+> one**" — every draft visible and separately copyable) is met by rendering however many exist. The
+> panel is headed `ROADIE'S DRAFTS · n`, so it stays honest if the count ever changes.
+
+**A card.** The candidates, **7:5 landscape, two up** — the old gallery was a 140px auto-fill grid,
+and thumbnails that small cannot be judged, which is the only thing this screen is for. The one in
+use gets a `2px` accent outline, full opacity, an `IN USE` mark and a `DOWNLOAD`; the rest sit at
+`opacity:.5` with `USE THIS ONE INSTEAD`.
+
+> The design shows four. **The grid renders however many exist** — `generateCardArtSet` draws one per
+> drafted prompt, which is `PROMPT_VARIANTS` (5) today, the same count the visualizer drafts carry
+> and for the same shared reason. Two-up at 7:5 is the requirement; four was the mock's arithmetic. **"Use", never "keep"** — keep read as a commitment when
+> the choice is free to change. **Download, not a print sheet**: you take the one you are using, and
+> `/card-art/print` belonged to a workflow that no longer exists.
+
+The attached card is matched to its candidate by **`fileId`, not index** — a regeneration renumbers
+the candidates, and matching on index would put the `IN USE` mark on whichever card landed in that
+slot. A candidate whose image won't load is dropped rather than shown as a broken glyph.
+
+> **`EDIT THE PROMPT` is not built.** The design lists it beside "ask for more" and "upload my own",
+> but there is no API for editing a drafted prompt's text by hand — only selecting a variant or
+> asking Gemini to redraft. Left out rather than faked; it needs a backend before it needs a button.
+
+**Tags.** THE SLEEVE and THE SHELF CARD side by side, each with its **real QR** (the server renders
+it from the URI; the prototype's checkerboard was a stand-in), its `curator:album:` / `curator:card:`
+URI, and its written state as a word plus a tick. Then `SEND THIS RECORD TO THE FLIPPER ·
+DOWNLOAD .NFC · HOW DO I WRITE THESE?` — **per record only**; the bulk "send the whole list" went
+with the queue, because you write these standing at the shelf, one at a time.
+
+Below a hairline, set apart on purpose: **THEN CHECK THEM**, and **one `TAGS VERIFIED` button
+covering both tags**. Marking the sleeve written and the card written were bookkeeping about a single
+act at the Flipper; the _check_ — tapping each tag and confirming it opens the right record — is the
+only part that is a decision, and it is where a mis-written sticker turns up. So verification stays
+its own visually separated step, and it is one press.
+
+> **The gate is shown, not hidden (§4).** The human path through the state machine is still linear
+> even though the four needs are done in any order, so `TAGS VERIFIED` is **disabled with its reason**
+> until the record reaches the tag step, rather than offering a press that 409s. That tension between
+> "any order" and a linear machine is real and is not resolved here — it is simply not hidden.
+
+## 5.2 Album detail — the rail (superseded, and now deleted)
+
+> **Deleted 2026-08-05.** `workflow.tsx` — the five workstations, the prompt blocks, the splice
+> controls and the tag payload — is gone with the panels above. What survived it is the `Run` type,
+> now `ui/src/run.ts`. The section below is kept only as the record of what the rail was.
 
 The detail page is a **left rail of five workstations** beside a full-width canvas. The selected
 workstation gets the whole canvas; the rail is always visible.
@@ -215,6 +457,51 @@ reproduced, and saves on release rather than on every drag frame. Ranges come fr
 the result in **Room rehearsal** (§6.2) — bench preview never drives the lights.
 
 ## 6. Preview — bench and room
+
+> **Built 2026-08-06** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).
+> Bench and room are **one screen**, `/room/:curatorId`, with the arm toggle choosing between them.
+> `PreviewWorkstation.tsx` and `DemoRoom.tsx` are deleted; `/demo/:curatorId` still resolves, because
+> that address is in the old screen's own history. The safety reasoning below is unchanged and is
+> exactly why the toggle exists.
+>
+> **The screen.** A flex _column_: the stage flexes and the dock is a real footer sibling, never
+> absolutely positioned — the sleeve-on-the-stand has to sit in the space actually left over or it
+> ends up behind the controls on a short window. The wash is the record's own palette, inset `-6%`
+> so `ppDrift` never reveals an edge, and stilled by `prefers-reduced-motion`.
+>
+> **Bench plays everything except the hardware.** The clip loops and the wash drifts whether or not
+> the room is armed; gating those on being armed would make the safe mode the useless one. `♪ PLAY
+THE ALBUM` follows the switch — desk audio on the bench
+> ([ADR 0037](../adrs/0037-bench-preview-audio-via-spotify-connect.md)), the room's own speakers when
+> armed. Arming starts the room and un-arming stops it, as does leaving the screen: nothing should
+> keep a room lit for a window nobody is looking at.
+>
+> **Conductor failing degrades the room to a window.** The wash, the clip and the sleeve do not
+> depend on it, so an unreachable Conductor shows a line and leaves the screen working.
+>
+> **Sign-off lives here and nowhere else** — approving a record's lights means having just watched
+> them, which is not a claim a form can make for you. It returns to the collection and fires the
+> ready toast (§8.6). Gated by the state machine, so it disables with its reason (§4).
+>
+> ### The control dock's sliders are the pattern's own knobs
+>
+> The design draws three fixed sliders — Transition, Hold, **Brightness** — and the walkthrough is
+> explicit that all three are per record. Two of the three ship. **Brightness does not, and cannot
+> yet**: `palette-payload.schema.json` admits no global brightness, and `static` is specified as
+> `maxProperties: 0`, so a brightness slider on HOLD STILL would build a payload Conductor's own
+> contract rejects. ADR 0036 already settled the principle — "a UI that offers a value the server
+> refuses is worse than no slider".
+>
+> So the movement group renders **`PATTERN_PARAM_SPECS` for the chosen pattern**: Fade and Hold for
+> crossfade, Breath / Dim to / Rise to for pulse, and a plain sentence for hold still, which has
+> nothing to tune. Every slider shown does something. **Getting the design's brightness needs a
+> contract change** across the payload schema, Conductor and Palette Press — recorded in ADR 0052,
+> not silently dropped.
+>
+> The dock names CROSSFADE · PULSE · HOLD STILL. A record already on one of the three **streaming**
+> patterns ([ADR 0035](../adrs/0035-streaming-effect-is-a-per-album-opt-in.md)) gets a fourth chip
+> for the one it is on — a dock with nothing pressed reads as "no pattern" rather than "one you can't
+> see from here".
 
 Preview has **two modes** ([ADR 0028](../adrs/0028-preview-bench-and-room-modes.md)). The split is
 not stylistic; it exists because the listening room may contain other people, and taking over their
@@ -294,49 +581,108 @@ Three rules:
 
 The template fallback path costs nothing and is unaffected; it stays available on demand.
 
-## 8. Queue view
+## 8. The collection
 
-Essentially as built, and the strongest screen in the app: grouped by which step is next, one row per
-album with cover, title/artist, wait time, and a single next-action link. Sections in attention
-order — _Needs you right now_, _Roadie is on it_, _Needs your attention_, _Done_. Keep all of it.
+> **Rewritten 2026-08-04** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).
+> This section used to specify the **queue view**: albums grouped into nine machine-state buckets,
+> in attention order, one row each with a next-action link, and a "needs you right now" count in the
+> header. That screen only ever showed work-in-progress — there was no view that answered "what do I
+> own?", which is the question you actually have when you sit down. The queue survives as one filter
+> chip. `pages/QueueView.tsx` and `queueKeys.ts` are deleted.
 
-Two corrections:
+Home. Every record you own, art-first, in a shuffled grid.
 
-- **The "needs you right now" count needs a real home.** It is currently written into
-  `document.title`, an affordance that assumes a browser tab (§2). In a single-window app that count
-  belongs **in the app header**, visible while you work. Optionally mirror it to the taskbar/dock
-  badge for when the window is not focused — that is where an OS-level count is actually read.
-- **Empty is a positive state.** "All caught up. Roadie is idle," not an empty container. Already
-  specified in the onboarding workflow; keep it true.
+**A record shows its first outstanding need, and only that** — never a count, never "+1". The need is
+derived from the assets, not read off `roadie.state`: lights until the preview is approved, a
+visualizer until one is attached, a card until one is attached, tags until both are written _and_
+checked. Precedence is lights → visualizer → card → tags, which is a reading order, not a dependency.
+One pure module (`ui/src/needs.ts`) owns the derivation for both this screen and the record page, so
+they cannot disagree about the same record.
 
-The onboarding workflow's rule stands: the needs-you number is the only number that gets this
-treatment. Adding queue depth or total albums beside it muddies the one signal that answers "should I
-sit down now?"
+The vocabulary is fixed and was settled over three rounds of review. Not cosmetic — the old words
+were rejected:
 
-## 8.5 System status — the page you open when something is wrong
+| Say                                         | Never say                            |
+| ------------------------------------------- | ------------------------------------ |
+| the collection                              | the wall, the queue                  |
+| Not complete / Ready                        | wants you / fully lit, lit, verified |
+| Needs Lights / Visualizer / Card / Sign-off | needs colours, awaiting anything     |
+| Roadie is on it                             | processing, generating palette       |
+| Stuck                                       | errored                              |
 
-Added 2026-08-01, at `/system`. Every runtime service already had a status endpoint; what was
-missing is that **the failures worth catching are disagreements between hosts**, and answering one
-meant curling four services and diffing the results by hand.
+**No machine state name and no album id appears anywhere on this screen.** Roadie's log says "Pulled
+the lights from **Kind of Blue**". A failure reads as a sentence with a way out, not as
+`spotify_lookup_failed`.
 
-So the heart of the page is the **album matrix** — the only view that says "Curator has thirteen
-albums and the runtime has six". One row per album, one column per host that should be holding part
-of it:
+Four regions:
 
-| Column              | Answers                                                                                                                     |
+- **The stat band** — Not complete (accent) · Ready · Not started, each with a one-line detail; then
+  a **rotating statistic** you advance by clicking. The pool is built from the statistics there is
+  data for, so it is four today and becomes five when `label` is stored on an asset.
+- **The filter bar** — Everything · Not complete · Ready, a search over title and artist, `SHUFFLED ↻`,
+  and a density cycler (5 / 7 / 9 columns). Filter, query and density live in the URL so a session
+  survives a reload.
+- **The grid** — gutters are **borders, not gaps**. Selecting _Not complete_ regroups it under one
+  heading per need; **empty groups are not rendered at all**. Stuck records get their own row on
+  `--pp-accent-wash` below the groups, with the sentence and a `FIX IT` button.
+- **Roadie's log** — a footer strip with the newest entry, expanding into a panel. **Session-only and
+  not persisted**; the panel says so. Failures live durably in the Stuck group instead.
+
+**Order is shuffled on every visit**, seeded so it is stable across the poll's re-renders within a
+visit and different next time. `SHUFFLED ↻` reseeds. A grid that reorders under the cursor every
+three seconds would be unusable, so the seed is load-bearing, not decorative.
+
+**Empty is a positive state.** "Your collection is empty" with a way to add the first record — never
+an empty container, and never a blank wall when a search matches nothing.
+
+The header's count is now **progress across the whole collection** ("18 of 40 ready"), not a
+needs-you tally. It answers "how far am I?" rather than "how much is nagging me?", which is the
+question a wall of records raises.
+
+## 8.5 System — the page you open when something is wrong
+
+Added 2026-08-01 at `/system`. Every runtime service already had a status endpoint; what was missing
+is that **the failures worth catching are disagreements between hosts**, and answering one meant
+curling four services and diffing the results by hand.
+
+> **Rewritten 2026-08-06** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).
+> The **album matrix is deleted.** It answered "is everything fine?" by making you read every album
+> against every host and compare ticks — work that grows with the collection to answer a question that
+> is usually "yes". The page now shows **the exceptions**: it is as long as the number of things
+> actually wrong, and says "Every record is everywhere it should be." when that number is zero. The
+> four facts below are unchanged — they are now a predicate rather than four columns.
+
+The four facts about each album, and what each one being false means:
+
+| Fact                | Answers                                                                                                                     |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | Video attached      | Curator has a visualizer — without one there is nothing downstream to hold                                                  |
 | On Conductor        | The asset was pushed, so a scan can drive the lights ([ADR 0045](../adrs/0045-curator-pushes-album-assets-to-conductor.md)) |
 | In Backdrop library | Backdrop can resolve the scan URI to a file path                                                                            |
 | Video on Backdrop   | …and the bytes are actually there ([ADR 0038](../adrs/0038-curator-pushes-media-over-http.md))                              |
 
-The last two are deliberately separate columns. The entry and the bytes travel on different legs, so
-"listed but unplayable" is a real state — and it is exactly how an album sat in the library with no
-mp4 for a day, looking healthy from every angle.
+The last two stay separate. The entry and the bytes travel on different legs, so "listed but
+unplayable" is a real state — and it is exactly how an album sat in the library with no mp4 for a day,
+looking healthy from every angle.
 
-Also on the page: service reachability, what is playing (video / lights / audio), **the stand**, jobs
-in flight, and one **Sync everything** button. Read-only apart from that button — this is the page
-you open when something is wrong, so it must never be the reason something is wrong.
+**An album is an exception when it is missing from somewhere it belongs**, which depends on whether it
+has a visualizer at all: no video means Conductor is the only host that should hold it, so the
+Backdrop facts are not failures — a mid-workflow record must not read as broken. Each exception says
+which host in words (`NOT ON CONDUCTOR`, `NOT IN BACKDROP'S LIBRARY`, `NO VISUALIZER ON BACKDROP`) and
+links to the record.
+
+Each service is named with **what it is for**, not just its port — Conductor is "the lights", Backdrop
+"the screen", Stylus "the stand", Amp "the sound". Two failures are kept apart in words as well as
+style: **not set up** (never configured — Amp normally) is not **not answering** (configured and
+unreachable, which is a fault).
+
+Also on the page: what is playing (screen / lights / sound / **the stand**), jobs in flight with a
+count as well as a bar, and one **Sync everything** button. Read-only apart from that button — this is
+the page you open when something is wrong, so it must never be the reason something is wrong.
+
+This is **the one place a raw error code belongs.** `connect ECONNREFUSED` is the actionable text for
+a service that won't answer; paraphrasing it takes away the string you paste into a search. It comes
+with **Retry** and **Copy error**. Everywhere else in the app, an error is a sentence.
 
 **The stand** is the section that pays for itself during bring-up. It reports Stylus's _reader_ view,
 not its state machine (stylus-spec §8), which distinguishes three things that used to be one blank:
@@ -345,16 +691,144 @@ something unactionable. The last refusal is kept after the sleeve is lifted.
 
 Two rules this page must not break:
 
-- **Never colour alone (§3.4).** Every matrix cell is a glyph plus screen-reader text naming what it
-  means _for that column_ — "no" is not equally bad everywhere; no video attached is mid-workflow,
-  missing from Conductor is broken. Each album also carries a **word**, Ready or Incomplete.
+- **Never colour alone (§3.4).** A service's dot is the glance; the line under its name is what says
+  which state it is in. An exception names the missing host in words. A job's bar is always paired
+  with its count. (Under the matrix this rule was carried by a glyph plus screen-reader text in every
+  cell, for the same reason: "no" is not equally bad everywhere.)
 - **State the limits rather than implying completeness.** Conductor's playback view covers only CLIP
   playback and carries no `curatorId`, so an album on a streaming pattern reports nothing. The page
   says so in place instead of showing a confident blank.
 
+## 8.6 The ready toast
+
+Built 2026-08-06. What the "record finished" screen became.
+
+A screen is a stop: you have just signed a record off and the next one is what you want, so being
+made to acknowledge the last one is friction dressed as celebration. This is a corner of the
+collection — `#F7F4EE`, ink border, **the one shadow in the design**, because it is the only element
+that floats above the paper rather than being printed on it.
+
+"<Title> is ready", then "Lights, visualizer, card and tags — all done. Tap to watch it." **The whole
+toast is one button**, and tapping it opens the room for that record — the only reason to look back
+at a record you have just finished is to watch it. That also cancels its timer, so it cannot fade out
+from under the screen it just opened. Otherwise it goes after ~5s on its own and **never blocks
+moving to the next record**.
+
+It is fired by the room and outlives the navigation back, so it lives in a module store rather than a
+component, and it is **mounted in the shell** rather than on the collection — which means it floats
+over whatever screen you are on when its five seconds run out. That is the point: signing off and
+immediately opening the next record must not cut it short, and it must not be something you have to
+come back to the collection to see. A record it cannot name is not shown at all — "Untitled is ready"
+is worse than the quiet it replaced.
+
+## 8.7 Add a record
+
+Built 2026-08-06 at `/add`, replacing the old add-album screen.
+
+The behaviour that changed: **adding does not take you anywhere.** The old screen navigated to the
+record you had just added, which is exactly wrong for the actual task — you came here because you have
+a stack of sleeves, not one. The search box keeps its query, added results are marked `ADDED` and
+cannot be added twice, and a running "added just now:" line accumulates what has landed with a link to
+each. Leaving is a deliberate act.
+
+Three ways in, as tabs: **SEARCH** (Spotify, debounced as you type, results four up with artist and
+year), **TYPE IT IN** (title, artist, and a sleeve — the sleeve is required, and the screen says why:
+it is where the lights come from), and **SYNC DISCOGS ›**, which is a link out, not a tab. Discogs is
+a standing collection with its own screen ([ADR 0051](../adrs/0051-the-discogs-collection-is-swept-not-clicked.md)),
+not a way to pick one record.
+
+Pasting a Spotify link is **removed**. It existed because search was unreliable before the client was
+fixed; it asked the user to know what a URI is, and every link it accepted, search also finds.
+
+## 8.8 Discogs
+
+Built 2026-08-06 at `/discogs`. The sweep ([ADR 0051](../adrs/0051-the-discogs-collection-is-swept-not-clicked.md))
+already writes every release into the library on a timer, so this screen is **not a picker** — there is
+no browse-and-approve list, because nothing is waiting for approval.
+
+It answers three questions instead:
+
+1. **Are the two collections the same size?** A stat band: in Discogs, in Curator, came in today, and
+   last synced. Only the first needs an upstream call — one row is enough, since the response carries
+   the total. Discogs refusing to answer shows an em dash and says so; `0` would read as an empty
+   collection, which is a different and much more alarming fact. The unmatched count is **not** in the
+   band: it is the only number here you are meant to act on, and it lives on the section that lets you
+   act, rather than being read twice.
+2. **What arrived today?** The records added on the local calendar day, newest first, labelled with the
+   same words the collection uses (§8) — not a second vocabulary for the same states.
+3. **What did Roadie fail to finish?** The only real to-do here, and the reason the screen exists.
+   They **never leave this list on their own**, so each offers `SEARCH BY HAND` (which opens §8.7 with
+   the title already in the box) and `SKIP`, which hides the row for this session without pretending
+   it is resolved.
+
+   The design labels this **"couldn't match to Spotify"**, and it is not built that way, because that
+   is not a state a Discogs record can reach: its metadata comes from Discogs, and the Spotify step is
+   a best-effort _cover art_ lookup that never fails the add (roadie-spec §5.2). Keying the section
+   off `album_not_on_spotify` would have made it empty forever. What actually strands one of these is
+   the release fetch — `release_not_on_discogs`, `invalid_discogs_release` — or an ordinary pipeline
+   failure, so the section reads **ROADIE COULDN'T FINISH THESE** and each row carries its own reason
+   in words.
+
+The page also says when the sync last ran and whether it runs itself, offers `SYNC NOW`, and names the
+two behaviours that would otherwise surprise you: multiple pressings of one record collapse to one
+entry, and removing something from Discogs does not remove it from Curator.
+
+## 8.9 Settings
+
+Built 2026-08-06 at `/settings`. Two columns: **the room and the services** and then **accounts** on
+the left, **what Roadie may do on its own** on the right — what the room is and what it is plugged
+into reads as one thing, and the permissions are the only part of the screen that is a decision.
+
+Three things this screen is deliberate about:
+
+- **Service addresses are shown, not edited.** They are resolved once at startup from `config.toml` or
+  the environment, and `settings.json` sits _below_ `config.toml` in that chain — so a text field here
+  could be silently overridden by a file the user can't see from this screen. Showing the value and
+  saying where it comes from beats a box that appears to work.
+- **Credentials live behind `CHANGE`.** The steady state of this screen is "everything is connected",
+  and a wall of half-filled secret fields makes a working system look broken. A secret is never sent
+  back to the client, so the field says it has to be typed again rather than showing a masked
+  placeholder that implies it could be left alone. Spotify and Discogs each keep **both** ways in —
+  the credentials form, and the OAuth login beneath it when consumer creds are configured
+  ([ADR 0014](../adrs/0014-spotify-user-oauth-pkce.md),
+  [ADR 0017](../adrs/0017-discogs-personal-token-and-direct-images.md)). An account is **connected
+  when either** is good: app-level credentials work with no user session, so a signed-out session must
+  not report a working account as broken.
+- **Permissions, not feature flags.** The three checkboxes are things Roadie may do on its own —
+  draw card art, make the visualizers, follow the Discogs collection — and each names its cost, since
+  that is the actual decision. The Discogs sweep's **interval is not editable here**: "how many
+  minutes" is a worse question to put in this column than "may it at all", and the answer is nearly
+  always the default. It remains a real setting on `PUT /api/settings/discogs`, and the permission's
+  note is generated from the configured value rather than asserting "once a day". "Suggest a second palette" is **not** among them: the palette is
+  extracted locally and free, and a flag putting a paid call in Roadie's pipeline is what
+  [ADR 0027](../adrs/0027-generation-is-invoked-not-pipelined.md) rules out and what lets a
+  whole-collection sync stay free ([ADR 0051](../adrs/0051-the-discogs-collection-is-swept-not-clicked.md)). The
+  screen says so in a note rather than offering a checkbox that would have to lie.
+
+The room picker lists Conductor's rooms; when Conductor isn't answering it says that, rather than
+rendering an empty picker that reads as "you have no rooms".
+
 ## 9. Desktop affordances
 
-### 9.1 Keyboard
+### 9.1 Keyboard — withdrawn
+
+> **Withdrawn 2026-08-04** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).
+> **Every binding in the table below is removed**, along with the command palette
+> ([ADR 0043](../adrs/0043-command-palette-carries-commands.md)) and the declared per-workstation
+> primary action ([ADR 0044](../adrs/0044-workstations-declare-their-primary-action.md)). `⌘K`,
+> `j`/`k`, `1`–`5`, `⌘⏎`, `n`, `⌘,` and `/` do nothing.
+>
+> The premise below — "the success criterion is working through ten albums in one session" — is what
+> changed. The user asked to optimise for **clarity** instead: an accelerator layer earns its cost
+> when the screen underneath is dense and ordered, and the collection is neither. `[`/`]` become the
+> record sidebar's `↑ PREV` / `NEXT ↓` buttons, which are the same affordance without a hidden key.
+>
+> **Keyboard _reachability_ is not withdrawn** — every control remains focusable and operable, with a
+> visible ring (§3.5). That is an accessibility floor, not an accelerator. Do not reinstate any of
+> these bindings without asking; they were removed deliberately, not lost.
+>
+> The rest of this section is kept for the two bugs it records (#119 and #225), which are about React
+> painting before it flushes effects and will bite again in a different shape.
 
 The success criterion is working through ten albums in one session. Ten albums × mousing to every
 control is what turns a session into a chore.
@@ -378,6 +852,9 @@ control is what turns a session into a chore.
 > built 2026-07-31 ([issue #95](https://github.com/dylanleatham/Marquee/issues/95)), each of which
 > needed a surface rather than a handler — see below. **The table is now complete: every binding
 > specified here is implemented.**
+>
+> **Superseded 2026-08-04:** every row above now reads `removed`. See the withdrawal note at the top
+> of §9.1.
 
 `[` / `]` implement the onboarding workflow's "next album at this state is a first-class affordance"
 (§12 there). The neighbours come from the **server**, sharing the queue's own bucketing
@@ -402,7 +879,12 @@ intermittently does nothing is worse than one that doesn't exist, because the us
 they have. The decision itself lives in `ui/src/queueKeys.ts` as a pure function of the live rows, so
 the clamping rules are checkable without racing a render.
 
-#### The command palette (`Ctrl/⌘ K`)
+#### The command palette (`Ctrl/⌘ K`) — removed
+
+> **Removed 2026-08-04** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).
+> `CommandPalette.tsx`, `commandPalette.ts` and the header's **Jump…** button are deleted. Nothing
+> below is live. Kept because the one durable finding is worth keeping: a shortcut needs a _surface_,
+> not just a handler.
 
 Ranks **albums and commands in one list, albums first**
 ([ADR 0043](../adrs/0043-command-palette-carries-commands.md)). An empty input lists the commands
@@ -417,7 +899,11 @@ a failed fetch still leaves the commands working and says why the albums are mis
 
 The palette has a mouse path — the header's **Jump…** button — but no app-menu item (§9.2).
 
-#### The primary action (`Ctrl/⌘ Enter`)
+#### The primary action (`Ctrl/⌘ Enter`) — removed
+
+> **Removed 2026-08-04** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).
+> The binding is gone. `primaryAction.tsx` and the bench header's label go with the rail when the
+> record page lands; until then they are still running and still correct about what they say.
 
 Each workstation **declares its own** primary action into a slot the detail page owns
 ([ADR 0044](../adrs/0044-workstations-declare-their-primary-action.md)); the answer depends on state
@@ -459,6 +945,13 @@ fullscreen), Help (docs) — makes the shortcuts discoverable and the OS integra
 > **The command palette is not in the menu either (2026-07-31).** Loading a route is exactly what it
 > must not do: the palette is an overlay over wherever you already are, and a menu item would have to
 > reload the window to open it. Its discoverable half is the header's **Jump…** button instead.
+>
+> **Amended 2026-08-04** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)):
+> the palette is gone, so that last paragraph is moot. Three live corrections to the menu itself —
+> **View › Queue is now View › Collection**, **File › Add album is now File › Add a record…** (§8.7),
+> and the **room-arm switch moved from the status bar to the room's own top bar** (the status bar was
+> removed with the queue), so the reason it stays out of the menu is unchanged but the place it lives
+> is not.
 
 ### 9.3 Window
 

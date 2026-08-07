@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Architects+Daughter&family=Kalam:wght@400;700&display=swap" rel="stylesheet"><style>body{margin:0;background:#f0eee9;font-family:'Architects Daughter',system-ui,sans-serif}a{color:#c26a10}a:hover{color:#9c520a}*{box-sizing:border-box}.plate{display:flex;gap:22px;align-items:flex-start;padding:28px 44px;border-bottom:1px solid rgba(0,0,0,.09);scroll-margin-top:12px}.sid{font:600 11px ui-monospace,Menlo,monospace;padding:4px 8px;background:#1a1a1a;color:#fff;border-radius:5px;text-decoration:none;flex:none}.plate:target .sid{background:#c26a10}.card{background:#fff;border:1.5px solid #1a1a1a;border-radius:16px 10px 18px 9px/10px 18px 9px 16px;overflow:hidden;flex:none}.notes{width:290px;flex:none;display:flex;flex-direction:column;gap:12px;padding-top:2px}.ntitle{font:700 17px/1.25 Kalam,system-ui,sans-serif;color:#1a1a1a}.nbody{font:400 13.5px/1.6 'Architects Daughter',system-ui,sans-serif;color:#4a453e}.flag{font:400 13px/1.55 'Architects Daughter',system-ui,sans-serif;color:#8a4a0a;background:#fdf3e6;border-left:3px solid #c26a10;padding:8px 10px;border-radius:0 6px 6px 0}.flag b{color:#7a3c05}.done{font:400 13px/1.55 'Architects Daughter',system-ui,sans-serif;color:#2f5d3a;background:#eef5ef;border-left:3px solid #3f7d4e;padding:8px 10px;border-radius:0 6px 6px 0}.done b{color:#27512f}.hdr{display:flex;align-items:center;gap:11px;padding:11px 15px;border-bottom:1.5px solid #1a1a1a;font-size:13px}.logo{width:74px;height:26px;border:1.5px dashed #1a1a1a;border-radius:4px;display:grid;place-items:center;font-size:9px;color:#8a8378;flex:none}.wm{font:700 15px Kalam,sans-serif;letter-spacing:.02em}.tab{padding:5px 11px;border:1.5px solid #1a1a1a;border-radius:999px;font-size:12px}.tabon{background:#1a1a1a;color:#fff}.art{background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);border:1.5px solid #1a1a1a;border-radius:3px}.lit{box-shadow:0 0 0 3px #e0a24a}.dim{opacity:.5}.mono{font-family:ui-monospace,Menlo,monospace}.foot{padding:8px 15px;border-top:1.5px solid #1a1a1a;font-size:12px;color:#6a655c;background:#faf8f4;display:flex;align-items:center;gap:9px}.needs{font-family:ui-monospace,Menlo,monospace;font-size:9.5px;color:#c26a10}.ready{font-family:ui-monospace,Menlo,monospace;font-size:9.5px;color:#8a8378}</style></helmet>
+
+<div style="padding:40px 44px 8px;max-width:1080px">
+<div style="font:700 12px/1 Kalam,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#c26a10">Walkthrough · round 2</div>
+<h1 style="margin:8px 0 10px;font:700 30px/1.2 Kalam,system-ui,sans-serif;color:#1a1a1a">Every screen, one at a time</h1>
+<p style="margin:0;font:400 15px/1.65 'Architects Daughter',system-ui,sans-serif;color:#4a453e;max-width:66ch;text-wrap:pretty">Your round-one notes are applied. Green marks mean <b style="color:#27512f">changed as you asked</b>; amber <b style="color:#8a4a0a">⚑</b> is a new open question your feedback raised. Sixteen plates now — Discogs got its own.</p>
+<div style="margin:18px 0 0;padding:14px 16px;background:#fff;border:1.5px solid #1a1a1a;border-radius:12px 8px 14px 9px/8px 14px 9px 12px;max-width:760px">
+<div style="font:700 14px/1.3 Kalam,sans-serif;margin-bottom:8px">The vocabulary, settled</div>
+<div style="font:400 13.5px/1.75 'Architects Daughter',system-ui,sans-serif;color:#4a453e">
+Collection, not wall · <b>Not complete</b> / <b>Ready</b> for the two big buckets · per record: <b>Needs Lights</b>, <b>Needs Visualizer</b>, <b>Needs Card</b>, <b>Needs Sign-off</b>, <b>Tags verified</b> · Lights not Colours · Visualizer not moving picture · "still <b>needs</b>", never "wants"
+</div>
+</div>
+<p style="margin:16px 0 0;font:400 13.5px/1.6 'Architects Daughter',system-ui,sans-serif;color:#6a655c">S01 first run · S02–04 the collection · S05–09 a record · S10–11 the room · S12 add · S12b Discogs · S13 log · S14 system · S15 settings</p>
+</div>
+
+<!-- ================= S01 ================= -->
+<div class="plate" id="s01" data-screen-label="S01 First run">
+<a class="sid" href="#s01">S01</a>
+<div class="card" style="width:620px">
+  <div class="hdr"><div class="logo">LOGO</div><span class="wm">CURATOR</span><span style="margin-left:auto;color:#8a8378;font-size:12px">setup</span></div>
+  <div style="padding:34px 40px;background:#f4f2ee">
+    <div style="text-align:center;margin-bottom:26px">
+      <div style="font:700 24px/1.3 Kalam,sans-serif;margin-bottom:9px">Your collection is empty</div>
+      <p style="margin:0 auto;font-size:14px;color:#4a453e;max-width:46ch;line-height:1.6">Three things to set up, then add your first record. Roadie will find the sleeve and pull the lights out of it.</p>
+    </div>
+    <div style="max-width:420px;margin:0 auto;display:flex;flex-direction:column;gap:0;border:1.5px solid #1a1a1a;border-radius:10px;overflow:hidden;background:#fff">
+      <div style="display:flex;align-items:center;gap:11px;padding:12px 14px;border-bottom:1.5px solid #1a1a1a"><span style="width:19px;height:19px;flex:none;border:1.5px solid #1a1a1a;border-radius:50%;background:#1a1a1a;color:#fff;display:grid;place-items:center;font-size:11px">✓</span><div style="flex:1"><b style="font-size:13px">Connect Spotify</b><div style="font-size:11.5px;color:#6a655c">so Roadie can look records up</div></div><span style="font-size:11.5px;color:#3f7d4e">done</span></div>
+      <div style="display:flex;align-items:center;gap:11px;padding:12px 14px;border-bottom:1.5px solid #1a1a1a"><span style="width:19px;height:19px;flex:none;border:1.5px solid #1a1a1a;border-radius:50%;background:#1a1a1a;color:#fff;display:grid;place-items:center;font-size:11px">✓</span><div style="flex:1"><b style="font-size:13px">Connect Gemini</b><div style="font-size:11.5px;color:#6a655c">for card art and visualizer prompts</div></div><span style="font-size:11.5px;color:#3f7d4e">done</span></div>
+      <div style="display:flex;align-items:center;gap:11px;padding:12px 14px"><span style="width:19px;height:19px;flex:none;border:1.5px solid #b3ab99;border-radius:50%;color:#8a8378;display:grid;place-items:center;font-size:11px">3</span><div style="flex:1"><b style="font-size:13px">Point Curator at your room</b><div style="font-size:11.5px;color:#6a655c">Conductor, Backdrop, Stylus and the Amp — can wait</div></div><span class="tab" style="font-size:11.5px;padding:4px 11px">set up</span></div>
+    </div>
+    <div style="text-align:center;margin-top:22px"><span class="tab tabon" style="padding:7px 18px;font-size:13px">Add your first record</span><div style="font-size:11.5px;color:#8a8378;margin-top:8px">the room can be pointed at later — you just can't play anything until it is</div></div>
+  </div>
+</div>
+<div class="notes">
+  <div class="ntitle">First run</div>
+  <div class="done">✓ <b>"Your collection is empty"</b> — wall is gone from the whole document.</div>
+  <div class="done">✓ Setup is a <b>checklist</b>, but the room step <b>doesn't block</b> — you can add records straight away and point at the room later.</div>
+</div>
+</div>
+
+<!-- ================= S02 ================= -->
+<div class="plate" id="s02" data-screen-label="S02 The collection">
+<a class="sid" href="#s02">S02</a>
+<div class="card" style="width:620px">
+  <div class="hdr"><div class="logo">LOGO</div><span class="wm">CURATOR</span>
+    <span class="tab tabon">Collection</span><span class="tab">Add</span><span class="tab">System</span>
+    <span style="margin-left:auto;font-size:12px">18 of 40 ready</span>
+  </div>
+  <div style="display:flex;border-bottom:1.5px solid #1a1a1a;background:#faf8f4;font-size:12px">
+    <div style="flex:1;padding:9px 14px;border-right:1px dashed rgba(0,0,0,.25)"><div style="color:#c26a10">NOT COMPLETE</div><div style="font:700 26px/1 Kalam,sans-serif;margin-top:3px;color:#c26a10">7</div></div>
+    <div style="flex:1;padding:9px 14px;border-right:1px dashed rgba(0,0,0,.25)"><div style="color:#8a8378">READY</div><div style="font:700 26px/1 Kalam,sans-serif;margin-top:3px">18</div></div>
+    <div style="flex:1;padding:9px 14px;border-right:1px dashed rgba(0,0,0,.25)"><div style="color:#8a8378">NOT STARTED</div><div style="font:700 26px/1 Kalam,sans-serif;margin-top:3px">15</div></div>
+    <div style="flex:1.6;padding:9px 14px;background:#fdf3e6">
+      <div style="display:flex;align-items:baseline;gap:6px"><span style="color:#c26a10">BY DECADE</span><span style="margin-left:auto;font-size:10px;color:#8a4a0a">↻ 1 of 5</span></div>
+      <div style="display:flex;gap:3px;align-items:flex-end;height:26px;margin-top:5px">
+        <span style="flex:1;height:22%;background:#1a1a1a"></span><span style="flex:1;height:100%;background:#c26a10"></span><span style="flex:1;height:48%;background:#1a1a1a"></span><span style="flex:1;height:36%;background:#1a1a1a"></span><span style="flex:1;height:60%;background:#1a1a1a"></span><span style="flex:1;height:14%;background:#1a1a1a"></span>
+      </div>
+      <div style="font-size:10.5px;color:#8a4a0a;margin-top:3px">60s · <b>70s</b> · 80s · 90s · 00s · 10s</div>
+    </div>
+  </div>
+  <div style="display:flex;gap:7px;padding:9px 15px;border-bottom:1px dashed rgba(0,0,0,.25);font-size:12px;align-items:center">
+    <span class="tab tabon">Everything</span><span class="tab">Not complete · 7</span><span class="tab">Ready · 18</span>
+    <span style="margin-left:auto;color:#8a8378">search ⌕</span><span style="color:#8a8378">shuffled ↻</span><span style="color:#8a8378">size ▁▃▅</span>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;padding:14px 15px">
+    <div><div class="art dim" style="aspect-ratio:1"></div><div style="font-size:11px;margin-top:5px;color:#6a655c">Voodoo</div><div class="needs">NEEDS SIGN-OFF</div></div>
+    <div><div class="art lit" style="aspect-ratio:1"></div><div style="font-size:11px;margin-top:5px">Blue</div><div class="ready">READY</div></div>
+    <div><div class="art dim" style="aspect-ratio:1"></div><div style="font-size:11px;margin-top:5px;color:#6a655c">The Idler Wheel</div><div class="needs">NEEDS LIGHTS</div></div>
+    <div><div class="art" style="aspect-ratio:1;border-color:#c26a10;border-width:2.5px"></div><div style="font-size:11px;margin-top:5px">Kind of Blue</div><div class="needs">ROADIE IS ON IT</div></div>
+    <div><div class="art lit" style="aspect-ratio:1"></div><div style="font-size:11px;margin-top:5px">Remain in Light</div><div class="ready">READY</div></div>
+    <div><div class="art dim" style="aspect-ratio:1"></div><div style="font-size:11px;margin-top:5px;color:#6a655c">Aja</div><div class="needs">NEEDS VISUALIZER</div></div>
+    <div><div class="art lit" style="aspect-ratio:1"></div><div style="font-size:11px;margin-top:5px">Rumours</div><div class="ready">READY</div></div>
+    <div><div class="art dim" style="aspect-ratio:1"></div><div style="font-size:11px;margin-top:5px;color:#6a655c">In Rainbows</div><div class="needs">NEEDS CARD</div></div>
+    <div><div class="art dim" style="aspect-ratio:1"></div><div style="font-size:11px;margin-top:5px;color:#6a655c">Purple Rain</div><div class="needs">NEEDS LIGHTS</div></div>
+    <div><div style="aspect-ratio:1;border:1.5px dashed #1a1a1a;border-radius:3px;display:grid;place-items:center;font-size:22px;color:#8a8378">+</div><div style="font-size:11px;margin-top:5px;color:#8a8378">Add a record</div></div>
+  </div>
+  <div class="foot"><span style="color:#c26a10">✦</span><span class="mono" style="font-size:11px">19:04</span><span>Pulled the lights from <b>Kind of Blue</b></span><span style="margin-left:auto">the whole log ›</span></div>
+  <div style="padding:11px 15px;border-top:1px dashed rgba(0,0,0,.25);background:#fff">
+    <div style="font-size:10.5px;letter-spacing:.1em;color:#8a8378;margin-bottom:8px">THE ROTATION — ONE OF THESE FIVE, EACH VISIT</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;font-size:11px">
+      <span class="tab" style="font-size:11px;padding:3px 10px;background:#1a1a1a;color:#fff;border-color:#1a1a1a">By decade</span>
+      <span class="tab" style="font-size:11px;padding:3px 10px">Genre breakdown</span>
+      <span class="tab" style="font-size:11px;padding:3px 10px">Top artist</span>
+      <span class="tab" style="font-size:11px;padding:3px 10px">Top label</span>
+      <span class="tab" style="font-size:11px;padding:3px 10px">Oldest and newest</span>
+    </div>
+  </div>
+</div>
+<div class="notes">
+  <div class="ntitle">The collection — home</div>
+  <div class="done">✓ <b>Not complete</b> / <b>Ready</b> replace "wants you" / "fully lit" everywhere.</div>
+  <div class="done">✓ Per-record labels are the specific need: <b>Needs Lights / Visualizer / Card / Sign-off</b>. The 5-step score is gone.</div>
+  <div class="done">✓ Order is <b>shuffled on every visit</b> — the chip shows it, and clicking reshuffles.</div>
+  <div class="done">✓ Stat is one of <b>five, rotating</b> — pool drawn below the grid.</div>
+  <div class="done">✓ A record shows only its <b>first outstanding need</b>, never a count.</div>
+</div>
+</div>
+
+<!-- ================= S03 ================= -->
+<div class="plate" id="s03" data-screen-label="S03 Not complete">
+<a class="sid" href="#s03">S03</a>
+<div class="card" style="width:620px">
+  <div style="display:flex;gap:7px;padding:9px 15px;border-bottom:1px dashed rgba(0,0,0,.25);font-size:12px;align-items:center">
+    <span class="tab">Everything</span><span class="tab tabon">Not complete · 7</span><span class="tab">Ready · 18</span>
+    <span style="margin-left:auto;color:#8a8378">grouped by what's missing ▾</span>
+  </div>
+  <div style="padding:12px 15px">
+    <div style="font-size:11px;letter-spacing:.1em;color:#c26a10;border-bottom:1px solid #1a1a1a;padding-bottom:5px;margin-bottom:9px">NEEDS LIGHTS · 3</div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px">
+      <div><div class="art dim" style="aspect-ratio:1"></div><div style="font-size:11px;margin-top:5px">Purple Rain</div></div>
+      <div><div class="art dim" style="aspect-ratio:1"></div><div style="font-size:11px;margin-top:5px">The Idler Wheel</div></div>
+      <div><div class="art dim" style="aspect-ratio:1"></div><div style="font-size:11px;margin-top:5px">Songs of L. Cohen</div></div>
+    </div>
+    <div style="font-size:11px;letter-spacing:.1em;color:#c26a10;border-bottom:1px solid #1a1a1a;padding-bottom:5px;margin-bottom:9px">NEEDS VISUALIZER · 1</div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px">
+      <div><div class="art dim" style="aspect-ratio:1"></div><div style="font-size:11px;margin-top:5px">Aja</div></div>
+    </div>
+    <div style="font-size:11px;letter-spacing:.1em;color:#c26a10;border-bottom:1px solid #1a1a1a;padding-bottom:5px;margin-bottom:9px">NEEDS SIGN-OFF · 1</div>
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:16px">
+      <div><div class="art dim" style="aspect-ratio:1"></div><div style="font-size:11px;margin-top:5px">Voodoo</div></div>
+    </div>
+    <div style="font-size:11px;letter-spacing:.1em;color:#c26a10;border-bottom:1px solid #1a1a1a;padding-bottom:5px;margin-bottom:9px">STUCK · 1</div>
+    <div style="display:flex;align-items:center;gap:11px;border:1.5px solid #c26a10;border-radius:8px;padding:9px 11px;background:#fdf3e6">
+      <div style="width:38px;height:38px;flex:none;border:1.5px solid #1a1a1a;border-radius:3px;display:grid;place-items:center;font-size:11px;color:#8a8378">?</div>
+      <div style="flex:1"><div style="font-size:13px;font-weight:700">Rachel's Greatest Hits</div><div style="font-size:12px;color:#8a4a0a">Roadie couldn't find this anywhere — try a different name, or type the details in yourself</div></div>
+      <span class="tab" style="font-size:12px">Fix it</span>
+    </div>
+  </div>
+</div>
+<div class="notes">
+  <div class="ntitle">The collection — not complete</div>
+  <div class="done">✓ Groups now use the <b>same four labels</b> as the cards. "Waiting on your eye / hands" is gone.</div>
+  <div class="done">✓ <b>Empty groups collapse out entirely</b> — Needs Card has nothing in it today, so it isn't drawn.</div>
+  <div class="nbody">Stuck keeps its own group and its plain sentence, since it isn't a missing asset — it's a failure.</div>
+</div>
+</div>
+
+<!-- ================= S04 ================= -->
+<div class="plate" id="s04" data-screen-label="S04 Roadie busy">
+<a class="sid" href="#s04">S04</a>
+<div class="card" style="width:620px">
+  <div style="padding:14px 15px">
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px">
+      <div><div class="art" style="aspect-ratio:1;border-color:#c26a10;border-width:2.5px;position:relative"><span style="position:absolute;left:4px;top:4px;font-size:10px;color:#c26a10">✦</span></div><div style="font-size:11px;margin-top:5px">Kind of Blue</div><div class="needs">FINDING THE SLEEVE…</div></div>
+      <div><div class="art" style="aspect-ratio:1;border-style:dashed;opacity:.6;display:grid;place-items:center"><span style="font-size:10px;color:#8a8378">no art yet</span></div><div style="font-size:11px;margin-top:5px;color:#6a655c">Bitches Brew</div><div class="ready">NEXT IN LINE</div></div>
+      <div><div class="art dim" style="aspect-ratio:1"></div><div style="font-size:11px;margin-top:5px;color:#6a655c">Aja</div><div class="needs">NEEDS VISUALIZER</div></div>
+      <div><div class="art lit" style="aspect-ratio:1"></div><div style="font-size:11px;margin-top:5px">Blue</div><div class="ready">READY</div></div>
+      <div><div class="art lit" style="aspect-ratio:1"></div><div style="font-size:11px;margin-top:5px">Rumours</div><div class="ready">READY</div></div>
+    </div>
+  </div>
+  <div class="foot"><span style="color:#c26a10">✦</span><span>Roadie is working on <b>Kind of Blue</b> — finding the sleeve</span><span class="tab" style="margin-left:auto;font-size:11px;padding:3px 10px">the whole log ›</span></div>
+</div>
+<div class="notes">
+  <div class="ntitle">Roadie working</div>
+  <div class="done">✓ <b>Pause is gone.</b></div>
+  <div class="done">✓ Album name in the strip, never the id or the state name.</div>
+  <div class="nbody">A record being processed stays in place and narrates itself. No separate processing section.</div>
+</div>
+</div>
+
+<!-- ================= S05 ================= -->
+<div class="plate" id="s05" data-screen-label="S05 Record — lights">
+<a class="sid" href="#s05">S05</a>
+<div class="card" style="width:620px">
+  <div style="display:flex">
+    <div style="width:190px;flex:none;border-right:1.5px solid #1a1a1a;padding:13px;display:flex;flex-direction:column;gap:8px;background:#faf8f4">
+      <div style="font-size:11px;color:#8a8378">← the collection</div>
+      <div class="art" style="aspect-ratio:1"></div>
+      <div style="display:flex;height:20px;border:1.5px solid #1a1a1a"><span style="flex:1;background:#4B0082"></span><span style="flex:1;background:#8A2BE2"></span><span style="flex:1;background:#FFD700"></span></div>
+      <div style="font:700 17px/1.15 Kalam,sans-serif">Purple Rain</div>
+      <div style="font-size:12px;color:#8a8378">Prince and The Revolution · 1984</div>
+      <div class="mono" style="font-size:10px;color:#c26a10">NEEDS LIGHTS</div>
+      <div style="border:1.5px solid #1a1a1a;background:#1a1a1a;color:#fff;text-align:center;padding:7px;font-size:12px;margin-top:4px">▶ see it in the room</div>
+      <div style="margin-top:auto;display:flex;gap:9px;font-size:11px;color:#8a8378;padding-top:10px;border-top:1px dashed rgba(0,0,0,.25)"><span>↑ prev</span><span>next ↓</span></div>
+    </div>
+    <div style="flex:1;min-width:0">
+      <div style="padding:12px 14px 0;border-bottom:1.5px solid #1a1a1a">
+        <div style="font-size:11px;letter-spacing:.1em;color:#8a8378">WHAT THIS RECORD STILL NEEDS</div>
+        <div style="display:flex;gap:14px;margin-top:10px;font-size:12.5px">
+          <span style="border-bottom:2.5px solid #c26a10;padding-bottom:7px">● Lights</span>
+          <span style="color:#8a8378;padding-bottom:7px">○ A visualizer</span>
+          <span style="color:#8a8378;padding-bottom:7px">○ A card</span>
+          <span style="color:#8a8378;padding-bottom:7px">○ Tags</span>
+        </div>
+      </div>
+      <div style="padding:14px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:11px;font-size:11px;color:#3f7d4e"><span style="width:6px;height:6px;border-radius:50%;background:#3f7d4e"></span>saved a moment ago — edits save as you make them</div>
+        <p style="margin:0 0 12px;font-size:13px;line-height:1.6;color:#4a453e">The sleeve is nearly monochrome, but the record is a purple-drenched arena show. Roadie thinks the stage lighting is the truer read — your call.</p>
+        <div style="display:flex;border:1.5px solid #1a1a1a;margin-bottom:14px">
+          <div style="flex:1;padding:10px;border-right:1.5px solid #1a1a1a;background:#f7f4ee">
+            <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;height:14px;font-size:10.5px;letter-spacing:.08em"><span style="white-space:nowrap">FROM THE SLEEVE</span><span style="color:#c26a10;white-space:nowrap;letter-spacing:0">· IN USE</span></div>
+            <div style="display:flex;height:34px;margin-top:8px;border:1.5px solid #1a1a1a"><span style="flex:1;background:#4B0082"></span><span style="flex:1;background:#8A2BE2"></span><span style="flex:1;background:#FFD700"></span></div>
+          </div>
+          <div style="flex:1;padding:10px;background:#f0ede6">
+            <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;height:14px;font-size:10.5px;letter-spacing:.08em;color:#8a8378"><span style="white-space:nowrap">FROM THE FEELING</span><span style="color:#c26a10;white-space:nowrap;letter-spacing:0">USE THIS</span></div>
+            <div style="display:flex;height:34px;margin-top:8px;border:1.5px solid #1a1a1a"><span style="flex:1;background:#2B0B3F"></span><span style="flex:1;background:#B23AEE"></span><span style="flex:1;background:#F7E7CE"></span></div>
+          </div>
+        </div>
+        <div style="font-size:11px;letter-spacing:.1em;color:#8a8378;margin-bottom:7px">THE LIGHTS, IN ORDER</div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid #d8d2c4;font-size:12px"><span style="width:22px;height:22px;border:1.5px solid #1a1a1a;background:#4B0082"></span><span class="mono">#4B0082</span><span style="color:#8a8378;font-size:11px">DOMINANT</span><span style="color:#8a8378;flex:1">the wall wash</span><span style="color:#8a8378">↑ ↓ ✕</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid #d8d2c4;font-size:12px"><span style="width:22px;height:22px;border:1.5px solid #1a1a1a;background:#8A2BE2"></span><span class="mono">#8A2BE2</span><span style="color:#8a8378;font-size:11px">SECOND</span><span style="color:#8a8378;flex:1">the far corner</span><span style="color:#8a8378">↑ ↓ ✕</span></div>
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid #d8d2c4;border-bottom:1px solid #d8d2c4;font-size:12px"><span style="width:22px;height:22px;border:1.5px solid #1a1a1a;background:#FFD700"></span><span class="mono">#FFD700</span><span style="color:#8a8378;font-size:11px">ACCENT</span><span style="color:#8a8378;flex:1">the glow behind the stand</span><span style="color:#8a8378">↑ ↓ ✕</span></div>
+        <div style="display:flex;gap:16px;margin-top:11px;font-size:11px;color:#8a8378"><span>+ ADD A LIGHT</span><span>BACK TO ROADIE'S ORIGINAL</span></div>
+        <div style="margin-top:9px;font-size:11px;color:#6a655c;line-height:1.5">Roadie's original extraction and the feeling palette are always here — nothing you do to this list destroys either.</div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="notes">
+  <div class="ntitle">A record — lights</div>
+  <div class="done">✓ <b>"What this record still needs"</b> — no more personification.</div>
+  <div class="done">✓ <b>Lights</b> not Colours, <b>A visualizer</b> not a moving picture. Fourth item is now just <b>Tags</b>.</div>
+  <div class="done">✓ Autosave, with a quiet "saved a moment ago" line — a real change to the app, noted as such.</div>
+  <div class="done">✓ Artwork override, source badge and tags all removed.</div>
+  <div class="done">✓ <b>Both source palettes are permanent.</b> "Start over" became "back to Roadie's original", and the feeling palette never disappears once it's been suggested.</div>
+</div>
+</div>
+
+<!-- ================= S06 ================= -->
+<div class="plate" id="s06" data-screen-label="S06 Record — visualizer">
+<a class="sid" href="#s06">S06</a>
+<div class="card" style="width:620px">
+  <div style="padding:12px 14px 0;border-bottom:1.5px solid #1a1a1a">
+    <div style="display:flex;gap:14px;font-size:12.5px">
+      <span style="color:#8a8378;padding-bottom:7px">● Lights</span>
+      <span style="border-bottom:2.5px solid #c26a10;padding-bottom:7px">○ A visualizer</span>
+      <span style="color:#8a8378;padding-bottom:7px">○ A card</span>
+      <span style="color:#8a8378;padding-bottom:7px">○ Tags</span>
+    </div>
+  </div>
+  <div style="padding:14px">
+    <div style="display:flex;gap:13px">
+      <div style="flex:1;min-width:0">
+        <div style="aspect-ratio:16/9;border:1.5px solid #1a1a1a;border-radius:5px;background:radial-gradient(120% 95% at 50% 30%,#8A2BE2 0,#4B0082 55%,#150024 100%);position:relative;display:grid;place-items:center">
+          <span style="font-size:11px;color:rgba(255,255,255,.75)">playing · loops seamlessly</span>
+          <span style="position:absolute;left:8px;bottom:7px;font-size:10px;color:rgba(255,255,255,.6)" class="mono">0:07 / 0:20</span>
+          <span style="position:absolute;right:8px;bottom:7px;font-size:10px;color:rgba(255,255,255,.6)" class="mono">1920×1080</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:9px;margin-top:9px;padding:7px 10px;border:1.5px solid #1a1a1a;border-radius:6px;background:#faf8f4;font-size:11.5px">
+          <span style="width:7px;height:7px;border-radius:50%;background:#c26a10;flex:none"></span>
+          <span style="flex:1">Uploading to Backdrop — 68%</span>
+          <div style="width:70px;height:5px;border:1.5px solid #1a1a1a;flex:none"><div style="width:68%;height:100%;background:#c26a10"></div></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:6px;font-size:11px;color:#3f7d4e"><span style="width:6px;height:6px;border-radius:50%;background:#3f7d4e;flex:none"></span>on Backdrop<span style="color:#8a8378">— once it finishes, it stays as this quiet line</span></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:6px;padding:6px 9px;border:1.5px solid #c26a10;border-radius:6px;background:#fdf3e6;font-size:11px;color:#8a4a0a"><span style="width:6px;height:6px;border-radius:50%;background:#c26a10;flex:none"></span>upload failed — Backdrop refused the connection<span class="tab" style="margin-left:auto;font-size:10.5px;padding:2px 9px;white-space:nowrap">retry</span></div>
+        <div style="display:flex;gap:14px;margin-top:9px;font-size:11px;color:#8a8378"><span>REPLACE</span><span>REMOVE</span><span>PICK A FILE</span></div>
+      </div>
+      <div style="width:220px;flex:none;border:1.5px solid #1a1a1a;border-radius:8px;background:#faf8f4;display:flex;flex-direction:column">
+        <div style="padding:10px 11px;border-bottom:1.5px solid #1a1a1a"><div style="font-size:10.5px;letter-spacing:.08em;color:#c26a10">ROADIE'S FOUR DRAFTS</div><div style="font-size:11px;color:#6a655c;margin-top:3px">copy one into your own tool</div></div>
+        <div style="display:flex;align-items:flex-start;gap:8px;padding:9px 11px;border-bottom:1px solid #e3ded3"><span class="mono" style="font-size:10px;color:#8a8378;flex:none;margin-top:2px">01</span><div style="flex:1;font-size:11px;line-height:1.45;color:#4a453e">Slow purple stage haze, one hard key light sweeping…</div><span class="tab" style="font-size:10px;padding:2px 7px;flex:none">copy</span></div>
+        <div style="display:flex;align-items:flex-start;gap:8px;padding:9px 11px;border-bottom:1px solid #e3ded3"><span class="mono" style="font-size:10px;color:#8a8378;flex:none;margin-top:2px">02</span><div style="flex:1;font-size:11px;line-height:1.45;color:#4a453e">Rain on a lit window, violet neon behind, static camera…</div><span class="tab" style="font-size:10px;padding:2px 7px;flex:none">copy</span></div>
+        <div style="display:flex;align-items:flex-start;gap:8px;padding:9px 11px;border-bottom:1px solid #e3ded3"><span class="mono" style="font-size:10px;color:#8a8378;flex:none;margin-top:2px">03</span><div style="flex:1;font-size:11px;line-height:1.45;color:#4a453e">Slow dolly through velvet curtains, gold rim light…</div><span class="tab" style="font-size:10px;padding:2px 7px;flex:none">copy</span></div>
+        <div style="display:flex;align-items:flex-start;gap:8px;padding:9px 11px;border-bottom:1.5px solid #1a1a1a"><span class="mono" style="font-size:10px;color:#8a8378;flex:none;margin-top:2px">04</span><div style="flex:1;font-size:11px;line-height:1.45;color:#4a453e">Film-grain smoke over a black stage, single amber shaft…</div><span class="tab" style="font-size:10px;padding:2px 7px;flex:none">copy</span></div>
+        <div style="padding:9px 11px;display:flex;flex-direction:column;gap:6px">
+          <div style="border:1.5px solid #1a1a1a;text-align:center;padding:5px;font-size:11px">Let Roadie make it</div>
+          <div style="font-size:10.5px;color:#8a4a0a;line-height:1.4">costs Veo credits — off unless you turn it on in settings</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="notes">
+  <div class="ntitle">A record — the visualizer</div>
+  <div class="done">✓ "Or paste a link" removed.</div>
+  <div class="done">✓ Attached clip <b>plays and loops right here</b>, with a <b>Backdrop upload strip</b> underneath.</div>
+  <div class="done">✓ <b>Four numbered prompt drafts</b>, each individually copyable.</div>
+  <div class="done">✓ Settles into a quiet <b>"on Backdrop"</b> line when done. Failure state and <b>retry live here as well as on System</b> — all three states stacked on this plate so you can see them together; only one shows at a time.</div>
+</div>
+</div>
+
+<!-- ================= S07 ================= -->
+<div class="plate" id="s07" data-screen-label="S07 Record — the card">
+<a class="sid" href="#s07">S07</a>
+<div class="card" style="width:620px">
+  <div style="padding:12px 14px 0;border-bottom:1.5px solid #1a1a1a">
+    <div style="display:flex;gap:14px;font-size:12.5px">
+      <span style="color:#8a8378;padding-bottom:7px">● Lights</span><span style="color:#8a8378;padding-bottom:7px">● A visualizer</span>
+      <span style="border-bottom:2.5px solid #c26a10;padding-bottom:7px">○ A card</span><span style="color:#8a8378;padding-bottom:7px">○ Tags</span>
+    </div>
+  </div>
+  <div style="padding:14px">
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:11px">
+      <div><div class="art" style="aspect-ratio:7/5;border-width:2.5px;border-color:#c26a10"></div><div style="display:flex;align-items:center;gap:8px;margin-top:6px"><span style="font-size:11px;color:#c26a10">in use</span><span class="tab" style="font-size:10.5px;padding:2px 9px;margin-left:auto">download</span></div></div>
+      <div><div class="art dim" style="aspect-ratio:7/5"></div><div style="font-size:11px;margin-top:6px;color:#8a8378">use this one instead</div></div>
+      <div><div class="art dim" style="aspect-ratio:7/5"></div><div style="font-size:11px;margin-top:6px;color:#8a8378">use this one instead</div></div>
+      <div><div class="art dim" style="aspect-ratio:7/5"></div><div style="font-size:11px;margin-top:6px;color:#8a8378">use this one instead</div></div>
+    </div>
+    <div style="display:flex;gap:16px;margin-top:13px;font-size:11px;color:#8a8378"><span>ASK FOR FIVE MORE</span><span>EDIT THE PROMPT</span><span>UPLOAD MY OWN</span></div>
+  </div>
+</div>
+<div class="notes">
+  <div class="ntitle">A record — the card</div>
+  <div class="done">✓ Landscape at <b>7:5</b>, two up so they're big enough to judge.</div>
+  <div class="done">✓ <b>"In use" / "use this one instead"</b> — keep is gone.</div>
+  <div class="done">✓ Explanatory sentence gone. Print sheet gone — just <b>download</b> on the one in use.</div>
+</div>
+</div>
+
+<!-- ================= S08 ================= -->
+<div class="plate" id="s08" data-screen-label="S08 Record — tags">
+<a class="sid" href="#s08">S08</a>
+<div class="card" style="width:620px">
+  <div style="padding:12px 14px 0;border-bottom:1.5px solid #1a1a1a">
+    <div style="display:flex;gap:14px;font-size:12.5px">
+      <span style="color:#8a8378;padding-bottom:7px">● Lights</span><span style="color:#8a8378;padding-bottom:7px">● A visualizer</span>
+      <span style="color:#8a8378;padding-bottom:7px">● A card</span><span style="border-bottom:2.5px solid #c26a10;padding-bottom:7px">○ Tags</span>
+    </div>
+  </div>
+  <div style="padding:14px">
+    <div style="display:flex;gap:12px">
+      <div style="flex:1;border:1.5px solid #1a1a1a;border-radius:8px;padding:11px;display:flex;gap:11px;align-items:center;background:#f7f4ee">
+        <div style="width:62px;height:62px;flex:none;background:#1a1a1a;background-image:repeating-linear-gradient(90deg,#fff 0 5px,#1a1a1a 5px 10px),repeating-linear-gradient(0deg,#fff 0 5px,#1a1a1a 5px 10px);background-blend-mode:multiply"></div>
+        <div><div style="font-size:10.5px;letter-spacing:.08em;color:#8a8378">THE SLEEVE</div><div class="mono" style="font-size:11px;color:#c26a10;margin-top:5px;word-break:break-all">curator:album:2k7bxq9m</div><div style="font-size:11px;color:#8a8378;margin-top:5px">not written yet</div></div>
+      </div>
+      <div style="flex:1;border:1.5px solid #1a1a1a;border-radius:8px;padding:11px;display:flex;gap:11px;align-items:center;background:#f0ede6">
+        <div style="width:62px;height:62px;flex:none;background:#1a1a1a;background-image:repeating-linear-gradient(90deg,#fff 0 4px,#1a1a1a 4px 8px),repeating-linear-gradient(0deg,#fff 0 4px,#1a1a1a 4px 8px);background-blend-mode:multiply"></div>
+        <div><div style="font-size:10.5px;letter-spacing:.08em;color:#8a8378">THE SHELF CARD</div><div class="mono" style="font-size:11px;color:#c26a10;margin-top:5px;word-break:break-all">curator:card:2k7bxq9m</div><div style="font-size:11px;color:#3f7d4e;margin-top:5px">✓ written</div></div>
+      </div>
+    </div>
+    <div style="display:flex;gap:16px;margin-top:13px;font-size:11px;color:#8a8378"><span>SEND THIS RECORD TO THE FLIPPER</span><span>DOWNLOAD .NFC</span><span>HOW DO I WRITE THESE?</span></div>
+    <div style="margin-top:14px;padding-top:12px;border-top:1px dashed rgba(0,0,0,.25)">
+      <div style="font-size:11px;letter-spacing:.1em;color:#8a8378;margin-bottom:9px">THEN CHECK THEM</div>
+      <div style="display:flex;align-items:center;gap:11px;border:1.5px solid #1a1a1a;border-radius:8px;padding:10px 12px;background:#faf8f4">
+        <div style="flex:1;font-size:12.5px;line-height:1.5">Tap each tag on your phone and confirm it opens the right record. <span style="color:#8a4a0a">This is where the bugs turn up.</span></div>
+        <span class="tab" style="font-size:12px;padding:6px 14px;white-space:nowrap">Tags verified</span>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="notes">
+  <div class="ntitle">A record — tags</div>
+  <div class="done">✓ Descriptive intro removed.</div>
+  <div class="done">✓ <b>Verification kept as its own step</b>, visually separated, since it catches real bugs.</div>
+  <div class="done">✓ <b>"Tags verified"</b> replaces "I've put it on the shelf".</div>
+  <div class="done">✓ Bulk send to Flipper gone — one record at a time.</div>
+  <div class="done">✓ <b>One button for both tags</b>, confirmed.</div>
+</div>
+</div>
+
+<!-- ================= S09 ================= -->
+<div class="plate" id="s09" data-screen-label="S09 Ready toast">
+<a class="sid" href="#s09">S09</a>
+<div class="card" style="width:620px">
+  <div style="position:relative;background:#f4f2ee;padding:14px 15px">
+    <div style="opacity:.4;pointer-events:none">
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px">
+        <div><div class="art lit" style="aspect-ratio:1"></div><div style="font-size:11px;margin-top:5px">Purple Rain</div><div class="ready">READY</div></div>
+        <div><div class="art lit" style="aspect-ratio:1"></div><div style="font-size:11px;margin-top:5px">Blue</div><div class="ready">READY</div></div>
+        <div><div class="art dim" style="aspect-ratio:1"></div><div style="font-size:11px;margin-top:5px;color:#6a655c">The Idler Wheel</div><div class="needs">NEEDS LIGHTS</div></div>
+        <div><div class="art dim" style="aspect-ratio:1"></div><div style="font-size:11px;margin-top:5px;color:#6a655c">Aja</div><div class="needs">NEEDS VISUALIZER</div></div>
+        <div><div class="art lit" style="aspect-ratio:1"></div><div style="font-size:11px;margin-top:5px">Rumours</div><div class="ready">READY</div></div>
+      </div>
+    </div>
+    <div style="position:absolute;right:20px;bottom:20px;display:flex;align-items:center;gap:12px;background:#fff;border:1.5px solid #1a1a1a;border-radius:10px;padding:11px 14px;box-shadow:0 8px 22px rgba(0,0,0,.16);max-width:330px">
+      <div class="art lit" style="width:44px;height:44px;flex:none"></div>
+      <div style="flex:1">
+        <div style="font:700 15px/1.2 Kalam,sans-serif">Purple Rain is ready</div>
+        <div style="font-size:11.5px;color:#6a655c;margin-top:3px">Lights, visualizer, card and tags — all done</div>
+      </div>
+      <span style="font-size:14px;color:#8a8378;flex:none">✕</span>
+    </div>
+  </div>
+  <div class="foot"><span>Tap the toast to jump into the room and watch it →</span><span style="margin-left:auto">fades on its own after a few seconds</span></div>
+</div>
+<div class="notes">
+  <div class="ntitle">Ready — a toast</div>
+  <div class="done">✓ No longer a screen. It's a <b>toast that appears on completion and fades</b>, over whatever you're already looking at — here, back on the collection.</div>
+  <div class="nbody">Dismissable early, and it doesn't interrupt you moving to the next record.</div>
+  <div class="done">✓ <b>The toast is clickable</b> — tapping it drops you into the room to watch what you just finished.</div>
+</div>
+</div>
+
+<!-- ================= S10 ================= -->
+<div class="plate" id="s10" data-screen-label="S10 The room — bench only">
+<a class="sid" href="#s10">S10</a>
+<div class="card" style="width:620px">
+  <div style="height:250px;position:relative;background:radial-gradient(120% 95% at 50% 22%,#8A2BE2 0,#4B0082 52%,#150024 100%);overflow:hidden">
+    <div style="position:absolute;left:16px;top:14px;display:flex;align-items:center;gap:10px;font-size:12px;color:#fff"><span style="border:1.5px solid rgba(255,255,255,.55);border-radius:999px;padding:3px 11px">← the record</span><b>Purple Rain</b></div>
+    <span style="position:absolute;right:16px;top:14px;border:1.5px solid rgba(255,255,255,.55);border-radius:999px;padding:3px 11px;font-size:12px;color:#fff">Bench only</span>
+    <div style="position:absolute;left:16%;right:16%;top:26%;height:38%;border:1.5px solid rgba(255,215,0,.75);background:repeating-linear-gradient(135deg,rgba(255,215,0,.2) 0 8px,transparent 8px 16px);display:grid;place-items:center"><span style="font-size:11px;color:#FFD700">the visualizer</span></div>
+    <div style="position:absolute;left:45%;width:10%;top:70%;height:16%;border:1.5px solid rgba(255,215,0,.75);background:repeating-linear-gradient(135deg,rgba(255,215,0,.3) 0 5px,transparent 5px 10px)"></div>
+  </div>
+  <div style="padding:12px 15px;display:flex;gap:20px;align-items:flex-start;border-top:1.5px solid #1a1a1a;background:#faf8f4">
+    <div style="width:190px;flex:none">
+      <div style="font-size:10.5px;letter-spacing:.1em;color:#8a8378;margin-bottom:9px">HOW THE LIGHTS MOVE <span style="color:#c26a10">· THIS RECORD</span></div>
+      <div style="display:flex;flex-direction:column;gap:9px;font-size:11.5px">
+        <div><div style="display:flex;justify-content:space-between"><span>Transition</span><span class="mono" style="color:#8a8378">12s</span></div><div style="height:5px;border:1.5px solid #1a1a1a;margin-top:4px"><div style="width:34%;height:100%;background:#1a1a1a"></div></div></div>
+        <div><div style="display:flex;justify-content:space-between"><span>Hold</span><span class="mono" style="color:#8a8378">45s</span></div><div style="height:5px;border:1.5px solid #1a1a1a;margin-top:4px"><div style="width:62%;height:100%;background:#1a1a1a"></div></div></div>
+        <div><div style="display:flex;justify-content:space-between"><span>Brightness</span><span class="mono" style="color:#8a8378">70%</span></div><div style="height:5px;border:1.5px solid #1a1a1a;margin-top:4px"><div style="width:70%;height:100%;background:#1a1a1a"></div></div></div>
+      </div>
+    </div>
+    <div style="flex:1">
+      <div style="font-size:10.5px;letter-spacing:.1em;color:#8a8378;margin-bottom:9px">LIGHT PATTERN</div>
+      <div style="display:flex;flex-direction:column;gap:5px;font-size:11px">
+        <span class="tab tabon" style="font-size:11px;padding:4px 10px;text-align:center">CROSSFADE</span>
+        <span class="tab" style="font-size:11px;padding:4px 10px;text-align:center">PULSE</span>
+        <span class="tab" style="font-size:11px;padding:4px 10px;text-align:center">HOLD STILL</span>
+      </div>
+      <div style="margin-top:9px;font-size:11px;color:#8a8378">♪ play the album</div>
+    </div>
+    <div style="width:180px;flex:none;text-align:right">
+      <div style="font-size:10.5px;letter-spacing:.1em;color:#8a8378;margin-bottom:9px">SIGN IT OFF</div>
+      <div class="tab tabon" style="font-size:13px;padding:8px 16px;font-weight:700">Looks right ✓</div>
+      <div style="font-size:11px;color:#8a8378;margin-top:6px;line-height:1.45">the lights are only signed off from in here</div>
+    </div>
+  </div>
+</div>
+<div class="notes">
+  <div class="ntitle">The room — bench only</div>
+  <div class="done">✓ <b>Colour faders removed.</b> The room now adjusts <b>movement only</b> — transition, hold, brightness — plus the light pattern. Colour editing stays on S05.</div>
+  <div class="done">✓ Sign-off stays here, and <b>Bench only</b> / <b>In the room</b> are the two state names.</div>
+  <div class="done">✓ Brightness stays. All three — transition, hold, brightness — are <b>per record</b>, saved with it.</div>
+</div>
+</div>
+
+<!-- ================= S11 ================= -->
+<div class="plate" id="s11" data-screen-label="S11 The room — in the room">
+<a class="sid" href="#s11">S11</a>
+<div class="card" style="width:620px">
+  <div style="padding:11px 15px;border-bottom:1.5px solid #1a1a1a;background:#fdf3e6;display:flex;align-items:center;gap:11px;font-size:12.5px">
+    <span style="width:9px;height:9px;border-radius:50%;background:#c26a10;flex:none"></span>
+    <b>In the room</b><span style="color:#8a4a0a">— the lights, the screen and the speakers in the living room are following this window</span>
+    <span class="tab" style="margin-left:auto;font-size:11px;padding:3px 10px">back to bench</span>
+  </div>
+  <div style="height:190px;position:relative;background:radial-gradient(120% 95% at 50% 22%,#8A2BE2 0,#4B0082 52%,#150024 100%)">
+    <div style="position:absolute;left:16%;right:16%;top:22%;height:40%;border:1.5px solid rgba(255,215,0,.75);background:repeating-linear-gradient(135deg,rgba(255,215,0,.2) 0 8px,transparent 8px 16px)"></div>
+    <span style="position:absolute;left:0;right:0;bottom:12px;text-align:center;font-size:11px;color:rgba(255,255,255,.6)">what the living room looks like right now</span>
+  </div>
+  <div style="padding:11px 15px;display:flex;gap:11px;align-items:center;font-size:12px;background:#faf8f4;border-top:1.5px solid #1a1a1a">
+    <span class="tab" style="font-size:12px">lift the sleeve</span><span class="tab" style="font-size:12px">place another</span>
+    <span style="margin-left:auto;color:#8a8378">room: living room ▾</span>
+  </div>
+</div>
+<div class="notes">
+  <div class="ntitle">The room — in the room</div>
+  <div class="done">✓ Toggle between bench and room, no confirm dialog.</div>
+  <div class="nbody">Same screen driving real hardware. Also covers what the Demo Room used to do.</div>
+</div>
+</div>
+
+<!-- ================= S12 ================= -->
+<div class="plate" id="s12" data-screen-label="S12 Add a record">
+<a class="sid" href="#s12">S12</a>
+<div class="card" style="width:620px">
+  <div style="padding:14px 15px;border-bottom:1.5px solid #1a1a1a;background:#faf8f4">
+    <div style="font:700 20px/1.15 Kalam,sans-serif">Add a record</div>
+  </div>
+  <div style="display:flex;gap:7px;padding:10px 15px;border-bottom:1px dashed rgba(0,0,0,.25);font-size:12px">
+    <span class="tab tabon">Search</span><span class="tab">Type it in</span><span class="tab">Sync Discogs ›</span>
+  </div>
+  <div style="padding:14px 15px">
+    <div style="border-bottom:2px solid #1a1a1a;padding-bottom:7px;font-size:17px">bitches brew</div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:11px;margin-top:14px">
+      <div><div class="art" style="aspect-ratio:1"></div><div style="font-size:11.5px;margin-top:5px">Bitches Brew</div><div style="font-size:10.5px;color:#8a8378">Miles Davis · 1970</div></div>
+      <div><div class="art dim" style="aspect-ratio:1"></div><div style="font-size:11.5px;margin-top:5px">Bitches Brew (Legacy)</div><div style="font-size:10.5px;color:#8a8378">Miles Davis · 2010</div></div>
+      <div><div class="art dim" style="aspect-ratio:1"></div><div style="font-size:11.5px;margin-top:5px">Live-Evil</div><div style="font-size:10.5px;color:#8a8378">Miles Davis · 1971</div></div>
+      <div><div class="art dim" style="aspect-ratio:1"></div><div style="font-size:11.5px;margin-top:5px">Jack Johnson</div><div style="font-size:10.5px;color:#8a8378">Miles Davis · 1971</div></div>
+    </div>
+    <div style="margin-top:13px;padding-top:11px;border-top:1px dashed rgba(0,0,0,.25);font-size:12px;color:#8a8378">added just now: <b style="color:#1a1a1a">Kind of Blue</b> · <b style="color:#1a1a1a">Sketches of Spain</b> — keep searching, they'll appear in your collection</div>
+  </div>
+</div>
+<div class="notes">
+  <div class="ntitle">Adding a record</div>
+  <div class="done">✓ "Find it and hand it to Roadie" removed.</div>
+  <div class="done">✓ <b>Paste a link removed.</b> Two tabs left; Discogs is now a link out to its own screen, not a tab.</div>
+  <div class="nbody">Still add-and-keep-going, with the running "added just now" list.</div>
+</div>
+</div>
+
+<!-- ================= S12b ================= -->
+<div class="plate" id="s12b" data-screen-label="S12b Discogs sync">
+<a class="sid" href="#s12b">S12b</a>
+<div class="card" style="width:620px">
+  <div style="padding:14px 15px;border-bottom:1.5px solid #1a1a1a;background:#faf8f4;display:flex;align-items:flex-end;gap:12px">
+    <div><div style="font:700 20px/1.15 Kalam,sans-serif">Your Discogs collection</div></div>
+    <span class="tab" style="margin-left:auto;font-size:12px">Sync now</span>
+  </div>
+  <div style="display:flex;border-bottom:1.5px solid #1a1a1a;font-size:12px;background:#fff">
+    <div style="flex:1;padding:11px 14px;border-right:1px dashed rgba(0,0,0,.25)"><div style="color:#8a8378;font-size:10.5px;letter-spacing:.08em">IN DISCOGS</div><div style="font:700 22px/1 Kalam,sans-serif;margin-top:4px">312</div></div>
+    <div style="flex:1;padding:11px 14px;border-right:1px dashed rgba(0,0,0,.25)"><div style="color:#8a8378;font-size:10.5px;letter-spacing:.08em">IN CURATOR</div><div style="font:700 22px/1 Kalam,sans-serif;margin-top:4px">310</div></div>
+    <div style="flex:1;padding:11px 14px;border-right:1px dashed rgba(0,0,0,.25)"><div style="color:#8a8378;font-size:10.5px;letter-spacing:.08em">CAME IN TODAY</div><div style="font:700 22px/1 Kalam,sans-serif;margin-top:4px">6</div></div>
+    <div style="flex:1.2;padding:11px 14px"><div style="color:#8a8378;font-size:10.5px;letter-spacing:.08em">LAST SYNCED</div><div style="font-size:12.5px;margin-top:6px">today, 18:40 · automatic</div></div>
+  </div>
+  <div style="padding:13px 15px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+      <div style="font-size:11px;letter-spacing:.1em;color:#8a8378">CAME IN TODAY · 6</div>
+      <span style="margin-left:auto;font-size:11px;color:#8a8378">already in your collection — nothing to approve</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:9px;margin-bottom:15px">
+      <div><div class="art" style="aspect-ratio:1"></div><div style="font-size:10px;margin-top:4px">Pet Sounds</div><div class="needs" style="font-size:9px">NEEDS LIGHTS</div></div>
+      <div><div class="art" style="aspect-ratio:1"></div><div style="font-size:10px;margin-top:4px">Horses</div><div class="needs" style="font-size:9px">NEEDS LIGHTS</div></div>
+      <div><div class="art" style="aspect-ratio:1"></div><div style="font-size:10px;margin-top:4px">Dummy</div><div class="needs" style="font-size:9px">NEEDS LIGHTS</div></div>
+      <div><div class="art" style="aspect-ratio:1"></div><div style="font-size:10px;margin-top:4px">Spiderland</div><div class="needs" style="font-size:9px">ROADIE IS ON IT</div></div>
+      <div><div class="art" style="aspect-ratio:1"></div><div style="font-size:10px;margin-top:4px">Maggot Brain</div><div class="needs" style="font-size:9px">ROADIE IS ON IT</div></div>
+      <div><div class="art" style="aspect-ratio:1;border-style:dashed;opacity:.6"></div><div style="font-size:10px;margin-top:4px;color:#6a655c">Trout Mask</div><div class="ready" style="font-size:9px">NEXT IN LINE</div></div>
+    </div>
+    <div style="font-size:11px;letter-spacing:.1em;color:#c26a10;border-top:1px solid #d8d2c4;padding-top:10px;margin-bottom:4px">COULDN'T MATCH TO SPOTIFY · 2</div>
+    <div style="font-size:11px;color:#8a8378;margin-bottom:9px">These stay here until you deal with them — they never leave this list on their own.</div>
+    <div style="display:flex;align-items:center;gap:11px;border:1.5px solid #c26a10;border-radius:8px;padding:8px 11px;background:#fdf3e6;margin-bottom:7px">
+      <div style="flex:1;font-size:12px"><b>Untitled white label</b> <span style="color:#8a4a0a">— no Spotify release matches this pressing</span></div>
+      <span class="tab" style="font-size:11px;padding:3px 9px">Search by hand</span><span style="font-size:11px;color:#8a4a0a">Skip</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:11px;border:1.5px solid #c26a10;border-radius:8px;padding:8px 11px;background:#fdf3e6">
+      <div style="flex:1;font-size:12px"><b>Live at Leeds (bootleg)</b> <span style="color:#8a4a0a">— found three possible matches</span></div>
+      <span class="tab" style="font-size:11px;padding:3px 9px">Pick one</span><span style="font-size:11px;color:#8a4a0a">Skip</span>
+    </div>
+    <div style="margin-top:13px;padding-top:11px;border-top:1px dashed rgba(0,0,0,.25);font-size:11.5px;color:#6a655c;line-height:1.6">
+      Multiple pressings of the same record collapse into one. Removing something in Discogs leaves it here — <a href="#s02">delete it from your collection</a> if you want it gone.
+    </div>
+  </div>
+</div>
+<div class="notes">
+  <div class="ntitle">Discogs — its own experience</div>
+  <div class="done">✓ Promoted out of a tab into <b>its own screen</b>, built around a synced collection.</div>
+  <div class="done">✓ "Curator follows it" sentence removed.</div>
+  <div class="done">✓ <b>Sync is automatic</b> — no "bring all in" step. New records are already in your collection and queued with Roadie; this screen just shows what arrived.</div>
+  <div class="done">✓ <b>Pressings collapse</b> to one record. <b>Removing in Discogs doesn't remove here.</b> Both stated on the screen.</div>
+  <div class="done">✓ Unmatched records <b>persist here indefinitely</b> — the one thing on this screen that's actually a to-do.</div>
+  <div class="done">✓ Manual <b>Sync now</b> kept, for when you've just added something and don't want to wait.</div>
+</div>
+</div>
+
+<!-- ================= S13 ================= -->
+<div class="plate" id="s13" data-screen-label="S13 Roadie's log">
+<a class="sid" href="#s13">S13</a>
+<div class="card" style="width:620px">
+  <div style="padding:11px 15px;border-bottom:1.5px solid #1a1a1a;display:flex;align-items:center;gap:10px;font-size:12.5px"><span style="color:#c26a10">✦</span><b>Roadie's log</b><span style="color:#8a8378">this session, newest first</span><span style="margin-left:auto;color:#8a8378">close ✕</span></div>
+  <div style="padding:6px 15px 14px;font-size:12.5px">
+    <div style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid #e3ded3"><span class="mono" style="width:44px;flex:none;color:#8a8378;font-size:11px">19:04</span><span style="color:#4a453e">Pulled the lights from <b>Kind of Blue</b> — cool, smoky, a lot of blue-grey</span></div>
+    <div style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid #e3ded3"><span class="mono" style="width:44px;flex:none;color:#8a8378;font-size:11px">19:03</span><span style="color:#4a453e">Found the sleeve at 640×640</span></div>
+    <div style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid #e3ded3"><span class="mono" style="width:44px;flex:none;color:#8a8378;font-size:11px">19:03</span><span style="color:#4a453e">Matched <b>Kind of Blue</b> — Miles Davis, 1959</span></div>
+    <div style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid #e3ded3;background:#fdf3e6"><span class="mono" style="width:44px;flex:none;color:#8a4a0a;font-size:11px">18:51</span><span style="color:#8a4a0a;flex:1">Couldn't find <b>Rachel's Greatest Hits</b> anywhere</span><span class="tab" style="font-size:11px;padding:2px 9px">fix it</span></div>
+    <div style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid #e3ded3"><span class="mono" style="width:44px;flex:none;color:#8a8378;font-size:11px">18:44</span><span style="color:#4a453e">Drafted four visualizer prompts for <b>Voodoo</b></span></div>
+    <div style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid #e3ded3"><span class="mono" style="width:44px;flex:none;color:#8a8378;font-size:11px">18:40</span><span style="color:#4a453e">Synced 6 new records from Discogs</span></div>
+    <div style="display:flex;gap:12px;padding:8px 0"><span class="mono" style="width:44px;flex:none;color:#8a8378;font-size:11px">18:40</span><span style="color:#4a453e">Sent <b>Rumours</b> to Conductor and Backdrop</span></div>
+    <div style="margin-top:10px;padding-top:10px;border-top:1px dashed rgba(0,0,0,.25);font-size:11.5px;color:#8a8378">Cleared when Curator restarts.</div>
+  </div>
+</div>
+<div class="notes">
+  <div class="ntitle">Roadie's log</div>
+  <div class="done">✓ <b>Session-only</b>, and it says so at the bottom. Header reads "this session".</div>
+  <div class="done">✓ Confirmed: failures live durably in the <b>Stuck</b> group on <a href="#s03">S03</a>; the log itself is disposable.</div>
+</div>
+</div>
+
+<!-- ================= S14 ================= -->
+<div class="plate" id="s14" data-screen-label="S14 System">
+<a class="sid" href="#s14">S14</a>
+<div class="card" style="width:620px">
+  <div style="padding:14px 15px;border-bottom:1.5px solid #1a1a1a;background:#faf8f4;display:flex;align-items:center;gap:12px">
+    <div style="font:700 20px/1.15 Kalam,sans-serif">System</div>
+    <span class="tab tabon" style="margin-left:auto;font-size:12px">Sync everything</span>
+  </div>
+  <div style="display:flex;border-bottom:1px dashed rgba(0,0,0,.25);font-size:12px">
+    <div style="flex:1;padding:11px 13px;border-right:1px dashed rgba(0,0,0,.25);display:flex;gap:8px;align-items:flex-start"><span style="width:8px;height:8px;border-radius:50%;background:#3f7d4e;flex:none;margin-top:4px"></span><div><b>Conductor</b><div style="color:#8a8378;font-size:11px">the lights</div><div class="mono" style="color:#8a8378;font-size:10px;margin-top:3px">:4741</div></div></div>
+    <div style="flex:1;padding:11px 13px;border-right:1px dashed rgba(0,0,0,.25);display:flex;gap:8px;align-items:flex-start"><span style="width:8px;height:8px;border-radius:50%;background:#3f7d4e;flex:none;margin-top:4px"></span><div><b>Backdrop</b><div style="color:#8a8378;font-size:11px">the screen</div><div class="mono" style="color:#8a8378;font-size:10px;margin-top:3px">:4740</div></div></div>
+    <div style="flex:1.3;padding:11px 13px;border-right:1px dashed rgba(0,0,0,.25);display:flex;gap:8px;align-items:flex-start;background:#fdf3e6"><span style="width:8px;height:8px;border-radius:50%;background:#c26a10;flex:none;margin-top:4px"></span><div><b style="color:#8a4a0a">Stylus</b><div style="color:#8a4a0a;font-size:11px">the stand — not answering</div><div class="mono" style="color:#8a4a0a;font-size:10px;margin-top:3px">connect ECONNREFUSED</div><div style="font-size:10.5px;color:#8a4a0a;margin-top:2px;text-decoration:underline">retry · copy error</div></div></div>
+    <div style="flex:1;padding:11px 13px;display:flex;gap:8px;align-items:flex-start"><span style="width:8px;height:8px;border-radius:50%;background:#3f7d4e;flex:none;margin-top:4px"></span><div><b>Amp</b><div style="color:#8a8378;font-size:11px">the sound</div><div class="mono" style="color:#8a8378;font-size:10px;margin-top:3px">:4743</div></div></div>
+  </div>
+  <div style="padding:12px 15px;border-bottom:1px dashed rgba(0,0,0,.25)">
+    <div style="font-size:10.5px;letter-spacing:.1em;color:#8a8378;margin-bottom:9px">IN FLIGHT · 2</div>
+    <div style="display:flex;align-items:center;gap:11px;padding:6px 0;border-bottom:1px solid #e3ded3;font-size:12px">
+      <span style="flex:1"><b>media-sync</b> <span style="color:#8a8378">· the whole collection</span></span>
+      <div style="width:88px;height:5px;border:1.5px solid #1a1a1a;flex:none"><div style="width:23%;height:100%;background:#1a1a1a"></div></div>
+      <span class="mono" style="font-size:11px;color:#8a8378;width:38px;text-align:right">3/13</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:11px;padding:6px 0;font-size:12px">
+      <span style="flex:1"><b>visualizer upload</b> <span style="color:#8a8378">· Purple Rain → Backdrop</span></span>
+      <div style="width:88px;height:5px;border:1.5px solid #1a1a1a;flex:none"><div style="width:68%;height:100%;background:#c26a10"></div></div>
+      <span class="mono" style="font-size:11px;color:#8a8378;width:38px;text-align:right">68%</span>
+    </div>
+  </div>
+  <div style="display:flex;padding:13px 15px;gap:24px;font-size:12.5px">
+    <div style="flex:1">
+      <div style="font-size:10.5px;letter-spacing:.1em;color:#8a8378;margin-bottom:8px">PLAYING RIGHT NOW</div>
+      <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid #e3ded3"><span style="width:52px;flex:none;color:#8a8378;font-size:11px">SCREEN</span><span>Rumours</span></div>
+      <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid #e3ded3"><span style="width:52px;flex:none;color:#8a8378;font-size:11px">LIGHTS</span><span>living room, crossfade</span></div>
+      <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid #e3ded3"><span style="width:52px;flex:none;color:#8a8378;font-size:11px">SOUND</span><span>playing → Living Room</span></div>
+      <div style="display:flex;gap:10px;padding:6px 0;color:#8a4a0a"><span style="width:52px;flex:none;font-size:11px">STAND</span><span>can't tell — Stylus is down</span></div>
+    </div>
+    <div style="flex:1">
+      <div style="font-size:10.5px;letter-spacing:.1em;color:#8a8378;margin-bottom:8px">RECORDS THAT AREN'T EVERYWHERE THEY SHOULD BE</div>
+      <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid #e3ded3"><span style="flex:1"><b>Voodoo</b></span><span style="color:#8a4a0a;font-size:11px">no visualizer on Backdrop</span></div>
+      <div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid #e3ded3"><span style="flex:1"><b>Purple Rain</b></span><span style="color:#8a4a0a;font-size:11px">not on Conductor</span></div>
+      <div style="display:flex;gap:10px;padding:6px 0"><span style="flex:1"><b>Rachel's Greatest Hits</b></span><span style="color:#8a4a0a;font-size:11px">never matched</span></div>
+    </div>
+  </div>
+</div>
+<div class="notes">
+  <div class="ntitle">System</div>
+  <div class="done">✓ "The page you open when something's wrong" removed.</div>
+  <div class="done">✓ <b>In-flight jobs</b> back, with progress. <b>Per-service errors</b> back, with the raw code and retry on the failing service.</div>
+  <div class="nbody">Still exceptions-only for the album matrix — say if you want the full table back too.</div>
+</div>
+</div>
+
+<!-- ================= S15 ================= -->
+<div class="plate" id="s15" data-screen-label="S15 Settings">
+<a class="sid" href="#s15">S15</a>
+<div class="card" style="width:620px">
+  <div style="padding:14px 15px;border-bottom:1.5px solid #1a1a1a;background:#faf8f4">
+    <div style="font:700 20px/1.15 Kalam,sans-serif">Settings</div>
+  </div>
+  <div style="display:flex;padding:14px 15px;gap:26px">
+    <div style="flex:1;display:flex;flex-direction:column;gap:14px">
+      <div style="font-size:10.5px;letter-spacing:.1em;color:#8a8378">THE ROOM AND THE SERVICES</div>
+      <div><div style="font-size:11.5px;color:#8a8378">Which room</div><div style="border-bottom:1.5px solid #c9c2b1;padding:5px 0;font-size:13px">Living Room ▾</div></div>
+      <div><div style="font-size:11.5px;color:#8a8378">Conductor</div><div class="mono" style="border-bottom:1.5px solid #c9c2b1;padding:5px 0;font-size:11.5px">http://conductor.local:4741</div></div>
+      <div><div style="font-size:11.5px;color:#8a8378">Backdrop</div><div class="mono" style="border-bottom:1.5px solid #c9c2b1;padding:5px 0;font-size:11.5px">http://backdrop.local:4740</div></div>
+      <div><div style="font-size:11.5px;color:#8a8378">Stylus</div><div class="mono" style="border-bottom:1.5px solid #c9c2b1;padding:5px 0;font-size:11.5px">http://stylus.local:4742</div></div>
+      <div><div style="font-size:11.5px;color:#8a8378">Amp</div><div class="mono" style="border-bottom:1.5px solid #c9c2b1;padding:5px 0;font-size:11.5px">http://localhost:4743</div></div>
+      <div style="font-size:10.5px;letter-spacing:.1em;color:#8a8378;margin-top:6px">ACCOUNTS</div>
+      <div style="font-size:12.5px;display:flex;gap:8px;align-items:center"><span style="width:8px;height:8px;border-radius:50%;background:#3f7d4e;flex:none"></span>Spotify — connected <span style="color:#8a8378;margin-left:auto;text-decoration:underline">change</span></div>
+      <div style="font-size:12.5px;display:flex;gap:8px;align-items:center"><span style="width:8px;height:8px;border-radius:50%;background:#3f7d4e;flex:none"></span>Gemini — connected <span style="color:#8a8378;margin-left:auto;text-decoration:underline">change</span></div>
+      <div style="font-size:12.5px;display:flex;gap:8px;align-items:center"><span style="width:8px;height:8px;border-radius:50%;background:#3f7d4e;flex:none"></span>Discogs — connected <span style="color:#8a8378;margin-left:auto;text-decoration:underline">change</span></div>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:13px">
+      <div style="font-size:10.5px;letter-spacing:.1em;color:#8a8378">WHAT ROADIE MAY DO ON ITS OWN</div>
+      <div style="display:flex;gap:9px;align-items:flex-start;padding-bottom:11px;border-bottom:1px solid #e3ded3"><span style="width:14px;height:14px;flex:none;background:#1a1a1a;border:1.5px solid #1a1a1a;margin-top:2px"></span><div><b style="font-size:12.5px">Draw card art</b><div style="font-size:11.5px;color:#6a655c;margin-top:3px">Cheap — about five images a go.</div></div></div>
+      <div style="display:flex;gap:9px;align-items:flex-start;padding-bottom:11px;border-bottom:1px solid #e3ded3"><span style="width:14px;height:14px;flex:none;border:1.5px solid #1a1a1a;margin-top:2px"></span><div><b style="font-size:12.5px">Make the visualizers</b><div style="font-size:11.5px;color:#6a655c;margin-top:3px">Metered and pricey. Off — Roadie just drafts four prompts for you.</div></div></div>
+      <div style="display:flex;gap:9px;align-items:flex-start;padding-bottom:11px;border-bottom:1px solid #e3ded3"><span style="width:14px;height:14px;flex:none;background:#1a1a1a;border:1.5px solid #1a1a1a;margin-top:2px"></span><div><b style="font-size:12.5px">Suggest a second palette</b><div style="font-size:11.5px;color:#6a655c;margin-top:3px">The "from the feeling" one, based on how the record sounds.</div></div></div>
+      <div style="display:flex;gap:9px;align-items:flex-start"><span style="width:14px;height:14px;flex:none;background:#1a1a1a;border:1.5px solid #1a1a1a;margin-top:2px"></span><div><b style="font-size:12.5px">Follow my Discogs collection</b><div style="font-size:11.5px;color:#6a655c;margin-top:3px">Checks once a day and brings new records in.</div></div></div>
+    </div>
+  </div>
+</div>
+<div class="notes">
+  <div class="ntitle">Settings</div>
+  <div class="done">✓ "Set once, then forget it" removed.</div>
+  <div class="done">✓ <b>Discogs — connected</b> added to accounts, plus a Roadie permission for following the collection.</div>
+  <div class="done">✓ <b>All four services</b> editable — Stylus and Amp added.</div>
+</div>
+</div>
+
+<div style="padding:34px 44px 70px;max-width:1080px">
+<p style="margin:0 0 12px;font:700 17px/1.3 Kalam,system-ui,sans-serif;color:#1a1a1a">Settled</p>
+<p style="margin:0;font:400 14.5px/1.7 'Architects Daughter',system-ui,sans-serif;color:#4a453e;text-wrap:pretty">Every note from all three rounds is applied. Next step is rolling this into the themed build, once the new logo lands.</p>
+</div>
+</x-dc>
+</body>
+</html>

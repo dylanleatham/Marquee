@@ -148,6 +148,18 @@ export interface BuildOptions {
   flipperAppend?: FlipperAppender;
 }
 
+/**
+ * One row of `GET /api/albums`.
+ *
+ * The second half of this — from `year` down — exists for the collection screen (ADR 0052). That
+ * screen shows every record at once and labels each with the *first thing it still needs*, which is
+ * a predicate over the assets (is a visualizer attached? are both tags written and checked?) rather
+ * than a reading of `roadie.state`. Deriving it needs those facts in the list response; fetching
+ * forty assets to answer one grid is not a trade worth making.
+ *
+ * Deliberately facts, not a verdict: the client derives the need through one shared pure module
+ * (`ui/src/needs.ts`) so the collection and the record page cannot disagree about it.
+ */
 const summary = (a: AlbumAsset) => ({
   curatorId: a.curatorId,
   title: a.metadata.name,
@@ -160,6 +172,19 @@ const summary = (a: AlbumAsset) => ({
   paletteInsufficient: a.roadie.flags.palette_insufficient,
   // The Demo Room lists albums with a video to swap between; palette drives the lights either way.
   hasVideo: Boolean(a.visualizer),
+
+  year: a.metadata.year ?? null,
+  genres: a.metadata.genres ?? [],
+  /** In order — `[0]` is the dominant. The collection draws its art placeholder from these. */
+  paletteHexes: a.palette?.colors.map((c) => c.hex) ?? [],
+  hasCardArt: Boolean(a.cardArt),
+  /** Both tags burned. One of two is not "written" — the record still needs a trip to the Flipper. */
+  tagsWritten: Boolean(a.tag?.sleeve?.written && a.tag?.card?.written),
+  previewApprovedAt: a.verification?.previewApprovedAt ?? null,
+  physicallyVerifiedAt: a.verification?.physicallyVerifiedAt ?? null,
+  /** What Roadie is doing right now, so the grid can narrate ("finding the sleeve") in place. */
+  subState: a.roadie.subState,
+  lastError: a.roadie.lastError,
 });
 
 // A newly-added album has only been queued — palette/prompts land later, off the request path.
@@ -1627,6 +1652,31 @@ export function buildServer(opts: BuildOptions = {}) {
         tagUid,
       );
       return { state: asset.roadie.state, tag: asset.tag };
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
+  });
+
+  /**
+   * **Tags verified** (ADR 0052) — the record page's one button for the whole tag step: both
+   * stickers recorded as written, and the physical check recorded, in one action.
+   *
+   * Shares `verify-physical`'s tail exactly (push to the runtime, then ★verify), because the *claim*
+   * being made is identical — "I put the sleeve on the stand and it worked" — and that claim is only
+   * honest about a runtime that has actually been given the album.
+   */
+  app.post("/api/albums/:curatorId/tags-verified", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    try {
+      const asset = actions.verifyTags(actionDeps, curatorId);
+      const push = await pushAlbumToRuntime(asset);
+      const verify = await backdrop.verifyAlbum(asset).catch((err) => ({
+        ok: false,
+        discrepancies: [
+          `Backdrop verify unreachable: ${(err as Error).message}`,
+        ],
+      }));
+      return { state: asset.roadie.state, push, verify };
     } catch (err) {
       return actionError(err, reply, req);
     }

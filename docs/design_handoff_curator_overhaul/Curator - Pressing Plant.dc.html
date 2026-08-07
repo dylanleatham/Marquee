@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet"><style>*{box-sizing:border-box}body{margin:0;background:#f2efe8;font-family:"Helvetica Neue",Helvetica,Arial,sans-serif;color:#17150f;-webkit-font-smoothing:antialiased}a{color:#b4402c;text-decoration:none}a:hover{color:#8e3122}@keyframes ppPulse{0%,100%{opacity:.35}50%{opacity:1}}@keyframes ppDrift{0%{transform:translate3d(0,0,0) scale(1.04)}50%{transform:translate3d(-1.5%,1%,0) scale(1.09)}100%{transform:translate3d(0,0,0) scale(1.04)}}@keyframes ppToast{0%{opacity:0;transform:translateY(10px)}12%{opacity:1;transform:translateY(0)}88%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(4px)}}input[type=range]{accent-color:#17150f}</style></helmet>
+
+<div style="min-height:100vh;display:flex;flex-direction:column;background:#f2efe8;position:relative">
+
+<!-- ============ MASTHEAD ============ -->
+<header style="display:flex;align-items:stretch;border-bottom:3px solid #17150f;background:#f2efe8;position:sticky;top:0;z-index:20">
+  <div style="display:flex;align-items:center;gap:15px;padding:13px 20px;border-right:1px solid #d8d2c4;flex:none">
+    <div style="width:52px;height:52px;flex:none;overflow:hidden;position:relative">
+      <img src="./marquee-logo.jpeg" alt="Marquee" style="position:absolute;width:130px;left:-38px;top:-8px;mix-blend-mode:multiply">
+    </div>
+    <div>
+      <div style="font:400 21px/0.9 'Archivo Black','Helvetica Neue',sans-serif;letter-spacing:-.02em;text-transform:uppercase">Curator</div>
+      <div style="font:500 9px/1.4 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#6f6a5c;margin-top:4px">MARQUEE COLLECTION</div>
+    </div>
+  </div>
+  <nav style="display:flex;align-items:stretch">
+    <button type="button" onClick="{{ goCollection }}" style="{{ navCollection }}">COLLECTION</button>
+    <button type="button" onClick="{{ goAdd }}" style="{{ navAdd }}">ADD A RECORD</button>
+    <button type="button" onClick="{{ goDiscogs }}" style="{{ navDiscogs }}">DISCOGS</button>
+    <button type="button" onClick="{{ goSystem }}" style="{{ navSystem }}">SYSTEM</button>
+    <button type="button" onClick="{{ goSettings }}" style="{{ navSettings }}">SETTINGS</button>
+  </nav>
+  <div style="flex:1;display:flex;align-items:center;justify-content:flex-end;gap:16px;padding:0 20px">
+    <div style="display:flex;align-items:baseline;gap:7px;white-space:nowrap">
+      <span style="font:400 20px/1 'Archivo Black','Helvetica Neue',sans-serif">18</span>
+      <span style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;color:#6f6a5c">OF 40 READY</span>
+    </div>
+    <div style="width:96px;height:6px;background:#ded8c9;border:1px solid #c9c2b1;flex:none">
+      <div style="width:45%;height:100%;background:#17150f"></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:7px;border-left:1px solid #d8d2c4;padding-left:16px;white-space:nowrap">
+      <span style="width:7px;height:7px;border-radius:50%;background:#b4402c;animation:ppPulse 2.4s ease-in-out infinite;flex:none"></span>
+      <span style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;color:#6f6a5c">ROADIE WORKING</span>
+    </div>
+  </div>
+</header>
+
+<!-- ============ COLLECTION ============ -->
+<sc-if value="{{ isCollection }}" hint-placeholder-val="{{ true }}">
+<main style="flex:1;display:flex;flex-direction:column">
+
+  <div style="display:flex;align-items:stretch;border-bottom:1px solid #d8d2c4;background:#efebe2">
+    <div style="flex:1;padding:15px 20px;border-right:1px solid #d8d2c4">
+      <div style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#b4402c">NOT COMPLETE</div>
+      <div style="font:400 36px/1 'Archivo Black','Helvetica Neue',sans-serif;margin-top:7px;color:#b4402c">7</div>
+      <div style="font:400 12px/1.4 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c;margin-top:5px">three still need lights</div>
+    </div>
+    <div style="flex:1;padding:15px 20px;border-right:1px solid #d8d2c4">
+      <div style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#6f6a5c">READY</div>
+      <div style="font:400 36px/1 'Archivo Black','Helvetica Neue',sans-serif;margin-top:7px">18</div>
+      <div style="font:400 12px/1.4 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c;margin-top:5px">ready for the stand</div>
+    </div>
+    <div style="flex:1;padding:15px 20px;border-right:1px solid #d8d2c4">
+      <div style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#6f6a5c">NOT STARTED</div>
+      <div style="font:400 36px/1 'Archivo Black','Helvetica Neue',sans-serif;margin-top:7px">15</div>
+      <div style="font:400 12px/1.4 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c;margin-top:5px">Roadie will get to them</div>
+    </div>
+    <button type="button" onClick="{{ nextStat }}" style="flex:1.5;padding:15px 20px;border:0;background:transparent;text-align:left;cursor:pointer;font:inherit;display:flex;flex-direction:column;justify-content:space-between">
+      <div style="display:flex;align-items:baseline;gap:8px">
+        <span style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#6f6a5c">{{ statLabel }}</span>
+        <span style="margin-left:auto;font:500 9px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;color:#a49d8c">{{ statIndex }}</span>
+      </div>
+      <sc-if value="{{ statIsBars }}" hint-placeholder-val="{{ true }}">
+        <div style="margin-top:10px">
+          <div style="display:flex;gap:5px;align-items:flex-end;height:42px">
+            <sc-for list="{{ statBars }}" as="b" hint-placeholder-count="6">
+              <div style="{{ b.style }}"></div>
+            </sc-for>
+          </div>
+          <div style="display:flex;gap:5px;margin-top:5px">
+            <sc-for list="{{ statBars }}" as="b" hint-placeholder-count="6">
+              <div style="flex:1;font:500 8.5px/1.3 'IBM Plex Mono',monospace;color:#6f6a5c;text-align:center">{{ b.label }}</div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+      <sc-if value="{{ statIsText }}">
+        <div style="margin-top:8px">
+          <div style="font:400 21px/1.1 'Archivo Black','Helvetica Neue',sans-serif;letter-spacing:-.01em">{{ statBig }}</div>
+          <div style="font:400 12px/1.4 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c;margin-top:5px">{{ statSub }}</div>
+        </div>
+      </sc-if>
+    </button>
+  </div>
+
+  <div style="display:flex;align-items:stretch;border-bottom:1px solid #d8d2c4;font:500 10.5px/1 'IBM Plex Mono',monospace;letter-spacing:.14em">
+    <button type="button" onClick="{{ filterAll }}" style="{{ fAll }}">EVERYTHING</button>
+    <button type="button" onClick="{{ filterNeeds }}" style="{{ fNeeds }}">NOT COMPLETE · 7</button>
+    <button type="button" onClick="{{ filterReady }}" style="{{ fReady }}">READY · 18</button>
+    <div style="flex:1;display:flex;align-items:center;justify-content:flex-end;gap:16px;padding:0 20px">
+      <input type="text" placeholder="Search 40 records" value="{{ query }}" onInput="{{ onQuery }}" style="font:400 13px/1 'Helvetica Neue',Helvetica,sans-serif;color:#17150f;background:transparent;border:0;border-bottom:1px solid #c9c2b1;padding:6px 4px;width:170px;outline:none">
+      <button type="button" onClick="{{ reshuffle }}" style="font:500 10.5px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;color:#6f6a5c;background:transparent;border:0;cursor:pointer;padding:0;white-space:nowrap">SHUFFLED ↻</button>
+      <button type="button" onClick="{{ cycleDensity }}" style="font:500 10.5px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;color:#6f6a5c;background:transparent;border:0;cursor:pointer;padding:0;white-space:nowrap">{{ densityLabel }}</button>
+    </div>
+  </div>
+
+  <sc-if value="{{ grouped }}">
+    <div style="flex:1">
+      <sc-for list="{{ groups }}" as="g" hint-placeholder-count="3">
+        <div>
+          <div style="display:flex;align-items:baseline;gap:10px;padding:13px 20px 9px;border-bottom:1px solid #d8d2c4;background:#efebe2">
+            <span style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#b4402c">{{ g.label }}</span>
+            <span style="font:500 9.5px/1 'IBM Plex Mono',monospace;color:#6f6a5c">· {{ g.count }}</span>
+          </div>
+          <div style="display:grid;border-bottom:1px solid #d8d2c4;grid-template-columns:{{ gridCols }}">
+            <sc-for list="{{ g.items }}" as="t" hint-placeholder-count="3">
+              <button type="button" data-id="{{ t.id }}" onClick="{{ openRecord }}" style="{{ t.cellStyle }}">
+                <div style="{{ t.artStyle }}"></div>
+                <div style="margin-top:10px;font:600 12.5px/1.25 'Helvetica Neue',Helvetica,sans-serif;color:#17150f">{{ t.title }}</div>
+                <div style="font:400 11px/1.35 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c;margin-top:2px">{{ t.byline }}</div>
+              </button>
+            </sc-for>
+          </div>
+        </div>
+      </sc-for>
+      <div style="display:flex;align-items:center;gap:14px;padding:13px 20px;border-bottom:1px solid #d8d2c4;background:#f7ece9">
+        <span style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#b4402c;flex:none">STUCK · 1</span>
+        <div style="width:38px;height:38px;flex:none;border:1px solid #c9c2b1;display:grid;place-items:center;font:400 13px/1 'Helvetica Neue',Helvetica,sans-serif;color:#a49d8c">?</div>
+        <div style="flex:1"><div style="font:600 13px/1.3 'Helvetica Neue',Helvetica,sans-serif">Rachel's Greatest Hits</div><div style="font:400 12px/1.45 'Helvetica Neue',Helvetica,sans-serif;color:#8e3122;margin-top:2px">Roadie couldn't find this anywhere — try a different name, or type the details in yourself</div></div>
+        <button type="button" style="flex:none;padding:9px 16px;background:#17150f;color:#f2efe8;border:0;font:500 10px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;cursor:pointer">FIX IT</button>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ flat }}" hint-placeholder-val="{{ true }}">
+    <div style="flex:1;display:grid;border-bottom:1px solid #d8d2c4;grid-template-columns:{{ gridCols }}">
+      <sc-for list="{{ tiles }}" as="t" hint-placeholder-count="12">
+        <button type="button" data-id="{{ t.id }}" onClick="{{ openRecord }}" style="{{ t.cellStyle }}">
+          <div style="{{ t.artStyle }}"></div>
+          <div style="margin-top:10px;font:600 12.5px/1.25 'Helvetica Neue',Helvetica,sans-serif;color:#17150f">{{ t.title }}</div>
+          <div style="font:400 11px/1.35 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c;margin-top:2px">{{ t.byline }}</div>
+          <div style="margin-top:6px;font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;color:{{ t.stateColor }}">{{ t.stateLabel }}</div>
+        </button>
+      </sc-for>
+      <button type="button" onClick="{{ goAdd }}" style="padding:16px;border:0;border-right:1px solid #d8d2c4;border-bottom:1px solid #d8d2c4;background:transparent;text-align:left;cursor:pointer;font:inherit">
+        <div style="aspect-ratio:1;border:1px dashed #b3ab99;display:grid;place-items:center;font:400 26px/1 'Helvetica Neue',Helvetica,sans-serif;color:#b3ab99">+</div>
+        <div style="margin-top:10px;font:600 12.5px/1.25 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c">Add a record</div>
+        <div style="font:400 11px/1.35 'Helvetica Neue',Helvetica,sans-serif;color:#8d8778;margin-top:2px">search, or type it in</div>
+      </button>
+    </div>
+  </sc-if>
+
+  <div style="display:flex;align-items:stretch;background:#efebe2;border-top:1px solid #d8d2c4">
+    <div style="padding:11px 20px;border-right:1px solid #d8d2c4;display:flex;align-items:center;gap:9px;flex:none">
+      <span style="width:6px;height:6px;border-radius:50%;background:#b4402c;animation:ppPulse 2.4s ease-in-out infinite"></span>
+      <span style="font:500 10px/1 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#b4402c">ROADIE'S LOG</span>
+    </div>
+    <div style="flex:1;display:flex;align-items:center;gap:14px;padding:11px 20px;font:400 12px/1 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c;overflow:hidden">
+      <span style="font:500 11px/1 'IBM Plex Mono',monospace;color:#8d8778;flex:none">19:04</span>
+      <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Pulled the lights from <b style="color:#17150f;font-weight:600">Kind of Blue</b> — cool, smoky, a lot of blue-grey</span>
+    </div>
+    <button type="button" onClick="{{ toggleLog }}" style="padding:11px 20px;border:0;border-left:1px solid #d8d2c4;background:transparent;font:500 10px/1 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#6f6a5c;cursor:pointer;white-space:nowrap">{{ logLabel }}</button>
+  </div>
+
+  <sc-if value="{{ logOpen }}">
+    <div style="border-top:1px solid #d8d2c4;background:#eae5da;padding:14px 20px 16px">
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px"><span style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#b4402c">ROADIE'S LOG</span><span style="font:400 12px/1 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c">this session, newest first</span></div>
+      <div style="display:flex;gap:16px;padding:8px 0;border-bottom:1px solid #ddd7c8;font:400 12.5px/1.4 'Helvetica Neue',Helvetica,sans-serif"><span style="font:500 11px/1.4 'IBM Plex Mono',monospace;color:#8d8778;width:52px;flex:none">19:04</span><span style="color:#4a4638">Pulled the lights from <b style="font-weight:600;color:#17150f">Kind of Blue</b></span></div>
+      <div style="display:flex;gap:16px;padding:8px 0;border-bottom:1px solid #ddd7c8;font:400 12.5px/1.4 'Helvetica Neue',Helvetica,sans-serif"><span style="font:500 11px/1.4 'IBM Plex Mono',monospace;color:#8d8778;width:52px;flex:none">19:03</span><span style="color:#4a4638">Found the sleeve at 640×640</span></div>
+      <div style="display:flex;gap:16px;padding:8px 0;border-bottom:1px solid #ddd7c8;font:400 12.5px/1.4 'Helvetica Neue',Helvetica,sans-serif"><span style="font:500 11px/1.4 'IBM Plex Mono',monospace;color:#8d8778;width:52px;flex:none">19:03</span><span style="color:#4a4638">Matched <b style="font-weight:600;color:#17150f">Kind of Blue</b> — Miles Davis, 1959</span></div>
+      <div style="display:flex;gap:16px;padding:8px 0;border-bottom:1px solid #ddd7c8;font:400 12.5px/1.4 'Helvetica Neue',Helvetica,sans-serif"><span style="font:500 11px/1.4 'IBM Plex Mono',monospace;color:#8e3122;width:52px;flex:none">18:51</span><span style="color:#8e3122">Couldn't find <b style="font-weight:600">Rachel's Greatest Hits</b> anywhere</span></div>
+      <div style="display:flex;gap:16px;padding:8px 0;border-bottom:1px solid #ddd7c8;font:400 12.5px/1.4 'Helvetica Neue',Helvetica,sans-serif"><span style="font:500 11px/1.4 'IBM Plex Mono',monospace;color:#8d8778;width:52px;flex:none">18:44</span><span style="color:#4a4638">Drafted four visualizer prompts for <b style="font-weight:600;color:#17150f">Voodoo</b></span></div>
+      <div style="display:flex;gap:16px;padding:8px 0;font:400 12.5px/1.4 'Helvetica Neue',Helvetica,sans-serif"><span style="font:500 11px/1.4 'IBM Plex Mono',monospace;color:#8d8778;width:52px;flex:none">18:40</span><span style="color:#4a4638">Synced 6 new records from Discogs</span></div>
+      <div style="font:400 11.5px/1.5 'Helvetica Neue',Helvetica,sans-serif;color:#8d8778;margin-top:10px;padding-top:10px;border-top:1px solid #ddd7c8">Cleared when Curator restarts.</div>
+    </div>
+  </sc-if>
+
+</main>
+</sc-if>
+
+<!-- ============ THE RECORD ============ -->
+<sc-if value="{{ isRecord }}">
+<main style="flex:1;display:flex;align-items:stretch">
+
+  <aside style="width:310px;flex:none;border-right:1px solid #d8d2c4;padding:20px;display:flex;flex-direction:column;gap:13px;background:#efebe2">
+    <button type="button" onClick="{{ goCollection }}" style="align-self:flex-start;font:500 10px/1 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#6f6a5c;background:transparent;border:0;padding:0;cursor:pointer">← THE COLLECTION</button>
+    <div style="aspect-ratio:1;outline:1px solid #17150f;background:{{ recArt }}"></div>
+    <div style="display:flex;height:26px;outline:1px solid #17150f">
+      <sc-for list="{{ recSwatches }}" as="s" hint-placeholder-count="3">
+        <div style="{{ s.style }}"></div>
+      </sc-for>
+    </div>
+    <div>
+      <div style="font:400 25px/1.05 'Archivo Black','Helvetica Neue',sans-serif;letter-spacing:-.02em">{{ recTitle }}</div>
+      <div style="font:400 13px/1.4 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c;margin-top:6px">{{ recByline }}</div>
+    </div>
+    <div style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;color:{{ recStateColor }}">{{ recStateLabel }}</div>
+    <button type="button" onClick="{{ goRoom }}" style="margin-top:2px;padding:13px 18px;background:#17150f;color:#f2efe8;border:0;font:500 11px/1 'IBM Plex Mono',monospace;letter-spacing:.16em;cursor:pointer;text-align:center">▶  SEE IT IN THE ROOM</button>
+    <div style="margin-top:auto;display:flex;align-items:center;gap:12px;border-top:1px solid #d8d2c4;padding-top:12px">
+      <button type="button" onClick="{{ prevRecord }}" style="font:500 10px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;color:#6f6a5c;background:transparent;border:0;padding:0;cursor:pointer">↑ PREV</button>
+      <button type="button" onClick="{{ nextRecord }}" style="font:500 10px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;color:#6f6a5c;background:transparent;border:0;padding:0;cursor:pointer">NEXT ↓</button>
+      <span style="margin-left:auto;font:500 10px/1 'IBM Plex Mono',monospace;color:#a49d8c">{{ recId }}</span>
+    </div>
+  </aside>
+
+  <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+
+    <div style="border-bottom:1px solid #d8d2c4;padding:17px 24px 0;background:#f2efe8">
+      <div style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#6f6a5c">WHAT THIS RECORD STILL NEEDS</div>
+      <div style="display:flex;gap:0;margin-top:13px">
+        <button type="button" data-w="lights" onClick="{{ openNeed }}" style="{{ wLights }}"><span style="font:500 13px/1 'IBM Plex Mono',monospace">{{ mLights }}</span>Lights</button>
+        <button type="button" data-w="visualizer" onClick="{{ openNeed }}" style="{{ wVisualizer }}"><span style="font:500 13px/1 'IBM Plex Mono',monospace">{{ mVisualizer }}</span>A visualizer</button>
+        <button type="button" data-w="card" onClick="{{ openNeed }}" style="{{ wCard }}"><span style="font:500 13px/1 'IBM Plex Mono',monospace">{{ mCard }}</span>A card</button>
+        <button type="button" data-w="tags" onClick="{{ openNeed }}" style="{{ wTags }}"><span style="font:500 13px/1 'IBM Plex Mono',monospace">{{ mTags }}</span>Tags</button>
+      </div>
+    </div>
+
+    <div style="flex:1;padding:22px 24px;overflow:auto">
+
+      <sc-if value="{{ needLights }}" hint-placeholder-val="{{ true }}">
+        <div style="max-width:820px;display:flex;flex-direction:column;gap:20px">
+          <div style="display:flex;align-items:center;gap:8px;font:400 11.5px/1 'Helvetica Neue',Helvetica,sans-serif;color:#3f7d4e"><span style="width:6px;height:6px;border-radius:50%;background:#3f7d4e"></span>saved a moment ago — edits save as you make them</div>
+          <p style="margin:0;font:400 15px/1.65 'Helvetica Neue',Helvetica,sans-serif;color:#4a4638;max-width:62ch;text-wrap:pretty">{{ recNote }}</p>
+
+          <div style="display:flex;gap:0;border:1px solid #17150f">
+            <div style="flex:1;padding:16px;border-right:1px solid #d8d2c4;background:{{ sleeveBg }}">
+              <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;height:12px">
+                <span style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#17150f;white-space:nowrap">FROM THE SLEEVE</span>
+                <span style="font:500 9.5px/1 'IBM Plex Mono',monospace;color:#b4402c;white-space:nowrap">{{ sleeveMark }}</span>
+              </div>
+              <div style="display:flex;height:52px;margin-top:14px;outline:1px solid #17150f">
+                <sc-for list="{{ recSleeve }}" as="s" hint-placeholder-count="3">
+                  <div style="{{ s.style }}"></div>
+                </sc-for>
+              </div>
+              <button type="button" onClick="{{ useSleeve }}" style="margin-top:11px;font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#6f6a5c;background:transparent;border:0;padding:0;cursor:pointer">{{ sleeveAction }}</button>
+            </div>
+            <div style="flex:1;padding:16px;background:{{ feelingBg }}">
+              <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;height:12px">
+                <span style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#17150f;white-space:nowrap">FROM THE FEELING</span>
+                <span style="font:500 9.5px/1 'IBM Plex Mono',monospace;color:#b4402c;white-space:nowrap">{{ feelingMark }}</span>
+              </div>
+              <div style="display:flex;height:52px;margin-top:14px;outline:1px solid #17150f">
+                <sc-for list="{{ recFeeling }}" as="s" hint-placeholder-count="3">
+                  <div style="{{ s.style }}"></div>
+                </sc-for>
+              </div>
+              <button type="button" onClick="{{ useFeeling }}" style="margin-top:11px;font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#6f6a5c;background:transparent;border:0;padding:0;cursor:pointer">{{ feelingAction }}</button>
+            </div>
+          </div>
+
+          <div>
+            <div style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#6f6a5c;margin-bottom:12px">THE LIGHTS, IN ORDER</div>
+            <div style="border-top:1px solid #d8d2c4">
+              <sc-for list="{{ recRows }}" as="r" hint-placeholder-count="3">
+                <div style="display:flex;align-items:center;gap:16px;padding:11px 0;border-bottom:1px solid #d8d2c4">
+                  <div style="width:34px;height:34px;flex:none;outline:1px solid #17150f;background:{{ r.hex }}"></div>
+                  <span style="font:500 13px/1 'IBM Plex Mono',monospace;width:88px">{{ r.hex }}</span>
+                  <span style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;color:#6f6a5c;width:96px">{{ r.role }}</span>
+                  <span style="font:400 12px/1.4 'Helvetica Neue',Helvetica,sans-serif;color:#8d8778;flex:1">{{ r.note }}</span>
+                  <span style="font:500 11px/1 'IBM Plex Mono',monospace;color:#a49d8c">↑ ↓ ✕</span>
+                </div>
+              </sc-for>
+            </div>
+            <div style="display:flex;gap:22px;margin-top:14px;font:500 10px/1 'IBM Plex Mono',monospace;letter-spacing:.14em">
+              <button type="button" style="background:transparent;border:0;padding:0;cursor:pointer;color:#6f6a5c;font:inherit">+ ADD A LIGHT</button>
+              <button type="button" onClick="{{ useSleeve }}" style="background:transparent;border:0;padding:0;cursor:pointer;color:#6f6a5c;font:inherit">BACK TO ROADIE'S ORIGINAL</button>
+            </div>
+            <div style="font:400 11.5px/1.55 'Helvetica Neue',Helvetica,sans-serif;color:#8d8778;margin-top:9px;max-width:62ch">Roadie's original extraction and the feeling palette are always here — nothing you do to this list destroys either.</div>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:14px;border-top:1px solid #d8d2c4;padding-top:18px">
+            <button type="button" onClick="{{ goRoom }}" style="padding:13px 22px;background:#b4402c;color:#f7f4ee;border:0;font:500 11px/1 'IBM Plex Mono',monospace;letter-spacing:.16em;cursor:pointer">SEE IT IN THE ROOM →</button>
+            <span style="font:400 12.5px/1.5 'Helvetica Neue',Helvetica,sans-serif;color:#8d8778">The lights are signed off in the room, with them on.</span>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ needVisualizer }}">
+        <div style="max-width:880px;display:flex;gap:20px;align-items:flex-start">
+          <div style="flex:1;min-width:0">
+            <div style="aspect-ratio:16/9;outline:1px solid #17150f;background:{{ roomWash }};position:relative;display:grid;place-items:center">
+              <span style="font:400 13px/1 'Helvetica Neue',Helvetica,sans-serif;color:rgba(255,255,255,.8)">playing · loops seamlessly</span>
+              <span style="position:absolute;left:10px;bottom:9px;font:500 10px/1 'IBM Plex Mono',monospace;color:rgba(255,255,255,.6)">0:07 / 0:20</span>
+              <span style="position:absolute;right:10px;bottom:9px;font:500 10px/1 'IBM Plex Mono',monospace;color:rgba(255,255,255,.6)">1920×1080</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;margin-top:11px;padding:9px 13px;border:1px solid #17150f;background:#efebe2">
+              <span style="width:7px;height:7px;border-radius:50%;background:#b4402c;flex:none"></span>
+              <span style="flex:1;font:400 12px/1 'Helvetica Neue',Helvetica,sans-serif">Uploading to Backdrop — 68%</span>
+              <div style="width:80px;height:5px;background:#ded8c9;border:1px solid #c9c2b1;flex:none"><div style="width:68%;height:100%;background:#b4402c"></div></div>
+            </div>
+            <div style="display:flex;gap:22px;margin-top:13px;font:500 10px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;color:#6f6a5c">
+              <button type="button" style="background:transparent;border:0;padding:0;cursor:pointer;font:inherit;color:inherit">REPLACE</button>
+              <button type="button" style="background:transparent;border:0;padding:0;cursor:pointer;font:inherit;color:inherit">REMOVE</button>
+              <button type="button" style="background:transparent;border:0;padding:0;cursor:pointer;font:inherit;color:inherit">PICK A FILE</button>
+            </div>
+          </div>
+          <div style="width:280px;flex:none;border:1px solid #17150f;background:#efebe2">
+            <div style="padding:13px 14px;border-bottom:1px solid #17150f">
+              <div style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#b4402c">ROADIE'S FOUR DRAFTS</div>
+              <div style="font:400 11.5px/1.4 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c;margin-top:4px">copy one into your own tool</div>
+            </div>
+            <sc-for list="{{ prompts }}" as="p" hint-placeholder-count="4">
+              <div style="display:flex;align-items:flex-start;gap:10px;padding:11px 14px;border-bottom:1px solid #d8d2c4">
+                <span style="font:500 10px/1.5 'IBM Plex Mono',monospace;color:#a49d8c;flex:none">{{ p.n }}</span>
+                <div style="flex:1;font:400 11.5px/1.5 'Helvetica Neue',Helvetica,sans-serif;color:#4a4638">{{ p.text }}</div>
+                <button type="button" style="flex:none;font:500 9px/1 'IBM Plex Mono',monospace;letter-spacing:.1em;color:#6f6a5c;background:transparent;border:1px solid #c9c2b1;padding:4px 7px;cursor:pointer">COPY</button>
+              </div>
+            </sc-for>
+            <div style="padding:12px 14px">
+              <button type="button" style="width:100%;padding:9px;background:transparent;color:#17150f;border:1px solid #17150f;font:500 10px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;cursor:pointer">LET ROADIE MAKE IT</button>
+              <div style="font:400 11px/1.45 'Helvetica Neue',Helvetica,sans-serif;color:#8e3122;margin-top:8px">costs Veo credits — off unless you turn it on in settings</div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ needCard }}">
+        <div style="max-width:700px;display:grid;grid-template-columns:repeat(2,1fr);gap:16px">
+          <div>
+            <div style="aspect-ratio:7/5;outline:2px solid #b4402c;background:{{ recArt }}"></div>
+            <div style="display:flex;align-items:center;gap:10px;margin-top:9px">
+              <span style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#b4402c">IN USE</span>
+              <button type="button" style="margin-left:auto;font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;color:#17150f;background:transparent;border:1px solid #17150f;padding:6px 12px;cursor:pointer">DOWNLOAD</button>
+            </div>
+          </div>
+          <div>
+            <div style="aspect-ratio:7/5;outline:1px solid #c9c2b1;background:{{ recArt }};opacity:.5"></div>
+            <button type="button" style="margin-top:9px;font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;color:#6f6a5c;background:transparent;border:0;padding:0;cursor:pointer">USE THIS ONE INSTEAD</button>
+          </div>
+          <div>
+            <div style="aspect-ratio:7/5;outline:1px solid #c9c2b1;background:{{ recArt }};opacity:.5"></div>
+            <button type="button" style="margin-top:9px;font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;color:#6f6a5c;background:transparent;border:0;padding:0;cursor:pointer">USE THIS ONE INSTEAD</button>
+          </div>
+          <div>
+            <div style="aspect-ratio:7/5;outline:1px solid #c9c2b1;background:{{ recArt }};opacity:.5"></div>
+            <button type="button" style="margin-top:9px;font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;color:#6f6a5c;background:transparent;border:0;padding:0;cursor:pointer">USE THIS ONE INSTEAD</button>
+          </div>
+          <div style="grid-column:1 / -1;display:flex;gap:22px;font:500 10px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;color:#6f6a5c">
+            <button type="button" style="background:transparent;border:0;padding:0;cursor:pointer;font:inherit;color:inherit">ASK FOR FIVE MORE</button>
+            <button type="button" style="background:transparent;border:0;padding:0;cursor:pointer;font:inherit;color:inherit">EDIT THE PROMPT</button>
+            <button type="button" style="background:transparent;border:0;padding:0;cursor:pointer;font:inherit;color:inherit">UPLOAD MY OWN</button>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ needTags }}">
+        <div style="max-width:820px;display:flex;flex-direction:column;gap:18px">
+          <div style="display:flex;gap:16px">
+            <div style="flex:1;border:1px solid #17150f;padding:16px;display:flex;gap:14px;align-items:center;background:#f7f4ee">
+              <div style="width:84px;height:84px;flex:none;background:#17150f;background-image:repeating-linear-gradient(90deg,#f7f4ee 0 5px,#17150f 5px 10px),repeating-linear-gradient(0deg,#f7f4ee 0 5px,#17150f 5px 10px);background-blend-mode:multiply"></div>
+              <div>
+                <div style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#6f6a5c">THE SLEEVE</div>
+                <div style="font:500 12px/1.5 'IBM Plex Mono',monospace;color:#b4402c;margin-top:7px;word-break:break-all">curator:album:{{ recId }}</div>
+                <div style="font:400 11.5px/1 'Helvetica Neue',Helvetica,sans-serif;color:#8d8778;margin-top:7px">not written yet</div>
+              </div>
+            </div>
+            <div style="flex:1;border:1px solid #d8d2c4;padding:16px;display:flex;gap:14px;align-items:center;background:#efebe2">
+              <div style="width:84px;height:84px;flex:none;background:#17150f;background-image:repeating-linear-gradient(90deg,#efebe2 0 4px,#17150f 4px 8px),repeating-linear-gradient(0deg,#efebe2 0 4px,#17150f 4px 8px);background-blend-mode:multiply"></div>
+              <div>
+                <div style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#6f6a5c">THE SHELF CARD</div>
+                <div style="font:500 12px/1.5 'IBM Plex Mono',monospace;color:#b4402c;margin-top:7px;word-break:break-all">curator:card:{{ recId }}</div>
+                <div style="font:400 11.5px/1 'Helvetica Neue',Helvetica,sans-serif;color:#3f7d4e;margin-top:7px">✓ written</div>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;gap:22px;font:500 10px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;color:#6f6a5c">
+            <button type="button" style="background:transparent;border:0;padding:0;cursor:pointer;font:inherit;color:inherit">SEND THIS RECORD TO THE FLIPPER</button>
+            <button type="button" style="background:transparent;border:0;padding:0;cursor:pointer;font:inherit;color:inherit">DOWNLOAD .NFC</button>
+            <button type="button" style="background:transparent;border:0;padding:0;cursor:pointer;font:inherit;color:inherit">HOW DO I WRITE THESE?</button>
+          </div>
+          <div style="border-top:1px solid #d8d2c4;padding-top:18px">
+            <div style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#6f6a5c;margin-bottom:12px">THEN CHECK THEM</div>
+            <div style="display:flex;align-items:center;gap:16px;border:1px solid #17150f;padding:14px 16px;background:#efebe2">
+              <div style="flex:1;font:400 13px/1.55 'Helvetica Neue',Helvetica,sans-serif">Tap each tag on your phone and confirm it opens the right record. <span style="color:#8e3122">This is where the bugs turn up.</span></div>
+              <button type="button" style="flex:none;padding:12px 20px;background:#17150f;color:#f2efe8;border:0;font:500 10.5px/1 'IBM Plex Mono',monospace;letter-spacing:.16em;cursor:pointer;white-space:nowrap">TAGS VERIFIED</button>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+    </div>
+  </div>
+</main>
+</sc-if>
+
+<!-- ============ THE ROOM ============ -->
+<sc-if value="{{ isRoom }}">
+<main style="flex:1;display:flex;flex-direction:column;min-height:0;background:#0d0a10">
+<div style="flex:1;position:relative;overflow:hidden;min-height:320px">
+  <div style="position:absolute;inset:-6%;background:{{ roomWash }};animation:ppDrift 26s ease-in-out infinite"></div>
+
+  <div style="position:absolute;left:0;right:0;top:0;display:flex;align-items:center;gap:16px;padding:18px 24px;z-index:3">
+    <button type="button" onClick="{{ goRecord }}" style="font:500 10px/1 'IBM Plex Mono',monospace;letter-spacing:.16em;color:rgba(255,255,255,.8);background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.35);padding:9px 15px;cursor:pointer;white-space:nowrap;flex:none">← THE RECORD</button>
+    <div style="font:400 17px/1 'Archivo Black','Helvetica Neue',sans-serif;color:#fff;letter-spacing:-.01em">{{ recTitle }}</div>
+    <div style="font:400 13px/1 'Helvetica Neue',Helvetica,sans-serif;color:rgba(255,255,255,.5)">{{ recByline }}</div>
+    <button type="button" onClick="{{ toggleArmed }}" style="{{ armStyle }}">{{ armLabel }}</button>
+  </div>
+
+  <div style="position:absolute;inset:74px 0 22px;z-index:2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px">
+    <div style="width:70%;flex:1;max-height:56%;border:1px solid rgba(255,255,255,.4);background:repeating-linear-gradient(135deg,rgba(255,255,255,.11) 0 10px,transparent 10px 20px);display:grid;place-items:center">
+      <span style="font:500 10px/1 'IBM Plex Mono',monospace;letter-spacing:.2em;color:rgba(255,255,255,.6)">THE VISUALIZER, LOOPING</span>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:8px;flex:none">
+      <div style="width:70px;height:70px;border:1px solid rgba(255,255,255,.45);background:repeating-linear-gradient(135deg,rgba(255,255,255,.2) 0 6px,transparent 6px 12px)"></div>
+      <span style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.2em;color:rgba(255,255,255,.4);white-space:nowrap">THE SLEEVE, ON THE STAND</span>
+    </div>
+  </div>
+</div>
+
+  <div style="flex:none;background:rgba(10,7,12,.94);border-top:1px solid rgba(255,255,255,.25);padding:18px 24px;display:flex;align-items:flex-start;gap:34px;flex-wrap:wrap">
+
+    <div style="width:250px;flex:none">
+      <div style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.18em;color:rgba(255,255,255,.5);margin-bottom:14px">HOW THE LIGHTS MOVE <span style="color:#e0a24a">· THIS RECORD</span></div>
+      <div style="display:flex;flex-direction:column;gap:13px">
+        <sc-for list="{{ movers }}" as="m" hint-placeholder-count="3">
+          <div>
+            <div style="display:flex;justify-content:space-between;font:400 11.5px/1 'Helvetica Neue',Helvetica,sans-serif;color:rgba(255,255,255,.8)">
+              <span>{{ m.label }}</span><span style="font-family:'IBM Plex Mono',monospace;color:rgba(255,255,255,.55)">{{ m.display }}</span>
+            </div>
+            <input type="range" min="{{ m.min }}" max="{{ m.max }}" value="{{ m.value }}" data-k="{{ m.key }}" onInput="{{ onMover }}" style="width:100%;margin:6px 0 0;accent-color:#e0a24a;cursor:pointer">
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="flex:none">
+      <div style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.18em;color:rgba(255,255,255,.5);margin-bottom:14px">LIGHT PATTERN</div>
+      <div style="display:flex;flex-direction:column;gap:9px;align-items:flex-start">
+        <button type="button" data-m="crossfade" onClick="{{ setPattern }}" style="{{ mo1 }}">CROSSFADE</button>
+        <button type="button" data-m="pulse" onClick="{{ setPattern }}" style="{{ mo2 }}">PULSE</button>
+        <button type="button" data-m="still" onClick="{{ setPattern }}" style="{{ mo3 }}">HOLD STILL</button>
+      </div>
+    </div>
+
+    <div style="flex:none">
+      <div style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.18em;color:rgba(255,255,255,.5);margin-bottom:14px">WHILE YOU LOOK</div>
+      <div style="display:flex;flex-direction:column;gap:9px;align-items:flex-start">
+        <button type="button" style="font:500 10px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;color:rgba(255,255,255,.85);background:transparent;border:1px solid rgba(255,255,255,.35);padding:8px 14px;cursor:pointer;white-space:nowrap">♪  PLAY THE ALBUM</button>
+        <button type="button" style="font:500 10px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;color:rgba(255,255,255,.85);background:transparent;border:1px solid rgba(255,255,255,.35);padding:8px 14px;cursor:pointer;white-space:nowrap">LIFT THE SLEEVE</button>
+        <button type="button" style="font:500 10px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;color:rgba(255,255,255,.85);background:transparent;border:1px solid rgba(255,255,255,.35);padding:8px 14px;cursor:pointer;white-space:nowrap">PLACE ANOTHER</button>
+      </div>
+    </div>
+
+    <div style="margin-left:auto;display:flex;flex-direction:column;gap:10px;align-items:flex-end">
+      <div style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.18em;color:rgba(255,255,255,.5)">SIGN IT OFF</div>
+      <button type="button" onClick="{{ approve }}" style="padding:15px 30px;background:#f2efe8;color:#17150f;border:0;font:400 15px/1 'Archivo Black','Helvetica Neue',sans-serif;letter-spacing:-.01em;cursor:pointer;white-space:nowrap">Looks right ✓</button>
+      <span style="font:400 11.5px/1.5 'Helvetica Neue',Helvetica,sans-serif;color:rgba(255,255,255,.45);max-width:220px;text-align:right">The lights are only signed off from in here.</span>
+    </div>
+  </div>
+</main>
+</sc-if>
+
+<!-- ============ ADD ============ -->
+<sc-if value="{{ isAdd }}">
+<main style="flex:1;display:flex;flex-direction:column">
+  <div style="border-bottom:1px solid #d8d2c4;padding:24px;background:#efebe2">
+    <div style="font:400 30px/1 'Archivo Black','Helvetica Neue',sans-serif;letter-spacing:-.02em">Add a record</div>
+  </div>
+  <div style="display:flex;border-bottom:1px solid #d8d2c4;font:500 10.5px/1 'IBM Plex Mono',monospace;letter-spacing:.14em">
+    <span style="padding:13px 20px;background:#17150f;color:#f2efe8">SEARCH</span>
+    <span style="padding:13px 20px;color:#6f6a5c;border-right:1px solid #d8d2c4">TYPE IT IN</span>
+    <button type="button" onClick="{{ goDiscogs }}" style="padding:13px 20px;color:#6f6a5c;border:0;border-right:1px solid #d8d2c4;background:transparent;font:inherit;letter-spacing:.14em;cursor:pointer">SYNC DISCOGS ›</button>
+  </div>
+  <div style="padding:24px;display:flex;flex-direction:column;gap:20px">
+    <input type="text" value="bitches brew" style="font:400 22px/1 'Helvetica Neue',Helvetica,sans-serif;color:#17150f;background:transparent;border:0;border-bottom:2px solid #17150f;padding:10px 2px;max-width:560px;outline:none">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid #d8d2c4;border-left:1px solid #d8d2c4;max-width:1100px">
+      <div style="padding:14px;border-right:1px solid #d8d2c4;border-bottom:1px solid #d8d2c4"><div style="aspect-ratio:1;outline:1px solid #17150f;background:repeating-linear-gradient(135deg,#341814 0 7px,#A8543A 7px 14px)"></div><div style="margin-top:9px;font:600 12.5px/1.3 'Helvetica Neue',Helvetica,sans-serif">Bitches Brew</div><div style="font:400 11px/1.4 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c">Miles Davis · 1970</div></div>
+      <div style="padding:14px;border-right:1px solid #d8d2c4;border-bottom:1px solid #d8d2c4"><div style="aspect-ratio:1;outline:1px solid #c9c2b1;background:repeating-linear-gradient(135deg,#d9d2c3 0 6px,#eae5da 6px 12px)"></div><div style="margin-top:9px;font:600 12.5px/1.3 'Helvetica Neue',Helvetica,sans-serif">Bitches Brew (Legacy)</div><div style="font:400 11px/1.4 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c">Miles Davis · 2010</div></div>
+      <div style="padding:14px;border-right:1px solid #d8d2c4;border-bottom:1px solid #d8d2c4"><div style="aspect-ratio:1;outline:1px solid #c9c2b1;background:repeating-linear-gradient(135deg,#d9d2c3 0 6px,#eae5da 6px 12px)"></div><div style="margin-top:9px;font:600 12.5px/1.3 'Helvetica Neue',Helvetica,sans-serif">Live-Evil</div><div style="font:400 11px/1.4 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c">Miles Davis · 1971</div></div>
+      <div style="padding:14px;border-right:1px solid #d8d2c4;border-bottom:1px solid #d8d2c4"><div style="aspect-ratio:1;outline:1px solid #c9c2b1;background:repeating-linear-gradient(135deg,#d9d2c3 0 6px,#eae5da 6px 12px)"></div><div style="margin-top:9px;font:600 12.5px/1.3 'Helvetica Neue',Helvetica,sans-serif">A Tribute to Jack Johnson</div><div style="font:400 11px/1.4 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c">Miles Davis · 1971</div></div>
+    </div>
+    <div style="border-top:1px solid #d8d2c4;padding-top:14px;font:400 12.5px/1 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c">added just now: <b style="color:#17150f;font-weight:600">Kind of Blue</b> · <b style="color:#17150f;font-weight:600">Sketches of Spain</b> — keep searching, they'll appear in your collection</div>
+  </div>
+</main>
+</sc-if>
+
+<!-- ============ DISCOGS ============ -->
+<sc-if value="{{ isDiscogs }}">
+<main style="flex:1;display:flex;flex-direction:column">
+  <div style="border-bottom:1px solid #d8d2c4;padding:24px;background:#efebe2;display:flex;align-items:flex-end;gap:20px">
+    <div style="font:400 30px/1 'Archivo Black','Helvetica Neue',sans-serif;letter-spacing:-.02em">Your Discogs collection</div>
+    <button type="button" style="margin-left:auto;padding:13px 22px;background:transparent;color:#17150f;border:1px solid #17150f;font:500 11px/1 'IBM Plex Mono',monospace;letter-spacing:.16em;cursor:pointer">SYNC NOW</button>
+  </div>
+  <div style="display:flex;border-bottom:1px solid #d8d2c4">
+    <div style="flex:1;padding:15px 20px;border-right:1px solid #d8d2c4"><div style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#6f6a5c">IN DISCOGS</div><div style="font:400 30px/1 'Archivo Black','Helvetica Neue',sans-serif;margin-top:7px">312</div></div>
+    <div style="flex:1;padding:15px 20px;border-right:1px solid #d8d2c4"><div style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#6f6a5c">IN CURATOR</div><div style="font:400 30px/1 'Archivo Black','Helvetica Neue',sans-serif;margin-top:7px">310</div></div>
+    <div style="flex:1;padding:15px 20px;border-right:1px solid #d8d2c4"><div style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#6f6a5c">CAME IN TODAY</div><div style="font:400 30px/1 'Archivo Black','Helvetica Neue',sans-serif;margin-top:7px">6</div></div>
+    <div style="flex:1.3;padding:15px 20px"><div style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#6f6a5c">LAST SYNCED</div><div style="font:400 14px/1.4 'Helvetica Neue',Helvetica,sans-serif;margin-top:9px">today, 18:40 · automatic</div></div>
+  </div>
+  <div style="padding:20px 24px;display:flex;flex-direction:column;gap:22px">
+    <div>
+      <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:14px">
+        <span style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#6f6a5c">CAME IN TODAY · 6</span>
+        <span style="font:400 12px/1 'Helvetica Neue',Helvetica,sans-serif;color:#8d8778">already in your collection — nothing to approve</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:14px;max-width:900px">
+        <div><div style="aspect-ratio:1;outline:1px solid #17150f;background:repeating-linear-gradient(135deg,#2C2409 0 6px,#B39A2E 6px 12px)"></div><div style="margin-top:8px;font:600 11.5px/1.3 'Helvetica Neue',Helvetica,sans-serif">Pet Sounds</div><div style="font:500 9px/1.4 'IBM Plex Mono',monospace;color:#b4402c;margin-top:2px">NEEDS LIGHTS</div></div>
+        <div><div style="aspect-ratio:1;outline:1px solid #17150f;background:repeating-linear-gradient(135deg,#241C29 0 6px,#6B5478 6px 12px)"></div><div style="margin-top:8px;font:600 11.5px/1.3 'Helvetica Neue',Helvetica,sans-serif">Horses</div><div style="font:500 9px/1.4 'IBM Plex Mono',monospace;color:#b4402c;margin-top:2px">NEEDS LIGHTS</div></div>
+        <div><div style="aspect-ratio:1;outline:1px solid #17150f;background:repeating-linear-gradient(135deg,#132632 0 6px,#1F4F6B 6px 12px)"></div><div style="margin-top:8px;font:600 11.5px/1.3 'Helvetica Neue',Helvetica,sans-serif">Dummy</div><div style="font:500 9px/1.4 'IBM Plex Mono',monospace;color:#b4402c;margin-top:2px">NEEDS LIGHTS</div></div>
+        <div><div style="aspect-ratio:1;outline:2px solid #b4402c;background:repeating-linear-gradient(135deg,#1A241D 0 6px,#4F7A5A 6px 12px)"></div><div style="margin-top:8px;font:600 11.5px/1.3 'Helvetica Neue',Helvetica,sans-serif">Spiderland</div><div style="font:500 9px/1.4 'IBM Plex Mono',monospace;color:#b4402c;margin-top:2px">ROADIE IS ON IT</div></div>
+        <div><div style="aspect-ratio:1;outline:2px solid #b4402c;background:repeating-linear-gradient(135deg,#341814 0 6px,#A8543A 6px 12px)"></div><div style="margin-top:8px;font:600 11.5px/1.3 'Helvetica Neue',Helvetica,sans-serif">Maggot Brain</div><div style="font:500 9px/1.4 'IBM Plex Mono',monospace;color:#b4402c;margin-top:2px">ROADIE IS ON IT</div></div>
+        <div><div style="aspect-ratio:1;border:1px dashed #b3ab99"></div><div style="margin-top:8px;font:600 11.5px/1.3 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c">Trout Mask Replica</div><div style="font:500 9px/1.4 'IBM Plex Mono',monospace;color:#8d8778;margin-top:2px">NEXT IN LINE</div></div>
+      </div>
+    </div>
+    <div style="border-top:1px solid #d8d2c4;padding-top:18px;max-width:900px">
+      <div style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#b4402c">COULDN'T MATCH TO SPOTIFY · 2</div>
+      <div style="font:400 12px/1 'Helvetica Neue',Helvetica,sans-serif;color:#8d8778;margin-top:6px;margin-bottom:14px">These stay here until you deal with them — they never leave this list on their own.</div>
+      <div style="display:flex;align-items:center;gap:16px;border:1px solid #b4402c;padding:11px 14px;background:#f7ece9;margin-bottom:9px">
+        <div style="flex:1;font:400 13px/1.4 'Helvetica Neue',Helvetica,sans-serif"><b style="font-weight:600">Untitled white label</b> <span style="color:#8e3122">— no Spotify release matches this pressing</span></div>
+        <button type="button" style="flex:none;padding:8px 14px;background:#17150f;color:#f2efe8;border:0;font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;cursor:pointer">SEARCH BY HAND</button>
+        <button type="button" style="flex:none;font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;color:#8e3122;background:transparent;border:0;padding:0;cursor:pointer">SKIP</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:16px;border:1px solid #b4402c;padding:11px 14px;background:#f7ece9">
+        <div style="flex:1;font:400 13px/1.4 'Helvetica Neue',Helvetica,sans-serif"><b style="font-weight:600">Live at Leeds (bootleg)</b> <span style="color:#8e3122">— found three possible matches</span></div>
+        <button type="button" style="flex:none;padding:8px 14px;background:#17150f;color:#f2efe8;border:0;font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;cursor:pointer">PICK ONE</button>
+        <button type="button" style="flex:none;font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;color:#8e3122;background:transparent;border:0;padding:0;cursor:pointer">SKIP</button>
+      </div>
+      <div style="font:400 11.5px/1.6 'Helvetica Neue',Helvetica,sans-serif;color:#8d8778;margin-top:16px;padding-top:14px;border-top:1px solid #d8d2c4">Multiple pressings of the same record collapse into one. Removing something in Discogs leaves it here — delete it from your collection if you want it gone.</div>
+    </div>
+  </div>
+</main>
+</sc-if>
+
+<!-- ============ SYSTEM ============ -->
+<sc-if value="{{ isSystem }}">
+<main style="flex:1;display:flex;flex-direction:column">
+  <div style="border-bottom:1px solid #d8d2c4;padding:24px;background:#efebe2;display:flex;align-items:center;gap:20px">
+    <div style="font:400 30px/1 'Archivo Black','Helvetica Neue',sans-serif;letter-spacing:-.02em">System</div>
+    <button type="button" style="margin-left:auto;padding:13px 22px;background:#17150f;color:#f2efe8;border:0;font:500 11px/1 'IBM Plex Mono',monospace;letter-spacing:.16em;cursor:pointer">SYNC EVERYTHING</button>
+  </div>
+  <div style="display:flex;border-bottom:1px solid #d8d2c4">
+    <div style="flex:1;padding:16px 20px;border-right:1px solid #d8d2c4;display:flex;gap:11px;align-items:flex-start"><span style="width:8px;height:8px;border-radius:50%;background:#3f7d4e;flex:none;margin-top:5px"></span><div><div style="font:600 13px/1.3 'Helvetica Neue',Helvetica,sans-serif">Conductor</div><div style="font:400 11.5px/1.4 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c;margin-top:2px">the lights</div><div style="font:500 10px/1.4 'IBM Plex Mono',monospace;color:#a49d8c;margin-top:4px">:4741</div></div></div>
+    <div style="flex:1;padding:16px 20px;border-right:1px solid #d8d2c4;display:flex;gap:11px;align-items:flex-start"><span style="width:8px;height:8px;border-radius:50%;background:#3f7d4e;flex:none;margin-top:5px"></span><div><div style="font:600 13px/1.3 'Helvetica Neue',Helvetica,sans-serif">Backdrop</div><div style="font:400 11.5px/1.4 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c;margin-top:2px">the screen</div><div style="font:500 10px/1.4 'IBM Plex Mono',monospace;color:#a49d8c;margin-top:4px">:4740</div></div></div>
+    <div style="flex:1.4;padding:16px 20px;border-right:1px solid #d8d2c4;display:flex;gap:11px;align-items:flex-start;background:#f7ece9"><span style="width:8px;height:8px;border-radius:50%;background:#b4402c;flex:none;margin-top:5px"></span><div><div style="font:600 13px/1.3 'Helvetica Neue',Helvetica,sans-serif;color:#8e3122">Stylus</div><div style="font:400 11.5px/1.4 'Helvetica Neue',Helvetica,sans-serif;color:#8e3122;margin-top:2px">the stand — not answering</div><div style="font:500 10px/1.4 'IBM Plex Mono',monospace;color:#8e3122;margin-top:4px">connect ECONNREFUSED</div><div style="display:flex;gap:14px;margin-top:6px"><button type="button" style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.12em;color:#8e3122;background:transparent;border:1px solid #b4402c;padding:4px 9px;cursor:pointer">RETRY</button><button type="button" style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.12em;color:#8e3122;background:transparent;border:0;padding:0;cursor:pointer">COPY ERROR</button></div></div></div>
+    <div style="flex:1;padding:16px 20px;display:flex;gap:11px;align-items:flex-start"><span style="width:8px;height:8px;border-radius:50%;background:#3f7d4e;flex:none;margin-top:5px"></span><div><div style="font:600 13px/1.3 'Helvetica Neue',Helvetica,sans-serif">Amp</div><div style="font:400 11.5px/1.4 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c;margin-top:2px">the sound</div><div style="font:500 10px/1.4 'IBM Plex Mono',monospace;color:#a49d8c;margin-top:4px">:4743</div></div></div>
+  </div>
+  <div style="padding:18px 24px;border-bottom:1px solid #d8d2c4;max-width:760px">
+    <div style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#6f6a5c;margin-bottom:14px">IN FLIGHT · 2</div>
+    <div style="display:flex;align-items:center;gap:16px;padding:9px 0;border-bottom:1px solid #d8d2c4;font:400 13px/1.4 'Helvetica Neue',Helvetica,sans-serif">
+      <span style="flex:1"><b style="font-weight:600">media-sync</b> <span style="color:#8d8778">· the whole collection</span></span>
+      <div style="width:110px;height:5px;background:#ded8c9;border:1px solid #c9c2b1;flex:none"><div style="width:23%;height:100%;background:#17150f"></div></div>
+      <span style="font:500 11px/1 'IBM Plex Mono',monospace;color:#8d8778;width:42px;text-align:right;flex:none">3/13</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:16px;padding:9px 0;font:400 13px/1.4 'Helvetica Neue',Helvetica,sans-serif">
+      <span style="flex:1"><b style="font-weight:600">visualizer upload</b> <span style="color:#8d8778">· Purple Rain → Backdrop</span></span>
+      <div style="width:110px;height:5px;background:#ded8c9;border:1px solid #c9c2b1;flex:none"><div style="width:68%;height:100%;background:#b4402c"></div></div>
+      <span style="font:500 11px/1 'IBM Plex Mono',monospace;color:#8d8778;width:42px;text-align:right;flex:none">68%</span>
+    </div>
+  </div>
+  <div style="padding:20px 24px;display:flex;gap:44px">
+    <div style="flex:1;max-width:460px">
+      <div style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#6f6a5c;margin-bottom:14px">PLAYING RIGHT NOW</div>
+      <div style="display:flex;gap:14px;padding:9px 0;border-bottom:1px solid #d8d2c4;font:400 13px/1.4 'Helvetica Neue',Helvetica,sans-serif"><span style="width:66px;flex:none;font:500 10px/1.5 'IBM Plex Mono',monospace;letter-spacing:.12em;color:#8d8778">SCREEN</span><span>Rumours</span></div>
+      <div style="display:flex;gap:14px;padding:9px 0;border-bottom:1px solid #d8d2c4;font:400 13px/1.4 'Helvetica Neue',Helvetica,sans-serif"><span style="width:66px;flex:none;font:500 10px/1.5 'IBM Plex Mono',monospace;letter-spacing:.12em;color:#8d8778">LIGHTS</span><span>living room, crossfade</span></div>
+      <div style="display:flex;gap:14px;padding:9px 0;border-bottom:1px solid #d8d2c4;font:400 13px/1.4 'Helvetica Neue',Helvetica,sans-serif"><span style="width:66px;flex:none;font:500 10px/1.5 'IBM Plex Mono',monospace;letter-spacing:.12em;color:#8d8778">SOUND</span><span>playing → Living Room</span></div>
+      <div style="display:flex;gap:14px;padding:9px 0;font:400 13px/1.4 'Helvetica Neue',Helvetica,sans-serif;color:#8e3122"><span style="width:66px;flex:none;font:500 10px/1.5 'IBM Plex Mono',monospace;letter-spacing:.12em">STAND</span><span>can't tell — Stylus is down</span></div>
+    </div>
+    <div style="flex:1;max-width:520px">
+      <div style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#6f6a5c;margin-bottom:14px">RECORDS THAT AREN'T EVERYWHERE THEY SHOULD BE</div>
+      <div style="display:flex;gap:14px;padding:9px 0;border-bottom:1px solid #d8d2c4;font:400 13px/1.4 'Helvetica Neue',Helvetica,sans-serif"><span style="flex:1"><b style="font-weight:600">Voodoo</b> — D'Angelo</span><span style="font:500 10px/1.5 'IBM Plex Mono',monospace;letter-spacing:.1em;color:#8e3122">NO VISUALIZER ON BACKDROP</span></div>
+      <div style="display:flex;gap:14px;padding:9px 0;border-bottom:1px solid #d8d2c4;font:400 13px/1.4 'Helvetica Neue',Helvetica,sans-serif"><span style="flex:1"><b style="font-weight:600">Purple Rain</b> — Prince</span><span style="font:500 10px/1.5 'IBM Plex Mono',monospace;letter-spacing:.1em;color:#8e3122">NOT ON CONDUCTOR</span></div>
+      <div style="display:flex;gap:14px;padding:9px 0;font:400 13px/1.4 'Helvetica Neue',Helvetica,sans-serif"><span style="flex:1"><b style="font-weight:600">Rachel's Greatest Hits</b></span><span style="font:500 10px/1.5 'IBM Plex Mono',monospace;letter-spacing:.1em;color:#8e3122">NEVER MATCHED</span></div>
+    </div>
+  </div>
+</main>
+</sc-if>
+
+<!-- ============ SETTINGS ============ -->
+<sc-if value="{{ isSettings }}">
+<main style="flex:1;display:flex;flex-direction:column">
+  <div style="border-bottom:1px solid #d8d2c4;padding:24px;background:#efebe2">
+    <div style="font:400 30px/1 'Archivo Black','Helvetica Neue',sans-serif;letter-spacing:-.02em">Settings</div>
+  </div>
+  <div style="padding:24px;display:flex;gap:56px;max-width:1100px">
+    <div style="flex:1;display:flex;flex-direction:column;gap:20px">
+      <div style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#6f6a5c">THE ROOM AND THE SERVICES</div>
+      <label style="display:flex;flex-direction:column;gap:7px"><span style="font:400 12.5px/1 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c">Which room</span><span style="font:400 15px/1 'Helvetica Neue',Helvetica,sans-serif;border-bottom:1px solid #c9c2b1;padding-bottom:8px">Living Room</span></label>
+      <label style="display:flex;flex-direction:column;gap:7px"><span style="font:400 12.5px/1 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c">Conductor</span><span style="font:500 13px/1 'IBM Plex Mono',monospace;border-bottom:1px solid #c9c2b1;padding-bottom:8px">http://conductor.local:4741</span></label>
+      <label style="display:flex;flex-direction:column;gap:7px"><span style="font:400 12.5px/1 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c">Backdrop</span><span style="font:500 13px/1 'IBM Plex Mono',monospace;border-bottom:1px solid #c9c2b1;padding-bottom:8px">http://backdrop.local:4740</span></label>
+      <label style="display:flex;flex-direction:column;gap:7px"><span style="font:400 12.5px/1 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c">Stylus</span><span style="font:500 13px/1 'IBM Plex Mono',monospace;border-bottom:1px solid #c9c2b1;padding-bottom:8px">http://stylus.local:4742</span></label>
+      <label style="display:flex;flex-direction:column;gap:7px"><span style="font:400 12.5px/1 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c">Amp</span><span style="font:500 13px/1 'IBM Plex Mono',monospace;border-bottom:1px solid #c9c2b1;padding-bottom:8px">http://localhost:4743</span></label>
+      <div style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#6f6a5c;margin-top:8px">ACCOUNTS</div>
+      <div style="display:flex;align-items:center;gap:10px;font:400 13px/1 'Helvetica Neue',Helvetica,sans-serif;padding-bottom:12px;border-bottom:1px solid #d8d2c4"><span style="width:8px;height:8px;border-radius:50%;background:#3f7d4e;flex:none"></span>Spotify — connected<button type="button" style="margin-left:auto;font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;color:#6f6a5c;background:transparent;border:0;padding:0;cursor:pointer">CHANGE</button></div>
+      <div style="display:flex;align-items:center;gap:10px;font:400 13px/1 'Helvetica Neue',Helvetica,sans-serif;padding-bottom:12px;border-bottom:1px solid #d8d2c4"><span style="width:8px;height:8px;border-radius:50%;background:#3f7d4e;flex:none"></span>Gemini — connected<button type="button" style="margin-left:auto;font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;color:#6f6a5c;background:transparent;border:0;padding:0;cursor:pointer">CHANGE</button></div>
+      <div style="display:flex;align-items:center;gap:10px;font:400 13px/1 'Helvetica Neue',Helvetica,sans-serif"><span style="width:8px;height:8px;border-radius:50%;background:#3f7d4e;flex:none"></span>Discogs — connected<button type="button" style="margin-left:auto;font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;color:#6f6a5c;background:transparent;border:0;padding:0;cursor:pointer">CHANGE</button></div>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:20px">
+      <div style="font:500 9.5px/1 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#6f6a5c">WHAT ROADIE MAY DO ON ITS OWN</div>
+      <div style="display:flex;gap:12px;align-items:flex-start;padding-bottom:16px;border-bottom:1px solid #d8d2c4">
+        <span style="width:15px;height:15px;flex:none;background:#17150f;margin-top:2px"></span>
+        <div><div style="font:600 13.5px/1.3 'Helvetica Neue',Helvetica,sans-serif">Draw card art</div><div style="font:400 12px/1.5 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c;margin-top:4px">Cheap — about five images a go.</div></div>
+      </div>
+      <div style="display:flex;gap:12px;align-items:flex-start;padding-bottom:16px;border-bottom:1px solid #d8d2c4">
+        <span style="width:15px;height:15px;flex:none;border:1px solid #b3ab99;margin-top:2px"></span>
+        <div><div style="font:600 13.5px/1.3 'Helvetica Neue',Helvetica,sans-serif">Make the visualizers</div><div style="font:400 12px/1.5 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c;margin-top:4px">Metered and pricey. Off — Roadie just drafts four prompts for you.</div></div>
+      </div>
+      <div style="display:flex;gap:12px;align-items:flex-start;padding-bottom:16px;border-bottom:1px solid #d8d2c4">
+        <span style="width:15px;height:15px;flex:none;background:#17150f;margin-top:2px"></span>
+        <div><div style="font:600 13.5px/1.3 'Helvetica Neue',Helvetica,sans-serif">Suggest a second palette</div><div style="font:400 12px/1.5 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c;margin-top:4px">The "from the feeling" one, based on how the record sounds.</div></div>
+      </div>
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <span style="width:15px;height:15px;flex:none;background:#17150f;margin-top:2px"></span>
+        <div><div style="font:600 13.5px/1.3 'Helvetica Neue',Helvetica,sans-serif">Follow my Discogs collection</div><div style="font:400 12px/1.5 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c;margin-top:4px">Checks once a day and brings new records in.</div></div>
+      </div>
+    </div>
+  </div>
+</main>
+</sc-if>
+
+<!-- ============ READY TOAST ============ -->
+<sc-if value="{{ toastOpen }}">
+  <button type="button" onClick="{{ toastToRoom }}" style="position:fixed;right:26px;bottom:26px;z-index:60;display:flex;align-items:center;gap:14px;background:#f7f4ee;border:1px solid #17150f;padding:14px 16px;box-shadow:0 10px 30px rgba(23,21,15,.24);cursor:pointer;text-align:left;font:inherit;max-width:360px;animation:ppToast 5s ease forwards">
+    <div style="width:46px;height:46px;flex:none;outline:1px solid #17150f;background:{{ toastArt }}"></div>
+    <div style="flex:1">
+      <div style="font:400 16px/1.15 'Archivo Black','Helvetica Neue',sans-serif;letter-spacing:-.01em">{{ toastTitle }} is ready</div>
+      <div style="font:400 11.5px/1.4 'Helvetica Neue',Helvetica,sans-serif;color:#6f6a5c;margin-top:4px">Lights, visualizer, card and tags — all done. Tap to watch it.</div>
+    </div>
+  </button>
+</sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1360,&quot;height&quot;:860}}">
+const ALBUMS = [
+  { id: "2k7bxq9m", title: "Purple Rain", artist: "Prince and The Revolution", year: 1984, label: "Warner Bros.", genre: "funk",
+    need: "lights", art: ["#4B0082", "#8A2BE2"], pal: ["#4B0082", "#8A2BE2", "#FFD700"], feel: ["#2B0B3F", "#B23AEE", "#F7E7CE"],
+    note: "The sleeve is nearly monochrome, but the record is a purple-drenched arena show. Roadie thinks the stage lighting is the truer read \u2014 your call." },
+  { id: "9xk2mp4q", title: "Aja", artist: "Steely Dan", year: 1977, label: "ABC", genre: "rock",
+    need: "visualizer", art: ["#7a1f2b", "#c9403f"], pal: ["#1A1A1A", "#C9403F", "#E8D9C0"], feel: ["#2A2118", "#B8703A", "#EFE3CC"],
+    note: "Red, black and cream, straight off the sleeve \u2014 and the record agrees with it. Nothing to argue about here." },
+  { id: "6m3ntb8v", title: "Kind of Blue", artist: "Miles Davis", year: 1959, label: "Columbia", genre: "jazz",
+    need: "roadie", art: ["#1f3d52", "#3d7ea6"], pal: ["#132632", "#1F4F6B", "#8FB8CE"], feel: ["#0F1C26", "#37647E", "#C7D8E2"],
+    note: "Cool and smoky. Roadie only just pulled these \u2014 nobody has looked at them yet." },
+  { id: "5j9wqz1r", title: "Blue", artist: "Joni Mitchell", year: 1971, label: "Reprise", genre: "folk",
+    need: null, art: ["#123a5c", "#2f6fa8"], pal: ["#0E2C47", "#2F6FA8", "#BFD9EE"], feel: ["#0B2036", "#4A82B4", "#E4EEF6"],
+    note: "One colour, three depths. It looked right in the room first time." },
+  { id: "4h8mzp2n", title: "Rumours", artist: "Fleetwood Mac", year: 1977, label: "Warner Bros.", genre: "rock",
+    need: null, art: ["#7a3a1f", "#c98a4b"], pal: ["#3B2412", "#B8703A", "#EFDCC0"], feel: ["#2E1B0E", "#C98A4B", "#F5E9D6"],
+    note: "Warm and dusty. Signed off last week." },
+  { id: "7pq3xk2b", title: "Voodoo", artist: "D'Angelo", year: 2000, label: "Virgin", genre: "soul",
+    need: "tags", art: ["#3b2412", "#8a5a2b"], pal: ["#241609", "#8A5A2B", "#D9A15B"], feel: ["#1A0F06", "#7A4A22", "#E4C79A"],
+    note: "Low, brown and close. The tags are written but not checked yet." },
+  { id: "1c5vnr7t", title: "Remain in Light", artist: "Talking Heads", year: 1980, label: "Sire", genre: "rock",
+    need: null, art: ["#5a4a1f", "#c9a83f"], pal: ["#2C2409", "#B39A2E", "#F0E4B0"], feel: ["#1F1A06", "#C9A83F", "#F7EFC9"],
+    note: "Acid yellow over red. Loud in the room, which is the point." },
+  { id: "8b2klm5w", title: "The Idler Wheel", artist: "Fiona Apple", year: 2012, label: "Epic", genre: "pop",
+    need: "lights", art: ["#33283a", "#6b5478"], pal: ["#241C29", "#6B5478", "#CFC1D8"], feel: ["#1A1420", "#8368A0", "#E6DCEE"],
+    note: "Roadie pulled greys off a black-and-white sleeve. The feeling palette is probably the better one." },
+  { id: "3n6ptx9d", title: "In Rainbows", artist: "Radiohead", year: 2007, label: "Self-released", genre: "rock",
+    need: "card", art: ["#2a3a2f", "#4f7a5a"], pal: ["#1A241D", "#4F7A5A", "#C6DCCC"], feel: ["#131B16", "#5E9A70", "#DCEDE1"],
+    note: "Barely started \u2014 the lights are pulled, nothing else is." },
+  { id: "0z4rjc6y", title: "Songs of Leonard Cohen", artist: "Leonard Cohen", year: 1967, label: "Columbia", genre: "folk",
+    need: "lights", art: ["#4a3a2a", "#8a7458"], pal: ["#2E241A", "#8A7458", "#DCD0BC"], feel: ["#221A12", "#9C8264", "#EDE4D4"],
+    note: "Sepia and quiet. Waiting on you to look at the lights." },
+  { id: "2w7fhd3k", title: "Bitches Brew", artist: "Miles Davis", year: 1970, label: "Columbia", genre: "jazz",
+    need: null, art: ["#5a2a22", "#a8543a"], pal: ["#341814", "#A8543A", "#E8BE9C"], feel: ["#24100C", "#C4664A", "#F3D8C4"],
+    note: "Hot orange against near-black. Signed off in June." }
+];
+
+const NEED_LABEL = { lights: "NEEDS LIGHTS", visualizer: "NEEDS VISUALIZER", card: "NEEDS CARD", tags: "NEEDS SIGN-OFF", roadie: "ROADIE IS ON IT" };
+const GROUP_ORDER = [["lights", "NEEDS LIGHTS"], ["visualizer", "NEEDS VISUALIZER"], ["card", "NEEDS CARD"], ["tags", "NEEDS SIGN-OFF"]];
+const DENSITIES = [[5, "DENSITY \u25aa\u25ab\u25ab"], [7, "DENSITY \u25aa\u25aa\u25ab"], [9, "DENSITY \u25aa\u25aa\u25aa"]];
+const ROLES = [["dominant", "the wall wash"], ["second", "the far corner"], ["accent", "the glow behind the stand"], ["fourth", "spare"], ["fifth", "spare"]];
+const PATTERNS = ["crossfade", "pulse", "still"];
+const PROMPTS = [
+  "Slow purple stage haze, one hard key light sweeping left to right, film grain, no cuts.",
+  "Rain on a lit window, violet neon behind, static camera, twenty seconds, seamless.",
+  "Slow dolly through velvet curtains, gold rim light, dust in the beam.",
+  "Film-grain smoke over a black stage, a single amber shaft, barely moving."
+];
+
+class Component extends DCLogic {
+  state = {
+    view: "collection", filter: "all", query: "", density: 1, logOpen: false,
+    selected: "2k7bxq9m", need: "lights", armed: false, pattern: "crossfade",
+    transition: 12, hold: 45, brightness: 70,
+    useFeeling: false, statIdx: 0, seed: Math.random(),
+    toast: null
+  };
+
+  componentDidMount() {
+    this.setState({ statIdx: Math.floor(Math.random() * 5) });
+  }
+  componentWillUnmount() { clearTimeout(this._t); }
+
+  album() { return ALBUMS.find(a => a.id === this.state.selected) || ALBUMS[0]; }
+  palette() { const a = this.album(); return this.state.useFeeling ? a.feel : a.pal; }
+  hatch(c) { return `repeating-linear-gradient(135deg, ${c[0]} 0 7px, ${c[1]} 7px 14px)`; }
+
+  navStyle(v) {
+    const on = this.state.view === v;
+    return `padding:0 18px;display:flex;align-items:center;border:0;border-right:1px solid #d8d2c4;cursor:pointer;white-space:nowrap;font:500 10.5px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;background:${on ? "#17150f" : "transparent"};color:${on ? "#f2efe8" : "#6f6a5c"}`;
+  }
+  filterStyle(f) {
+    const on = this.state.filter === f;
+    return `padding:13px 20px;border:0;border-right:1px solid #d8d2c4;cursor:pointer;font:inherit;letter-spacing:.14em;white-space:nowrap;background:${on ? "#17150f" : "transparent"};color:${on ? "#f2efe8" : "#6f6a5c"}`;
+  }
+  needStyle(w) {
+    const on = this.state.need === w;
+    return `display:flex;align-items:center;gap:9px;padding:11px 18px;border:0;border-bottom:2px solid ${on ? "#b4402c" : "transparent"};background:transparent;cursor:pointer;white-space:nowrap;font:400 13px/1 'Helvetica Neue',Helvetica,sans-serif;color:${on ? "#17150f" : "#6f6a5c"}`;
+  }
+  patternStyle(m) {
+    const on = this.state.pattern === m;
+    return `font:500 10px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;padding:8px 14px;cursor:pointer;white-space:nowrap;border:1px solid ${on ? "#f2efe8" : "rgba(255,255,255,.35)"};background:${on ? "#f2efe8" : "transparent"};color:${on ? "#17150f" : "rgba(255,255,255,.85)"}`;
+  }
+
+  shuffled() {
+    const arr = ALBUMS.slice();
+    let s = this.state.seed * 10000;
+    const rnd = () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
+    for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; }
+    return arr;
+  }
+
+  visible() {
+    const q = this.state.query.trim().toLowerCase();
+    return this.shuffled().filter(a => {
+      if (this.state.filter === "needs" && !a.need) return false;
+      if (this.state.filter === "ready" && a.need) return false;
+      if (q && !(a.title + " " + a.artist).toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }
+
+  tile(a) {
+    const ready = !a.need, busy = a.need === "roadie";
+    return {
+      id: a.id, title: a.title, byline: `${a.artist} \u00b7 ${a.year}`,
+      cellStyle: "padding:16px;border:0;border-right:1px solid #d8d2c4;border-bottom:1px solid #d8d2c4;background:transparent;text-align:left;cursor:pointer;font:inherit",
+      artStyle: `aspect-ratio:1;background:${this.hatch(a.art)};outline:${busy ? "2px solid #b4402c" : ready ? "1px solid #17150f" : "1px solid #c9c2b1"};opacity:${ready || busy ? "1" : ".62"}`,
+      stateColor: ready ? "#6f6a5c" : "#b4402c",
+      stateLabel: ready ? "READY" : NEED_LABEL[a.need]
+    };
+  }
+
+  stat() {
+    const bars = (label, rows) => ({
+      label, kind: "bars",
+      bars: rows.map(([l, v, hot]) => ({ label: l, style: `flex:1;min-width:0;height:${Math.max(6, v)}%;background:${hot ? "#b4402c" : "#17150f"}` }))
+    });
+    const counts = key => {
+      const m = new Map();
+      ALBUMS.forEach(a => m.set(a[key], (m.get(a[key]) || 0) + 1));
+      return [...m.entries()].sort((x, y) => y[1] - x[1]);
+    };
+    switch (this.state.statIdx) {
+      case 0: {
+        const dec = new Map([["50s", 0], ["60s", 0], ["70s", 0], ["80s", 0], ["90s", 0], ["00s+", 0]]);
+        ALBUMS.forEach(a => {
+          const k = a.year < 1960 ? "50s" : a.year < 1970 ? "60s" : a.year < 1980 ? "70s" : a.year < 1990 ? "80s" : a.year < 2000 ? "90s" : "00s+";
+          dec.set(k, dec.get(k) + 1);
+        });
+        const max = Math.max(...dec.values());
+        return bars("BY DECADE", [...dec.entries()].map(([l, v]) => [l, (v / max) * 100, v === max]));
+      }
+      case 1: {
+        const g = counts("genre").slice(0, 6), max = g[0][1];
+        return bars("GENRE BREAKDOWN", g.map(([l, v], i) => [l, (v / max) * 100, i === 0]));
+      }
+      case 2: {
+        const t = counts("artist")[0];
+        return { label: "TOP ARTIST", kind: "text", big: t[0], sub: `${t[1]} records \u2014 more than anyone else` };
+      }
+      case 3: {
+        const t = counts("label")[0];
+        return { label: "TOP LABEL", kind: "text", big: t[0], sub: `${t[1]} records pressed by them` };
+      }
+      default: {
+        const ys = ALBUMS.map(a => a.year), lo = Math.min(...ys), hi = Math.max(...ys);
+        const old = ALBUMS.find(a => a.year === lo), nw = ALBUMS.find(a => a.year === hi);
+        return { label: "OLDEST AND NEWEST", kind: "text", big: `${lo} \u2192 ${hi}`, sub: `${old.title} to ${nw.title}` };
+      }
+    }
+  }
+
+  renderVals() {
+    const s = this.state, a = this.album(), pal = this.palette();
+    const set = o => this.setState(o);
+    const ready = !a.need;
+    const st = this.stat();
+    const swatches = list => list.map((hex, i) => ({ style: `flex:1;background:${hex};border-left:${i ? "1px solid rgba(0,0,0,.25)" : "0"}` }));
+    const vis = this.visible();
+
+    const groups = GROUP_ORDER.map(([k, label]) => {
+      const items = vis.filter(x => x.need === k);
+      return { key: k, label, count: items.length, items: items.map(x => this.tile(x)) };
+    }).filter(g => g.count > 0);
+
+    const toastAlbum = s.toast ? ALBUMS.find(x => x.id === s.toast) : null;
+
+    return {
+      isCollection: s.view === "collection", isRecord: s.view === "record", isRoom: s.view === "room",
+      isAdd: s.view === "add", isDiscogs: s.view === "discogs", isSystem: s.view === "system", isSettings: s.view === "settings",
+
+      navCollection: this.navStyle("collection"), navAdd: this.navStyle("add"), navDiscogs: this.navStyle("discogs"),
+      navSystem: this.navStyle("system"), navSettings: this.navStyle("settings"),
+      goCollection: () => set({ view: "collection" }), goAdd: () => set({ view: "add" }),
+      goDiscogs: () => set({ view: "discogs" }), goSystem: () => set({ view: "system" }),
+      goSettings: () => set({ view: "settings" }),
+      goRecord: () => set({ view: "record" }), goRoom: () => set({ view: "room" }),
+
+      statLabel: st.label, statIndex: `\u21bb ${s.statIdx + 1} of 5`,
+      statIsBars: st.kind === "bars", statIsText: st.kind === "text",
+      statBars: st.bars || [], statBig: st.big || "", statSub: st.sub || "",
+      nextStat: () => set({ statIdx: (s.statIdx + 1) % 5 }),
+
+      fAll: this.filterStyle("all"), fNeeds: this.filterStyle("needs"), fReady: this.filterStyle("ready"),
+      filterAll: () => set({ filter: "all" }), filterNeeds: () => set({ filter: "needs" }), filterReady: () => set({ filter: "ready" }),
+      query: s.query, onQuery: e => set({ query: e.target.value }),
+      reshuffle: () => set({ seed: Math.random() }),
+      densityLabel: DENSITIES[s.density][1],
+      gridCols: `repeat(${DENSITIES[s.density][0]}, minmax(0, 1fr))`,
+      cycleDensity: () => set({ density: (s.density + 1) % DENSITIES.length }),
+      logOpen: s.logOpen, logLabel: s.logOpen ? "CLOSE THE LOG" : "THE WHOLE LOG",
+      toggleLog: () => set({ logOpen: !s.logOpen }),
+
+      grouped: s.filter === "needs", flat: s.filter !== "needs",
+      groups, tiles: vis.map(x => this.tile(x)),
+      openRecord: e => set({ view: "record", selected: e.currentTarget.dataset.id, need: "lights", useFeeling: false }),
+
+      recTitle: a.title, recByline: `${a.artist} \u00b7 ${a.year}`, recId: a.id, recNote: a.note,
+      recArt: this.hatch(a.art),
+      recSwatches: swatches(pal), recSleeve: swatches(a.pal), recFeeling: swatches(a.feel),
+      recStateLabel: ready ? "READY" : NEED_LABEL[a.need],
+      recStateColor: ready ? "#6f6a5c" : "#b4402c",
+      recRows: pal.map((hex, i) => ({ hex, role: ROLES[i][0].toUpperCase(), note: ROLES[i][1] })),
+      sleeveBg: s.useFeeling ? "#efebe2" : "#f7f4ee",
+      feelingBg: s.useFeeling ? "#f7f4ee" : "#efebe2",
+      sleeveMark: s.useFeeling ? "" : "\u00b7 IN USE",
+      feelingMark: s.useFeeling ? "\u00b7 IN USE" : "",
+      sleeveAction: s.useFeeling ? "USE THIS INSTEAD \u2192" : "IN USE",
+      feelingAction: s.useFeeling ? "IN USE" : "USE THIS INSTEAD \u2192",
+      useFeeling: () => set({ useFeeling: true }),
+      useSleeve: () => set({ useFeeling: false }),
+      prompts: PROMPTS.map((text, i) => ({ n: "0" + (i + 1), text })),
+
+      prevRecord: () => { const i = ALBUMS.findIndex(x => x.id === s.selected); set({ selected: ALBUMS[(i - 1 + ALBUMS.length) % ALBUMS.length].id, useFeeling: false }); },
+      nextRecord: () => { const i = ALBUMS.findIndex(x => x.id === s.selected); set({ selected: ALBUMS[(i + 1) % ALBUMS.length].id, useFeeling: false }); },
+
+      needLights: s.need === "lights", needVisualizer: s.need === "visualizer",
+      needCard: s.need === "card", needTags: s.need === "tags",
+      wLights: this.needStyle("lights"), wVisualizer: this.needStyle("visualizer"),
+      wCard: this.needStyle("card"), wTags: this.needStyle("tags"),
+      mLights: "\u25cf",
+      mVisualizer: a.need === "lights" ? "\u25cb" : "\u25cf",
+      mCard: ready || a.need === "tags" ? "\u25cf" : "\u25cb",
+      mTags: ready ? "\u25cf" : "\u25cb",
+      openNeed: e => set({ need: e.currentTarget.dataset.w }),
+
+      roomWash: `radial-gradient(130% 100% at 50% 18%, ${pal[1]} 0%, ${pal[0]} 55%, #0d0a10 100%)`,
+      movers: [
+        { key: "transition", label: "Transition", value: s.transition, display: s.transition + "s", min: 1, max: 30 },
+        { key: "hold", label: "Hold", value: s.hold, display: s.hold + "s", min: 5, max: 120 },
+        { key: "brightness", label: "Brightness", value: s.brightness, display: s.brightness + "%", min: 10, max: 100 }
+      ],
+      onMover: e => set({ [e.currentTarget.dataset.k]: +e.currentTarget.value }),
+      mo1: this.patternStyle("crossfade"), mo2: this.patternStyle("pulse"), mo3: this.patternStyle("still"),
+      setPattern: e => set({ pattern: e.currentTarget.dataset.m }),
+      armLabel: s.armed ? "IN THE ROOM" : "BENCH ONLY",
+      armStyle: `margin-left:auto;flex:none;white-space:nowrap;font:500 10px/1 'IBM Plex Mono',monospace;letter-spacing:.14em;padding:9px 15px;cursor:pointer;border:1px solid ${s.armed ? "#b4402c" : "rgba(255,255,255,.35)"};background:${s.armed ? "#b4402c" : "rgba(0,0,0,.28)"};color:${s.armed ? "#f7f4ee" : "rgba(255,255,255,.8)"}`,
+      toggleArmed: () => set({ armed: !s.armed }),
+      approve: () => {
+        const id = s.selected;
+        set({ view: "collection", toast: id });
+        clearTimeout(this._t);
+        this._t = setTimeout(() => this.setState({ toast: null }), 5000);
+      },
+
+      toastOpen: !!toastAlbum,
+      toastTitle: toastAlbum ? toastAlbum.title : "",
+      toastArt: toastAlbum ? this.hatch(toastAlbum.art) : "transparent",
+      toastToRoom: () => { clearTimeout(this._t); set({ view: "room", selected: s.toast, toast: null }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

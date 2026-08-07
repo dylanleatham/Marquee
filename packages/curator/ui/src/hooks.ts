@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type GenerationJob, type JobKind } from "./api";
+import { errorMessage } from "./errors";
 
 export interface Poll<T> {
   data: T | null;
@@ -17,6 +18,16 @@ export interface Poll<T> {
 export function usePoll<T>(
   fetcher: () => Promise<T>,
   intervalMs = 2000,
+  /**
+   * What the fetcher is *about*. Change it and the poll refetches immediately instead of waiting out
+   * the interval.
+   *
+   * React Router reuses a component when only a route param changes, so `/room/a` → `/room/b` never
+   * remounts and the fetcher ref updates silently — leaving the previous record on screen for a
+   * whole interval while the room already plays the new one. Pass `curatorId` here and the screen
+   * catches up at once.
+   */
+  resetKey?: string | number,
 ): Poll<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -26,17 +37,45 @@ export function usePoll<T>(
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
 
-  const run = useCallback(async () => {
+  /**
+   * Coalesce overlapping polls onto one in-flight request.
+   *
+   * The interval does not wait for the previous fetch. That is harmless for a small endpoint, but
+   * the System screen fans out to four services with each probe bounded at 5s — so when the runtime
+   * is *down*, which is exactly when that page is open, a request takes about as long as the
+   * interval and the next lands on top of it, piling up fan-outs against a host that is already not
+   * answering. A tick arriving mid-flight is dropped instead.
+   *
+   * An explicit `refresh()` is **not** dropped: it usually follows a mutation, so joining the
+   * in-flight request would show pre-mutation data. It queues one follow-up fetch instead — one,
+   * however many times it is called, since they would all read the same state.
+   */
+  const inFlight = useRef(false);
+  const queued = useRef(false);
+
+  const run = useCallback(async (force = false) => {
+    if (inFlight.current) {
+      queued.current ||= force;
+      return;
+    }
+    inFlight.current = true;
     try {
       const next = await fetcherRef.current();
       setData(next);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
     } finally {
       setLoading(false);
+      inFlight.current = false;
+      if (queued.current) {
+        queued.current = false;
+        void run(true);
+      }
     }
   }, []);
+
+  const refresh = useCallback(() => void run(true), [run]);
 
   useEffect(() => {
     let timer: ReturnType<typeof setInterval> | undefined;
@@ -58,9 +97,10 @@ export function usePoll<T>(
       stop();
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [run, intervalMs]);
+    // `resetKey` restarts the whole cycle, which fetches immediately — the point of passing it.
+  }, [run, intervalMs, resetKey]);
 
-  return { data, error, loading, refresh: run };
+  return { data, error, loading, refresh };
 }
 
 export interface VisibleCycle {
@@ -210,7 +250,7 @@ export function useGenerationJob(
       } catch (err) {
         // 404 (expired) or a network blip — stop polling and surface it.
         setStatus("failed");
-        setError(err instanceof Error ? err.message : String(err));
+        setError(errorMessage(err));
       }
     };
     void tick();
@@ -255,7 +295,7 @@ export function useGenerationJob(
       .then(adopt)
       .catch((err) => {
         setStatus("failed");
-        setError(err instanceof Error ? err.message : String(err));
+        setError(errorMessage(err));
       });
   }, [adopt]);
 

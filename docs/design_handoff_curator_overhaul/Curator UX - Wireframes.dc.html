@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Architects+Daughter&family=Kalam:wght@400;700&display=swap" rel="stylesheet"><style>body{margin:0;background:#f0eee9;font-family:'Architects Daughter',system-ui,sans-serif}a{color:#c26a10}a:hover{color:#9c520a}.dv-turn{padding:40px 44px 32px;border-bottom:1px solid rgba(0,0,0,.08);scroll-margin-top:16px}.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 20px}.dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none}.dv-tname{font:700 15px/1.2 Kalam,system-ui,sans-serif;color:#1a1a1a}.dv-opts{display:flex;flex-wrap:wrap;gap:36px;align-items:flex-start}.dv-opt{flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px}.dv-oid{font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none}.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 13px/1.3 'Architects Daughter',system-ui,sans-serif;color:rgba(0,0,0,.6)}.dv-card{max-width:100%;background:#fff;border:1.5px solid #1a1a1a;border-radius:16px 10px 18px 9px/10px 18px 9px 16px;overflow:hidden}.dv-opt:target .dv-oid{background:#c26a10;color:#fff}.dv-next{margin:26px 0 0;font:14px/1.6 'Architects Daughter',system-ui,sans-serif;color:rgba(0,0,0,.6)}</style></helmet>
+
+<section class="dv-turn" id="t2">
+<div class="dv-thd"><a class="dv-tid" href="#t2">2</a><span class="dv-tname">The hybrid — <a class="dv-oid" href="#1a">1a</a>'s wall and record page, with <a class="dv-oid" href="#1b">1b</a>'s room behind "see it in the room"</span></div>
+
+<div class="dv-opts">
+<div class="dv-opt" id="2a">
+<div class="dv-olabel"><a class="dv-oid" href="#2a">2a</a>Three states, one app: the wall → the record → the room. Nothing else.</div>
+<div style="display:flex;flex-direction:column;gap:20px">
+
+<div style="display:flex;gap:16px;align-items:flex-start">
+<div class="dv-card" style="width:600px">
+  <div style="padding:8px 14px;border-bottom:1px dashed rgba(0,0,0,.25);font:12px ui-monospace,Menlo,monospace;letter-spacing:.1em;color:#8a8378">STATE 1 · THE WALL</div>
+  <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1.5px solid #1a1a1a">
+    <span style="width:26px;height:26px;border:1.5px dashed #1a1a1a;border-radius:5px;display:grid;place-items:center;font-size:9px;color:#8a8378">LOGO</span>
+    <span style="flex:1;border:1.5px solid #1a1a1a;border-radius:999px;padding:4px 12px;font-size:13px;color:#8a8378">search the wall…</span>
+    <span style="display:flex;align-items:center;gap:6px;font-size:13px"><span style="display:inline-block;width:70px;height:8px;border:1.5px solid #1a1a1a;border-radius:999px;background:linear-gradient(90deg,#e0a24a 0 45%,transparent 45%)"></span>18 / 40 lit</span>
+  </div>
+  <div style="display:flex;gap:8px;padding:10px 16px;border-bottom:1px dashed rgba(0,0,0,.25)">
+    <span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:2px 12px;font-size:13px;background:#1a1a1a;color:#fff">Everything</span>
+    <span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:2px 12px;font-size:13px">Needs me · 7</span>
+    <span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:2px 12px;font-size:13px">Lit · 18</span>
+    <span style="margin-left:auto;font-size:13px;color:#8a8378">size ▁▃▅</span>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;padding:14px 16px">
+    <div style="aspect-ratio:1;position:relative;border:1.5px solid #1a1a1a;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);box-shadow:0 0 0 3px #e0a24a"><span style="position:absolute;bottom:3px;right:4px;font-size:14px">◉</span></div>
+    <div style="aspect-ratio:1;position:relative;border:1.5px solid #1a1a1a;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);opacity:.55"><span style="position:absolute;bottom:2px;right:3px;font:11px ui-monospace,monospace;border:1.5px solid #1a1a1a;border-radius:999px;background:#fff;padding:0 4px">3/5</span></div>
+    <div style="aspect-ratio:1;position:relative;border:2.5px solid #c26a10;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px)"><span style="position:absolute;top:3px;left:4px;font-size:12px;color:#c26a10">✦ roadie</span></div>
+    <div style="aspect-ratio:1;border:1.5px solid #1a1a1a;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);box-shadow:0 0 0 3px #e0a24a"></div>
+    <div style="aspect-ratio:1;border:1.5px dashed #1a1a1a;border-radius:4px;background:#f7f5f1;display:grid;place-items:center;font-size:26px;color:#8a8378">+</div>
+    <div style="aspect-ratio:1;border:1.5px solid #1a1a1a;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);opacity:.55"></div>
+    <div style="aspect-ratio:1;border:1.5px solid #1a1a1a;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);box-shadow:0 0 0 3px #e0a24a"></div>
+    <div style="aspect-ratio:1;border:1.5px solid #1a1a1a;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);opacity:.55"></div>
+    <div style="aspect-ratio:1;border:1.5px solid #1a1a1a;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);box-shadow:0 0 0 3px #e0a24a"></div>
+    <div style="aspect-ratio:1;border:1.5px solid #1a1a1a;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);opacity:.55"></div>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;padding:9px 16px;border-top:1.5px solid #1a1a1a;font-size:13px;background:#faf8f4">
+    <span style="color:#c26a10">✦</span><span style="color:#8a8378">19:04</span> pulled 5 colours from <b>Kind of Blue</b><span style="margin-left:auto;color:#8a8378">the log ›</span>
+  </div>
+</div>
+
+<div class="dv-card" style="width:600px">
+  <div style="padding:8px 14px;border-bottom:1px dashed rgba(0,0,0,.25);font:12px ui-monospace,Menlo,monospace;letter-spacing:.1em;color:#8a8378">STATE 2 · THE RECORD — grows out of its tile, wall blurred behind</div>
+  <div style="padding:16px;background:#f4f2ee">
+    <div style="display:flex;gap:16px">
+      <div style="width:210px;flex:none;display:flex;flex-direction:column;gap:8px">
+        <div style="aspect-ratio:1;border:1.5px solid #1a1a1a;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 7px,#f7f5f1 7px 14px);display:grid;place-items:center;font-size:12px;color:#8a8378">COVER, BIG</div>
+        <div style="display:flex;height:26px;border:1.5px solid #1a1a1a;border-radius:4px;overflow:hidden"><span style="flex:1;background:#4B0082"></span><span style="flex:1;background:#8A2BE2"></span><span style="flex:1;background:#FFD700"></span><span style="flex:.4;border-left:1.5px dashed #1a1a1a;display:grid;place-items:center;font-size:14px">+</span></div>
+        <div style="font:700 17px Kalam,sans-serif">Purple Rain</div>
+        <div style="font-size:13px;color:#8a8378">Prince · 1984 · funk, rock</div>
+        <div style="border:1.5px solid #1a1a1a;border-radius:999px;padding:5px 12px;text-align:center;background:#1a1a1a;color:#fff;font-size:13px">▶ see it in the room</div>
+        <div style="font-size:12px;color:#8a8378;text-align:center">↑ this is the only way into state 3</div>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:10px">
+        <div style="border:1.5px solid #1a1a1a;border-radius:12px 8px 14px 9px/8px 14px 9px 12px;padding:12px;background:#fff">
+          <div style="font:700 15px Kalam,sans-serif;margin-bottom:6px">What this record still wants</div>
+          <div style="display:flex;flex-direction:column;gap:7px;font-size:13px">
+            <div style="display:flex;align-items:center;gap:8px"><span style="width:16px">◉</span>Colours — pulled, look right<span style="margin-left:auto;color:#8a8378">open ›</span></div>
+            <div style="display:flex;align-items:center;gap:8px;color:#c26a10;font-weight:700"><span style="width:16px">○</span>A moving picture<span style="margin-left:auto">do it ›</span></div>
+            <div style="display:flex;align-items:center;gap:8px"><span style="width:16px">○</span>A card for the shelf<span style="margin-left:auto;color:#8a8378">later ›</span></div>
+            <div style="display:flex;align-items:center;gap:8px"><span style="width:16px">○</span>A sticker on the sleeve<span style="margin-left:auto;color:#8a8378">later ›</span></div>
+          </div>
+        </div>
+        <div style="border:1.5px solid #1a1a1a;border-radius:12px 8px 14px 9px/8px 14px 9px 12px;padding:12px;background:#fff;flex:1">
+          <div style="font:700 15px Kalam,sans-serif;margin-bottom:6px">Colours <span style="font:400 12px 'Architects Daughter',sans-serif;color:#8a8378">— opened in place</span></div>
+          <div style="display:flex;flex-direction:column;gap:5px;font-size:13px">
+            <div style="display:flex;align-items:center;gap:7px"><span style="width:18px;height:18px;border:1.5px solid #1a1a1a;border-radius:3px;background:#4B0082"></span>#4B0082<span style="color:#8a8378">dominant</span><span style="margin-left:auto;color:#8a8378">↑ ↓ ✕</span></div>
+            <div style="display:flex;align-items:center;gap:7px"><span style="width:18px;height:18px;border:1.5px solid #1a1a1a;border-radius:3px;background:#8A2BE2"></span>#8A2BE2<span style="margin-left:auto;color:#8a8378">↑ ↓ ✕</span></div>
+            <div style="display:flex;align-items:center;gap:7px"><span style="width:18px;height:18px;border:1.5px solid #1a1a1a;border-radius:3px;background:#FFD700"></span>#FFD700<span style="margin-left:auto;color:#8a8378">↑ ↓ ✕</span></div>
+          </div>
+          <div style="margin-top:9px;display:flex;gap:6px;font-size:12px"><span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:2px 10px;background:#1a1a1a;color:#fff">from the sleeve</span><span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:2px 10px">from the feeling</span><span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:2px 10px">start over</span></div>
+        </div>
+        <div style="display:flex;gap:8px;font-size:13px"><span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:3px 14px">← the wall</span><span style="margin-left:auto;color:#8a8378">↑↓ next record</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<div class="dv-card" style="width:900px">
+  <div style="padding:8px 14px;border-bottom:1px dashed rgba(0,0,0,.25);font:12px ui-monospace,Menlo,monospace;letter-spacing:.1em;color:#8a8378">STATE 3 · THE ROOM — full screen, the record playing. 1b's deck, but as a place you go rather than a panel you live in.</div>
+  <div style="position:relative;height:470px;background:radial-gradient(120% 90% at 50% 22%,#8A2BE2 0,#4B0082 52%,#150024 100%);overflow:hidden">
+    <div style="position:absolute;left:20%;top:11%;width:60%;height:42%;border:1.5px solid rgba(255,215,0,.8);border-radius:4px;background:repeating-linear-gradient(135deg,rgba(255,215,0,.22) 0 8px,transparent 8px 16px);display:grid;place-items:center"><span style="font:12px ui-monospace,Menlo,monospace;color:#FFD700;letter-spacing:.08em">THE MOVING PICTURE, PLAYING</span></div>
+    <div style="position:absolute;left:44.5%;top:57%;width:11%;height:19%;border:1.5px solid rgba(255,215,0,.8);border-radius:2px;background:repeating-linear-gradient(135deg,rgba(255,215,0,.35) 0 5px,transparent 5px 10px)"></div>
+    <span style="position:absolute;left:0;right:0;top:59%;text-align:center;font-size:11px;color:rgba(255,215,0,.75);pointer-events:none">the sleeve, on the stand</span>
+
+    <div style="position:absolute;left:18px;top:16px;display:flex;align-items:center;gap:10px">
+      <span style="border:1.5px solid rgba(255,255,255,.55);border-radius:999px;padding:3px 12px;font-size:13px;color:#fff">← back to the record</span>
+      <span style="font:700 15px Kalam,sans-serif;color:#fff">Purple Rain</span>
+    </div>
+    <span style="position:absolute;right:18px;top:16px;border:1.5px solid rgba(255,255,255,.55);border-radius:999px;padding:3px 12px;font-size:13px;color:#fff">bench only · arm the real room</span>
+
+    <div style="position:absolute;left:18px;right:18px;bottom:16px;border:1.5px solid rgba(255,255,255,.45);border-radius:12px 8px 14px 9px/8px 14px 9px 12px;background:rgba(20,10,30,.72);padding:12px 16px;display:flex;align-items:flex-end;gap:26px">
+      <div>
+        <div style="font:11px ui-monospace,Menlo,monospace;letter-spacing:.1em;color:rgba(255,255,255,.6);margin-bottom:8px">COLOUR FADERS — DRAG AND WATCH THE ROOM</div>
+        <div style="display:flex;gap:14px;align-items:flex-end;height:92px">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px;height:100%"><div style="flex:1;width:20px;border:1.5px solid rgba(255,255,255,.6);border-radius:999px;background:linear-gradient(180deg,rgba(255,255,255,.12) 0 22%,#4B0082 22% 100%);position:relative"><span style="position:absolute;top:20%;left:-6px;width:32px;height:6px;border:1.5px solid #fff;background:#fff;border-radius:2px"></span></div><span style="font-size:11px;color:rgba(255,255,255,.7)">dominant</span></div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px;height:100%"><div style="flex:1;width:20px;border:1.5px solid rgba(255,255,255,.6);border-radius:999px;background:linear-gradient(180deg,rgba(255,255,255,.12) 0 48%,#8A2BE2 48% 100%);position:relative"><span style="position:absolute;top:46%;left:-6px;width:32px;height:6px;border:1.5px solid #fff;background:#fff;border-radius:2px"></span></div><span style="font-size:11px;color:rgba(255,255,255,.7)">second</span></div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px;height:100%"><div style="flex:1;width:20px;border:1.5px solid rgba(255,255,255,.6);border-radius:999px;background:linear-gradient(180deg,rgba(255,255,255,.12) 0 66%,#FFD700 66% 100%);position:relative"><span style="position:absolute;top:64%;left:-6px;width:32px;height:6px;border:1.5px solid #fff;background:#fff;border-radius:2px"></span></div><span style="font-size:11px;color:rgba(255,255,255,.7)">glow</span></div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px;height:100%"><div style="flex:1;width:20px;border:1.5px dashed rgba(255,255,255,.5);border-radius:999px;display:grid;place-items:center;font-size:15px;color:rgba(255,255,255,.6)">+</div><span style="font-size:11px;color:rgba(255,255,255,.7)">add</span></div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:6px">
+        <div style="width:66px;height:66px;border:1.5px solid rgba(255,255,255,.6);border-radius:50%;position:relative"><span style="position:absolute;left:50%;top:6px;width:1.5px;height:24px;background:#fff;transform:rotate(38deg);transform-origin:bottom"></span></div>
+        <span style="font-size:11px;color:rgba(255,255,255,.7)">how it moves</span>
+        <span style="font-size:11px;color:rgba(255,255,255,.5)">slow crossfade</span>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:7px;font-size:13px;color:#fff">
+        <span style="border:1.5px solid rgba(255,255,255,.55);border-radius:999px;padding:3px 14px;text-align:center">🔊 play the album</span>
+        <span style="border:1.5px solid rgba(255,255,255,.55);border-radius:999px;padding:3px 14px;text-align:center">swap the picture</span>
+        <span style="border:1.5px solid rgba(255,255,255,.55);border-radius:999px;padding:3px 14px;text-align:center">lift the sleeve</span>
+      </div>
+      <div style="margin-left:auto;display:flex;flex-direction:column;gap:7px;align-items:flex-end">
+        <span style="border:1.5px solid #fff;border-radius:999px;padding:5px 20px;background:#fff;color:#1a1a1a;font-weight:700;font-size:14px">that's the one ✓</span>
+        <span style="font-size:12px;color:rgba(255,255,255,.6)">↑ approving happens here, where you can see it</span>
+      </div>
+    </div>
+  </div>
+  <div style="padding:9px 16px;font-size:12px;color:#8a8378;border-top:1px dashed rgba(0,0,0,.2)">Why this split works: the wall and the record page stay quiet and dense for getting through work; the room is the one loud, celebratory screen — and it's also where you sign off, so approving a record always means having just watched it.</div>
+</div>
+
+</div>
+</div>
+</div>
+
+<p class="dv-next">Try next: "the room should fill the whole screen with no controls until I move the mouse" · "put the wall's filters in a sidebar instead" · "the record page needs somewhere for Roadie's log"</p>
+</section>
+
+<section class="dv-turn" id="t1">
+<div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Four ways to rethink Curator — art-first, one record at a time, the lights front and centre</span></div>
+
+<div class="dv-opts">
+
+<!-- ============ 1a THE WALL ============ -->
+<div class="dv-opt" id="1a">
+<div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a>The Wall — the collection <em style="font-style:normal;color:#c26a10">is</em> the app. Dense. No queue; work opens in place.</div>
+<div style="display:flex;gap:16px;align-items:flex-start">
+
+<div class="dv-card" style="width:600px">
+  <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1.5px solid #1a1a1a">
+    <span style="font:700 16px Kalam,sans-serif">MARQUEE</span>
+    <span style="flex:1;border:1.5px solid #1a1a1a;border-radius:999px;padding:4px 12px;font-size:13px;color:#8a8378">search the wall…</span>
+    <span style="display:flex;align-items:center;gap:6px;font-size:13px"><span style="display:inline-block;width:70px;height:8px;border:1.5px solid #1a1a1a;border-radius:999px;background:linear-gradient(90deg,#e0a24a 0 45%,transparent 45%)"></span>18 / 40 lit</span>
+  </div>
+  <div style="display:flex;gap:8px;padding:10px 16px;border-bottom:1px dashed rgba(0,0,0,.25)">
+    <span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:2px 12px;font-size:13px;background:#1a1a1a;color:#fff">Everything</span>
+    <span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:2px 12px;font-size:13px">Needs me · 7</span>
+    <span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:2px 12px;font-size:13px">Lit · 18</span>
+    <span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:2px 12px;font-size:13px">Roadie's working · 1</span>
+    <span style="margin-left:auto;font-size:13px;color:#8a8378">size ▁▃▅</span>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;padding:14px 16px">
+    <div style="aspect-ratio:1;position:relative;border:1.5px solid #1a1a1a;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);box-shadow:0 0 0 3px #e0a24a"><span style="position:absolute;bottom:3px;right:4px;font-size:14px">◉</span></div>
+    <div style="aspect-ratio:1;position:relative;border:1.5px solid #1a1a1a;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);box-shadow:0 0 0 3px #e0a24a"><span style="position:absolute;bottom:3px;right:4px;font-size:14px">◉</span></div>
+    <div style="aspect-ratio:1;position:relative;border:1.5px solid #1a1a1a;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);opacity:.55"><span style="position:absolute;bottom:2px;right:3px;font:11px ui-monospace,monospace;border:1.5px solid #1a1a1a;border-radius:999px;background:#fff;padding:0 4px">3/5</span></div>
+    <div style="aspect-ratio:1;position:relative;border:1.5px solid #1a1a1a;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);box-shadow:0 0 0 3px #e0a24a"><span style="position:absolute;bottom:3px;right:4px;font-size:14px">◉</span></div>
+    <div style="aspect-ratio:1;position:relative;border:1.5px dashed #1a1a1a;border-radius:4px;background:#f7f5f1;display:grid;place-items:center;font-size:26px;color:#8a8378">+</div>
+    <div style="aspect-ratio:1;position:relative;border:1.5px solid #1a1a1a;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);opacity:.55"><span style="position:absolute;bottom:2px;right:3px;font:11px ui-monospace,monospace;border:1.5px solid #1a1a1a;border-radius:999px;background:#fff;padding:0 4px">1/5</span></div>
+    <div style="aspect-ratio:1;position:relative;border:2.5px solid #c26a10;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px)"><span style="position:absolute;top:3px;left:4px;font-size:12px;color:#c26a10">✦ roadie</span></div>
+    <div style="aspect-ratio:1;border:1.5px solid #1a1a1a;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);box-shadow:0 0 0 3px #e0a24a"></div>
+    <div style="aspect-ratio:1;position:relative;border:1.5px solid #1a1a1a;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);opacity:.55"><span style="position:absolute;bottom:2px;right:3px;font:11px ui-monospace,monospace;border:1.5px solid #1a1a1a;border-radius:999px;background:#fff;padding:0 4px">4/5</span></div>
+    <div style="aspect-ratio:1;border:1.5px solid #1a1a1a;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);box-shadow:0 0 0 3px #e0a24a"></div>
+    <div style="aspect-ratio:1;border:1.5px solid #1a1a1a;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);opacity:.55"></div>
+    <div style="aspect-ratio:1;border:1.5px solid #1a1a1a;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);box-shadow:0 0 0 3px #e0a24a"></div>
+    <div style="aspect-ratio:1;border:1.5px solid #1a1a1a;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);opacity:.55"></div>
+    <div style="aspect-ratio:1;border:1.5px solid #1a1a1a;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);box-shadow:0 0 0 3px #e0a24a"></div>
+    <div style="aspect-ratio:1;border:1.5px solid #1a1a1a;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);opacity:.55"></div>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;padding:9px 16px;border-top:1.5px solid #1a1a1a;font-size:13px;background:#faf8f4">
+    <span style="color:#c26a10">✦</span><span style="color:#8a8378">19:04</span> palette pulled from <b>Kind of Blue</b> — 5 colours, cool <span style="margin-left:auto;color:#8a8378">the feed ↑ scrolls · click to open the log</span>
+  </div>
+  <div style="padding:8px 16px 12px;font-size:12px;color:#8a8378;border-top:1px dashed rgba(0,0,0,.2)">Glow ring = fully lit. Dim + fraction = still needs me. Orange outline = Roadie is on it. Nothing is a list.</div>
+</div>
+
+<div class="dv-card" style="width:600px">
+  <div style="padding:10px 16px;border-bottom:1.5px solid #1a1a1a;font-size:13px;color:#8a8378">↳ click a tile: it grows into the record, the wall blurs behind</div>
+  <div style="position:relative;padding:16px;background:#f4f2ee">
+    <div style="display:flex;gap:16px">
+      <div style="width:220px;flex:none;display:flex;flex-direction:column;gap:8px">
+        <div style="aspect-ratio:1;border:1.5px solid #1a1a1a;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 7px,#f7f5f1 7px 14px);display:grid;place-items:center;font-size:12px;color:#8a8378">COVER, BIG</div>
+        <div style="display:flex;height:26px;border:1.5px solid #1a1a1a;border-radius:4px;overflow:hidden">
+          <span style="flex:1;background:#4B0082"></span><span style="flex:1;background:#8A2BE2"></span><span style="flex:1;background:#FFD700"></span><span style="flex:.4;border-left:1.5px dashed #1a1a1a;display:grid;place-items:center;font-size:14px">+</span>
+        </div>
+        <div style="font:700 17px Kalam,sans-serif">Purple Rain</div>
+        <div style="font-size:13px;color:#8a8378">Prince · 1984 · funk, rock</div>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:10px">
+        <div style="border:1.5px solid #1a1a1a;border-radius:12px 8px 14px 9px/8px 14px 9px 12px;padding:12px;background:#fff">
+          <div style="font:700 15px Kalam,sans-serif;margin-bottom:6px">What this record still wants</div>
+          <div style="display:flex;flex-direction:column;gap:7px;font-size:13px">
+            <div style="display:flex;align-items:center;gap:8px"><span style="width:16px">◉</span>Colours — pulled, look right<span style="margin-left:auto;color:#8a8378">open ›</span></div>
+            <div style="display:flex;align-items:center;gap:8px;color:#c26a10;font-weight:700"><span style="width:16px">○</span>A moving picture<span style="margin-left:auto">do it ›</span></div>
+            <div style="display:flex;align-items:center;gap:8px"><span style="width:16px">○</span>A card for the shelf<span style="margin-left:auto;color:#8a8378">later ›</span></div>
+            <div style="display:flex;align-items:center;gap:8px"><span style="width:16px">○</span>A sticker on the sleeve<span style="margin-left:auto;color:#8a8378">later ›</span></div>
+          </div>
+        </div>
+        <div style="border:1.5px solid #1a1a1a;border-radius:12px 8px 14px 9px/8px 14px 9px 12px;padding:12px;background:#fff;flex:1">
+          <div style="font:700 15px Kalam,sans-serif;margin-bottom:6px">↑ whichever one you pick opens right here</div>
+          <div style="border:1.5px dashed #1a1a1a;border-radius:8px;height:118px;display:grid;place-items:center;font-size:13px;color:#8a8378;text-align:center;padding:8px">the work happens in this one panel<br>— never a new page, never a wizard</div>
+        </div>
+        <div style="display:flex;gap:8px;font-size:13px">
+          <span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:3px 14px;background:#1a1a1a;color:#fff">▶ See it in the room</span>
+          <span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:3px 14px">← back to the wall</span>
+          <span style="margin-left:auto;color:#8a8378">↑↓ next record</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="padding:8px 16px 12px;font-size:12px;color:#8a8378;border-top:1px dashed rgba(0,0,0,.2)">No stepper, no rail, no state name. A record has four things it wants; you do them in any order.</div>
+</div>
+
+</div>
+</div>
+
+<!-- ============ 1b THE DECK ============ -->
+<div class="dv-opt" id="1b">
+<div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a>The Deck — a hi-fi front panel. One record loaded, the lights always running. Spacious, playful.</div>
+<div style="display:flex;gap:16px;align-items:flex-start">
+
+<div class="dv-card" style="width:600px">
+  <div style="padding:10px 16px;border-bottom:1.5px solid #1a1a1a;display:flex;align-items:baseline;gap:10px">
+    <span style="font:700 16px Kalam,sans-serif">THE SHELF</span><span style="font-size:13px;color:#8a8378">pull a record out and load it</span>
+    <span style="margin-left:auto;font-size:13px">40 records · 18 playing</span>
+  </div>
+  <div style="padding:16px;display:flex;flex-direction:column;gap:14px;background:#f4f2ee">
+    <div style="display:flex;gap:16px;border:1.5px solid #1a1a1a;border-radius:14px 9px 16px 10px/9px 16px 10px 14px;background:#fff;padding:14px">
+      <div style="width:150px;height:150px;flex:none;border:1.5px solid #1a1a1a;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 6px,#f7f5f1 6px 12px)"></div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:6px">
+        <div style="font-size:12px;letter-spacing:.14em;color:#c26a10">LOADED</div>
+        <div style="font:700 22px Kalam,sans-serif">Voodoo</div>
+        <div style="font-size:13px;color:#8a8378">D'Angelo · 2000</div>
+        <div style="display:flex;height:22px;border:1.5px solid #1a1a1a;border-radius:4px;overflow:hidden;margin-top:4px"><span style="flex:1;background:#3b2412"></span><span style="flex:1;background:#8a5a2b"></span><span style="flex:1;background:#d9a15b"></span><span style="flex:1;background:#efe0c4"></span></div>
+        <div style="margin-top:auto;display:flex;gap:8px;font-size:13px">
+          <span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:3px 14px;background:#1a1a1a;color:#fff">open the deck ›</span>
+          <span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:3px 14px">eject</span>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:13px;color:#8a8378;margin-bottom:6px">everything else — scroll sideways</div>
+      <div style="display:flex;gap:12px;overflow:hidden;align-items:flex-end">
+        <div style="width:104px;flex:none"><div style="height:104px;border:1.5px solid #1a1a1a;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);box-shadow:0 0 0 3px #e0a24a"></div><div style="font-size:12px;margin-top:4px">Rumours</div></div>
+        <div style="width:104px;flex:none"><div style="height:104px;border:1.5px solid #1a1a1a;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);opacity:.6"></div><div style="font-size:12px;margin-top:4px;color:#8a8378">Aja · 3/5</div></div>
+        <div style="width:104px;flex:none"><div style="height:104px;border:1.5px solid #1a1a1a;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);box-shadow:0 0 0 3px #e0a24a"></div><div style="font-size:12px;margin-top:4px">Blue</div></div>
+        <div style="width:104px;flex:none"><div style="height:104px;border:2.5px solid #c26a10;border-radius:4px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px)"></div><div style="font-size:12px;margin-top:4px;color:#c26a10">Kind of Blue ✦</div></div>
+        <div style="flex:1;min-width:34px"><div style="height:104px;border:1.5px dashed #1a1a1a;border-radius:4px;display:grid;place-items:center;font-size:22px;color:#8a8378">›</div><div style="font-size:12px;margin-top:4px;color:#8a8378">36 more</div></div>
+      </div>
+    </div>
+  </div>
+  <div style="padding:8px 16px 12px;font-size:12px;color:#8a8378;border-top:1px dashed rgba(0,0,0,.2)">Home is a shelf, not a to-do list. One record is "loaded" at a time — that's the deep-dive session.</div>
+</div>
+
+<div class="dv-card" style="width:660px">
+  <div style="padding:10px 16px;border-bottom:1.5px solid #1a1a1a;font-size:13px;color:#8a8378">↳ the deck: left half is the room, always running. right half is the controls.</div>
+  <div style="display:flex;background:#f4f2ee">
+    <div style="width:300px;flex:none;border-right:1.5px solid #1a1a1a;padding:14px;display:flex;flex-direction:column;gap:10px">
+      <div style="font-size:12px;letter-spacing:.14em;color:#c26a10">THE ROOM — LIVE</div>
+      <div style="border:1.5px solid #1a1a1a;border-radius:8px;background:#2a1e14;height:170px;position:relative;overflow:hidden">
+        <div style="position:absolute;inset:0;background:radial-gradient(120% 90% at 30% 20%,#8a5a2b 0,#3b2412 60%,#1a120b 100%)"></div>
+        <div style="position:absolute;left:16%;top:14%;width:68%;height:44%;border:1.5px solid #efe0c4;border-radius:3px;background:repeating-linear-gradient(135deg,rgba(239,224,196,.25) 0 5px,transparent 5px 10px)"></div>
+        <div style="position:absolute;left:38%;bottom:8%;width:24%;height:28%;border:1.5px solid #efe0c4;border-radius:2px;background:repeating-linear-gradient(135deg,rgba(239,224,196,.4) 0 4px,transparent 4px 8px)"></div>
+        <span style="position:absolute;bottom:4px;left:8px;font-size:11px;color:#efe0c4;opacity:.75">wall wash · screen · sleeve on the stand</span>
+      </div>
+      <div style="display:flex;gap:8px;font-size:13px">
+        <span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:3px 12px;background:#1a1a1a;color:#fff">▶ for real</span>
+        <span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:3px 12px">🔊 the album</span>
+      </div>
+      <div style="border:1.5px dashed #1a1a1a;border-radius:8px;padding:9px;font-size:12px;color:#6a655c">This never turns off while you work. Every knob on the right changes what you're looking at, immediately.</div>
+      <div style="margin-top:auto;font-size:12px;color:#8a8378">✦ Roadie · fetched art for Kind of Blue · 19:04</div>
+    </div>
+    <div style="flex:1;padding:14px;display:flex;flex-direction:column;gap:12px">
+      <div style="font:700 18px Kalam,sans-serif">Voodoo <span style="font:400 13px 'Architects Daughter',sans-serif;color:#8a8378">· D'Angelo</span></div>
+      <div>
+        <div style="font-size:12px;letter-spacing:.14em;color:#8a8378;margin-bottom:8px">COLOUR FADERS — DRAG TO CHANGE THE ROOM</div>
+        <div style="display:flex;gap:14px;align-items:flex-end;height:130px">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px;height:100%"><div style="flex:1;width:22px;border:1.5px solid #1a1a1a;border-radius:999px;background:linear-gradient(180deg,#f7f5f1 0 22%,#3b2412 22% 100%);position:relative"><span style="position:absolute;top:20%;left:-6px;width:34px;height:7px;border:1.5px solid #1a1a1a;background:#fff;border-radius:2px"></span></div><span style="font-size:11px">dominant</span></div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px;height:100%"><div style="flex:1;width:22px;border:1.5px solid #1a1a1a;border-radius:999px;background:linear-gradient(180deg,#f7f5f1 0 45%,#8a5a2b 45% 100%);position:relative"><span style="position:absolute;top:43%;left:-6px;width:34px;height:7px;border:1.5px solid #1a1a1a;background:#fff;border-radius:2px"></span></div><span style="font-size:11px">second</span></div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px;height:100%"><div style="flex:1;width:22px;border:1.5px solid #1a1a1a;border-radius:999px;background:linear-gradient(180deg,#f7f5f1 0 62%,#d9a15b 62% 100%);position:relative"><span style="position:absolute;top:60%;left:-6px;width:34px;height:7px;border:1.5px solid #1a1a1a;background:#fff;border-radius:2px"></span></div><span style="font-size:11px">glow</span></div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px;height:100%"><div style="flex:1;width:22px;border:1.5px dashed #1a1a1a;border-radius:999px;background:#f7f5f1;display:grid;place-items:center;font-size:16px;color:#8a8378">+</div><span style="font-size:11px">add</span></div>
+          <div style="margin-left:14px;display:flex;flex-direction:column;align-items:center;gap:6px">
+            <div style="width:74px;height:74px;border:1.5px solid #1a1a1a;border-radius:50%;position:relative;background:#fff"><span style="position:absolute;left:50%;top:6px;width:1.5px;height:26px;background:#1a1a1a;transform:rotate(38deg);transform-origin:bottom"></span></div>
+            <span style="font-size:11px">how it moves</span>
+            <span style="font-size:11px;color:#8a8378">slow crossfade</span>
+          </div>
+        </div>
+      </div>
+      <div style="border-top:1px dashed rgba(0,0,0,.25);padding-top:10px">
+        <div style="font-size:12px;letter-spacing:.14em;color:#8a8378;margin-bottom:8px">THE OTHER BITS — LIT WHEN DONE</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:13px">
+          <span style="border:1.5px solid #1a1a1a;border-radius:6px;padding:5px 12px;background:#e0a24a">◉ picture</span>
+          <span style="border:1.5px solid #1a1a1a;border-radius:6px;padding:5px 12px">○ card</span>
+          <span style="border:1.5px solid #1a1a1a;border-radius:6px;padding:5px 12px">○ sticker</span>
+          <span style="border:1.5px solid #1a1a1a;border-radius:6px;padding:5px 12px">○ tried it for real</span>
+        </div>
+      </div>
+      <div style="margin-top:auto;display:flex;gap:8px;font-size:13px"><span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:4px 16px;background:#1a1a1a;color:#fff">that's the one ✓</span><span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:4px 16px">next record ›</span></div>
+    </div>
+  </div>
+  <div style="padding:8px 16px 12px;font-size:12px;color:#8a8378;border-top:1px dashed rgba(0,0,0,.2)">The palette stops being a form and becomes an instrument. Fun, but a big build.</div>
+</div>
+
+</div>
+</div>
+
+<!-- ============ 1c THE ROOM ============ -->
+<div class="dv-opt" id="1c">
+<div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a>The Room — one persistent stage on the left, everything else docks around it. Balanced.</div>
+<div style="display:flex;gap:16px;align-items:flex-start">
+
+<div class="dv-card" style="width:600px">
+  <div style="display:flex;background:#f4f2ee;min-height:400px">
+    <div style="flex:1;border-right:1.5px solid #1a1a1a;padding:14px;display:flex;flex-direction:column;gap:10px">
+      <div style="font-size:12px;letter-spacing:.14em;color:#c26a10">TONIGHT'S ROOM</div>
+      <div style="flex:1;border:1.5px solid #1a1a1a;border-radius:8px;background:radial-gradient(120% 90% at 50% 30%,#3a2a58 0,#1a1226 65%,#0d0913 100%);position:relative;overflow:hidden">
+        <div style="position:absolute;left:14%;top:16%;width:72%;height:40%;border:1.5px solid #d9c9f5;border-radius:3px;background:repeating-linear-gradient(135deg,rgba(217,201,245,.22) 0 6px,transparent 6px 12px)"></div>
+        <div style="position:absolute;left:40%;bottom:10%;width:20%;height:26%;border:1.5px solid #d9c9f5;border-radius:2px;background:repeating-linear-gradient(135deg,rgba(217,201,245,.4) 0 4px,transparent 4px 8px)"></div>
+        <span style="position:absolute;top:6px;right:8px;font-size:11px;color:#d9c9f5">idle — nothing on the stand</span>
+      </div>
+      <div style="display:flex;gap:8px;font-size:13px"><span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:3px 12px">bench only</span><span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:3px 12px;background:#1a1a1a;color:#fff">drive the real room</span></div>
+    </div>
+    <div style="width:250px;flex:none;display:flex;flex-direction:column">
+      <div style="padding:12px 14px;border-bottom:1.5px solid #1a1a1a">
+        <div style="font:700 16px Kalam,sans-serif">Your collection</div>
+        <div style="display:flex;align-items:baseline;gap:8px;margin-top:6px"><span style="font:700 30px Kalam,sans-serif">18</span><span style="font-size:13px;color:#8a8378">of 40 fully lit</span></div>
+        <div style="height:9px;border:1.5px solid #1a1a1a;border-radius:999px;background:linear-gradient(90deg,#e0a24a 0 45%,transparent 45%);margin-top:6px"></div>
+        <div style="display:flex;gap:10px;margin-top:8px;font-size:12px;color:#8a8378"><span>7 want me</span><span>·</span><span>1 with Roadie</span><span>·</span><span>2 stuck</span></div>
+      </div>
+      <div style="padding:10px 14px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;flex:1;align-content:start">
+        <div style="aspect-ratio:1;border:1.5px solid #1a1a1a;border-radius:3px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);box-shadow:0 0 0 2px #e0a24a"></div>
+        <div style="aspect-ratio:1;border:1.5px solid #1a1a1a;border-radius:3px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);opacity:.6"></div>
+        <div style="aspect-ratio:1;border:2.5px solid #c26a10;border-radius:3px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px)"></div>
+        <div style="aspect-ratio:1;border:1.5px solid #1a1a1a;border-radius:3px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);box-shadow:0 0 0 2px #e0a24a"></div>
+        <div style="aspect-ratio:1;border:1.5px solid #1a1a1a;border-radius:3px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);opacity:.6"></div>
+        <div style="aspect-ratio:1;border:1.5px solid #1a1a1a;border-radius:3px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);box-shadow:0 0 0 2px #e0a24a"></div>
+        <div style="aspect-ratio:1;border:1.5px solid #1a1a1a;border-radius:3px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);opacity:.6"></div>
+        <div style="aspect-ratio:1;border:1.5px solid #1a1a1a;border-radius:3px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px);box-shadow:0 0 0 2px #e0a24a"></div>
+        <div style="aspect-ratio:1;border:1.5px dashed #1a1a1a;border-radius:3px;display:grid;place-items:center;color:#8a8378">+</div>
+      </div>
+      <div style="border-top:1.5px solid #1a1a1a;padding:9px 14px;font-size:12px;background:#faf8f4">
+        <div style="color:#c26a10;margin-bottom:3px">✦ ROADIE'S LOG</div>
+        <div style="color:#6a655c;line-height:1.5">19:04 · pulled 5 colours<br>19:03 · got the art<br>19:03 · found it on Spotify</div>
+      </div>
+    </div>
+  </div>
+  <div style="padding:8px 16px 12px;font-size:12px;color:#8a8378;border-top:1px dashed rgba(0,0,0,.2)">Home = the room idling + your collection + Roadie's log. The stage never leaves the screen.</div>
+</div>
+
+<div class="dv-card" style="width:600px">
+  <div style="display:flex;background:#f4f2ee;min-height:400px">
+    <div style="flex:1;border-right:1.5px solid #1a1a1a;padding:14px;display:flex;flex-direction:column;gap:10px">
+      <div style="font-size:12px;letter-spacing:.14em;color:#c26a10">PURPLE RAIN — IN THE ROOM</div>
+      <div style="flex:1;border:1.5px solid #1a1a1a;border-radius:8px;background:radial-gradient(120% 90% at 50% 25%,#8A2BE2 0,#4B0082 55%,#160029 100%);position:relative;overflow:hidden">
+        <div style="position:absolute;left:12%;top:14%;width:76%;height:44%;border:1.5px solid #FFD700;border-radius:3px;background:repeating-linear-gradient(135deg,rgba(255,215,0,.25) 0 6px,transparent 6px 12px);display:grid;place-items:center"><span style="font-size:11px;color:#FFD700">the moving picture</span></div>
+        <div style="position:absolute;left:41%;bottom:9%;width:20%;height:27%;border:1.5px solid #FFD700;border-radius:2px;background:repeating-linear-gradient(135deg,rgba(255,215,0,.35) 0 4px,transparent 4px 8px)"></div>
+      </div>
+      <div style="display:flex;height:24px;border:1.5px solid #1a1a1a;border-radius:4px;overflow:hidden"><span style="flex:1;background:#4B0082"></span><span style="flex:1;background:#8A2BE2"></span><span style="flex:1;background:#FFD700"></span></div>
+      <div style="display:flex;gap:8px;font-size:13px"><span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:3px 12px;background:#1a1a1a;color:#fff">▶ play it properly</span><span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:3px 12px">fullscreen</span></div>
+    </div>
+    <div style="width:250px;flex:none;display:flex;flex-direction:column">
+      <div style="padding:12px 14px;border-bottom:1.5px solid #1a1a1a;display:flex;gap:10px;align-items:center">
+        <div style="width:46px;height:46px;flex:none;border:1.5px solid #1a1a1a;border-radius:3px;background:repeating-linear-gradient(135deg,#ddd8d0 0 5px,#f7f5f1 5px 10px)"></div>
+        <div><div style="font:700 15px Kalam,sans-serif">Purple Rain</div><div style="font-size:12px;color:#8a8378">Prince · 1984</div></div>
+      </div>
+      <div style="flex:1;overflow:hidden;padding:12px 14px;display:flex;flex-direction:column;gap:12px">
+        <div>
+          <div style="font-size:12px;letter-spacing:.12em;color:#8a8378;margin-bottom:6px">COLOURS</div>
+          <div style="display:flex;flex-direction:column;gap:5px;font-size:13px">
+            <div style="display:flex;align-items:center;gap:7px"><span style="width:18px;height:18px;border:1.5px solid #1a1a1a;border-radius:3px;background:#4B0082"></span>#4B0082<span style="margin-left:auto;color:#8a8378">edit</span></div>
+            <div style="display:flex;align-items:center;gap:7px"><span style="width:18px;height:18px;border:1.5px solid #1a1a1a;border-radius:3px;background:#8A2BE2"></span>#8A2BE2<span style="margin-left:auto;color:#8a8378">edit</span></div>
+            <div style="display:flex;align-items:center;gap:7px"><span style="width:18px;height:18px;border:1.5px solid #1a1a1a;border-radius:3px;background:#FFD700"></span>#FFD700<span style="margin-left:auto;color:#8a8378">edit</span></div>
+          </div>
+          <div style="margin-top:7px;display:flex;gap:6px;font-size:12px"><span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:2px 10px">from the sleeve</span><span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:2px 10px;background:#1a1a1a;color:#fff">from the feeling</span></div>
+        </div>
+        <div style="border-top:1px dashed rgba(0,0,0,.25);padding-top:10px">
+          <div style="font-size:12px;letter-spacing:.12em;color:#8a8378;margin-bottom:6px">STILL TO DO</div>
+          <div style="display:flex;flex-direction:column;gap:5px;font-size:13px">
+            <div style="display:flex;gap:7px;color:#c26a10;font-weight:700">○ a moving picture <span style="margin-left:auto">›</span></div>
+            <div style="display:flex;gap:7px">○ a card <span style="margin-left:auto;color:#8a8378">›</span></div>
+            <div style="display:flex;gap:7px">○ a sticker <span style="margin-left:auto;color:#8a8378">›</span></div>
+          </div>
+        </div>
+      </div>
+      <div style="border-top:1.5px solid #1a1a1a;padding:9px 14px;font-size:12px;background:#faf8f4"><div style="color:#c26a10">✦ ROADIE</div><div style="color:#6a655c">nothing to do — 19:06</div></div>
+    </div>
+  </div>
+  <div style="padding:8px 16px 12px;font-size:12px;color:#8a8378;border-top:1px dashed rgba(0,0,0,.2)">Opening a record just changes what's on the stage and fills the dock. Same layout, no navigation.</div>
+</div>
+
+</div>
+</div>
+
+<!-- ============ 1d LINER NOTES ============ -->
+<div class="dv-opt" id="1d">
+<div class="dv-olabel"><a class="dv-oid" href="#1d">1d</a>Liner Notes — the record gets an editorial page. Scroll it like a sleeve you're reading.</div>
+<div style="display:flex;gap:16px;align-items:flex-start">
+
+<div class="dv-card" style="width:600px">
+  <div style="padding:16px;border-bottom:1.5px solid #1a1a1a;background:#faf8f4">
+    <div style="font:700 22px Kalam,sans-serif;margin-bottom:10px">The collection so far</div>
+    <div style="display:flex;gap:22px;align-items:flex-end">
+      <div><div style="font:700 40px Kalam,sans-serif;line-height:1">18</div><div style="font-size:12px;color:#8a8378">records fully lit</div></div>
+      <div><div style="font:700 40px Kalam,sans-serif;line-height:1">7</div><div style="font-size:12px;color:#8a8378">waiting on me</div></div>
+      <div><div style="font:700 40px Kalam,sans-serif;line-height:1">15</div><div style="font-size:12px;color:#8a8378">not started</div></div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:4px">
+        <div style="display:flex;gap:2px;height:34px;align-items:flex-end">
+          <span style="flex:1;height:40%;border:1.5px solid #1a1a1a;background:#e0a24a"></span><span style="flex:1;height:65%;border:1.5px solid #1a1a1a;background:#e0a24a"></span><span style="flex:1;height:25%;border:1.5px solid #1a1a1a;background:#e0a24a"></span><span style="flex:1;height:80%;border:1.5px solid #1a1a1a;background:#e0a24a"></span><span style="flex:1;height:55%;border:1.5px solid #1a1a1a;background:#e0a24a"></span><span style="flex:1;height:100%;border:1.5px solid #1a1a1a;background:#e0a24a"></span>
+        </div>
+        <span style="font-size:12px;color:#8a8378">records finished, by week</span>
+      </div>
+    </div>
+  </div>
+  <div style="padding:14px 16px;display:flex;flex-direction:column;gap:12px;background:#f4f2ee">
+    <div style="display:flex;align-items:baseline;gap:10px"><span style="font:700 15px Kalam,sans-serif">Browse the shelf</span><span style="font-size:12px;color:#8a8378">by artist · by year · by colour · by what's missing</span></div>
+    <div style="display:flex;gap:5px;align-items:flex-end;height:150px">
+      <div style="width:26px;height:100%;border:1.5px solid #1a1a1a;background:#4B0082;display:grid;place-items:center"><span style="writing-mode:vertical-rl;font-size:11px;color:#fff">PURPLE RAIN</span></div>
+      <div style="width:26px;height:100%;border:1.5px solid #1a1a1a;background:#3b2412;display:grid;place-items:center"><span style="writing-mode:vertical-rl;font-size:11px;color:#fff">VOODOO</span></div>
+      <div style="width:26px;height:100%;border:1.5px solid #1a1a1a;background:#b8402f;display:grid;place-items:center"><span style="writing-mode:vertical-rl;font-size:11px;color:#fff">RUMOURS</span></div>
+      <div style="width:26px;height:100%;border:1.5px dashed #1a1a1a;background:#f7f5f1;display:grid;place-items:center"><span style="writing-mode:vertical-rl;font-size:11px;color:#8a8378">NO COLOUR YET</span></div>
+      <div style="width:26px;height:100%;border:1.5px solid #1a1a1a;background:#1f4f6b;display:grid;place-items:center"><span style="writing-mode:vertical-rl;font-size:11px;color:#fff">KIND OF BLUE</span></div>
+      <div style="width:26px;height:100%;border:1.5px solid #1a1a1a;background:#2f6b45;display:grid;place-items:center"><span style="writing-mode:vertical-rl;font-size:11px;color:#fff">IN RAINBOWS</span></div>
+      <div style="flex:1;height:100%;border:1.5px dashed #1a1a1a;border-radius:6px;display:grid;place-items:center;font-size:13px;color:#8a8378;text-align:center;padding:8px">…spines coloured by each record's own palette.<br>The shelf becomes a picture of the collection.</div>
+    </div>
+    <div style="display:flex;gap:8px;font-size:13px"><span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:3px 14px;background:#1a1a1a;color:#fff">grid of covers</span><span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:3px 14px">spines</span><span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:3px 14px">just what needs me</span></div>
+  </div>
+  <div style="padding:8px 16px 12px;font-size:12px;color:#8a8378;border-top:1px dashed rgba(0,0,0,.2)">Progress is celebratory, not a backlog. Two browse modes: covers, or spines painted with each palette.</div>
+</div>
+
+<div class="dv-card" style="width:600px">
+  <div style="height:150px;border-bottom:1.5px solid #1a1a1a;position:relative;background:repeating-linear-gradient(135deg,#ddd8d0 0 8px,#f7f5f1 8px 16px)">
+    <span style="position:absolute;left:16px;top:14px;font-size:12px;color:#6a655c">COVER, FULL BLEED, BLURRED BEHIND</span>
+    <div style="position:absolute;left:16px;bottom:14px;display:flex;gap:12px;align-items:flex-end">
+      <div style="width:84px;height:84px;border:1.5px solid #1a1a1a;border-radius:3px;background:repeating-linear-gradient(135deg,#c9c3ba 0 5px,#efece7 5px 10px)"></div>
+      <div><div style="font:700 26px Kalam,sans-serif;line-height:1.1">Purple Rain</div><div style="font-size:13px;color:#4a453e">Prince and The Revolution · 1984 · funk, rock, pop</div></div>
+    </div>
+    <div style="position:absolute;right:16px;bottom:14px;display:flex;gap:6px;font-size:12px"><span style="border:1.5px solid #1a1a1a;border-radius:999px;padding:2px 10px;background:#fff">▶ see it in the room</span></div>
+  </div>
+  <div style="display:flex;height:14px;border-bottom:1.5px solid #1a1a1a"><span style="flex:1;background:#4B0082"></span><span style="flex:1;background:#8A2BE2"></span><span style="flex:1;background:#FFD700"></span></div>
+  <div style="display:flex;background:#f4f2ee">
+    <div style="width:120px;flex:none;border-right:1px dashed rgba(0,0,0,.25);padding:14px 12px;font-size:13px;display:flex;flex-direction:column;gap:9px">
+      <span style="font-size:11px;letter-spacing:.12em;color:#8a8378">ON THIS PAGE</span>
+      <span style="font-weight:700;border-left:3px solid #c26a10;padding-left:7px">Colour</span>
+      <span style="color:#8a8378;padding-left:10px">Motion</span>
+      <span style="color:#8a8378;padding-left:10px">The picture</span>
+      <span style="color:#8a8378;padding-left:10px">The card</span>
+      <span style="color:#8a8378;padding-left:10px">The sticker</span>
+      <span style="margin-top:auto;font-size:12px;color:#8a8378">↓ scroll, or jump</span>
+    </div>
+    <div style="flex:1;padding:14px;display:flex;flex-direction:column;gap:14px">
+      <div>
+        <div style="font:700 18px Kalam,sans-serif">Colour</div>
+        <p style="margin:4px 0 8px;font-size:13px;color:#4a453e;line-height:1.5">Roadie pulled three from the sleeve. It reckons the record is more purple than the photograph is — <a href="#1d">hear it out</a> or keep the sleeve's own.</p>
+        <div style="display:flex;gap:10px">
+          <div style="flex:1;border:1.5px solid #1a1a1a;border-radius:10px 7px 12px 8px/7px 12px 8px 10px;padding:9px;background:#fff"><div style="font-size:12px;margin-bottom:6px">from the sleeve <span style="color:#c26a10">· in use</span></div><div style="display:flex;height:30px;border:1.5px solid #1a1a1a;border-radius:3px;overflow:hidden"><span style="flex:1;background:#4B0082"></span><span style="flex:1;background:#8A2BE2"></span><span style="flex:1;background:#FFD700"></span></div></div>
+          <div style="flex:1;border:1.5px solid #1a1a1a;border-radius:10px 7px 12px 8px/7px 12px 8px 10px;padding:9px;background:#fff"><div style="font-size:12px;margin-bottom:6px">from the feeling</div><div style="display:flex;height:30px;border:1.5px solid #1a1a1a;border-radius:3px;overflow:hidden"><span style="flex:1;background:#2B0B3F"></span><span style="flex:1;background:#B23AEE"></span><span style="flex:1;background:#F7E7CE"></span></div></div>
+        </div>
+      </div>
+      <div style="border-top:1px dashed rgba(0,0,0,.25);padding-top:12px;opacity:.65">
+        <div style="font:700 18px Kalam,sans-serif">Motion</div>
+        <p style="margin:4px 0 0;font-size:13px;color:#4a453e">Slow crossfade, 45s hold. <span style="color:#8a8378">— next section, still on the same page</span></p>
+      </div>
+      <div style="border-top:1px dashed rgba(0,0,0,.25);padding-top:12px;opacity:.45">
+        <div style="font:700 18px Kalam,sans-serif">The picture</div>
+        <div style="border:1.5px dashed #1a1a1a;border-radius:8px;height:52px;display:grid;place-items:center;font-size:13px;color:#8a8378;margin-top:6px">drop a clip, or ask for one</div>
+      </div>
+    </div>
+  </div>
+  <div style="padding:8px 16px 12px;font-size:12px;color:#8a8378;border-top:1px dashed rgba(0,0,0,.2)">Closest to what exists — but one page instead of five benches, written like liner notes rather than a form.</div>
+</div>
+
+</div>
+</div>
+
+</div>
+
+<p class="dv-next">Try next: "go deeper on <a class="dv-oid" href="#1a">1a</a> — show me the wall at three densities" · "combine <a class="dv-oid" href="#1c">1c</a>'s stage with <a class="dv-oid" href="#1d">1d</a>'s page" · "wireframe the lights moment on its own, big" · "these are close — now theme <a class="dv-oid" href="#1b">1b</a>"</p>
+</section>
+</x-dc>
+</body>
+</html>

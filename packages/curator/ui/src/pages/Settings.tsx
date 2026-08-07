@@ -1,620 +1,502 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { api, ApiError } from "../api";
+import { api } from "../api";
 import { usePoll } from "../hooks";
-import { RoomAndServices } from "../components/RoomAndServices";
-import { LibraryMaintenance } from "../components/LibraryMaintenance";
+import { AsyncButton } from "../components/common";
+import { errorMessage } from "../errors";
+import { SERVICE_GLOSS } from "../system";
 
 /**
- * App settings. Today: Spotify credentials — needed for search + add-by-URL, and the only thing the
- * packaged desktop app can't pick up from a repo `.env`. Creds are stored in the data folder and
- * take effect on the next launch (the Spotify client + Roadie are built once at boot).
+ * Settings (ADR 0052) — two columns: what the room is plugged into, and what Roadie may do on its own.
+ *
+ * The second column is the point of the rewrite. These were feature flags with technical names;
+ * framing them as **permissions** is what makes "Metered and pricey" the natural thing to write next
+ * to one, and turns a settings page into a place you can answer "what is this going to cost me?".
  */
+
+/** Which room the lights are in. Conductor owns this value, so it needs an unreachable state. */
+function WhichRoom() {
+  const { data: status, refresh } = usePoll(api.demoStatus, 15000);
+  const { data: rooms } = usePoll(api.demoRooms, 60000);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  if (status && !status.reachable)
+    return (
+      <p className="setrow setrow--muted">
+        <span className="pp-label">WHICH ROOM</span>
+        <span>
+          Conductor isn&apos;t answering, so the rooms can&apos;t be listed.
+        </span>
+      </p>
+    );
+
+  // Reachable but holding no rooms is its own state — a picker with one "not chosen yet" line in it
+  // looks like a screen that hasn't loaded, when the real answer is that no bridge is paired.
+  if (rooms && rooms.rooms.length === 0)
+    return (
+      <p className="setrow setrow--muted">
+        <span className="pp-label">WHICH ROOM</span>
+        <span>
+          Conductor has no rooms yet — pair a Hue bridge and they turn up here.
+        </span>
+      </p>
+    );
+
+  return (
+    <label className="setrow">
+      <span className="pp-label">WHICH ROOM</span>
+      <select
+        className="setrow__select"
+        value={status?.listeningRoomId ?? ""}
+        onChange={(e) =>
+          void api
+            .demoSetRoom(e.target.value)
+            .then(() => {
+              setProblem(null);
+              refresh();
+            })
+            .catch((err: unknown) => setProblem(errorMessage(err)))
+        }
+      >
+        <option value="">not chosen yet</option>
+        {(rooms?.rooms ?? []).map((r) => (
+          <option key={r.id} value={r.id}>
+            {r.name}
+          </option>
+        ))}
+      </select>
+      {problem && <span className="setrow__problem">{problem}</span>}
+    </label>
+  );
+}
+
+/**
+ * One account: whether it is connected, and a way to change it.
+ *
+ * Secrets are write-only — the server never sends them back — so CHANGE can only ever mean "type it
+ * again", never "here is what you have". Saying so beats an empty box that looks like data loss.
+ */
+function Account({
+  name,
+  connected,
+  detail,
+  children,
+}: {
+  name: string;
+  connected: boolean;
+  detail?: string;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="account">
+      <p className="account__head">
+        <span
+          className={`pp-dot${connected ? " pp-dot--positive" : ""}`}
+          aria-hidden="true"
+        />
+        {/* State in words, never the dot alone. */}
+        <span className="account__name">
+          {name} — {connected ? (detail ?? "connected") : "not connected"}
+        </span>
+        <button
+          type="button"
+          className="account__change"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+        >
+          {open ? "CANCEL" : "CHANGE"}
+        </button>
+      </p>
+      {open && <div className="account__form">{children}</div>}
+    </div>
+  );
+}
+
+/**
+ * How often the Discogs sweep runs, in words.
+ *
+ * The interval itself is not editable here — it is a number of minutes, which is a worse question to
+ * put on a permissions column than "may Roadie do this at all", and the answer is almost always the
+ * default. It is still a real setting on `PUT /api/settings/discogs`, so this reads the value rather
+ * than asserting one.
+ */
+export function syncCadence(minutes: number | undefined): string {
+  if (!minutes || minutes >= 1440) return "Checks once a day";
+  if (minutes >= 60) {
+    const h = Math.round(minutes / 60);
+    return h === 1 ? "Checks every hour" : `Checks every ${h} hours`;
+  }
+  return `Checks every ${minutes} minutes`;
+}
+
+/** A permission Roadie either has or doesn't. A 15px ink square — no switch chrome. */
+function Permission({
+  label,
+  note,
+  on,
+  onChange,
+  busy,
+}: {
+  label: string;
+  note: string;
+  on: boolean;
+  onChange: (next: boolean) => void;
+  busy?: boolean;
+}) {
+  return (
+    <label className="perm">
+      <input
+        type="checkbox"
+        className="perm__box"
+        checked={on}
+        disabled={busy}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span>
+        <span className="perm__label">{label}</span>
+        <span className="perm__note">{note}</span>
+      </span>
+    </label>
+  );
+}
+
 export function Settings() {
-  const navigate = useNavigate();
-  const { data: status, refresh } = usePoll(api.spotifySettings, 15000);
-  const [clientId, setClientId] = useState("");
-  const [clientSecret, setClientSecret] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-
-  // Spotify user login (Authorization Code + PKCE). Separate from the credential form above: creds
-  // enable the app-token catalog reads; logging in adds a user session (personalized search now,
-  // Connect playback later). Poll so the connected state updates after the browser handshake returns.
-  const { data: auth, refresh: refreshAuth } = usePoll(
+  const { data: services } = usePoll(api.serviceHealth, 30000);
+  const { data: spotify, refresh: refreshSpotify } = usePoll(
+    api.spotifySettings,
+    30000,
+  );
+  const { data: spotifyAuth, refresh: refreshSpotifyAuth } = usePoll(
     api.spotifyAuthStatus,
-    5000,
-  );
-  const [authBusy, setAuthBusy] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
-
-  const connectSpotify = async () => {
-    setAuthBusy(true);
-    setAuthError(null);
-    try {
-      const { authorizeUrl } = await api.spotifyLogin();
-      // Opens the system browser in the desktop shell (setWindowOpenHandler), a new tab in dev.
-      window.open(authorizeUrl, "_blank", "noopener");
-    } catch (err) {
-      setAuthError(err instanceof ApiError ? err.message : String(err));
-    } finally {
-      setAuthBusy(false);
-    }
-  };
-
-  const disconnectSpotify = async () => {
-    setAuthBusy(true);
-    setAuthError(null);
-    try {
-      await api.spotifyDisconnect();
-      await refreshAuth();
-    } catch (err) {
-      setAuthError(err instanceof ApiError ? err.message : String(err));
-    } finally {
-      setAuthBusy(false);
-    }
-  };
-
-  // Discogs personal access token
-  // ([ADR 0017](../../../../../docs/adrs/0017-discogs-personal-token-and-direct-images.md)).
-  // Same store + restart-to-apply story as Spotify.
-  const { data: discogs, refresh: refreshDiscogs } = usePoll(
-    api.discogsSettings,
     15000,
   );
-  const [discogsToken, setDiscogsToken] = useState("");
-  const [discogsUsername, setDiscogsUsername] = useState("");
-  const [discogsConsumerKey, setDiscogsConsumerKey] = useState("");
-  const [discogsConsumerSecret, setDiscogsConsumerSecret] = useState("");
-  const [discogsBusy, setDiscogsBusy] = useState(false);
-  const [discogsError, setDiscogsError] = useState<string | null>(null);
-  const [discogsSaved, setDiscogsSaved] = useState(false);
-
-  const saveDiscogs = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setDiscogsBusy(true);
-    setDiscogsError(null);
-    setDiscogsSaved(false);
-    try {
-      await api.saveDiscogsSettings({
-        token: discogsToken.trim() || undefined,
-        username: discogsUsername.trim() || undefined,
-        consumerKey: discogsConsumerKey.trim() || undefined,
-        consumerSecret: discogsConsumerSecret.trim() || undefined,
-      });
-      setDiscogsSaved(true);
-      setDiscogsToken(""); // don't keep secrets in the fields after saving
-      setDiscogsConsumerKey("");
-      setDiscogsConsumerSecret("");
-      await refreshDiscogs();
-    } catch (err) {
-      setDiscogsError(err instanceof ApiError ? err.message : String(err));
-    } finally {
-      setDiscogsBusy(false);
-    }
-  };
-
-  // Automatic collection polling (issue #234). Unlike the credentials above, this takes effect
-  // immediately — it's only a timer, and a toggle that meant "now restart Curator" would be broken.
-  // `autoSync`/`interval` follow the server's answer until the user touches them, so the fields
-  // reflect the clamped interval the poller actually settled on rather than what was typed.
-  const { data: syncStatus, refresh: refreshSyncStatus } = usePoll(
-    api.discogsSyncStatus,
-    15000,
-  );
-  const [autoSyncEdit, setAutoSyncEdit] = useState<{
-    enabled: boolean;
-    minutes: number;
-  } | null>(null);
-  const [autoSyncBusy, setAutoSyncBusy] = useState(false);
-  const [autoSyncError, setAutoSyncError] = useState<string | null>(null);
-  const autoSync = autoSyncEdit?.enabled ?? discogs?.autoSync ?? false;
-  const intervalMinutes =
-    autoSyncEdit?.minutes ?? discogs?.autoSyncIntervalMinutes ?? 60;
-  const setIntervalMinutes = (minutes: number) =>
-    setAutoSyncEdit({ enabled: autoSync, minutes });
-
-  const saveAutoSync = async (enabled: boolean, minutes: number) => {
-    setAutoSyncEdit({ enabled, minutes });
-    setAutoSyncBusy(true);
-    setAutoSyncError(null);
-    try {
-      await api.saveDiscogsSettings({
-        autoSync: enabled,
-        ...(Number.isFinite(minutes) && minutes > 0
-          ? { autoSyncIntervalMinutes: minutes }
-          : {}),
-      });
-      // Drop the local edit so the fields fall back to the server's view — which is where the
-      // interval clamp becomes visible if what was typed was below the floor.
-      setAutoSyncEdit(null);
-      await Promise.all([refreshDiscogs(), refreshSyncStatus()]);
-    } catch (err) {
-      setAutoSyncError(err instanceof ApiError ? err.message : String(err));
-    } finally {
-      setAutoSyncBusy(false);
-    }
-  };
-
-  // Discogs OAuth "log in with Discogs" (issue #59) — parallels the Spotify user login. Only offered
-  // once consumer creds are configured (discogs.oauthConfigured). Poll so the connected state updates
-  // after the browser handshake returns.
-  const { data: discogsAuth, refresh: refreshDiscogsAuth } = usePoll(
-    api.discogsAuthStatus,
-    5000,
-  );
-  const [discogsAuthBusy, setDiscogsAuthBusy] = useState(false);
-  const [discogsAuthError, setDiscogsAuthError] = useState<string | null>(null);
-
-  const connectDiscogs = async () => {
-    setDiscogsAuthBusy(true);
-    setDiscogsAuthError(null);
-    try {
-      const { authorizeUrl } = await api.discogsLogin();
-      window.open(authorizeUrl, "_blank", "noopener");
-    } catch (err) {
-      setDiscogsAuthError(err instanceof ApiError ? err.message : String(err));
-    } finally {
-      setDiscogsAuthBusy(false);
-    }
-  };
-
-  const disconnectDiscogs = async () => {
-    setDiscogsAuthBusy(true);
-    setDiscogsAuthError(null);
-    try {
-      await api.discogsDisconnect();
-      await refreshDiscogsAuth();
-    } catch (err) {
-      setDiscogsAuthError(err instanceof ApiError ? err.message : String(err));
-    } finally {
-      setDiscogsAuthBusy(false);
-    }
-  };
-
   const { data: gemini, refresh: refreshGemini } = usePoll(
     api.geminiSettings,
+    30000,
+  );
+  const { data: discogs, refresh: refreshDiscogs } = usePoll(
+    api.discogsSettings,
+    30000,
+  );
+  const { data: discogsAuth, refresh: refreshDiscogsAuth } = usePoll(
+    api.discogsAuthStatus,
     15000,
   );
-  const [apiKey, setApiKey] = useState("");
-  const [geminiBusy, setGeminiBusy] = useState(false);
-  const [geminiError, setGeminiError] = useState<string | null>(null);
-  const [geminiSaved, setGeminiSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [restart, setRestart] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
 
-  const save = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    setSaved(false);
+  /**
+   * Run a sign-in / sign-out and say so if it fails. `AsyncButton` catches only so the click doesn't
+   * throw, so without this the button settles back and nothing explains why nothing happened.
+   */
+  const attempt = async (fn: () => Promise<unknown>) => {
+    setProblem(null);
     try {
-      await api.saveSpotifySettings(clientId.trim(), clientSecret.trim());
-      setSaved(true);
-      setClientSecret(""); // don't keep the secret in the field after saving
-      await refresh();
+      await fn();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
-    } finally {
-      setBusy(false);
+      setProblem(errorMessage(err));
     }
   };
 
-  const saveGemini = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setGeminiBusy(true);
-    setGeminiError(null);
-    setGeminiSaved(false);
+  const save = async (fn: () => Promise<{ restartRequired?: boolean }>) => {
+    setSaving(true);
+    setProblem(null);
     try {
-      await api.saveGeminiSettings({ apiKey: apiKey.trim() });
-      setGeminiSaved(true);
-      setApiKey(""); // don't keep the key in the field after saving
-      await refreshGemini();
+      const r = await fn();
+      if (r.restartRequired) setRestart(true);
     } catch (err) {
-      setGeminiError(err instanceof ApiError ? err.message : String(err));
+      setProblem(errorMessage(err));
     } finally {
-      setGeminiBusy(false);
-    }
-  };
-
-  // Toggling a generation flag persists immediately (no key re-entry needed).
-  const toggleGeneration = async (patch: {
-    generateCardArt?: boolean;
-    generateVideo?: boolean;
-  }) => {
-    setGeminiError(null);
-    setGeminiSaved(false);
-    try {
-      await api.saveGeminiSettings(patch);
-      setGeminiSaved(true);
-      await refreshGemini();
-    } catch (err) {
-      setGeminiError(err instanceof ApiError ? err.message : String(err));
+      setSaving(false);
     }
   };
 
   return (
-    <div className="page">
-      <div className="page__head">
-        <button className="btn btn--ghost" onClick={() => navigate("/")}>
-          ← Queue
-        </button>
-        <h1>Settings</h1>
-      </div>
+    <main className="screen">
+      <header className="screen__head">
+        <h1 className="pp-title screen__title">Settings</h1>
+      </header>
 
-      {/* First, because it's the setting most likely to change (curator-spec §10) and the only one
-          here that affects the runtime rather than Curator's own integrations. */}
-      <section className="detail-section">
-        <RoomAndServices />
-      </section>
+      <div className="screen__body settings">
+        <div className="settings__col">
+          <section>
+            <p className="pp-label settings__head">THE ROOM AND THE SERVICES</p>
+            <WhichRoom />
 
-      <section className="detail-section">
-        <LibraryMaintenance />
-      </section>
+            {/*
+              The design draws all four service URLs as editable fields. They are not editable, and
+              showing a box that silently does nothing would be worse than showing the value: they
+              are resolved once at boot from config.toml or the environment, and `settings.json`
+              sits *below* config.toml in that chain — so anything typed here could be overridden
+              without a word. Making them editable is real work in three layers (ADR 0052).
+            */}
+            {(services?.services ?? []).map((s) => (
+              <p className="setrow setrow--ro" key={s.service}>
+                <span className="pp-label">
+                  {s.service[0]!.toUpperCase() + s.service.slice(1)}
+                </span>
+                <span className="setrow__value">
+                  {s.url ?? `not set — ${SERVICE_GLOSS[s.service]} is off`}
+                </span>
+              </p>
+            ))}
+            <p className="settings__note">
+              Service addresses are read once at startup from{" "}
+              <code>config.toml</code> or the environment. Change them there and
+              restart.
+            </p>
+          </section>
 
-      <section className="detail-section">
-        <h2>Spotify</h2>
-        <p className="muted">
-          Spotify search and add-by-URL need API credentials. Create an app in
-          the{" "}
-          <a
-            href="https://developer.spotify.com/dashboard"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Spotify Developer Dashboard
-          </a>{" "}
-          and paste its Client ID and Secret below. They're stored in your local
-          data folder and never leave this machine. Manual album add works
-          without them.
-        </p>
+          <section>
+            <p className="pp-label settings__head">ACCOUNTS</p>
 
-        {status &&
-          (status.configured ? (
-            <div className="banner banner--ok">
-              Connected
-              {status.clientId
-                ? ` — client ${status.clientId.slice(0, 8)}…`
-                : ""}
-              .
-            </div>
-          ) : (
-            <div className="banner banner--warn">
-              Not configured — Spotify search and add-by-URL are disabled.
-            </div>
-          ))}
-
-        <form className="form" onSubmit={save}>
-          <label>
-            Client ID
-            <input
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </label>
-          <label>
-            Client Secret
-            <input
-              type="password"
-              value={clientSecret}
-              onChange={(e) => setClientSecret(e.target.value)}
-              autoComplete="off"
-            />
-          </label>
-          <button
-            className="btn btn--primary"
-            disabled={busy || !clientId.trim() || !clientSecret.trim()}
-          >
-            {busy ? "Saving…" : "Save"}
-          </button>
-        </form>
-
-        {error && <div className="banner banner--error">{error}</div>}
-        {saved && (
-          <div className="banner banner--warn">
-            Saved. <b>Restart Marquee</b> to connect Spotify.
-          </div>
-        )}
-
-        <h3 className="settings-subhead">Log in as a user</h3>
-        <p className="muted">
-          Optional: log in with your Spotify account to run search through your
-          own session and unlock playback control (playing an album through your
-          speakers, coming later). Without it, Curator uses app-only catalog
-          access, which is enough for search and adding albums.
-        </p>
-
-        {auth?.connected ? (
-          <div className="banner banner--ok">
-            Logged in to Spotify.{" "}
-            <button
-              className="btn btn--ghost"
-              onClick={disconnectSpotify}
-              disabled={authBusy}
+            <Account
+              name="Spotify"
+              // Either is enough, so `||` not `??`: an account can be usable on app credentials
+              // with no user session, and `??` only falls back on nullish — a *false* auth status
+              // would report a configured account as not connected.
+              connected={Boolean(spotifyAuth?.connected || spotify?.configured)}
+              detail={spotifyAuth?.connected ? "signed in" : undefined}
             >
-              {authBusy ? "…" : "Disconnect"}
-            </button>
-          </div>
-        ) : (
-          <button
-            className="btn btn--primary"
-            onClick={connectSpotify}
-            disabled={authBusy || !status?.configured}
-            title={
-              status?.configured
-                ? undefined
-                : "Add your Client ID and Secret first"
-            }
-          >
-            {authBusy ? "Opening Spotify…" : "Connect Spotify"}
-          </button>
-        )}
-        {authError && <div className="banner banner--error">{authError}</div>}
-      </section>
-
-      <section className="detail-section">
-        <h2>Discogs</h2>
-        <p className="muted">
-          Browse your Discogs collection and send albums to Roadie. Create a
-          personal access token in your{" "}
-          <a
-            href="https://www.discogs.com/settings/developers"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Discogs developer settings
-          </a>{" "}
-          and paste it below. It's stored in your local data folder and never
-          leaves this machine. The username is optional — it's read from your
-          token when left blank.
-        </p>
-
-        {discogs &&
-          (discogs.configured ? (
-            <div className="banner banner--ok">
-              Connected
-              {discogs.username ? ` — ${discogs.username}` : ""}.
-            </div>
-          ) : (
-            <div className="banner banner--warn">
-              Not configured — Discogs collection browsing is disabled.
-            </div>
-          ))}
-
-        <form className="form" onSubmit={saveDiscogs}>
-          <label>
-            Personal access token
-            <input
-              type="password"
-              value={discogsToken}
-              onChange={(e) => setDiscogsToken(e.target.value)}
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </label>
-          <label>
-            Username (optional)
-            <input
-              value={discogsUsername}
-              onChange={(e) => setDiscogsUsername(e.target.value)}
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </label>
-          {/* OAuth consumer creds (issue #59): the alternative to the personal token — a real
-              "log in with Discogs" experience. Register a Discogs app to get these. */}
-          <label>
-            OAuth consumer key (optional — enables "log in with Discogs")
-            <input
-              value={discogsConsumerKey}
-              onChange={(e) => setDiscogsConsumerKey(e.target.value)}
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </label>
-          <label>
-            OAuth consumer secret (optional)
-            <input
-              type="password"
-              value={discogsConsumerSecret}
-              onChange={(e) => setDiscogsConsumerSecret(e.target.value)}
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </label>
-          <button
-            className="btn btn--primary"
-            disabled={
-              discogsBusy ||
-              (!discogsToken.trim() &&
-                !(discogsConsumerKey.trim() && discogsConsumerSecret.trim()) &&
-                !discogsUsername.trim())
-            }
-          >
-            {discogsBusy ? "Saving…" : "Save"}
-          </button>
-        </form>
-
-        {discogsError && (
-          <div className="banner banner--error">{discogsError}</div>
-        )}
-        {discogsSaved && (
-          <div className="banner banner--warn">
-            Saved. <b>Restart Marquee</b> to apply the new credentials.
-          </div>
-        )}
-
-        {/* "Log in with Discogs" — only once OAuth consumer creds are configured (issue #59). */}
-        {discogs?.oauthConfigured && (
-          <div className="auth-connect">
-            {discogsAuth?.connected ? (
-              <>
-                <div className="banner banner--ok">
-                  Logged in with Discogs
-                  {discogsAuth.username ? ` — ${discogsAuth.username}` : ""}.
-                </div>
-                <button
-                  className="btn"
-                  onClick={disconnectDiscogs}
-                  disabled={discogsAuthBusy}
-                >
-                  {discogsAuthBusy ? "…" : "Disconnect"}
-                </button>
-              </>
-            ) : (
-              <button
-                className="btn btn--primary"
-                onClick={connectDiscogs}
-                disabled={discogsAuthBusy}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const f = new FormData(e.currentTarget);
+                  void save(() =>
+                    api.saveSpotifySettings(
+                      String(f.get("clientId") ?? ""),
+                      String(f.get("clientSecret") ?? ""),
+                    ),
+                  ).then(refreshSpotify);
+                }}
               >
-                {discogsAuthBusy ? "Opening Discogs…" : "Connect Discogs"}
-              </button>
-            )}
-            {discogsAuthError && (
-              <div className="banner banner--error">{discogsAuthError}</div>
-            )}
-          </div>
-        )}
+                <label className="setrow">
+                  <span className="pp-label">CLIENT ID</span>
+                  <input
+                    name="clientId"
+                    defaultValue={spotify?.clientId ?? ""}
+                    required
+                  />
+                </label>
+                <label className="setrow">
+                  <span className="pp-label">CLIENT SECRET</span>
+                  <input
+                    name="clientSecret"
+                    type="password"
+                    placeholder="type it again — it is never sent back"
+                    required
+                  />
+                </label>
+                <button className="pp-btn" disabled={saving}>
+                  SAVE
+                </button>
+              </form>
+              {spotify?.configured && (
+                <p className="account__extra">
+                  {spotifyAuth?.connected ? (
+                    <AsyncButton
+                      className="pp-action"
+                      onClick={() =>
+                        attempt(() =>
+                          api.spotifyDisconnect().then(refreshSpotifyAuth),
+                        )
+                      }
+                    >
+                      SIGN OUT
+                    </AsyncButton>
+                  ) : (
+                    <AsyncButton
+                      className="pp-action"
+                      onClick={() =>
+                        attempt(() =>
+                          api
+                            .spotifyLogin()
+                            .then((r) => window.open(r.authorizeUrl, "_blank")),
+                        )
+                      }
+                    >
+                      SIGN IN WITH SPOTIFY
+                    </AsyncButton>
+                  )}
+                </p>
+              )}
+            </Account>
 
-        {/* Automatic collection polling (issue #234). Only offered once Discogs is configured —
-            a toggle that can't do anything is worse than no toggle. */}
-        {discogs?.configured && (
-          <div className="auto-sync">
-            <h3>Keep the collection in sync</h3>
-            <p className="muted">
-              Check Discogs on a timer and add anything new automatically, so a
-              record you add there turns up here without a trip to{" "}
-              <Link to="/add">Add album</Link>. Costs no AI credits — new
-              records go through Roadie for art, colours, and metadata, the same
-              as a manual sync.
+            <Account name="Gemini" connected={Boolean(gemini?.configured)}>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const f = new FormData(e.currentTarget);
+                  void save(() =>
+                    api.saveGeminiSettings({
+                      apiKey: String(f.get("apiKey") ?? ""),
+                    }),
+                  ).then(refreshGemini);
+                }}
+              >
+                <label className="setrow">
+                  <span className="pp-label">API KEY</span>
+                  <input
+                    name="apiKey"
+                    type="password"
+                    placeholder="type it again — it is never sent back"
+                    required
+                  />
+                </label>
+                <button className="pp-btn" disabled={saving}>
+                  SAVE
+                </button>
+              </form>
+            </Account>
+
+            <Account
+              name="Discogs"
+              connected={Boolean(discogsAuth?.connected || discogs?.configured)}
+              detail={
+                discogsAuth?.username
+                  ? `as ${discogsAuth.username}`
+                  : discogs?.username
+                    ? `as ${discogs.username}`
+                    : undefined
+              }
+            >
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const f = new FormData(e.currentTarget);
+                  void save(() =>
+                    api.saveDiscogsSettings({
+                      token: String(f.get("token") ?? ""),
+                      username: String(f.get("username") ?? ""),
+                    }),
+                  ).then(refreshDiscogs);
+                }}
+              >
+                <label className="setrow">
+                  <span className="pp-label">USERNAME</span>
+                  <input
+                    name="username"
+                    defaultValue={discogs?.username ?? ""}
+                    required
+                  />
+                </label>
+                <label className="setrow">
+                  <span className="pp-label">PERSONAL TOKEN</span>
+                  <input
+                    name="token"
+                    type="password"
+                    placeholder="type it again — it is never sent back"
+                    required
+                  />
+                </label>
+                <button className="pp-btn" disabled={saving}>
+                  SAVE
+                </button>
+              </form>
+              {/*
+               * The other way in: full OAuth, the same shape as Spotify's above. A personal token is
+               * the simple default and covers the sweep, but the login exists (ADR 0017) and the
+               * routes are live — an account you can only connect by curl is one nobody connects.
+               */}
+              {discogs?.oauthConfigured && (
+                <p className="account__extra">
+                  {discogsAuth?.connected ? (
+                    <AsyncButton
+                      className="pp-action"
+                      onClick={() =>
+                        attempt(() =>
+                          api.discogsDisconnect().then(refreshDiscogsAuth),
+                        )
+                      }
+                    >
+                      SIGN OUT
+                    </AsyncButton>
+                  ) : (
+                    <AsyncButton
+                      className="pp-action"
+                      onClick={() =>
+                        attempt(() =>
+                          api
+                            .discogsLogin()
+                            .then((r) => window.open(r.authorizeUrl, "_blank")),
+                        )
+                      }
+                    >
+                      SIGN IN WITH DISCOGS
+                    </AsyncButton>
+                  )}
+                </p>
+              )}
+            </Account>
+
+            {problem && <p className="pp-error">{problem}</p>}
+            {restart && (
+              <p className="settings__restart">
+                Saved. Restart Marquee for it to take effect.
+              </p>
+            )}
+          </section>
+        </div>
+
+        <div className="settings__col">
+          <section>
+            <p className="pp-label settings__head">
+              WHAT ROADIE MAY DO ON ITS OWN
             </p>
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={autoSync}
-                onChange={(e) =>
-                  void saveAutoSync(e.target.checked, intervalMinutes)
-                }
-                disabled={autoSyncBusy}
-              />
-              Check automatically
-            </label>
-            <label>
-              How often (minutes)
-              <input
-                type="number"
-                min={5}
-                step={5}
-                value={intervalMinutes}
-                onChange={(e) => setIntervalMinutes(Number(e.target.value))}
-                onBlur={() => void saveAutoSync(autoSync, intervalMinutes)}
-                disabled={autoSyncBusy || !autoSync}
-              />
-            </label>
-            <p className="muted">
-              {syncStatus?.lastRunAt
-                ? `Last checked ${new Date(syncStatus.lastRunAt).toLocaleString()}.`
-                : autoSync
-                  ? "No automatic check has run yet."
-                  : "Automatic checks are off."}
-              {syncStatus?.lastError
-                ? ` Last attempt: ${syncStatus.lastError}`
-                : ""}
-            </p>
-            {autoSyncError && (
-              <div className="banner banner--error">{autoSyncError}</div>
-            )}
-          </div>
-        )}
-      </section>
 
-      <section className="detail-section">
-        <h2>Gemini</h2>
-        <p className="muted">
-          A Gemini API key lets Roadie draft richer, album-specific prompts
-          (grounded in real details of each record) and generate the card art
-          and visualizer clips. Create a key in{" "}
-          <a
-            href="https://aistudio.google.com/apikey"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Google AI Studio
-          </a>{" "}
-          and paste it below. It's stored in your local data folder and never
-          leaves this machine. Without it, Roadie falls back to the built-in
-          prompt templates.
-        </p>
-
-        {gemini &&
-          (gemini.configured ? (
-            <div className="banner banner--ok">Connected.</div>
-          ) : (
-            <div className="banner banner--warn">
-              Not configured — Roadie uses the built-in prompt templates.
-            </div>
-          ))}
-
-        <form className="form" onSubmit={saveGemini}>
-          <label>
-            API Key
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              autoComplete="off"
-              spellCheck={false}
+            <Permission
+              label="Draw card art"
+              note="Cheap — about five images a go."
+              on={Boolean(gemini?.generateCardArt)}
+              busy={saving || !gemini}
+              onChange={(on) =>
+                void save(() =>
+                  api.saveGeminiSettings({ generateCardArt: on }),
+                ).then(refreshGemini)
+              }
             />
-          </label>
-          <button
-            className="btn btn--primary"
-            disabled={geminiBusy || !apiKey.trim()}
-          >
-            {geminiBusy ? "Saving…" : "Save"}
-          </button>
-        </form>
+            <Permission
+              label="Make the visualizers"
+              note="Metered and pricey. Off — Roadie just drafts the prompts for you."
+              on={Boolean(gemini?.generateVideo)}
+              busy={saving || !gemini}
+              onChange={(on) =>
+                void save(() =>
+                  api.saveGeminiSettings({ generateVideo: on }),
+                ).then(refreshGemini)
+              }
+            />
+            <Permission
+              label="Follow my Discogs collection"
+              // From the configured interval, not a constant: the value is real and settable through
+              // the API, so a hardcoded "once a day" would be wrong for anyone who has changed it.
+              note={`${syncCadence(discogs?.autoSyncIntervalMinutes)} and brings new records in.`}
+              on={Boolean(discogs?.autoSync)}
+              busy={saving || !discogs}
+              onChange={(on) =>
+                void save(() => api.saveDiscogsSettings({ autoSync: on })).then(
+                  refreshDiscogs,
+                )
+              }
+            />
 
-        <h3 className="settings-subhead">Artifact generation</h3>
-        <p className="muted">
-          Off by default: Curator just drafts the prompts for you to copy into
-          your own tools. Turn these on to generate the artifacts through the
-          API instead. <b>Card art</b> is cheap (~5 images per click);{" "}
-          <b>video</b> uses metered Veo credits and can be expensive — leave it
-          off and copy the prompt into Google Flow if you'd rather.
-        </p>
-        <label className="toggle">
-          <input
-            type="checkbox"
-            checked={gemini?.generateCardArt ?? false}
-            disabled={!gemini?.configured}
-            onChange={(e) =>
-              toggleGeneration({ generateCardArt: e.target.checked })
-            }
-          />
-          Auto-generate card art (Nano Banana)
-        </label>
-        <label className="toggle">
-          <input
-            type="checkbox"
-            checked={gemini?.generateVideo ?? false}
-            disabled={!gemini?.configured}
-            onChange={(e) =>
-              toggleGeneration({ generateVideo: e.target.checked })
-            }
-          />
-          Auto-generate visualizer clips (Veo — metered, can be pricey)
-        </label>
-
-        {geminiError && (
-          <div className="banner banner--error">{geminiError}</div>
-        )}
-        {geminiSaved && (
-          <div className="banner banner--warn">
-            Saved. <b>Restart Marquee</b> to apply.
-          </div>
-        )}
-      </section>
-    </div>
+            {/*
+              The design's fourth permission — "suggest a second palette" — is deliberately not a
+              checkbox. There is no such flag, and adding one would put a Gemini call in Roadie's
+              pipeline, which ADR 0027 rules out and ADR 0051 actively depends on: a sweep of a large
+              Discogs collection costs nothing today precisely because no pipeline step calls an LLM.
+              So it stays what it is — a button on the record — and this says so.
+            */}
+            <p className="settings__aside">
+              <b>Suggesting a second palette</b> stays on request: ask for it
+              from a record&apos;s Lights panel. Doing it for every record would
+              put a paid call in Roadie&apos;s pipeline, which is the one thing
+              that keeps a whole-collection sync free.
+            </p>
+          </section>
+        </div>
+      </div>
+    </main>
   );
 }

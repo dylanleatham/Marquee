@@ -175,6 +175,72 @@ describe("onboarding workflow", () => {
     expect(res.statusCode).toBeGreaterThanOrEqual(400); // TransitionError, not verified
   });
 
+  // The record page's one button for the whole tag step (ADR 0052). The per-object route above stays
+  // — it is how a Flipper write reports itself — but a human now presses one thing, once.
+  it("verifies both tags in one action, from awaiting_tag_write", async () => {
+    const { app, store, curatorId } = await serverWithReviewedAlbum();
+    await post(app, `/api/albums/${curatorId}/prompts/video/copied`);
+    await uploadVideo(app, curatorId);
+    await post(app, `/api/albums/${curatorId}/preview/approve`);
+    expect(store.read(curatorId)!.roadie.state).toBe("awaiting_tag_write");
+
+    const res = await post(app, `/api/albums/${curatorId}/tags-verified`);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().state).toBe("verified");
+
+    const done = store.read(curatorId)!;
+    // Both stickers, not just the sleeve — pressing this must not leave the card claiming otherwise.
+    expect(done.tag!.sleeve!.written).toBe(true);
+    expect(done.tag!.card!.written).toBe(true);
+    expect(done.verification!.physicallyVerifiedAt).toBeTruthy();
+  });
+
+  it("also works from awaiting_verify, where the intermediate step is already done", async () => {
+    // The other live entry point: the sleeve was written at the Flipper (which advanced the album
+    // itself), and the human is now doing the check. `verifyTags` must skip the transition it has
+    // already had rather than throwing on an illegal awaiting_verify → awaiting_verify.
+    const { app, store, curatorId } = await serverWithReviewedAlbum();
+    await post(app, `/api/albums/${curatorId}/prompts/video/copied`);
+    await uploadVideo(app, curatorId);
+    await post(app, `/api/albums/${curatorId}/preview/approve`);
+    await post(app, `/api/albums/${curatorId}/tag-written`, {
+      object: "sleeve",
+    });
+    expect(store.read(curatorId)!.roadie.state).toBe("awaiting_verify");
+
+    const res = await post(app, `/api/albums/${curatorId}/tags-verified`);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().state).toBe("verified");
+    const done = store.read(curatorId)!;
+    // The card was never written by hand; the one button still records it.
+    expect(done.tag!.card!.written).toBe(true);
+    expect(done.verification!.physicallyVerifiedAt).toBeTruthy();
+  });
+
+  it("does not disturb a tag that was already written", async () => {
+    const { app, store, curatorId } = await serverWithReviewedAlbum();
+    await post(app, `/api/albums/${curatorId}/prompts/video/copied`);
+    await uploadVideo(app, curatorId);
+    await post(app, `/api/albums/${curatorId}/preview/approve`);
+    await post(app, `/api/albums/${curatorId}/tag-written`, { object: "card" });
+    const cardAt = store.read(curatorId)!.tag!.card!.writtenAt;
+
+    await post(app, `/api/albums/${curatorId}/tags-verified`);
+    expect(store.read(curatorId)!.tag!.card!.writtenAt).toBe(cardAt);
+  });
+
+  it("refuses before the record has reached the tag step, rather than half-applying", async () => {
+    // The human path through the state machine is linear even though the record page lets the four
+    // needs be done in any order — so the panel disables the button with the reason instead.
+    const { app, store, curatorId } = await serverWithReviewedAlbum();
+    const res = await post(app, `/api/albums/${curatorId}/tags-verified`);
+    expect(res.statusCode).toBeGreaterThanOrEqual(400);
+    const after = store.read(curatorId)!;
+    expect(after.roadie.state).toBe("awaiting_review");
+    expect(after.tag?.sleeve?.written).toBeFalsy();
+    expect(after.verification?.physicallyVerifiedAt).toBeFalsy();
+  });
+
   it("400s a tag-written call with an invalid object", async () => {
     const { app, curatorId } = await serverWithReviewedAlbum();
     const res = await post(app, `/api/albums/${curatorId}/tag-written`, {

@@ -27,6 +27,36 @@ describe("usePoll", () => {
     });
   });
 
+  it("refetches at once when the resetKey changes, without waiting out the interval", async () => {
+    // React Router reuses a component when only a route param changes, so `/room/a` → `/room/b`
+    // never remounts: the fetcher ref updates silently and the previous record stays on screen for a
+    // whole interval while the room already plays the new one.
+    const fetcher = vi.fn().mockResolvedValue("ok");
+    const { rerender } = renderHook(
+      ({ id }: { id: string }) => usePoll(() => fetcher(id), 5000, id),
+      { initialProps: { id: "a" } },
+    );
+    await flush();
+    expect(fetcher).toHaveBeenCalledWith("a");
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    rerender({ id: "b" });
+    await flush();
+    expect(fetcher).toHaveBeenCalledWith("b");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not restart when the resetKey is unchanged", async () => {
+    // Otherwise every re-render — and this polls, so there are many — would refetch.
+    const fetcher = vi.fn().mockResolvedValue("ok");
+    const { rerender } = renderHook(() => usePoll(fetcher, 5000, "a"));
+    await flush();
+    rerender();
+    rerender();
+    await flush();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
   it("fetches on mount and once per interval", async () => {
     const fetcher = vi.fn().mockResolvedValue("ok");
     renderHook(() => usePoll(fetcher, 1000));
@@ -83,6 +113,58 @@ describe("usePoll", () => {
       result.current.refresh();
       await Promise.resolve();
     });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("drops interval ticks that land on a request still in flight", async () => {
+    // The System screen fans out to four services, each probe bounded at 5s, and it is open exactly
+    // when the runtime is down — so a request takes about as long as the interval. Without this,
+    // every tick stacks another fan-out on a host that is already not answering.
+    let settle: (v: string) => void = () => {};
+    const fetcher = vi
+      .fn()
+      .mockImplementation(() => new Promise<string>((r) => (settle = r)));
+    renderHook(() => usePoll(fetcher, 1000));
+    await flush();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(3500); // three ticks, all while the first is still open
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      settle("ok");
+      await Promise.resolve();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("still honours a refresh() made during a request, once that one lands", async () => {
+    // A refresh usually follows a mutation, so joining the in-flight request would show the state
+    // from before it — the one case where dropping the call is the wrong answer.
+    let settle: (v: string) => void = () => {};
+    const fetcher = vi
+      .fn()
+      .mockImplementation(() => new Promise<string>((r) => (settle = r)));
+    const { result } = renderHook(() => usePoll(fetcher, 1_000_000));
+    await flush();
+
+    act(() => {
+      result.current.refresh();
+      result.current.refresh();
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      settle("ok");
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    // One follow-up, not two: both refreshes would have read the same state.
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 

@@ -1,158 +1,125 @@
-import { useCallback, useEffect, useState } from "react";
-import {
-  Link,
-  Route,
-  Routes,
-  useLocation,
-  useNavigate,
-} from "react-router-dom";
+import { useEffect } from "react";
+import { Link, Route, Routes, useLocation } from "react-router-dom";
 import { api } from "./api";
 import { usePoll } from "./hooks";
-import { QueueView } from "./pages/QueueView";
-import { AlbumDetail } from "./pages/AlbumDetail";
-import { AddAlbum } from "./pages/AddAlbum";
-import { DemoRoom } from "./pages/DemoRoom";
+import { recordActivity } from "./roadieLog";
+import { Collection } from "./pages/Collection";
+import { Record } from "./pages/Record";
+import { AddRecord } from "./pages/AddRecord";
+import { Discogs } from "./pages/Discogs";
+import { Room } from "./pages/Room";
 import { Settings } from "./pages/Settings";
-import { SystemStatus } from "./pages/SystemStatus";
+import { System } from "./pages/System";
 import { TagHelp } from "./pages/TagHelp";
-import { RoadieStrip } from "./components/RoadieStrip";
+import { Masthead } from "./components/Masthead";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ConfirmProvider } from "./components/Confirm";
 import { BatchProgress } from "./components/BatchProgress";
-import { CommandPalette } from "./components/CommandPalette";
 import { attachRunningBatch } from "./batchJob";
 import { attachRunningDiscogsSync } from "./discogsSyncJob";
 import { DiscogsSyncProgress } from "./components/DiscogsSyncProgress";
+import { ReadyToast } from "./components/ReadyToast";
 
 /**
- * The "needs you right now" count. This used to be written into `document.title` — an affordance
- * borrowed from the browser, where a tab shows it. Curator is a single-window Electron app with
- * `autoHideMenuBar`, so that put the number in the OS title bar, invisible while the window is
- * focused (curator-ui-ux §8). It belongs in the header, where you can actually read it.
+ * The shell (ADR 0052): a masthead, a screen, and the two background-sweep panels.
+ *
+ * What used to be here and is deliberately gone: the `⌘K` command palette and its header button, the
+ * `n` and `⌘,` shortcuts, the "needs you" count, and the app-wide Roadie strip. The keyboard layer
+ * was withdrawn in favour of clarity; the strip's job — saying what Roadie is doing — is split
+ * between the masthead indicator and the collection's own log, neither of which names a state or an
+ * id.
+ *
+ * Both polls live here rather than in the screens because two consumers need each: the masthead and
+ * the collection both read the album list, and the Roadie indicator and the session log both read
+ * the status. Polling once and passing down is two requests per interval, not four.
  */
-function NeedsYouCount() {
-  const { data } = usePoll(api.queueCounts, 5000);
-  const n = data?.needsYou ?? 0;
-  if (!n) return null;
-  return (
-    <Link to="/" className="needs-you" title="Albums waiting on you right now">
-      {n} <em>needs you</em>
-    </Link>
-  );
-}
-
-/**
- * Global keyboard shortcuts (curator-ui-ux §9.1). The success criterion is working through ten
- * albums in one session; ten albums × mousing to every control is what makes that a chore. Every
- * shortcut here is also reachable by mouse — the keyboard is an accelerator, never the only path.
- */
-function useGlobalKeys(openPalette: () => void) {
-  const navigate = useNavigate();
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      // Never hijack a key the user is typing into a field.
-      const t = e.target as HTMLElement | null;
-      if (
-        t &&
-        (t.tagName === "INPUT" ||
-          t.tagName === "TEXTAREA" ||
-          t.tagName === "SELECT" ||
-          t.isContentEditable)
-      )
-        return;
-      const mod = e.metaKey || e.ctrlKey;
-      if (mod && e.key === ",") {
-        e.preventDefault();
-        navigate("/settings");
-      } else if (mod && e.key.toLowerCase() === "k") {
-        // ⌘K reaches every album from anywhere (§9.1). Case-insensitive because ⇧ or caps lock
-        // sends "K", and a shortcut that works only in lower case is one that intermittently
-        // does nothing.
-        e.preventDefault();
-        openPalette();
-      } else if (!mod && e.key === "n") {
-        e.preventDefault();
-        navigate("/add");
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [navigate, openPalette]);
-}
-
 export function App() {
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  const openPalette = useCallback(() => setPaletteOpen(true), []);
-  const closePalette = useCallback(() => setPaletteOpen(false), []);
-  useGlobalKeys(openPalette);
-  // Reattach to a library sweep that was already running (issue #104). Without this, reloading the
-  // window during a regeneration leaves it running invisibly with no progress and no way to stop it.
+  const albumsPoll = usePoll(api.albums, 3000);
+  const statusPoll = usePoll(api.status, 2000);
+  const albums = albumsPoll.data?.albums ?? null;
+  const status = statusPoll.data;
+
+  // Reattach to a sweep that was already running (issue #104) — a reload during one must not leave
+  // it running invisibly.
   useEffect(() => {
     void attachRunningBatch();
     void attachRunningDiscogsSync();
   }, []);
+
+  // Fold Roadie's activity into the session log. It needs the album list to turn a curatorId into a
+  // title, which is the whole reason the log can't be built from the status response alone.
+  useEffect(() => {
+    if (!status || !albums) return;
+    const byId = new Map(albums.map((a) => [a.curatorId, a.title]));
+    recordActivity(status.activity, (id) => byId.get(id) || null);
+  }, [status, albums]);
+
+  const roadieWorking = Boolean(
+    status && !status.paused && (status.current || status.queueDepth > 0),
+  );
+
   // Per-route boundary keyed on the path: a page that throws mid-render is contained to the body
-  // (header + RoadieStrip survive), and navigating to another route clears the error (issue #63).
+  // (the masthead survives), and navigating elsewhere clears the error (issue #63).
   const { pathname } = useLocation();
   return (
     <ConfirmProvider>
       <div className="app">
-        <header className="app__header">
-          <Link to="/" className="app__brand">
-            Curator
-          </Link>
-          <span className="app__tagline">Marquee collection</span>
-          <NeedsYouCount />
-          {/* The palette's mouse path. ⌘K is the accelerator; without this the feature would be
-              invisible to anyone who hasn't read the keyboard table (§9.1). */}
-          <button
-            className="app__jump"
-            onClick={openPalette}
-            title="Jump to an album, or run a command (Ctrl/⌘ K)"
-          >
-            Jump… <kbd>⌘K</kbd>
-          </button>
-          <Link to="/system" className="app__nav">
-            System
-          </Link>
-          <Link to="/settings" className="app__nav">
-            Settings
-          </Link>
-        </header>
+        <Masthead albums={albums} roadieWorking={roadieWorking} />
         <div className="app__body">
           <ErrorBoundary variant="route" resetKey={pathname}>
             <Routes>
-              <Route path="/" element={<QueueView />} />
-              <Route path="/add" element={<AddAlbum />} />
-              {/* The rail is routable (ADR 0026): back/forward work and a deep link opens the
-                  workstation you meant. No segment → the state-derived default. */}
-              <Route path="/albums/:curatorId" element={<AlbumDetail />} />
+              <Route
+                path="/"
+                element={
+                  <Collection albums={albums} error={albumsPoll.error} />
+                }
+              />
+              <Route path="/add" element={<AddRecord />} />
+              <Route path="/discogs" element={<Discogs albums={albums} />} />
+              {/* No segment → Lights. The record always opens on the same tab (ADR 0052), so a
+                  click from the collection is predictable rather than state-dependent. */}
+              <Route
+                path="/albums/:curatorId"
+                element={<Record albums={albums} />}
+              />
               <Route
                 path="/albums/:curatorId/:section"
-                element={<AlbumDetail />}
+                element={<Record albums={albums} />}
               />
-              <Route path="/demo/:curatorId" element={<DemoRoom />} />
-              <Route path="/system" element={<SystemStatus />} />
+              <Route
+                path="/room/:curatorId"
+                element={<Room albums={albums} />}
+              />
+              {/* The old address, kept working: it is in the Demo Room's own history and in any
+                  link written before the overhaul. Same screen, one name. */}
+              <Route
+                path="/demo/:curatorId"
+                element={<Room albums={albums} />}
+              />
+              <Route path="/system" element={<System />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/help/tags" element={<TagHelp />} />
               <Route
                 path="*"
                 element={
-                  <div className="page">
-                    Not found. <Link to="/">Queue</Link>
+                  <div className="pp-page">
+                    <h1 className="pp-title">Nothing here</h1>
+                    <p className="pp-prose">
+                      That address doesn&apos;t go anywhere.{" "}
+                      <Link to="/">Back to the collection</Link>.
+                    </p>
                   </div>
                 }
               />
             </Routes>
           </ErrorBoundary>
         </div>
-        <RoadieStrip />
-        {/* Both sweeps can be running at once; the stack keeps them from sharing one corner. */}
+        {/* Both sweeps can run at once; the stack keeps them from sharing one corner. */}
+        <ReadyToast albums={albums} />
         <div className="job-stack">
           <BatchProgress />
           <DiscogsSyncProgress />
         </div>
-        <CommandPalette open={paletteOpen} onClose={closePalette} />
       </div>
     </ConfirmProvider>
   );
