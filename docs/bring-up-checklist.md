@@ -100,6 +100,10 @@ shows Backdrop's idle gradient. (The video-plays check comes after A4's sync, in
 - [ ] A visualizer video attached/spliced to that album — else lights work but no video
 - [ ] Curator's `CONDUCTOR_URL` (or `[conductor] url`) set **explicitly** — the localhost default
       leaves the album-assets push off (ADR 0045)
+- [ ] **Stylus's `config.toml` points at the same Pi 5 address as Curator's.** The two are held
+      separately on two machines, so they drift — and Curator's System page goes green on its own
+      copy alone, while a real sleeve on the stand does nothing. Give the Pi 5 a **DHCP reservation**
+      so the address stops moving; see the runbook's "The Pi 5's address lives in two places"
 - [ ] Amp's `album_assets_dir` **equals Conductor's** — the default is a different directory that
       nothing writes, so card scans would never resolve an album
 - [ ] `POST /api/runtime/sync` — pushes the asset store to Conductor, the projection to Backdrop, and

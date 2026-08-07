@@ -511,19 +511,70 @@ invisible from the service status. For a colour-free read of the kiosk's own vie
   `GET /api/playback/history?limit=50` on Conductor (issue #54).
 - **Check logs:** `journalctl -u marquee-<service> -f` on the Pi.
 
+### The Pi 5's address lives in two places — and DHCP will move it
+
+Conductor, Backdrop **and Amp** all run on the Pi 5 — three services, one address — and **two
+different machines hold that address independently**. Nothing links them, so a DHCP change breaks the
+system in two stages and the second one is easy to miss:
+
+| Where                                                | On                   | What breaks when it is stale                                   |
+| ---------------------------------------------------- | -------------------- | -------------------------------------------------------------- |
+| `.env` → `CONDUCTOR_URL`, `BACKDROP_URL`, `AMP_URL`  | the workstation      | Curator can't push assets; System shows them "not answering"   |
+| `packages/stylus/config.toml` → `[downstream.*].url` | the Pi Zero (Stylus) | **a real sleeve on the stand does nothing** — the fan-out 404s |
+
+Ports on the Pi 5: `4737` Conductor, `4740` Backdrop, `4741` Amp. Stylus's own status port is **also
+4741**, on the Pi Zero — same number, different host, so check the address rather than the port.
+
+Curator's System page only proves _Curator_ can reach the Pi. Stylus is what a physical scan actually
+goes through, so **fixing `.env` alone leaves the product broken while every light on the System page
+is green.** Check both.
+
+Symptoms: `URLError: [Errno 113] No route to host` in `journalctl -u marquee-stylus`, or
+`The operation was aborted due to timeout` against a `configured: true` service in Curator's
+`/api/system/status`.
+
+Find where the Pi went, confirm it is the Pi rather than some other host, and fix both copies:
+
+```bash
+ping -c2 <old-ip> || echo "gone"; ssh pi@<new-ip> "hostname -I"   # 2c:cf:67 in `arp -a` is a Pi 5 NIC
+```
+
+```bash
+sed -i 's|<old-ip>|<new-ip>|g' .env   # then restart Curator so it re-reads the URLs
+```
+
+```bash
+ssh pi@<stylus-ip> "cp ~/Marquee/packages/stylus/config.toml{,.bak} && sed -i 's|<old-ip>|<new-ip>|g' ~/Marquee/packages/stylus/config.toml && sudo systemctl restart marquee-stylus"
+```
+
+**The real fix is to stop it moving:** give the Pi 5 a **DHCP reservation** on the router. `*.local`
+is not the answer here — mDNS resolves for `ssh` on the workstation but not for `curl`/undici, and a
+name that resolves intermittently is worse than one that never does (see the note in `.env`).
+
+Verify end to end, from the Pi Zero rather than the workstation, since that is the path a scan takes:
+
+```bash
+ssh pi@<stylus-ip> "curl -s -o /dev/null -w '%{http_code}\n' http://<new-ip>:4737/healthz"
+```
+
+_Recorded after [#241](https://github.com/dylanleatham/Marquee/issues/241)'s session, 2026-08-06: the
+lease moved `.51 → .49`, Curator went green as soon as `.env` was fixed, and Stylus stayed broken
+until its own config was updated too._
+
 ### Debug matrix
 
-| Symptom                                        | Look at                                         | Likely cause                                                                                                                                                                                                                                                                                                                                                                                                      |
-| ---------------------------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/api/test/color` does nothing                 | Conductor logs; `GET /api/bridge/status`        | Not paired / bridge unreachable — re-run pairing (A2.2)                                                                                                                                                                                                                                                                                                                                                           |
-| Any scan → 401                                 | the `X-Trigger-Secret` on every hop             | Secret mismatch between Stylus/Curator and Conductor/Backdrop                                                                                                                                                                                                                                                                                                                                                     |
-| Scan `202 ignored: no listening room`          | `GET /api/settings`                             | Listening room not set (A2.4)                                                                                                                                                                                                                                                                                                                                                                                     |
-| Scan `202 ignored: album not synced`           | the Pi's `album_assets_dir`                     | Curator never pushed the asset. Run `POST /api/runtime/verify` — the album will be in `conductor.missing` — then `POST /api/runtime/sync` (A4.3). If the push is not firing at all, Curator's `CONDUCTOR_URL` is unset, so `push_assets` defaults off (ADR 0045). **Desktop app:** Conductor and Curator disagree on the store — see [ADR 0008](adrs/0008-desktop-app-supervises-services.md)'s 2026-07-27 update |
-| Scan `202 ignored: album not ready`            | the album's Roadie state in Curator             | No palette/pattern yet — advance to `awaiting_review` (A4.2)                                                                                                                                                                                                                                                                                                                                                      |
-| Lights work, no video                          | Backdrop logs; `POST /api/backdrop/verify-sync` | Library not synced / video file not on Backdrop's SD (A4.3). Check the library's `filePath` really sits under Backdrop's `media_dir` — a `C:/…` prefix means a Curator older than issue #166                                                                                                                                                                                                                      |
-| `current` empty but scan returned `playing`    | Conductor logs                                  | Bridge call failed mid-apply (409 not paired / 502)                                                                                                                                                                                                                                                                                                                                                               |
-| Sleeve on stand does nothing, but A5/A6 worked | Stylus logs; LED                                | NFC read/mount tuning, or Stylus can't reach the Pi 5                                                                                                                                                                                                                                                                                                                                                             |
-| Effect stays after lifting the sleeve          | —                                               | Missed `stop`; the 90-min idle timeout is the backstop, or stop it by hand                                                                                                                                                                                                                                                                                                                                        |
+| Symptom                                         | Look at                                         | Likely cause                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ----------------------------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/api/test/color` does nothing                  | Conductor logs; `GET /api/bridge/status`        | Not paired / bridge unreachable — re-run pairing (A2.2)                                                                                                                                                                                                                                                                                                                                                           |
+| Conductor **and** Backdrop both "not answering" | `ping` the Pi 5; `arp -a`                       | They share a host, so both failing at once points at the host, not the services. Usually its DHCP lease moved — see "The Pi 5's address lives in two places" above. One of the two up rules this out                                                                                                                                                                                                              |
+| Any scan → 401                                  | the `X-Trigger-Secret` on every hop             | Secret mismatch between Stylus/Curator and Conductor/Backdrop                                                                                                                                                                                                                                                                                                                                                     |
+| Scan `202 ignored: no listening room`           | `GET /api/settings`                             | Listening room not set (A2.4)                                                                                                                                                                                                                                                                                                                                                                                     |
+| Scan `202 ignored: album not synced`            | the Pi's `album_assets_dir`                     | Curator never pushed the asset. Run `POST /api/runtime/verify` — the album will be in `conductor.missing` — then `POST /api/runtime/sync` (A4.3). If the push is not firing at all, Curator's `CONDUCTOR_URL` is unset, so `push_assets` defaults off (ADR 0045). **Desktop app:** Conductor and Curator disagree on the store — see [ADR 0008](adrs/0008-desktop-app-supervises-services.md)'s 2026-07-27 update |
+| Scan `202 ignored: album not ready`             | the album's Roadie state in Curator             | No palette/pattern yet — advance to `awaiting_review` (A4.2)                                                                                                                                                                                                                                                                                                                                                      |
+| Lights work, no video                           | Backdrop logs; `POST /api/backdrop/verify-sync` | Library not synced / video file not on Backdrop's SD (A4.3). Check the library's `filePath` really sits under Backdrop's `media_dir` — a `C:/…` prefix means a Curator older than issue #166                                                                                                                                                                                                                      |
+| `current` empty but scan returned `playing`     | Conductor logs                                  | Bridge call failed mid-apply (409 not paired / 502)                                                                                                                                                                                                                                                                                                                                                               |
+| Sleeve on stand does nothing, but A5/A6 worked  | Stylus logs; LED                                | NFC read/mount tuning, or Stylus can't reach the Pi 5. `No route to host` in `journalctl -u marquee-stylus` means the Pi 5's address moved and Stylus's own `config.toml` still holds the old one — see "The Pi 5's address lives in two places" above. **Curator's System page can be all green while this is broken**                                                                                           |
+| Effect stays after lifting the sleeve           | —                                               | Missed `stop`; the 90-min idle timeout is the backstop, or stop it by hand                                                                                                                                                                                                                                                                                                                                        |
 
 Full failure-mode table: `docs/specs/runtime-overview.md §9`. During bring-up, the scan response's
 `action`/`reason` plus Conductor's `/api/playback/current` are your fastest signal for which layer is
