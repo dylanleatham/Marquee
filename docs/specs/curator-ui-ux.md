@@ -111,6 +111,9 @@ Three rules the tokens don't carry on their own:
 - **No shadows anywhere except the toast** (`0 10px 30px rgba(23,21,15,.24)`).
 - **Album artwork uses `outline`, never `border`**, so the state treatment can't move the layout: ink
   for ready, `--pp-rule-soft` for not complete, `2px` accent for Roadie-is-on-it.
+- **A not-complete sleeve is never dimmed.** The mark is a folded corner drawn inside the outline
+  ([ADR 0054](../adrs/0054-not-complete-is-a-folded-corner-not-a-dimmed-sleeve.md)); the artwork
+  itself always renders at full contrast, because showing it is what the screen is for.
 
 **The accent is scarce by design**, and it does more work than amber did — it now carries
 "not complete" across a whole wall of records. That makes §3.4 load-bearing rather than advisory.
@@ -165,9 +168,16 @@ unreadable without colour vision (`37ffdae`, PR #85). The rail's readiness dots 
 same shape of risk, so the rule is written down here rather than rediscovered a third time.
 
 This section is the reason the accent can carry "not complete" across a whole wall of records. On the
-collection, a record that isn't finished is marked **three ways at once** — a paler outline, reduced
-contrast on the artwork, and the need spelled out in words underneath. Roadie's is marked by outline
+collection, a record that isn't finished is marked **three ways at once** — a paler outline, a folded
+corner on the sleeve, and the need spelled out in words underneath. Roadie's is marked by outline
 _weight_ as well as hue. Remove the words and the grid becomes unreadable to this project's own user.
+
+The middle signal was `opacity: 0.62` on the artwork until
+[ADR 0054](../adrs/0054-not-complete-is-a-folded-corner-not-a-dimmed-sleeve.md) replaced it with the
+fold: dimming the sleeve degraded the one thing an art-first grid exists to show, and it did so for
+most of the wall, since "not complete" is the common case on a collection mid-build. A shape is the
+better answer here anyway — it reads as an absolute rather than by comparison with a brighter
+neighbour, so it survives a screen where every record is unfinished.
 
 ### 3.5 Focus
 

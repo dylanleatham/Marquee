@@ -43,6 +43,9 @@ const hatch = (hexes: string[]): string | undefined => {
  * A cover that fails to load falls back to the stripe rather than to the browser's broken-image
  * glyph — the same lesson as issue #134. The asset records a path, but the file can still be missing
  * or mid-write, and a wall of broken glyphs reads as a broken app.
+ *
+ * The art is always wrapped, whatever the state, so the DOM has one shape: the wrapper is what
+ * carries the not-complete fold (ADR 0054), and an `<img>` can hold no pseudo-element of its own.
  */
 function TileArt({ tile }: { tile: Tile }) {
   const { album, state } = tile;
@@ -60,14 +63,12 @@ function TileArt({ tile }: { tile: Tile }) {
           : " tile__art--needs";
   const className = `tile__art${modifier}`;
 
-  if (state.kind === "stuck")
-    return (
+  const art =
+    state.kind === "stuck" ? (
       <div className={className} aria-hidden="true">
         ?
       </div>
-    );
-  if (album.artwork && !broken)
-    return (
+    ) : album.artwork && !broken ? (
       /* The artwork path is the freshness token here (the list carries no contentHash): it changes
          when Roadie writes the cover, which both busts the cache and clears the `broken` latch, so a
          tile recovers in place instead of staying a stripe until the page is reloaded (issue #25). */
@@ -78,13 +79,20 @@ function TileArt({ tile }: { tile: Tile }) {
         loading="lazy"
         onError={() => setBroken(true)}
       />
+    ) : (
+      <div
+        className={className}
+        style={{ background: hatch(album.paletteHexes) }}
+        aria-hidden="true"
+      />
     );
+
   return (
-    <div
-      className={className}
-      style={{ background: hatch(album.paletteHexes) }}
-      aria-hidden="true"
-    />
+    <span
+      className={`tile__sleeve${state.kind === "needs" ? " tile__sleeve--needs" : ""}`}
+    >
+      {art}
+    </span>
   );
 }
 
