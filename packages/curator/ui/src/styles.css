@@ -724,6 +724,17 @@ a:hover {
 
 /* ---- Roadie's log --------------------------------------------------------------------------- */
 
+/* Pinned to the bottom of the window, so what Roadie is doing is readable without scrolling a wall
+   of records to reach it (ADR 0055).
+   `sticky`, not `fixed`: the dock keeps its place in flow, so the grid can't slide underneath it and
+   nothing has to reserve a matching `padding-bottom` — a number that would silently go stale the
+   first time the strip's type or padding changed. On a short collection it simply sits at the end,
+   which is what it already did. */
+.roadiedock {
+  position: sticky;
+  bottom: 0;
+  z-index: 40;
+}
 .roadielog {
   display: flex;
   align-items: stretch;
@@ -780,10 +791,15 @@ a:hover {
   color: var(--pp-ink);
 }
 
+/* Opens *upward* from the dock — it precedes the strip in the DOM for exactly that reason. Bounded
+   because the log grows all session: unbounded, a long day's worth would cover the whole window
+   from a pinned dock, where in flow it only ever made the page longer. */
 .roadielog__panel {
   border-top: 1px solid var(--pp-rule);
   background: var(--pp-paper-log);
   padding: 14px 20px 16px;
+  max-height: 45vh;
+  overflow-y: auto;
 }
 .roadielog__panel-head {
   display: flex;

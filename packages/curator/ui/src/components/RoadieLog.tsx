@@ -2,7 +2,8 @@ import { useState } from "react";
 import { logTime, useRoadieLog, type LogLine } from "../roadieLog";
 
 /**
- * Roadie's log — a footer strip on the collection, expanding into a panel (ADR 0052).
+ * Roadie's log — a strip locked to the bottom of the window on the collection, expanding into a
+ * panel (ADR 0052, ADR 0055).
  *
  * It replaces the app-wide `RoadieStrip`, which showed `working on 2k7bxq9m (Generating palette)`
  * plus a pause button. Both are gone: the id and the state name are exactly what the overhaul
@@ -10,6 +11,10 @@ import { logTime, useRoadieLog, type LogLine } from "../roadieLog";
  *
  * Session-only. The panel says so, because "where did my failure go?" has a real answer — the
  * collection's Stuck group, which is durable.
+ *
+ * **The panel precedes the strip in the DOM**, which is what makes it open upward from a dock that
+ * is pinned to the bottom of the viewport. Rendered after, it would expand off the bottom of the
+ * screen. The dock is one element so the two move together (ADR 0055).
  */
 
 const Line = ({ line }: { line: LogLine }) => (
@@ -26,7 +31,33 @@ export function RoadieLog() {
   const latest = lines[0];
 
   return (
-    <>
+    <div className="roadiedock">
+      {open && (
+        <div className="roadielog__panel">
+          <p className="roadielog__panel-head">
+            <span className="pp-label pp-label--accent">ROADIE&apos;S LOG</span>
+            <span>this session, newest first</span>
+          </p>
+          {lines.length === 0 && (
+            <p className="roadielog__row">
+              Roadie hasn&apos;t done anything since Curator started.
+            </p>
+          )}
+          {lines.map((line) => (
+            <p
+              key={line.id}
+              className={`roadielog__row ${line.failed ? "roadielog__row--failed" : ""}`}
+            >
+              <span className="roadielog__time">{logTime(line.at)}</span>
+              <span>
+                <Line line={line} />
+              </span>
+            </p>
+          ))}
+          <p className="roadielog__foot">Cleared when Curator restarts.</p>
+        </div>
+      )}
+
       <div className="roadielog">
         <p className="roadielog__badge">
           <span
@@ -58,32 +89,6 @@ export function RoadieLog() {
           {open ? "HIDE THE LOG" : "THE WHOLE LOG"}
         </button>
       </div>
-
-      {open && (
-        <div className="roadielog__panel">
-          <p className="roadielog__panel-head">
-            <span className="pp-label pp-label--accent">ROADIE&apos;S LOG</span>
-            <span>this session, newest first</span>
-          </p>
-          {lines.length === 0 && (
-            <p className="roadielog__row">
-              Roadie hasn&apos;t done anything since Curator started.
-            </p>
-          )}
-          {lines.map((line) => (
-            <p
-              key={line.id}
-              className={`roadielog__row ${line.failed ? "roadielog__row--failed" : ""}`}
-            >
-              <span className="roadielog__time">{logTime(line.at)}</span>
-              <span>
-                <Line line={line} />
-              </span>
-            </p>
-          ))}
-          <p className="roadielog__foot">Cleared when Curator restarts.</p>
-        </div>
-      )}
-    </>
+    </div>
   );
 }

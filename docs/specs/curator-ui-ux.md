@@ -635,8 +635,12 @@ Four regions:
 - **The grid** — gutters are **borders, not gaps**. Selecting _Not complete_ regroups it under one
   heading per need; **empty groups are not rendered at all**. Stuck records get their own row on
   `--pp-accent-wash` below the groups, with the sentence and a `FIX IT` button.
-- **Roadie's log** — a footer strip with the newest entry, expanding into a panel. **Session-only and
-  not persisted**; the panel says so. Failures live durably in the Stuck group instead.
+- **Roadie's log** — a strip **docked to the bottom of the window** with the newest entry, expanding
+  into a panel that opens _upward_ and is bounded at `45vh`
+  ([ADR 0055](../adrs/0055-roadies-log-is-docked-to-the-window-not-to-the-page.md); it was a footer
+  strip at the end of the page, which meant scrolling the whole collection to reach it).
+  **Session-only and not persisted**; the panel says so. Failures live durably in the Stuck group
+  instead.
 
 **Order is shuffled on every visit**, seeded so it is stable across the poll's re-renders within a
 visit and different next time. `SHUFFLED ↻` reseeds. A grid that reorders under the cursor every
