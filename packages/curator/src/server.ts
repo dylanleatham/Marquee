@@ -112,6 +112,12 @@ import { createLogger } from "@marquee/observability";
 export interface BuildOptions {
   config?: Partial<Config>;
   store?: AssetStore;
+  /**
+   * Where the built UI lives. Prod resolves `../dist-ui` from this module; tests point it at a
+   * temp dir so the static-serving block runs at all. It used to be unreachable under test — no
+   * `dist-ui` in a test run — which is how both #183 and #241 shipped uncaught.
+   */
+  uiDir?: string;
   /** Injected palette generator (tests pass a fake; prod uses real Palette Press). */
   generate?: PaletteGenerator;
   /** Injected Spotify client (tests pass one backed by fake-spotify); prod builds from config. */
@@ -372,17 +378,19 @@ function queueCounts(store: AssetStore) {
  * Should an unmatched request be answered with `index.html` (a client-side route) or a real 404?
  *
  * Only client routes get the fallback. Anything that looks like a **file** must 404, because the
- * alternative is silent and catastrophic: `wildcard: false` above makes `@fastify/static` enumerate
- * `dist-ui` once at registration, so a Curator process that outlives a UI rebuild has no route for
- * Vite's new content-hashed bundle. Answering that miss with `index.html` made the browser execute
- * HTML as a module script — React never mounted and Curator rendered a solid black window with
+ * alternative is silent and catastrophic: answering an asset miss with `index.html` makes the browser
+ * execute HTML as a module script — React never mounts and Curator renders a solid black window with
  * nothing in any log ([#183](https://github.com/dylanleatham/Marquee/issues/183)). A 404 puts the real
  * filename in the console instead.
  *
- * Pure and exported so it is actually tested: the `if (existsSync(uiDir))` block it serves is skipped
- * entirely under test (no `dist-ui` in a test run), which is how the old behaviour shipped uncaught.
+ * Pure and exported so it is unit-testable, and now covered end-to-end besides: `opts.uiDir` lets
+ * `test/ui-static.test.ts` exercise the `if (existsSync(uiDir))` block that used to be skipped
+ * entirely under test (no `dist-ui` in a test run) — which is how #183 shipped uncaught, and #241
+ * after it.
  *
- * Restarting Curator after a UI build is still required — this only makes forgetting it obvious.
+ * **Restarting Curator after a UI build is no longer required** ([ADR 0053](../../../docs/adrs/0053-the-ui-is-served-per-request-not-enumerated-at-boot.md)):
+ * static files and `index.html` are both resolved per request. Forgetting to restart used to mean a
+ * blank window, which is the bug this note previously only made *obvious* rather than prevented.
  */
 export function servesSpaFallback(method: string, url: string): boolean {
   if (method !== "GET") return false;
@@ -2745,15 +2753,31 @@ export function buildServer(opts: BuildOptions = {}) {
   // Serve the built React UI (packages/curator/dist-ui) when present. It's absent in dev/test —
   // there the Vite dev server serves the UI and proxies /api here (see ui/vite.config.ts). Same
   // path resolves from src/ (tsx) and dist/ (prod): both sit one level under packages/curator/.
-  const uiDir = fileURLToPath(new URL("../dist-ui", import.meta.url));
+  const uiDir =
+    opts.uiDir ?? fileURLToPath(new URL("../dist-ui", import.meta.url));
   if (existsSync(uiDir)) {
-    app.register(fastifyStatic, { root: uiDir, wildcard: false });
+    /*
+     * `wildcard: true` — one `/*` route that resolves against the filesystem per request, rather
+     * than a route per file enumerated by a glob at registration ([ADR 0053](../../../docs/adrs/0053-the-ui-is-served-per-request-not-enumerated-at-boot.md)).
+     *
+     * Enumerating meant the running process only ever knew the filenames that existed when it
+     * booted. Vite content-hashes every build, so a rebuild produced names it had no route for: the
+     * freshly-built `index.html` was served (that one file kept its name) while every asset it
+     * pointed at 404'd, and Curator came up blank ([#241](https://github.com/dylanleatham/Marquee/issues/241)).
+     * A miss still reaches `setNotFoundHandler`, so #183's narrow fallback below is unaffected —
+     * that is what the tests in `test/ui-static.test.ts` pin down.
+     */
+    app.register(fastifyStatic, { root: uiDir, wildcard: true });
     // SPA fallback: a non-/api GET for a *client route* returns index.html so routes like
     // /albums/:id deep-link and reload correctly. An asset miss must 404 — see `servesSpaFallback`.
-    const indexHtml = readFileSync(join(uiDir, "index.html"));
+    //
+    // Read per request, for the same reason: a buffer taken at registration meant that after a
+    // rebuild a deep link served HTML naming the *previous* bundle, which is the blank screen again
+    // by a slower route. It is one small file off the OS page cache, on a miss only.
+    const indexHtmlPath = join(uiDir, "index.html");
     app.setNotFoundHandler((req, reply) => {
       if (servesSpaFallback(req.method, req.url)) {
-        return reply.type("text/html").send(indexHtml);
+        return reply.type("text/html").send(readFileSync(indexHtmlPath));
       }
       return reply.code(404).send({ error: "not found" });
     });
