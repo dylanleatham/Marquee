@@ -23,6 +23,12 @@ type Tab = "search" | "manual";
 interface Added {
   curatorId: string;
   title: string;
+  /**
+   * What was added, not what it is called. Records share titles — a reissue, a live album, an
+   * unrelated record of the same name — and keying this on the title marked every namesake ADDED and
+   * disabled it, so the ones you actually wanted could not be added at all.
+   */
+  spotifyUri: string;
 }
 
 function Results({
@@ -37,7 +43,7 @@ function Results({
   busy: string | null;
 }) {
   const isAdded = (a: SpotifyAlbumMeta) =>
-    added.some((x) => x.title === a.name);
+    added.some((x) => x.spotifyUri === a.spotifyUri);
   return (
     <div className="addgrid">
       {results.map((a) => (
@@ -126,7 +132,10 @@ export function AddRecord({
     setError(null);
     try {
       const { curatorId } = await api.addSpotify(a.spotifyUri);
-      setAdded((prev) => [...prev, { curatorId, title: a.name }]);
+      setAdded((prev) => [
+        ...prev,
+        { curatorId, title: a.name, spotifyUri: a.spotifyUri },
+      ]);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -155,7 +164,13 @@ export function AddRecord({
       const { curatorId } = await api.addManual(data);
       setAdded((prev) => [
         ...prev,
-        { curatorId, title: String(data.get("name") ?? "Untitled") },
+        {
+          curatorId,
+          title: String(data.get("name") ?? "Untitled"),
+          // A hand-typed record has no Spotify identity, and the curatorId is unique, so it can
+          // never collide with a search result's uri.
+          spotifyUri: `curator:${curatorId}`,
+        },
       ]);
       form.reset();
     } catch (err) {
