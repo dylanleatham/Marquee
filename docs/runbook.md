@@ -513,14 +513,17 @@ invisible from the service status. For a colour-free read of the kiosk's own vie
 
 ### The Pi 5's address lives in two places — and DHCP will move it
 
-Conductor and Backdrop both run on the Pi 5, and **two different machines hold its address
-independently**. Nothing links them, so a DHCP change breaks the system in two stages and the second
-one is easy to miss:
+Conductor, Backdrop **and Amp** all run on the Pi 5 — three services, one address — and **two
+different machines hold that address independently**. Nothing links them, so a DHCP change breaks the
+system in two stages and the second one is easy to miss:
 
 | Where                                                | On                   | What breaks when it is stale                                   |
 | ---------------------------------------------------- | -------------------- | -------------------------------------------------------------- |
-| `.env` → `CONDUCTOR_URL`, `BACKDROP_URL`             | the workstation      | Curator can't push assets; System shows both "not answering"   |
+| `.env` → `CONDUCTOR_URL`, `BACKDROP_URL`, `AMP_URL`  | the workstation      | Curator can't push assets; System shows them "not answering"   |
 | `packages/stylus/config.toml` → `[downstream.*].url` | the Pi Zero (Stylus) | **a real sleeve on the stand does nothing** — the fan-out 404s |
+
+Ports on the Pi 5: `4737` Conductor, `4740` Backdrop, `4741` Amp. Stylus's own status port is **also
+4741**, on the Pi Zero — same number, different host, so check the address rather than the port.
 
 Curator's System page only proves _Curator_ can reach the Pi. Stylus is what a physical scan actually
 goes through, so **fixing `.env` alone leaves the product broken while every light on the System page
