@@ -21,6 +21,15 @@ adds the code but no test file is added or modified to cover it, that's your sig
   whenever the code doesn't throw (an anti-pattern named in the testing strategy).
 - A test that mocks the very thing under test (e.g. mocking `fs` in a component whose job is
   filesystem manipulation).
+- A fixture set where **every item is unique on the field the code keys on**, when real data
+  routinely collides there. Such a test can only ever prove the happy shape, and it passes just as
+  happily when the code keys on the wrong field. The one that got through: the Add screen's
+  "already added" check compared **titles**, and its fixture held two records with different names,
+  so adding one record marked every namesake ADDED and disabled it — searching "demon days" returned
+  three records of that title and two became unaddable
+  ([#238](https://github.com/dylanleatham/Marquee/issues/238)). Look for identity inferred from a
+  display string (title, name, label) rather than an id or uri, and for the fixture that would have
+  hidden it. Titles, artist names and years all collide in a record collection; ids do not.
 - A test whose outcome depends on ambient developer-machine state — reading real credentials or
   config from `~/marquee/settings.json`, `SPOTIFY_*` / `GEMINI_API_KEY` env vars, or `config.toml`
   — instead of pinning them. Such a test is green on a clean CI box but red on a configured machine

@@ -45,7 +45,37 @@ const show = (at = "/add") =>
     </MemoryRouter>,
   );
 
-beforeEach(() => vi.clearAllMocks());
+const RESULTS = [
+  {
+    spotifyId: "1",
+    spotifyUri: "spotify:album:1",
+    name: "Bitches Brew",
+    artist: "Miles Davis",
+    year: 1970,
+  },
+  {
+    spotifyId: "2",
+    spotifyUri: "spotify:album:2",
+    name: "Live-Evil",
+    artist: "Miles Davis",
+    year: 1971,
+  },
+];
+
+// Implementations are restored, not just cleared: `clearAllMocks` keeps them, so a test that swaps
+// in its own search results or makes a call reject leaves that in place for every test after it.
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(api.searchSpotify).mockResolvedValue({ results: RESULTS });
+  vi.mocked(api.addSpotify).mockResolvedValue({
+    curatorId: "new12345",
+    state: "fresh",
+  });
+  vi.mocked(api.addManual).mockResolvedValue({
+    curatorId: "man12345",
+    state: "fresh",
+  });
+});
 afterEach(cleanup);
 
 const search = () => screen.getByLabelText(/Search Spotify/i);
@@ -106,6 +136,52 @@ describe("AddRecord — searching", () => {
     expect(screen.getByText(/keep going/)).toBeTruthy();
     // The query is still there, so the next one is one click away.
     expect((search() as HTMLInputElement).value).toBe("bitches brew");
+  });
+
+  it("marks only the record you added, when several share a title", async () => {
+    // Searching "demon days" returns the 2005 Gorillaz record, its 2014 reissue and an unrelated
+    // 2024 album of the same name. Keyed on the title, adding one marked all three ADDED *and
+    // disabled them*, so the other two could not be added at all.
+    vi.mocked(api.searchSpotify).mockResolvedValue({
+      results: [
+        {
+          spotifyId: "d1",
+          spotifyUri: "spotify:album:d1",
+          name: "Demon Days",
+          artist: "Gorillaz",
+          year: 2005,
+        },
+        {
+          spotifyId: "d2",
+          spotifyUri: "spotify:album:d2",
+          name: "Demon Days",
+          artist: "Gorillaz",
+          year: 2014,
+        },
+        {
+          spotifyId: "d3",
+          spotifyUri: "spotify:album:d3",
+          name: "Demon Days",
+          artist: "uncszn",
+          year: 2024,
+        },
+      ],
+    });
+    show();
+    fireEvent.change(search(), { target: { value: "demon days" } });
+    const tiles = await screen.findAllByRole("button", { name: /Demon Days/ });
+    fireEvent.click(tiles[0]!);
+    await waitFor(() => expect(screen.getAllByText("ADDED")).toHaveLength(1));
+
+    // …and the other two are still addable.
+    const after = screen.getAllByRole("button", { name: /Demon Days/ });
+    expect(after.filter((b) => (b as HTMLButtonElement).disabled)).toHaveLength(
+      1,
+    );
+    fireEvent.click(after[1]!);
+    await waitFor(() =>
+      expect(api.addSpotify).toHaveBeenCalledWith("spotify:album:d2"),
+    );
   });
 
   it("won't add the same result twice", async () => {

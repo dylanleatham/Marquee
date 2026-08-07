@@ -129,20 +129,47 @@ export function syncCadence(minutes: number | undefined): string {
   return `Checks every ${minutes} minutes`;
 }
 
-/** A permission Roadie either has or doesn't. A 15px ink square — no switch chrome. */
+/**
+ * A permission Roadie either has or doesn't. A 15px ink square — no switch chrome.
+ *
+ * `pinned` is the case where the answer is fixed above `settings.json` — `config.toml` or the
+ * environment — so a click here cannot take effect. It renders as a statement rather than a
+ * checkbox, the same call as the read-only service URLs: a control the system will refuse is worse
+ * than no control ([#240](https://github.com/dylanleatham/Marquee/issues/240)).
+ */
 function Permission({
   label,
   note,
   on,
   onChange,
   busy,
+  pinned,
 }: {
   label: string;
   note: string;
   on: boolean;
   onChange: (next: boolean) => void;
   busy?: boolean;
+  pinned?: boolean;
 }) {
+  if (pinned)
+    return (
+      <p className="perm perm--pinned">
+        <span className="perm__box perm__box--pinned" aria-hidden="true">
+          {on ? "✓" : "—"}
+        </span>
+        <span>
+          <span className="perm__label">
+            {label} — {on ? "on" : "off"}
+          </span>
+          <span className="perm__note">
+            {note} Set in <code>config.toml</code> or the environment, which win
+            over this screen; change it there and restart.
+          </span>
+        </span>
+      </p>
+    );
+
   return (
     <label className="perm">
       <input
@@ -183,7 +210,16 @@ export function Settings() {
     15000,
   );
   const [saving, setSaving] = useState(false);
-  const [restart, setRestart] = useState(false);
+  /**
+   * Which column last saved something needing a restart, not just "something did".
+   *
+   * The notice used to live only under ACCOUNTS, so toggling a permission in the other column put
+   * its only confirmation somewhere you weren't looking — and since the box also appeared not to
+   * move, the whole screen read as broken (#240).
+   */
+  const [restart, setRestart] = useState<"accounts" | "permissions" | null>(
+    null,
+  );
   const [problem, setProblem] = useState<string | null>(null);
 
   /**
@@ -199,12 +235,15 @@ export function Settings() {
     }
   };
 
-  const save = async (fn: () => Promise<{ restartRequired?: boolean }>) => {
+  const save = async (
+    fn: () => Promise<{ restartRequired?: boolean }>,
+    where: "accounts" | "permissions",
+  ) => {
     setSaving(true);
     setProblem(null);
     try {
       const r = await fn();
-      if (r.restartRequired) setRestart(true);
+      setRestart(r.restartRequired ? where : null);
     } catch (err) {
       setProblem(errorMessage(err));
     } finally {
@@ -263,11 +302,13 @@ export function Settings() {
                 onSubmit={(e) => {
                   e.preventDefault();
                   const f = new FormData(e.currentTarget);
-                  void save(() =>
-                    api.saveSpotifySettings(
-                      String(f.get("clientId") ?? ""),
-                      String(f.get("clientSecret") ?? ""),
-                    ),
+                  void save(
+                    () =>
+                      api.saveSpotifySettings(
+                        String(f.get("clientId") ?? ""),
+                        String(f.get("clientSecret") ?? ""),
+                      ),
+                    "accounts",
                   ).then(refreshSpotify);
                 }}
               >
@@ -328,10 +369,12 @@ export function Settings() {
                 onSubmit={(e) => {
                   e.preventDefault();
                   const f = new FormData(e.currentTarget);
-                  void save(() =>
-                    api.saveGeminiSettings({
-                      apiKey: String(f.get("apiKey") ?? ""),
-                    }),
+                  void save(
+                    () =>
+                      api.saveGeminiSettings({
+                        apiKey: String(f.get("apiKey") ?? ""),
+                      }),
+                    "accounts",
                   ).then(refreshGemini);
                 }}
               >
@@ -365,11 +408,13 @@ export function Settings() {
                 onSubmit={(e) => {
                   e.preventDefault();
                   const f = new FormData(e.currentTarget);
-                  void save(() =>
-                    api.saveDiscogsSettings({
-                      token: String(f.get("token") ?? ""),
-                      username: String(f.get("username") ?? ""),
-                    }),
+                  void save(
+                    () =>
+                      api.saveDiscogsSettings({
+                        token: String(f.get("token") ?? ""),
+                        username: String(f.get("username") ?? ""),
+                      }),
+                    "accounts",
                   ).then(refreshDiscogs);
                 }}
               >
@@ -431,7 +476,7 @@ export function Settings() {
             </Account>
 
             {problem && <p className="pp-error">{problem}</p>}
-            {restart && (
+            {restart === "accounts" && (
               <p className="settings__restart">
                 Saved. Restart Marquee for it to take effect.
               </p>
@@ -450,20 +495,31 @@ export function Settings() {
               note="Cheap — about five images a go."
               on={Boolean(gemini?.generateCardArt)}
               busy={saving || !gemini}
+              pinned={gemini?.generateCardArtPinned}
               onChange={(on) =>
-                void save(() =>
-                  api.saveGeminiSettings({ generateCardArt: on }),
+                void save(
+                  () => api.saveGeminiSettings({ generateCardArt: on }),
+                  "permissions",
                 ).then(refreshGemini)
               }
             />
             <Permission
               label="Make the visualizers"
-              note="Metered and pricey. Off — Roadie just drafts the prompts for you."
+              // The second sentence follows the state: "Off — Roadie just drafts the prompts" is a
+              // useful thing to read under an unticked box and a plain contradiction under a ticked
+              // one. It was static, and said "Off" while the box was on.
+              note={
+                gemini?.generateVideo
+                  ? "Metered and pricey — Roadie will spend Veo credits on each one."
+                  : "Metered and pricey. Off — Roadie just drafts the prompts for you."
+              }
               on={Boolean(gemini?.generateVideo)}
               busy={saving || !gemini}
+              pinned={gemini?.generateVideoPinned}
               onChange={(on) =>
-                void save(() =>
-                  api.saveGeminiSettings({ generateVideo: on }),
+                void save(
+                  () => api.saveGeminiSettings({ generateVideo: on }),
+                  "permissions",
                 ).then(refreshGemini)
               }
             />
@@ -475,11 +531,23 @@ export function Settings() {
               on={Boolean(discogs?.autoSync)}
               busy={saving || !discogs}
               onChange={(on) =>
-                void save(() => api.saveDiscogsSettings({ autoSync: on })).then(
-                  refreshDiscogs,
-                )
+                void save(
+                  () => api.saveDiscogsSettings({ autoSync: on }),
+                  "permissions",
+                ).then(refreshDiscogs)
               }
             />
+
+            {/*
+             * The Gemini flags are read at boot, so the box shows what you have *asked for* and this
+             * says when it becomes true. The Discogs poller takes effect immediately and its PUT
+             * reports no restart, so this stays hidden for that one.
+             */}
+            {restart === "permissions" && (
+              <p className="settings__restart">
+                Saved. Roadie picks this up when you restart Marquee.
+              </p>
+            )}
 
             {/*
               The design's fourth permission — "suggest a second palette" — is deliberately not a
