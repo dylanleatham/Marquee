@@ -60,6 +60,27 @@ describe("RoadieLog", () => {
     ).toBe("true");
   });
 
+  it("opens the panel above the strip, so it expands upward from a pinned dock", () => {
+    // The dock sits at the bottom of the window (ADR 0055), so DOM order *is* the direction the
+    // panel opens. Rendered after the strip it would expand off the bottom of the screen — visible
+    // only as a panel you cannot read, which no other test here would catch.
+    fill();
+    const { container } = render(<RoadieLog />);
+    fireEvent.click(screen.getByRole("button", { name: "THE WHOLE LOG" }));
+
+    const dock = container.querySelector(".roadiedock")!;
+    const panel = dock.querySelector(".roadielog__panel")!;
+    const strip = dock.querySelector(".roadielog")!;
+    expect(panel).toBeTruthy();
+    expect(strip).toBeTruthy();
+    // Both live in the one dock, and the panel comes first.
+    expect(panel.parentElement).toBe(dock);
+    expect(strip.parentElement).toBe(dock);
+    expect(
+      panel.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it("never renders an id or a machine state name", () => {
     fill();
     render(<RoadieLog />);
