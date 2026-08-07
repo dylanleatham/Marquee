@@ -155,7 +155,10 @@ Rules:
 - No shadows anywhere except the toast (`0 10px 30px rgba(23,21,15,.24)`).
 - Album artwork uses `outline`, not `border`, so it doesn't affect layout: ink for
   ready, `#C9C2B1` for not complete, `2px solid #B4402C` for Roadie-is-on-it.
-- Not-complete artwork is additionally set to `opacity:.62`.
+- ~~Not-complete artwork is additionally set to `opacity:.62`.~~ **Superseded 2026-08-07** by
+  [ADR 0054](../adrs/0054-not-complete-is-a-folded-corner-not-a-dimmed-sleeve.md): the wash is a
+  folded corner on the sleeve instead, and the artwork is never dimmed. Dimming degraded the one
+  thing an art-first grid exists to show, for most of the wall.
 
 ### Typography
 

@@ -592,11 +592,34 @@ a:hover {
   outline: 1px solid var(--pp-ink);
   background: var(--pp-paper-sunk);
 }
-/* Not complete reads three ways at once — a paler outline, reduced contrast, and the word under it.
-   Colour is doing none of the work on its own (curator-ui-ux §3.4). */
+/* The wrapper exists to hold the fold: `.tile__art` is an <img> as often as a <div>, and an image
+   carries no pseudo-element of its own. It adds no box of its own — the art still sets the size. */
+.tile__sleeve {
+  display: block;
+  position: relative;
+}
+/* Not complete reads three ways at once — a paler outline, a turned-down corner, and the word under
+   it. Colour is doing none of the work on its own (curator-ui-ux §3.4). The fold replaced a 0.62
+   wash, which dimmed the sleeve it was meant to be advertising (ADR 0054). */
 .tile__art--needs {
   outline-color: var(--pp-rule-soft);
-  opacity: 0.62;
+}
+/* One square, one gradient: paper below the anti-diagonal (the corner folded away), an ink rule on
+   it, and transparent above so the artwork shows through untouched. Sits inside the outline, so the
+   frame stays a closed square and the fold reads as deliberate rather than as a clipping bug. */
+.tile__sleeve--needs::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 22px;
+  height: 22px;
+  background: linear-gradient(
+    to top left,
+    var(--pp-paper) 0 calc(50% - 1px),
+    var(--pp-ink) calc(50% - 1px) calc(50% + 1px),
+    transparent calc(50% + 1px) 100%
+  );
 }
 /* Roadie's is marked by outline *weight* as well as hue, and narrates itself in words below. */
 .tile__art--roadie {

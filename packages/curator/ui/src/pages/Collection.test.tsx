@@ -120,6 +120,33 @@ describe("Collection — the grid", () => {
     expect(within(tile("Blue")).getByText("READY")).toBeTruthy();
   });
 
+  it("marks a not-complete sleeve with the fold, and only that state", () => {
+    // The second of the three not-complete signals (curator-ui-ux §3.4), and the one that replaced
+    // the 0.62 wash (ADR 0054). The fold itself is a pseudo-element, so what's assertable — and what
+    // is actually the contract — is which sleeves carry the modifier.
+    show();
+    const folded = (title: string) =>
+      Boolean(tile(title).querySelector(".tile__sleeve--needs"));
+    expect(folded("Purple Rain")).toBe(true); // needs lights
+    expect(folded("Aja")).toBe(true); // needs a visualizer
+    expect(folded("Blue")).toBe(false); // ready
+    expect(folded("Kind of Blue")).toBe(false); // Roadie has it
+    expect(folded("Rachel's Greatest Hits")).toBe(false); // stuck
+  });
+
+  it("folds the corner whether the sleeve is a cover or a stripe", () => {
+    // The wrapper is the whole reason the fold works on both: an <img> can carry no pseudo-element,
+    // so a treatment that lived on `.tile__art` would silently apply to un-fetched sleeves only.
+    show([
+      album({ curatorId: "abc12345", title: "With Art", artwork: "a/b.jpg" }),
+      album({ curatorId: "def67890", title: "No Art" }),
+    ]);
+    for (const t of ["With Art", "No Art"])
+      expect(tile(t).querySelector(".tile__sleeve--needs")).toBeTruthy();
+    expect(tile("With Art").querySelector("img")).toBeTruthy();
+    expect(tile("No Art").querySelector("img")).toBeNull();
+  });
+
   it("lets a record Roadie is holding narrate itself in place", () => {
     show();
     // Not a separate "processing" section, and not the state's name.
