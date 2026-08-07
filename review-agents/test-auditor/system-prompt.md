@@ -30,6 +30,15 @@ adds the code but no test file is added or modified to cover it, that's your sig
   ([#238](https://github.com/dylanleatham/Marquee/issues/238)). Look for identity inferred from a
   display string (title, name, label) rather than an id or uri, and for the fixture that would have
   hidden it. Titles, artist names and years all collide in a record collection; ids do not.
+- A test that pins a **date or time as a literal** while the code under test reads the real clock.
+  It passes on the day it is written and rots everywhere else — CI runs in **UTC**, which is often
+  already tomorrow, so "today" fixtures go red hours after they go green. The one that got through:
+  the Discogs screen's `cameInToday` fixtures were written as `new Date(2026, 7, 6, …)`, passed all
+  afternoon in Pacific time, and failed in CI the same evening
+  ([#244](https://github.com/dylanleatham/Marquee/issues/244)). Either **inject the clock** (the pure
+  helper takes a `now` argument and its own tests pass one — those were fine) or build fixtures
+  **relative to `Date.now()`** so "today" means today. Flag a literal date in a fixture whenever the
+  assertion is about today/yesterday/recency rather than about formatting a known instant.
 - A test whose outcome depends on ambient developer-machine state — reading real credentials or
   config from `~/marquee/settings.json`, `SPOTIFY_*` / `GEMINI_API_KEY` env vars, or `config.toml`
   — instead of pinning them. Such a test is green on a clean CI box but red on a configured machine

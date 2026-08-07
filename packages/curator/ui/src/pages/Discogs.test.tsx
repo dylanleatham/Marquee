@@ -9,12 +9,25 @@ import {
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
+// Relative to the real clock, never a hardcoded date. This screen asks "what came in *today*", and
+// the component reads the actual system clock — so a fixture pinned to 2026-08-06 passed on the day
+// it was written and nowhere else. CI runs in UTC, which had already ticked over to the 7th, and the
+// same tests would have gone red locally after midnight ([#244](https://github.com/dylanleatham/Marquee/issues/244)).
+// Function declarations, not consts: `vi.mock` is hoisted above everything else in the file, and its
+// factory calls these — a `const` arrow would still be in the temporal dead zone.
+function nowIso(): string {
+  return new Date().toISOString();
+}
+function daysAgoIso(days: number): string {
+  return new Date(Date.now() - days * 86_400_000).toISOString();
+}
+
 vi.mock("../api", () => ({
   api: {
     discogsSyncStatus: vi.fn().mockResolvedValue({
       enabled: true,
       intervalMs: 86400000,
-      lastRunAt: new Date(2026, 7, 6, 18, 40).toISOString(),
+      lastRunAt: nowIso(),
       lastJobId: null,
       lastError: null,
     }),
@@ -48,7 +61,7 @@ const album = (over: Partial<AlbumSummary> & { curatorId: string }) =>
     title: "Untitled",
     artist: "Nobody",
     source: "discogs",
-    createdAt: new Date(2026, 7, 6, 9, 0).toISOString(),
+    createdAt: nowIso(),
     state: "awaiting_review",
     artwork: null,
     paletteColors: 3,
@@ -79,7 +92,7 @@ const ALBUMS = [
     curatorId: "b1",
     title: "Aja",
     source: "spotify",
-    createdAt: new Date(2026, 7, 1, 9, 0).toISOString(),
+    createdAt: daysAgoIso(5),
   }),
 ];
 
@@ -146,7 +159,7 @@ describe("Discogs — what arrived", () => {
     show([
       album({
         curatorId: "old",
-        createdAt: new Date(2026, 6, 1, 9, 0).toISOString(),
+        createdAt: daysAgoIso(36),
       }),
     ]);
     expect(await screen.findByText(/Nothing new today/)).toBeTruthy();
