@@ -18,9 +18,16 @@ import type { Run } from "../run";
  * - **No explanatory intro.** The QR, the URI and the state say what this is.
  *
  * **A third, optional sticker (ADR 0058).** The demo tag is not part of "both tags": it is made for
- * a handful of records, so `TAGS VERIFIED` leaves it alone and it carries its own write record. It
- * also states what it will play, because a demo tag with no cut chosen behaves exactly like the
- * shelf card, and a screen that didn't say so would make that look like a bug.
+ * a handful of records, so `TAGS VERIFIED` leaves it alone. It also states what it will play,
+ * because a demo tag with no cut chosen behaves exactly like the shelf card, and a screen that
+ * didn't say so would make that look like a bug.
+ *
+ * **Nothing here waits on the machine (ADR 0060, issue #261).** A sticker is a physical object, so
+ * every control on this panel is live from any state. The one button was gated on the record having
+ * reached the tag step, which — with no per-sticker control on the sleeve or the card — left the
+ * whole panel inert on 478 of 499 real records. Each unwritten sticker now records its own write
+ * (the writing and the check are separate acts, days apart), and `TAGS VERIFIED` is withheld only
+ * once it has already been done.
  */
 
 /**
@@ -119,8 +126,8 @@ function TagSticker({
   written: boolean;
   /** What this sticker will do in the room, when that isn't already obvious from its name. */
   plays?: string;
-  /** Present only for a sticker no other control records — today, the demo tag. */
-  onWritten?: () => unknown;
+  /** Records this one sticker. Every unwritten sticker has one (#261). */
+  onWritten: () => unknown;
 }) {
   const { payload, qr, failed } = useTagPayload(curatorId, which);
   return (
@@ -143,9 +150,12 @@ function TagSticker({
         >
           {written ? "✓ written" : "not written yet"}
         </p>
-        {onWritten && !written && (
+        {/* The wording is identical on all three — you are answering the same question about the
+            sticker beside it — so the accessible name is what tells them apart. */}
+        {!written && (
           <AsyncButton
             className="pp-action tagobj__mark"
+            aria-label={`I've written ${label.toLowerCase()}`}
             pendingLabel="RECORDING…"
             onClick={onWritten}
           >
@@ -168,19 +178,18 @@ export function TagsPanel({
 }) {
   const [sent, setSent] = useState<string | null>(null);
   const tag = asset.tag;
-  const state = asset.roadie.state;
   const verifiedAt = asset.verification?.physicallyVerifiedAt;
 
   /**
-   * The human path through the state machine is still linear (`HUMAN_TRANSITIONS`), even though the
-   * record page lets the four needs be done in any order. So the button is disabled with its reason
-   * rather than offering a press that 409s — curator-ui-ux §4: the gate is shown, not hidden.
+   * The one reason left to withhold the press: it has already been done (ADR 0060, issue #261).
+   *
+   * This used to be gated on the machine reaching the tag step, which put the panel's every control
+   * behind three unrelated needs — on the real collection, 478 of 499 records could not record a
+   * sticker at all. A sticker is a physical object; the server now records the check whatever the
+   * state and advances the machine only as far as it legally goes.
    */
-  const canVerify =
-    state === "awaiting_tag_write" || state === "awaiting_verify";
-  const why = verifiedAt
-    ? `checked ${relativeTime(verifiedAt)}`
-    : "The lights, a visualizer and a card come first — this is the last step.";
+  const canVerify = !verifiedAt;
+  const why = verifiedAt ? `checked ${relativeTime(verifiedAt)}` : "";
 
   /**
    * What the demo tag will actually do — the one fact this screen could silently get wrong.
@@ -203,15 +212,12 @@ export function TagsPanel({
             which={which}
             label={label}
             written={tag?.[which]?.written ?? false}
-            {...(which === "demo"
-              ? {
-                  plays: demoPlays,
-                  // The demo tag is the one sticker TAGS VERIFIED does not cover, so it needs its
-                  // own record — otherwise it reads "not written yet" forever after you wrote it.
-                  onWritten: () =>
-                    run(() => api.markTagWritten(curatorId, "demo")),
-                }
-              : {})}
+            // TAGS VERIFIED is the *check*, and the check comes hours or days after the writing —
+            // so each sticker also records its own write, rather than the panel having nothing to
+            // say the evening you burned them (#261). The demo tag has always needed this, being
+            // the one sticker TAGS VERIFIED does not cover.
+            onWritten={() => run(() => api.markTagWritten(curatorId, which))}
+            {...(which === "demo" ? { plays: demoPlays } : {})}
           />
         ))}
       </div>

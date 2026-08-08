@@ -184,7 +184,10 @@ Anything picking this up on a different firmware should re-check the first three
       the two cannot drift without a red test.
 - [x] README documents build + the firmware channel it was validated against.
 - [x] This spec's status + [ADR 0020](../adrs/0020-flipper-tag-authoring.md) updated.
-- [ ] **A written tag scanned on the stand drives the room.** Not yet done: it needs an album that has
-      reached `awaiting_tag_write` (approve a preview first) and a physical scan. Everything up to the
-      tag being written and read back correctly is verified; the last link is the runbook's
-      "Read/verify" step plus a real scan.
+- [ ] **A written tag scanned on the stand drives the room.** Not yet done: it needs a physical scan
+      of a written tag against a runtime that has the album. Everything up to the tag being written
+      and read back correctly is verified; the last link is the runbook's "Read/verify" step plus a
+      real scan. (Reaching `awaiting_tag_write` first is **no longer** a precondition —
+      [ADR 0060](../adrs/0060-the-tag-step-is-recorded-on-the-asset-not-on-the-machine.md) untied
+      recording a tag from the state machine, and `tags-verified` pushes the album to the runtime on
+      the way through.)

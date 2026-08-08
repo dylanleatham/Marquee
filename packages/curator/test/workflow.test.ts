@@ -229,16 +229,69 @@ describe("onboarding workflow", () => {
     expect(store.read(curatorId)!.tag!.card!.writtenAt).toBe(cardAt);
   });
 
-  it("refuses before the record has reached the tag step, rather than half-applying", async () => {
-    // The human path through the state machine is linear even though the record page lets the four
-    // needs be done in any order — so the panel disables the button with the reason instead.
+  /**
+   * regression: #261 — `TAGS VERIFIED` was gated on the linear machine, so on a record with no
+   * visualizer (478 of 499 in the real collection) the whole panel was inert: the button 409'd, and
+   * nothing else on it could record a written sticker. The stickers are physical objects; recording
+   * them was never a place in the machine ([ADR 0060](../../../docs/adrs/0060-the-tag-step-is-recorded-on-the-asset-not-on-the-machine.md)).
+   */
+  it("records the tag step from awaiting_review, without moving the machine", async () => {
     const { app, store, curatorId } = await serverWithReviewedAlbum();
     const res = await post(app, `/api/albums/${curatorId}/tags-verified`);
-    expect(res.statusCode).toBeGreaterThanOrEqual(400);
+    expect(res.statusCode).toBe(200);
+
     const after = store.read(curatorId)!;
+    expect(after.tag!.sleeve!.written).toBe(true);
+    expect(after.tag!.card!.written).toBe(true);
+    expect(after.verification!.physicallyVerifiedAt).toBeTruthy();
+    // The other three needs are untouched: this record still has no visualizer and no signed-off
+    // lights, and saying it was `verified` would be a lie the collection would repeat.
     expect(after.roadie.state).toBe("awaiting_review");
-    expect(after.tag?.sleeve?.written).toBeFalsy();
-    expect(after.verification?.physicallyVerifiedAt).toBeFalsy();
+  });
+
+  it("settles the record when the tag step was done first and the rest lands later", async () => {
+    // regression: #261 — the reciprocal stranding. Verifying out of order must not leave the album
+    // one step short of `verified` forever once the remaining needs are met.
+    const { app, store, curatorId } = await serverWithReviewedAlbum();
+    await post(app, `/api/albums/${curatorId}/tags-verified`);
+    expect(store.read(curatorId)!.roadie.state).toBe("awaiting_review");
+
+    await post(app, `/api/albums/${curatorId}/prompts/video/copied`);
+    await uploadVideo(app, curatorId);
+    const approve = await post(app, `/api/albums/${curatorId}/preview/approve`);
+
+    expect(approve.json().state).toBe("verified");
+    expect(store.read(curatorId)!.roadie.state).toBe("verified");
+  });
+
+  it("is idempotent — pressing it again never errors", async () => {
+    // regression: #261 — the panel keeps the button on screen after the check, so a second press is
+    // an ordinary thing to do. Once from awaiting_review (no transition), once from verified.
+    const { app, store, curatorId } = await serverWithReviewedAlbum();
+    await post(app, `/api/albums/${curatorId}/tags-verified`);
+    expect(
+      (await post(app, `/api/albums/${curatorId}/tags-verified`)).statusCode,
+    ).toBe(200);
+
+    await post(app, `/api/albums/${curatorId}/prompts/video/copied`);
+    await uploadVideo(app, curatorId);
+    await post(app, `/api/albums/${curatorId}/preview/approve`);
+    expect(store.read(curatorId)!.roadie.state).toBe("verified");
+    expect(
+      (await post(app, `/api/albums/${curatorId}/tags-verified`)).statusCode,
+    ).toBe(200);
+  });
+
+  it("records a sleeve written before the record reaches the tag step", async () => {
+    // regression: #261 — the per-sticker route the panel now offers for the sleeve and the card.
+    // It never gated on state, but nothing exercised it from awaiting_review.
+    const { app, store, curatorId } = await serverWithReviewedAlbum();
+    const res = await post(app, `/api/albums/${curatorId}/tag-written`, {
+      object: "sleeve",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(store.read(curatorId)!.tag!.sleeve!.written).toBe(true);
+    expect(store.read(curatorId)!.roadie.state).toBe("awaiting_review");
   });
 
   /**
