@@ -94,43 +94,128 @@ function TrackRow({
 }
 
 /**
- * Name the album on Spotify by hand — the escape hatch for a record the matcher missed, or matched
- * only closely and refuses to play from (ADR 0059).
+ * Which Spotify album this record is, and how to change it (ADR 0059, made always-visible by
+ * [ADR 0060](../../../../../docs/adrs/0060-the-year-is-a-tiebreak-not-a-gate.md)).
  *
- * Takes the share link as well as the URI, because the share button is where anyone actually gets
- * this and demanding the `spotify:album:` form would mean explaining a conversion. The library-wide
- * sweep is a link rather than a button here: it is the answer for *hundreds* of records, and putting
- * it next to a single album invites running it to fix one.
+ * **Shown whether or not a match exists**, which is the whole point of the revision. The first
+ * version only appeared when there was no tracklist, so it could fix a *missing* match and not a
+ * *wrong* one — and once ADR 0060 loosened the rule, wrong-edition matches became the failure to
+ * expect. A wrong match is exactly the case where songs appear and they are the wrong songs, so the
+ * control has to be next to them.
+ *
+ * ADR 0060 leans on this: the looser rule is only the right trade because a mistake is visible here
+ * and correctable in one press.
  */
-function SpotifyUriEntry({ curatorId, run }: { curatorId: string; run: Run }) {
+function SpotifyAlbumControl({
+  curatorId,
+  metadata,
+  run,
+}: {
+  curatorId: string;
+  metadata: AlbumAsset["metadata"];
+  run: Run;
+}) {
+  const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
+  const linked = Boolean(metadata.spotifyUri);
+  const match = metadata.spotifyMatch;
+
+  const save = () =>
+    run(async () => {
+      await api.setSpotifyUri(curatorId, value.trim());
+      setEditing(false);
+      setValue("");
+    });
 
   return (
     <div className="demo__uri">
-      <label className="demo__uri-label" htmlFor={`spotify-uri-${curatorId}`}>
-        Paste this record on Spotify
-      </label>
-      <div className="demo__uri-row">
-        <input
-          id={`spotify-uri-${curatorId}`}
-          className="demo__uri-input"
-          value={value}
-          placeholder="https://open.spotify.com/album/… or spotify:album:…"
-          onChange={(e) => setValue(e.target.value)}
-        />
-        <AsyncButton
-          className="pp-btn"
-          disabled={!value.trim()}
-          pendingLabel="SAVING…"
-          onClick={() => run(() => api.setSpotifyUri(curatorId, value.trim()))}
-        >
-          USE THIS ALBUM
-        </AsyncButton>
-      </div>
-      <p className="demo__uri-hint">
-        Or match the whole collection at once from{" "}
-        <Link to="/settings">Settings → Library</Link>.
+      <p className="demo__uri-label">This record on Spotify</p>
+
+      {/* What it is now, in words. A guessed match says so and names what it guessed, because
+          "matched automatically" and "you told me" are different degrees of certainty. */}
+      <p className="demo__uri-state">
+        {linked ? (
+          match ? (
+            <>
+              matched automatically to{" "}
+              <strong>
+                {match.artist} — {match.name}
+              </strong>
+              {match.year ? ` (${match.year})` : ""}
+            </>
+          ) : (
+            <>
+              linked
+              {metadata.source === "spotify"
+                ? " — added from Spotify"
+                : " by hand"}
+            </>
+          )
+        ) : (
+          <>not linked to a Spotify album</>
+        )}
       </p>
+
+      {!editing && (
+        <div className="demo__uri-row">
+          <button
+            type="button"
+            className="pp-action"
+            onClick={() => setEditing(true)}
+          >
+            {linked ? "USE A DIFFERENT ALBUM" : "PASTE THE ALBUM"}
+          </button>
+          {linked && (
+            <AsyncButton
+              className="pp-action"
+              pendingLabel="CLEARING…"
+              title="Unlinks the album — the demo cut goes with it"
+              onClick={() => run(() => api.setSpotifyUri(curatorId, null))}
+            >
+              UNLINK
+            </AsyncButton>
+          )}
+        </div>
+      )}
+
+      {editing && (
+        <>
+          <div className="demo__uri-row">
+            <input
+              id={`spotify-uri-${curatorId}`}
+              className="demo__uri-input"
+              aria-label="Paste this record on Spotify"
+              value={value}
+              autoFocus
+              placeholder="https://open.spotify.com/album/… or spotify:album:…"
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && value.trim()) void save();
+                if (e.key === "Escape") setEditing(false);
+              }}
+            />
+            <AsyncButton
+              className="pp-btn"
+              disabled={!value.trim()}
+              pendingLabel="SAVING…"
+              onClick={save}
+            >
+              USE THIS ALBUM
+            </AsyncButton>
+            <button
+              type="button"
+              className="pp-action"
+              onClick={() => setEditing(false)}
+            >
+              CANCEL
+            </button>
+          </div>
+          <p className="demo__uri-hint">
+            Or match the whole collection at once from{" "}
+            <Link to="/settings">Settings → Library</Link>.
+          </p>
+        </>
+      )}
     </div>
   );
 }
@@ -196,13 +281,18 @@ export function DemoPanel({
       {tracks === null && <p className="pp-loading">Reading the tracklist…</p>}
 
       {tracks !== null && tracks.length === 0 && (
-        <div className="demo__reason">
-          <p>{reason ?? "No songs came back for this record."}</p>
-          {/* The way out, next to the explanation rather than somewhere else (ADR 0059). Until this
-              existed the copy suggested pasting a URI and offered nowhere to paste it. */}
-          <SpotifyUriEntry curatorId={curatorId} run={run} />
-        </div>
+        <p className="demo__reason">
+          {reason ?? "No songs came back for this record."}
+        </p>
       )}
+
+      {/* Always, not only when the list is empty (ADR 0060): the case this has to reach is a match
+          that produced the *wrong* songs, and those are right below it. */}
+      <SpotifyAlbumControl
+        curatorId={curatorId}
+        metadata={asset.metadata}
+        run={run}
+      />
 
       {tracks !== null && tracks.length > 0 && (
         <ol className="demo__list">

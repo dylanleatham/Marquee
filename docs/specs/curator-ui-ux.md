@@ -434,6 +434,10 @@ credentials, Spotify unreachable — shows the server's own sentence in a dashed
 ordinary state of this screen rather than a failure of it. A transport failure reads the same way:
 one place says why there is no list.
 
+**Which Spotify album this is, and how to change it** ([ADR 0059](../adrs/0059-a-matched-album-plays-only-on-an-exact-match.md) / [ADR 0060](../adrs/0060-the-year-is-a-tiebreak-not-a-gate.md)). A dashed block above the list says what the record is linked to — `matched automatically to <artist — album>` for a guess, `linked by hand` or `added from Spotify` for a fact, or `not linked` — with **USE A DIFFERENT ALBUM** and **UNLINK**. It takes the `open.spotify.com` share link as well as the `spotify:album:` URI, because the share button is where anyone gets this.
+
+It is shown **whether or not a match exists**, and that is the point. The first version appeared only when there was no tracklist, so it could fix a _missing_ match and not a _wrong_ one — and once ADR 0060 loosened the rule, a wrong-edition match became the failure to expect. That one shows up as a tracklist full of the wrong songs, so the fix has to sit next to them. ADR 0060 leans on this: the looser rule is the right trade only because a mistake is visible here and correctable in one press. The library-wide sweep is a **link** to Settings, not a button — it is the answer for hundreds of records, and offering it beside one album invites running it to fix one.
+
 **No preview button, deliberately.** You judge a demo cut by hearing it in the room, and the room
 already plays audio. A second, quieter way to play a track here would make the honest answer ("go
 listen to it properly") the harder one. `useTracks` is the panel's only fetch and it has no polling —

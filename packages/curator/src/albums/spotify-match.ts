@@ -39,6 +39,15 @@ const norm = (s: string): string =>
 const stripEditions = (s: string): string =>
   s.replace(/[([][^)\]]*[)\]]/g, " ");
 
+/**
+ * Drop Discogs's artist disambiguator — it lists a second "Costanza" as `Costanza (5)`. That number
+ * is a database artifact, not part of the name, and leaving it in made a correct match read as a
+ * different artist (ADR 0060). Only a bare number is stripped, so a real parenthetical in an artist
+ * name survives.
+ */
+const stripArtistDisambiguator = (s: string): string =>
+  s.replace(/\s*\(\d+\)\s*$/, "");
+
 /** True if two normalized strings are equal, or one contains the other and is a substantial share of
  * it (so "Hits" doesn't match "Greatest Hits Vol. 2", but "Blue" matches "Blue (Remastered)"). */
 function closeMatch(a: string, b: string): boolean {
@@ -50,15 +59,19 @@ function closeMatch(a: string, b: string): boolean {
 
 /**
  * How sure we are, which decides what the match is allowed to be used for
- * ([ADR 0059](../../../../docs/adrs/0059-a-matched-album-plays-only-on-an-exact-match.md)):
+ * ([ADR 0059](../../../../docs/adrs/0059-a-matched-album-plays-only-on-an-exact-match.md), rule
+ * relaxed by [ADR 0060](../../../../docs/adrs/0060-the-year-is-a-tiebreak-not-a-gate.md)):
  *
- * - `exact` — artist and title agree outright once normalized, and the years don't disagree. This is
- *   the only verdict allowed to name an album for **playback**.
- * - `close` — qualifies under `closeMatch`'s substring rule, or the years are far apart. Good enough
- *   to borrow a **cover**, which is all ADR 0017 ever asked of this function.
+ * - `exact` — artist and title agree outright once normalized. The only verdict allowed to name an
+ *   album for **playback**.
+ * - `close` — qualifies only under `closeMatch`'s substring rule. Good enough to borrow a **cover**,
+ *   which is all ADR 0017 ever asked of this function.
  *
- * The asymmetry is the point: a wrong cover is embarrassing and instantly obvious; a wrong album
- * playing in a room full of people is neither.
+ * The asymmetry is still the point — a wrong cover is embarrassing and instantly obvious, a wrong
+ * album playing in a room is neither. What changed is the evidence, not the principle: the year was
+ * gating `exact` and it turned out to measure the wrong thing. On a real collection 163 of 213
+ * refusals were **vinyl reissues** where artist and title agreed outright and only the year differed,
+ * because Discogs catalogues *pressings* and Spotify catalogues *releases*. See ADR 0060.
  */
 export type MatchConfidence = "exact" | "close";
 
@@ -67,8 +80,13 @@ export interface SpotifyMatch {
   confidence: MatchConfidence;
 }
 
-/** A year gap this wide means these are probably different releases, not one reissued. */
-const YEAR_TOLERANCE = 1;
+/**
+ * How close two years have to be to count as "the same edition" when *ranking* candidates. It gates
+ * nothing (ADR 0060) — a reissue disagreeing by decades is still an exact match — but among several
+ * albums of the same name by the same artist, the one nearest your pressing is the one whose
+ * metadata you want.
+ */
+const SAME_EDITION_YEARS = 1;
 
 /**
  * The best confident Spotify match for a Discogs release, or `null`. A candidate qualifies only if
@@ -84,7 +102,7 @@ export function bestSpotifyMatch(
   query: MatchQuery,
   candidates: SpotifyAlbumMeta[],
 ): SpotifyMatch | null {
-  const qArtist = norm(query.artist);
+  const qArtist = norm(stripArtistDisambiguator(query.artist));
   const qTitle = norm(stripEditions(query.title));
   if (!qArtist || !qTitle) return null;
 
@@ -92,24 +110,25 @@ export function bestSpotifyMatch(
     null;
   for (const c of candidates) {
     if (!c.artUrl) continue; // no art → useless for the purpose
-    const cArtist = norm(c.artist);
+    const cArtist = norm(stripArtistDisambiguator(c.artist));
     const cTitle = norm(stripEditions(c.name));
     if (!closeMatch(qArtist, cArtist) || !closeMatch(qTitle, cTitle)) continue;
 
     const artistExact = cArtist === qArtist;
     const titleExact = cTitle === qTitle;
-    // An unknown year on either side is not evidence against — plenty of Discogs pressings carry
-    // none, and refusing those would be refusing most of a real collection.
+
+    // The year still ranks candidates — among several albums of the same name by the same artist,
+    // the one nearest your pressing's year is the one whose metadata you want. It no longer *gates*
+    // anything: see the note on MatchConfidence.
     const yearsKnown = query.year !== undefined && c.year !== undefined;
     const gap = yearsKnown ? Math.abs(c.year! - query.year!) : 0;
-    const yearOk = !yearsKnown || gap <= YEAR_TOLERANCE;
 
     let score = 0;
     score += artistExact ? 2 : 1;
     score += titleExact ? 2 : 1;
-    if (yearsKnown) score += gap === 0 ? 2 : gap <= YEAR_TOLERANCE ? 1 : -1;
+    if (yearsKnown) score += gap === 0 ? 2 : gap <= SAME_EDITION_YEARS ? 1 : 0;
 
-    const exact = artistExact && titleExact && yearOk;
+    const exact = artistExact && titleExact;
     if (!best || score > best.score) best = { album: c, score, exact };
   }
   if (!best) return null;

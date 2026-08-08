@@ -313,6 +313,17 @@ export interface AlbumAsset {
     genres?: string[];
     source: "manual" | "spotify" | "discogs";
     spotifyUri?: string;
+    /**
+     * The Discogs→Spotify match behind `spotifyUri`/the cover, when one produced them (ADR 0059).
+     * Absent for a Spotify add or a hand-entered URI — those were never guesses.
+     */
+    spotifyMatch?: {
+      confidence: "exact" | "close";
+      name: string;
+      artist: string;
+      year?: number;
+      matchedAt: string;
+    };
     discogsUri?: string;
     discogsReleaseId?: number;
   };

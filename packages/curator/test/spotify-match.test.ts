@@ -129,25 +129,68 @@ describe("match confidence — what may play audio", () => {
   });
 
   /**
-   * A reissue legitimately carries a different year, so a small gap stays exact. A large one means
-   * the pressing you own and the thing Spotify found are probably not the same release — a
-   * compilation, a live album, a re-recording — and that is the case worth refusing to play.
+   * The year does not gate anything (ADR 0060). It used to, and it measured the wrong thing: on a
+   * real collection 163 of 213 refusals were **vinyl reissues** — Discogs catalogues the *pressing*,
+   * Spotify the *release*, so a 2016 repress of a 1995 album disagreed by 21 years while being
+   * unambiguously the same record.
    */
-  it("keeps a one-year gap exact but demotes a far-off year", () => {
-    const near = bestSpotifyMatch(
-      { artist: "Prince", title: "Purple Rain", year: 1984 },
-      [album({ name: "Purple Rain", artist: "Prince", year: 1985 })],
-    );
-    expect(near?.confidence).toBe("exact");
-
-    const far = bestSpotifyMatch(
-      { artist: "Prince", title: "Purple Rain", year: 1984 },
-      [album({ name: "Purple Rain", artist: "Prince", year: 2015 })],
-    );
-    expect(far?.confidence).toBe("close");
+  it("stays exact however far apart the years are", () => {
+    for (const year of [1985, 2015, 2026]) {
+      const m = bestSpotifyMatch(
+        { artist: "Prince", title: "Purple Rain", year: 1984 },
+        [album({ name: "Purple Rain", artist: "Prince", year })],
+      );
+      expect(m?.confidence, `year ${year}`).toBe("exact");
+    }
   });
 
-  it("stays exact when either side has no year — an unknown year is not evidence against", () => {
+  /** It still *ranks*: among same-name albums, the one nearest your pressing wins. */
+  it("uses the year to pick between candidates of the same name", () => {
+    const m = bestSpotifyMatch(
+      { artist: "Prince", title: "Purple Rain", year: 1984 },
+      [
+        album({
+          name: "Purple Rain",
+          artist: "Prince",
+          year: 2015,
+          artUrl: "https://art/reissue.jpg",
+        }),
+        album({
+          name: "Purple Rain",
+          artist: "Prince",
+          year: 1984,
+          artUrl: "https://art/original.jpg",
+        }),
+      ],
+    );
+    expect(m?.album.artUrl).toBe("https://art/original.jpg");
+  });
+
+  /**
+   * Discogs disambiguates a duplicate artist name with a trailing number — `Costanza (5)`. That is a
+   * database artifact, and leaving it in made a correct match read as a different artist.
+   */
+  it("ignores Discogs's (n) artist disambiguator", () => {
+    const m = bestSpotifyMatch({ artist: "Costanza (5)", title: "George" }, [
+      album({ name: "George", artist: "Costanza" }),
+    ]);
+    expect(m?.confidence).toBe("exact");
+  });
+
+  it("does not strip a parenthetical that is part of the name", () => {
+    const m = bestSpotifyMatch(
+      { artist: "Godspeed You! Black Emperor", title: "Lift Yr Skinny Fists" },
+      [
+        album({
+          name: "Lift Yr Skinny Fists",
+          artist: "Godspeed You! Black Emperor",
+        }),
+      ],
+    );
+    expect(m?.confidence).toBe("exact");
+  });
+
+  it("stays exact when either side has no year", () => {
     const m = bestSpotifyMatch(
       { artist: "Aphex Twin", title: "Selected Ambient Works 85-92" },
       [
