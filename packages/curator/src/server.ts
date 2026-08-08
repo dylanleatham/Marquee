@@ -1639,7 +1639,12 @@ export function buildServer(opts: BuildOptions = {}) {
     const { curatorId } = req.params as { curatorId: string };
     try {
       const asset = actions.approvePreview(actionDeps, curatorId);
-      return { state: asset.roadie.state };
+      // The timestamp comes back with the state so the dock can say "signed off <when>" at once,
+      // rather than reading it a poll later (ADR 0063 — the sign-off confirms in place).
+      return {
+        state: asset.roadie.state,
+        previewApprovedAt: asset.verification?.previewApprovedAt ?? null,
+      };
     } catch (err) {
       return actionError(err, reply, req);
     }

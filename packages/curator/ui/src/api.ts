@@ -1016,9 +1016,10 @@ export const api = {
       { method: "POST" },
     ),
   approvePreview: (id: string) =>
-    req<{ state: RoadieState }>(`/api/albums/${id}/preview/approve`, {
-      method: "POST",
-    }),
+    req<{ state: RoadieState; previewApprovedAt: string | null }>(
+      `/api/albums/${id}/preview/approve`,
+      { method: "POST" },
+    ),
   rejectPreview: (id: string, to: "awaiting_review" | "awaiting_video") =>
     req<{ state: RoadieState }>(`/api/albums/${id}/preview/reject`, {
       method: "POST",

@@ -282,6 +282,62 @@ describe("onboarding workflow", () => {
     ).toBe(200);
   });
 
+  /**
+   * regression: #263 — the lights sign-off carried the same gate #261 removed from tags. `Looks
+   * right ✓` enabled itself only for `awaiting_preview`, and the only way into `awaiting_preview`
+   * is attaching a visualizer — so on the 478-of-499 records that have none, the lights need could
+   * never be marked done and the record page's Lights circle stayed hollow forever
+   * ([ADR 0063](../../../docs/adrs/0063-the-machine-is-settled-from-the-asset-not-driven-by-the-button.md)).
+   */
+  it("records the lights sign-off from awaiting_review, without moving the machine", async () => {
+    const { app, store, curatorId } = await serverWithReviewedAlbum();
+    const res = await post(app, `/api/albums/${curatorId}/preview/approve`);
+    expect(res.statusCode).toBe(200);
+
+    const after = store.read(curatorId)!;
+    expect(after.verification!.previewApprovedAt).toBeTruthy();
+    // The other three needs are untouched: this record still has no visualizer, so there is no
+    // legal step and calling it anything past awaiting_review would be a lie.
+    expect(after.roadie.state).toBe("awaiting_review");
+  });
+
+  it("settles the record when the lights were signed off first and the visualizer lands later", async () => {
+    // regression: #263 — the reciprocal stranding. Signing off early must not park the album at
+    // awaiting_preview forever once the visualizer arrives and the tags are checked.
+    const { app, store, curatorId } = await serverWithReviewedAlbum();
+    await post(app, `/api/albums/${curatorId}/preview/approve`);
+    await post(app, `/api/albums/${curatorId}/tags-verified`);
+    expect(store.read(curatorId)!.roadie.state).toBe("awaiting_review");
+
+    await uploadVideo(app, curatorId);
+    expect(store.read(curatorId)!.roadie.state).toBe("verified");
+  });
+
+  it("signing the lights off is idempotent, and keeps the first timestamp", async () => {
+    // regression: #263 — the dock keeps the control on screen after the sign-off, so a second press
+    // is an ordinary thing to do. It must not error, and must not restate when you watched it.
+    const { app, store, curatorId } = await serverWithReviewedAlbum();
+    await post(app, `/api/albums/${curatorId}/preview/approve`);
+    const first = store.read(curatorId)!.verification!.previewApprovedAt;
+
+    const again = await post(app, `/api/albums/${curatorId}/preview/approve`);
+    expect(again.statusCode).toBe(200);
+    expect(store.read(curatorId)!.verification!.previewApprovedAt).toBe(first);
+  });
+
+  it("won't sign off lights Roadie hasn't pulled yet", async () => {
+    // The gate that replaces the machine gate: a claim about the artifact, not about the state.
+    // Signing off means having watched the palette, and there isn't one to watch.
+    const { app, store, curatorId } = await serverWithReviewedAlbum();
+    const asset = store.read(curatorId)!;
+    delete asset.palette;
+    store.save(asset);
+
+    const res = await post(app, `/api/albums/${curatorId}/preview/approve`);
+    expect(res.statusCode).toBeGreaterThanOrEqual(400);
+    expect(store.read(curatorId)!.verification?.previewApprovedAt).toBeFalsy();
+  });
+
   it("records a sleeve written before the record reaches the tag step", async () => {
     // regression: #261 — the per-sticker route the panel now offers for the sleeve and the card.
     // It never gated on state, but nothing exercised it from awaiting_review.

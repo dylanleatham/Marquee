@@ -587,6 +587,10 @@ const VIDEO_ATTACHABLE: RoadieState[] = [
  * Set/replace the visualizer and advance to awaiting_preview (replacing at preview keeps state).
  * Re-reads + saves synchronously (#38) so the slow `ingestVideo` above can't clobber a concurrent
  * write; re-validates the transition on the fresh copy since state may have changed meanwhile.
+ *
+ * Then `settleNeeds`: on a record whose lights were signed off first (ADR 0063), the visualizer is
+ * the need that unblocks the rest of the line, so it must carry on past `awaiting_preview` rather
+ * than park there waiting for a sign-off that already happened.
  */
 function finishVideoAttach(
   deps: ActionDeps,
@@ -597,9 +601,10 @@ function finishVideoAttach(
     if (!VIDEO_ATTACHABLE.includes(a.roadie.state))
       throw new TransitionError(a.roadie.state, "awaiting_preview");
     a.visualizer = vis;
+    const now = clock(deps);
     if (a.roadie.state !== "awaiting_preview")
-      transitionTo(a, "awaiting_preview", clock(deps));
-    else a.status = deriveStatus(a.roadie);
+      transitionTo(a, "awaiting_preview", now);
+    settleNeeds(a, now);
   });
   if (!saved)
     throw new NotFoundError(`album ${curatorId} was deleted mid-attach`);
@@ -1374,26 +1379,44 @@ export function selectCardArt(
 // --- preview -----------------------------------------------------------------------------------
 
 /**
- * "Looks good" — approve the preview, advancing to awaiting_tag_write (curator-spec §10).
+ * "Looks right" — the lights sign-off, recorded on the asset (curator-spec §10).
  *
- * If the tag step was already done out of order ([ADR 0062](../../../../docs/adrs/0062-the-tag-step-is-recorded-on-the-asset-not-on-the-machine.md)),
- * this is the last need landing, so it carries on to `verified` rather than parking the record one
- * step short of done forever. Whichever of the two came second settles the machine.
+ * **Not gated on the machine** ([ADR 0063](../../../../docs/adrs/0063-the-machine-is-settled-from-the-asset-not-driven-by-the-button.md)).
+ * This used to demand `awaiting_preview`, whose only entrance is attaching a visualizer — so on a
+ * record with no visualizer, which is most of a freshly-synced collection, the lights need could
+ * never be marked done at all. That is [ADR 0062](../../../../docs/adrs/0062-the-tag-step-is-recorded-on-the-asset-not-on-the-machine.md)'s
+ * bug a second time, on the act that ADR explicitly left open (#263).
+ *
+ * The one thing it does refuse is a record with no palette: signing off means having watched the
+ * lights, and there are none to watch yet. That is a claim about the artifact, so — unlike the state
+ * gate it replaces — it cannot become unreachable in practice.
+ *
+ * Pressing it again is a no-op that keeps the original timestamp: the dock leaves the control on
+ * screen afterwards, so a second press is an ordinary thing to do, and re-stamping it would restate
+ * when you watched the record.
  */
 export function approvePreview(
   deps: ActionDeps,
   curatorId: string,
 ): AlbumAsset {
-  const asset = load(deps.store, curatorId);
   const now = clock(deps);
-  transitionTo(asset, "awaiting_tag_write", now); // throws if not in awaiting_preview
-  asset.verification = {
-    ...asset.verification,
-    previewApprovedAt: now(),
-  };
-  if (asset.verification.physicallyVerifiedAt) settleTagStep(asset, now);
-  deps.store.save(asset);
-  return asset;
+  // Read-mutate-save in one `update` rather than load/…/save. Both are synchronous here, so they
+  // are equivalent today — but the four needs are explicitly done in any order now, and the rule
+  // that keeps a slow action from clobbering a concurrent write (#38) is worth not having to
+  // re-derive from "does this function await anything?" every time it is edited.
+  const saved = deps.store.update(curatorId, (a) => {
+    if (!a.palette?.colors.length)
+      throw new ValidationError(
+        "Roadie hasn't pulled the lights for this record yet",
+      );
+    a.verification = {
+      ...a.verification,
+      previewApprovedAt: a.verification?.previewApprovedAt ?? now(),
+    };
+    settleNeeds(a, now);
+  });
+  if (!saved) throw new NotFoundError(`no such album: ${curatorId}`);
+  return saved;
 }
 
 /** "Something's off" — step back from preview to review or video to iterate (curator-spec §10). */
@@ -1567,38 +1590,49 @@ export function markTagWritten(
  * **The record is on the asset, not in the machine** ([ADR 0062](../../../../docs/adrs/0062-the-tag-step-is-recorded-on-the-asset-not-on-the-machine.md)).
  * A sticker is a physical object: writing and checking it does not wait on a visualizer, so this
  * never throws for being early. It records the writes and `physicallyVerifiedAt` whatever the state,
- * and moves the machine only as far as the linear human path legally goes (`settleTagStep`).
+ * and moves the machine only as far as the linear human path legally goes (`settleNeeds`).
  */
 export function verifyTags(deps: ActionDeps, curatorId: string): AlbumAsset {
-  const asset = load(deps.store, curatorId);
   const now = clock(deps);
   const at = now();
-  const tag = asset.tag ?? { payload: `curator:album:${curatorId}` };
-  for (const object of ["sleeve", "card"] as const)
-    if (!tag[object]?.written) tag[object] = { written: true, writtenAt: at };
-  asset.tag = tag;
-  asset.verification = { ...asset.verification, physicallyVerifiedAt: at };
-  settleTagStep(asset, now);
-  deps.store.save(asset);
-  return asset;
+  // Through `update`, for the same reason as `approvePreview` above: one store idiom across the
+  // human steps, so the write is safe by inspection rather than by tracing the awaits.
+  const saved = deps.store.update(curatorId, (a) => {
+    const tag = a.tag ?? { payload: `curator:album:${curatorId}` };
+    for (const object of ["sleeve", "card"] as const)
+      if (!tag[object]?.written) tag[object] = { written: true, writtenAt: at };
+    a.tag = tag;
+    a.verification = { ...a.verification, physicallyVerifiedAt: at };
+    settleNeeds(a, now);
+  });
+  if (!saved) throw new NotFoundError(`no such album: ${curatorId}`);
+  return saved;
 }
 
 /**
- * Move the machine as far along the linear human path as it legally goes, and no further.
+ * Move the machine as far along the linear human path as the **asset** says it may go, and no
+ * further. The one place the four-needs model and the linear machine meet
+ * ([ADR 0063](../../../../docs/adrs/0063-the-machine-is-settled-from-the-asset-not-driven-by-the-button.md)).
  *
- * The four needs are done in any order (ADR 0052) but `HUMAN_TRANSITIONS` is a line, so the two
- * models only meet here. From the tag step this walks `awaiting_tag_write → awaiting_verify →
- * verified`, exactly as pressing the button used to. From anywhere earlier there is no legal step
- * and the state is left alone: the record genuinely still needs the other three things, and calling
- * it `verified` would be a lie the collection would then repeat. From `verified` there is nothing
- * to do, which is what makes a second press harmless.
+ * The four needs are done in any order (ADR 0052) but `HUMAN_TRANSITIONS` is a line. Rather than
+ * each button driving its own edge — which is what made both the tag step (#261) and the lights
+ * sign-off (#263) unreachable when the needs before them were outstanding — every step here is
+ * gated on the **evidence on the asset**, not on which control was pressed. So it settles the same
+ * way whichever need lands last, and there is nothing left to strand.
+ *
+ * Where the evidence runs out the state is left alone: the record genuinely still needs the other
+ * things, and calling it `verified` would be a lie the collection would then repeat. From `verified`
+ * there is nothing to do, which is what makes a second press harmless.
  */
-function settleTagStep(asset: AlbumAsset, now: () => string): void {
-  if (asset.roadie.state === "awaiting_tag_write")
+function settleNeeds(asset: AlbumAsset, now: () => string): void {
+  const done = asset.verification;
+  if (asset.roadie.state === "awaiting_preview" && done?.previewApprovedAt)
+    transitionTo(asset, "awaiting_tag_write", now);
+  if (asset.roadie.state === "awaiting_tag_write" && done?.physicallyVerifiedAt)
     transitionTo(asset, "awaiting_verify", now);
-  if (asset.roadie.state === "awaiting_verify")
+  if (asset.roadie.state === "awaiting_verify" && done?.physicallyVerifiedAt)
     transitionTo(asset, "verified", now);
-  else asset.status = deriveStatus(asset.roadie);
+  asset.status = deriveStatus(asset.roadie);
 }
 
 /**

@@ -1,9 +1,10 @@
 // What a record still needs (ADR 0052). The derivation is the model the whole overhaul rests on —
 // if it drifts, the collection and the record page start disagreeing about the same record.
 import { describe, it, expect } from "vitest";
-import type { AlbumSummary, RoadieState } from "./api";
+import type { AlbumAsset, AlbumSummary, RoadieState } from "./api";
 import {
   failureSentence,
+  needFactsOfAsset,
   outstandingNeeds,
   recordState,
   roadieNarration,
@@ -232,5 +233,66 @@ describe("sections vs needs", () => {
 
   it("has no label for it in the collection's need vocabulary", () => {
     expect(Object.keys(NEED_LABEL)).toEqual(NEED_ORDER);
+  });
+});
+
+/**
+ * The room holds a full asset, not a collection row, and has to answer "was that the last need?"
+ * the instant a sign-off lands (ADR 0063). Two derivations would be two chances to disagree about
+ * the same record, which is the thing `needs.ts` exists to prevent — so the asset is reduced to the
+ * same facts and run through the same predicates. These cases pin that the reduction matches the
+ * server's `summary()`.
+ */
+describe("needFactsOfAsset", () => {
+  const asset = (over: Partial<AlbumAsset> = {}): AlbumAsset =>
+    ({
+      curatorId: "abc12345",
+      createdAt: "2026-08-01T00:00:00.000Z",
+      metadata: { name: "Kind of Blue", artist: "Miles Davis" },
+      roadie: { state: "awaiting_review" },
+      ...over,
+    }) as AlbumAsset;
+
+  it("reads a bare record as owing all four", () => {
+    expect(outstandingNeeds(needFactsOfAsset(asset()))).toEqual(NEED_ORDER);
+  });
+
+  it("counts both stickers, never one — same rule as the collection row", () => {
+    const oneOfTwo = asset({
+      tag: { payload: "p", sleeve: { written: true } },
+    } as Partial<AlbumAsset>);
+    expect(needFactsOfAsset(oneOfTwo).tagsWritten).toBe(false);
+
+    const both = asset({
+      tag: { payload: "p", sleeve: { written: true }, card: { written: true } },
+    } as Partial<AlbumAsset>);
+    expect(needFactsOfAsset(both).tagsWritten).toBe(true);
+  });
+
+  it("reads a fully-finished record as owing nothing", () => {
+    const done = asset({
+      roadie: { state: "verified" },
+      visualizer: { fileId: "abc12345" },
+      cardArt: { fileId: "abc12345" },
+      tag: { payload: "p", sleeve: { written: true }, card: { written: true } },
+      verification: {
+        previewApprovedAt: "2026-08-01T10:00:00.000Z",
+        physicallyVerifiedAt: "2026-08-01T11:00:00.000Z",
+      },
+    } as Partial<AlbumAsset>);
+    expect(outstandingNeeds(needFactsOfAsset(done))).toEqual([]);
+  });
+
+  it("agrees with the collection row about the same record", () => {
+    // regression: #263 — the room decides whether to fire the ready toast from the asset while the
+    // collection draws the tile from the row. If those two ever part company, one of the screens is
+    // lying about a record the other has right.
+    const signedOffOnly = asset({
+      verification: { previewApprovedAt: "2026-08-01T10:00:00.000Z" },
+    } as Partial<AlbumAsset>);
+    const row = album({ previewApprovedAt: "2026-08-01T10:00:00.000Z" });
+    expect(outstandingNeeds(needFactsOfAsset(signedOffOnly))).toEqual(
+      outstandingNeeds(row),
+    );
   });
 });

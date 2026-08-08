@@ -277,7 +277,25 @@ describe("Room — the control dock", () => {
 });
 
 describe("Room — signing off", () => {
-  it("signs off, returns to the collection and fires the toast", async () => {
+  /** Everything but the lights done, so signing off is genuinely the last outstanding need. */
+  const allButLights = (over: Partial<AlbumAsset> = {}) =>
+    asset({
+      cardArt: { fileId: "abc12345" },
+      tag: {
+        payload: "curator:album:abc12345",
+        sleeve: { written: true },
+        card: { written: true },
+      },
+      verification: { physicallyVerifiedAt: "2026-08-07T10:00:00.000Z" },
+      ...over,
+    } as Partial<AlbumAsset>);
+
+  it("returns to the collection and fires the toast when that was the last need", async () => {
+    vi.mocked(api.album).mockResolvedValue(allButLights());
+    vi.mocked(api.approvePreview).mockResolvedValue({
+      state: "verified",
+      previewApprovedAt: "2026-08-08T10:00:00.000Z",
+    });
     show();
     await loaded();
     fireEvent.click(screen.getByRole("button", { name: /Looks right/ }));
@@ -290,13 +308,77 @@ describe("Room — signing off", () => {
     );
   });
 
-  it("says why it can't be signed off yet rather than failing when pressed", async () => {
-    vi.mocked(api.album).mockResolvedValue(asset({}, "awaiting_review"));
+  /**
+   * regression: #263 — the sign-off used to navigate to the collection and fire "<title> is ready ·
+   * Lights, visualizer, card and tags — all done" whatever was still outstanding. On a record that
+   * still needs three of the four that is both a lie and the only feedback you got, which is why the
+   * user's report read "I am kicked out to the full album list" ([ADR 0063](../../../../../docs/adrs/0063-the-machine-is-settled-from-the-asset-not-driven-by-the-button.md)).
+   */
+  it("confirms in place, and does not claim ready, when needs remain", async () => {
+    // The default asset has a visualizer but no card and no tags.
+    vi.mocked(api.approvePreview).mockResolvedValue({
+      state: "awaiting_tag_write",
+      previewApprovedAt: "2026-08-08T10:00:00.000Z",
+    });
+    show();
+    await loaded();
+    fireEvent.click(screen.getByRole("button", { name: /Looks right/ }));
+    await waitFor(() => expect(api.approvePreview).toHaveBeenCalled());
+
+    expect(readyToastSnapshot()).toBeNull();
+    expect(screen.queryByText("the collection")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Purple Rain" })).toBeTruthy();
+  });
+
+  it("says so on the button once the lights are signed off", async () => {
+    // regression: #263 — "there doesn't appear to be UI to confirm that lights have been approved".
+    vi.mocked(api.album).mockResolvedValue(
+      asset({
+        verification: { previewApprovedAt: "2026-08-08T10:00:00.000Z" },
+      }),
+    );
+    show();
+    await loaded();
+    const btn = screen.getByRole("button", { name: /SIGNED OFF/ });
+    expect((btn as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/Signed off .* watch it as often/)).toBeTruthy();
+  });
+
+  /**
+   * regression: #263 — this replaces "says why it can't be signed off yet", which pinned the gate
+   * `state === "awaiting_preview"` faithfully and could not tell that the gate was unreachable for
+   * 96% of the collection. The sign-off now asks about the record, so a record with no visualizer
+   * signs off like any other.
+   */
+  it("signs the lights off on a record that has no visualizer", async () => {
+    vi.mocked(api.album).mockResolvedValue(
+      asset({ visualizer: undefined }, "awaiting_review"),
+    );
+    vi.mocked(api.approvePreview).mockResolvedValue({
+      state: "awaiting_review",
+      previewApprovedAt: "2026-08-08T10:00:00.000Z",
+    });
     show();
     await loaded();
     const btn = screen.getByRole("button", { name: /Looks right/ });
-    expect((btn as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText(/once a visualizer is attached/)).toBeTruthy();
+    expect((btn as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(btn);
+    await waitFor(() =>
+      expect(api.approvePreview).toHaveBeenCalledWith("abc12345"),
+    );
+  });
+
+  it("won't sign off lights Roadie hasn't pulled yet, and says which", async () => {
+    vi.mocked(api.album).mockResolvedValue(
+      asset({ palette: undefined }, "generating_palette"),
+    );
+    show();
+    await loaded();
+    expect(
+      (screen.getByRole("button", { name: /Looks right/ }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(screen.getByText(/hasn't pulled the lights/)).toBeTruthy();
   });
 
   it("says sign-off only happens in here", async () => {
