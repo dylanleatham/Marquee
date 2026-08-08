@@ -570,14 +570,22 @@ goes through, so **fixing the workstation alone leaves the product broken while 
 reports every service up.** Check all three.
 
 Symptoms: `URLError: [Errno 113] No route to host` in `journalctl -u marquee-stylus`, or
-`The operation was aborted due to timeout` against a `configured: true` service in Curator's
+`no response from <url> within 5000ms` against a `configured: true` service in Curator's
 `/api/system/status`.
 
-**Read that timeout as "wrong address", not "hung service".** An address nobody holds drops packets,
-so the probe stalls the full 5s (`PROBE_TIMEOUT_MS`) and reports a timeout; a service that is down on
-an address that _is_ held refuses the connection and fails instantly. A timeout against a configured
-service means Curator is knocking on a door that isn't there — check the address before you go and
-debug the service, which is very likely healthy.
+**Read that as "wrong address", not "hung service".** An address nobody holds drops packets, so the
+probe stalls the full 5s (`PROBE_TIMEOUT_MS`) and reports no response; a service that is down on an
+address that _is_ held refuses the connection and fails instantly — which Curator reports as
+`<url> refused the connection — nothing is listening there`. **Those two lines send you to opposite
+halves of the system:** no-response means check the address (or the link), refused means check the
+service. A no-response against a configured service means Curator is knocking on a door that isn't
+there, and the service is very likely healthy.
+
+_Curator used to render the raw transport message here — `The operation was aborted due to timeout`,
+which named neither the address nor the budget — and the room view added `is it running?`, a guess
+that sent the 2026-08-08 session to `journalctl` on a healthy service three separate times
+([#270](https://github.com/dylanleatham/Marquee/issues/270)). If you are on an older build, that is
+the same symptom under a worse name._
 
 Find where the Pi went, confirm it is the Pi rather than some other host, and fix all three copies:
 

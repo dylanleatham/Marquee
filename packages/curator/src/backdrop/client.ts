@@ -6,6 +6,7 @@ import { createReadStream, statSync } from "node:fs";
 import { Readable } from "node:stream";
 import type { LibraryEntry } from "@marquee/contracts";
 import type { LibraryEntryWithUri } from "./projection.js";
+import { describeFetchFailure } from "../net/fetch-failure.js";
 
 type FetchImpl = typeof fetch;
 
@@ -72,12 +73,24 @@ export class BackdropClient {
     // with `content-type: application/json` trips Fastify's FST_ERR_CTP_EMPTY_JSON_BODY (400).
     if (init.body !== undefined) headers["content-type"] = "application/json";
     if (this.sharedSecret) headers["x-trigger-secret"] = this.sharedSecret;
-    const res = await this.fetchImpl(`${this.url}${path}`, {
-      method: init.method,
-      headers,
-      ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
-      signal: AbortSignal.timeout(this.timeoutMs),
-    });
+    // A transport failure is described here rather than left as the raw rejection, because this
+    // throw travels a long way: onto an album as a syncIssue, and out of a job as its `error`. A
+    // runtimeSync once failed with a bare `The operation was aborted due to timeout` — naming
+    // neither Backdrop nor the address it spent six minutes on (issue #270).
+    let res;
+    try {
+      res = await this.fetchImpl(`${this.url}${path}`, {
+        method: init.method,
+        headers,
+        ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch (err) {
+      throw new Error(
+        `Backdrop ${init.method} ${path}: ${describeFetchFailure(err, this.url, this.timeoutMs)}`,
+        { cause: err },
+      );
+    }
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
       throw new BackdropError(

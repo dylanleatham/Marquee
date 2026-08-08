@@ -150,7 +150,9 @@ describe("Demo Room proxy → Conductor", () => {
   });
 
   it("reports Conductor being down as a 502 on play and reachable:false on status", async () => {
-    const dead = "http://127.0.0.1:1"; // nothing listening → ECONNREFUSED
+    // Port 1 is on fetch's blocked-ports list, so the request is rejected before it reaches the
+    // network. Either way the proxy sees a rejection, which is what this exercises.
+    const dead = "http://127.0.0.1:1";
     store.save(makeAsset("abc12345"));
 
     const play = await curator(dead).inject({
@@ -159,6 +161,12 @@ describe("Demo Room proxy → Conductor", () => {
       payload: { curatorId: "abc12345" },
     });
     expect(play.statusCode).toBe(502);
+    // Issue #270: the body names the service and the address, and stops. It used to append "is it
+    // running?" — a guess that survived three unrelated faults on 2026-08-08, sending debugging to
+    // a service that was healthy every time.
+    expect(play.json().error).toMatch(/^Hue Conductor: /);
+    expect(play.json().error).toContain(dead);
+    expect(play.json().error).not.toMatch(/is it running/i);
 
     const status = await curator(dead).inject({
       method: "GET",

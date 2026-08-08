@@ -7,6 +7,8 @@
 // one Pi is unplugged is worse than useless, since an unreachable service is the thing it exists to
 // report.
 
+import { describeFetchFailure } from "../net/fetch-failure.js";
+
 /** How long any single probe waits. Matches the Conductor proxy and the Backdrop client. */
 export const PROBE_TIMEOUT_MS = 5000;
 
@@ -82,7 +84,10 @@ export async function probeService(
       configured: true,
       reachable: false,
       url,
-      detail: (err as Error).message,
+      // Not the raw transport message. `The operation was aborted due to timeout` was true and
+      // useless: it named neither the address it gave up on nor how long it waited, so it read as
+      // "this service is broken" when twice over it meant "this address is wrong" (issue #270).
+      detail: describeFetchFailure(err, url, PROBE_TIMEOUT_MS),
     };
   }
 }
