@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { logTime, useRoadieLog, type LogLine } from "../roadieLog";
+import {
+  logTime,
+  roadieStanding,
+  useRoadieLog,
+  type LogLine,
+} from "../roadieLog";
+import type { AgentStatus } from "../api";
 
 /**
  * Roadie's log — a strip locked to the bottom of the window on the collection, expanding into a
@@ -25,10 +31,11 @@ const Line = ({ line }: { line: LogLine }) => (
   </>
 );
 
-export function RoadieLog() {
+export function RoadieLog({ status }: { status: AgentStatus | null }) {
   const lines = useRoadieLog();
   const [open, setOpen] = useState(false);
   const latest = lines[0];
+  const standing = roadieStanding(status);
 
   return (
     <div className="roadiedock">
@@ -61,7 +68,7 @@ export function RoadieLog() {
       <div className="roadielog">
         <p className="roadielog__badge">
           <span
-            className="pp-dot pp-dot--sm pp-dot--pulse"
+            className={`pp-dot pp-dot--sm${standing.busy ? " pp-dot--pulse" : ""}`}
             aria-hidden="true"
           />
           ROADIE&apos;S LOG
@@ -79,6 +86,14 @@ export function RoadieLog() {
               Nothing yet this session — Roadie will say so here.
             </span>
           )}
+        </p>
+        {/* The answer to "has it finished, or has it died?" — in words, because the log line above
+            goes still either way. `role="status"` so it is announced rather than only seen. */}
+        <p
+          className={`roadielog__standing${standing.busy ? " roadielog__standing--busy" : ""}`}
+          role="status"
+        >
+          {standing.label}
         </p>
         <button
           type="button"

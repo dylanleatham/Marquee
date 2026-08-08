@@ -776,6 +776,24 @@ a:hover {
   color: var(--pp-ink);
   font-weight: 600;
 }
+/* Where Roadie stands, in words. The log line beside it goes still whether Roadie finished or died,
+   so this is the part that actually answers the question (ADR 0057). `flex: none` — it never
+   ellipsises; the sentence beside it gives way first. */
+.roadielog__standing {
+  padding: 11px 20px;
+  border-left: 1px solid var(--pp-rule);
+  flex: none;
+  font: 500 10px/1 var(--pp-mono);
+  letter-spacing: 0.14em;
+  color: var(--pp-ink-faint);
+  white-space: nowrap;
+  align-self: center;
+}
+/* Working is the state worth catching an eye. Idle stays faint — it is the resting state, and an
+   accent on "nothing to do" would read as something needing attention. */
+.roadielog__standing--busy {
+  color: var(--pp-accent);
+}
 .roadielog__toggle {
   padding: 11px 20px;
   border: 0;

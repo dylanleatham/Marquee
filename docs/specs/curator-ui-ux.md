@@ -650,6 +650,15 @@ Four regions:
   **Session-only and not persisted**; the panel says so. Failures live durably in the Stuck group
   instead.
 
+  It also carries **where Roadie stands**, in words — `IDLE · NOTHING QUEUED`, `WORKING · n QUEUED`,
+  `PAUSED`, or `CHECKING…` before the first poll answers
+  ([ADR 0057](../adrs/0057-the-log-strip-says-where-roadie-stands-not-only-what-it-did.md)). The
+  sentence beside it is **history**; this is **state**, and the two are only distinguishable when it
+  matters. Roadie clears a record in ~130ms, so a whole sweep lands in one minute and the strip then
+  stops changing — identically whether Roadie finished or died. The dot pulses only while busy, but
+  nothing depends on noticing that: per §3.4 the word is the signal. `IDLE · NOTHING QUEUED` claims
+  only that **Roadie's** queue is empty, never that the collection is finished.
+
 **Order is shuffled on every visit**, seeded so it is stable across the poll's re-renders within a
 visit and different next time. `SHUFFLED ↻` reseeds. A grid that reorders under the cursor every
 three seconds would be unusable, so the seed is load-bearing, not decorative.

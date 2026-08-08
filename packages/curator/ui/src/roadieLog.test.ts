@@ -7,6 +7,7 @@ import {
   logTime,
   recordActivity,
   resetRoadieLog,
+  roadieStanding,
   roadieLogSnapshot as read,
   roadieLogSeenSize as seenSize,
 } from "./roadieLog";
@@ -176,5 +177,64 @@ describe("logTime", () => {
 
   it("renders nothing for an unparseable timestamp rather than 'Invalid Date'", () => {
     expect(logTime("not a date")).toBe("");
+  });
+});
+
+describe("roadieStanding", () => {
+  const at = (over: Partial<Parameters<typeof roadieStanding>[0]> = {}) =>
+    roadieStanding({ paused: false, current: null, queueDepth: 0, ...over });
+
+  it("says idle when the queue is empty and nothing is in hand", () => {
+    // The whole point: a finished Roadie and a wedged one produce an identical, frozen log line, so
+    // the strip has to say which it is (ADR 0057).
+    expect(at()).toEqual({ label: "IDLE · NOTHING QUEUED", busy: false });
+  });
+
+  it("says what is left while Roadie is working", () => {
+    expect(at({ current: "abc12345", queueDepth: 12 })).toEqual({
+      label: "WORKING · 12 QUEUED",
+      busy: true,
+    });
+    // Last one in hand, nothing behind it — a count of zero would read as "nothing to do".
+    expect(at({ current: "abc12345" })).toEqual({
+      label: "WORKING",
+      busy: true,
+    });
+  });
+
+  it("counts a queue with nothing in hand as working, not idle", () => {
+    // The gap between `enqueue` and the worker picking it up. Reporting idle here would be a lie
+    // that lasts exactly as long as it takes someone to notice and mistrust the strip.
+    expect(at({ queueDepth: 3 })).toEqual({
+      label: "WORKING · 3 QUEUED",
+      busy: true,
+    });
+  });
+
+  it("says paused, and is not busy, even with work waiting", () => {
+    // Paused with a full queue is the one state where "nothing is happening" is true *and* there is
+    // work — so it must not read as either idle or working.
+    expect(at({ paused: true, queueDepth: 9, current: "abc12345" })).toEqual({
+      label: "PAUSED",
+      busy: false,
+    });
+  });
+
+  it("claims nothing before the first poll answers", () => {
+    // `IDLE` on first paint would be a claim we cannot make yet — and it is the exact claim the user
+    // is now being asked to trust.
+    expect(roadieStanding(null)).toEqual({ label: "CHECKING…", busy: false });
+  });
+
+  it("never leans on the dot alone — every state carries a word", () => {
+    // curator-ui-ux §3.4: state is never encoded in colour or motion alone. The pulse is decoration
+    // on top of the label, never the signal.
+    for (const s of [
+      null,
+      { paused: false, current: null, queueDepth: 0 },
+      { paused: false, current: "a", queueDepth: 2 },
+      { paused: true, current: null, queueDepth: 0 },
+    ])
+      expect(roadieStanding(s).label.trim().length).toBeGreaterThan(0);
   });
 });
