@@ -1,7 +1,7 @@
 // What the System screen says (ADR 0052). The matrix is gone; these are the derivations that
 // replaced it, and the important one is what "everywhere it should be" means.
 import { describe, it, expect } from "vitest";
-import type { AlbumPresence, ServiceHealth } from "./api";
+import type { AlbumPresence, JobTransfer, ServiceHealth } from "./api";
 import {
   exceptions,
   JOB_LABEL,
@@ -10,6 +10,8 @@ import {
   serviceLine,
   servicePort,
   serviceState,
+  transferLine,
+  transferPercent,
   SERVICE_GLOSS,
 } from "./system";
 
@@ -128,5 +130,44 @@ describe("jobProgress", () => {
   it("names what a job is doing rather than its kind", () => {
     expect(JOB_LABEL.mediaTransfer).toBe("visualizer upload");
     expect(JOB_LABEL.runtimeSync).toBe("media-sync");
+  });
+});
+
+// The upload line (issue #274). A sync's job row counts album-legs, which advances once per album —
+// so a single 66 MB visualizer crawling over a bad link looks exactly like a wedged process for
+// minutes at a time. This line is the difference between "stuck" and "slow".
+describe("transferLine", () => {
+  const at = (over: Partial<JobTransfer> = {}): JobTransfer => ({
+    label: "Kind of Blue",
+    sent: 24_248_819,
+    total: 69_206_016,
+    startedAt: "2026-08-08T21:00:00.000Z",
+    ...over,
+  });
+
+  it("names the album, both sizes, and how much longer", () => {
+    // 30s in and 23.1 MB sent — ~808 KB/s, so the remaining 43 MB is about another 56 seconds.
+    const now = Date.parse("2026-08-08T21:00:30.000Z");
+    expect(transferLine(at(), now)).toBe(
+      "Kind of Blue — 23.1 MB of 66.0 MB · about 56s left",
+    );
+  });
+
+  it("withholds the estimate until there is enough to base one on", () => {
+    // One second in and barely any bytes moved: `etaSeconds` refuses, and so does the line.
+    const now = Date.parse("2026-08-08T21:00:01.000Z");
+    expect(transferLine(at({ sent: 1024 }), now)).toBe(
+      "Kind of Blue — 1 KB of 66.0 MB",
+    );
+  });
+
+  it("falls back to something nameable when the album has no name", () => {
+    const now = Date.parse("2026-08-08T21:00:30.000Z");
+    expect(transferLine(at({ label: "abc12345" }), now)).toContain("abc12345");
+  });
+
+  it("clamps a percentage the numbers cannot support", () => {
+    expect(transferPercent(at({ sent: 999, total: 0 }))).toBe(0);
+    expect(transferPercent(at({ sent: 200, total: 100 }))).toBe(100);
   });
 });

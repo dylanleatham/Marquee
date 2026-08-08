@@ -771,6 +771,22 @@ unreachable, which is a fault).
 Also on the page: what is playing (screen / lights / sound / **the stand**), jobs in flight with a
 count as well as a bar, and one **Sync everything** button.
 
+**A job streaming a file says which file, and how far.** Under the job's own row, indented and
+quieter, sits the visualizer currently uploading: the album's name, bytes sent of bytes total, an
+estimate of the time left once there is enough history to make one honestly, and the same bar +
+percentage columns as the row above it. It is absent whenever nothing is moving, which is most of a
+sync — the Conductor leg and every album whose file is already up to date.
+
+It exists because **the job row alone cannot distinguish slow from stuck.** A `runtimeSync` counts
+album-legs, so it advances once per album; a single 66 MB visualizer crawling over a poor link leaves
+that number motionless for minutes, which is exactly what a wedged process looks like. On 2026-08-08
+a sync spent 47 minutes on one file with nothing on screen to say so. The bytes are the only honest
+signal that something is still happening.
+
+The two counters are **deliberately separate fields, not one**: `progress` counts album-legs and
+`transfer` counts bytes. Merging them is not a hypothetical — it is
+[#268](https://github.com/dylanleatham/Marquee/issues/268), where a running sync read `24248819/998`.
+
 > **Amended 2026-08-08** ([ADR 0061](../adrs/0061-the-lights-are-stopped-from-the-system-page.md)).
 > This said "Read-only apart from that button — this is the page you open when something is wrong, so
 > it must never be the reason something is wrong." The reason stands; the rule was one notch too

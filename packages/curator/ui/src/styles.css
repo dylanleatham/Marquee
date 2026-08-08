@@ -2549,6 +2549,18 @@ a:hover {
 .inflight__fill--accent {
   background: var(--pp-accent);
 }
+/*
+  The upload line sits under the job moving it, so it is indented and quieter — a detail of the row
+  above, not a second job. It keeps the same bar and count columns so the two align; the indent and
+  the word "uploading" are what distinguish them, never colour alone (§3.4).
+*/
+.inflight__row--transfer {
+  padding-left: 18px;
+  padding-top: 2px;
+  border-bottom: 0;
+  color: var(--pp-ink-faint);
+  font-size: 12px;
+}
 .inflight__count {
   font: 500 11px/1 var(--pp-mono);
   color: var(--pp-ink-faint);

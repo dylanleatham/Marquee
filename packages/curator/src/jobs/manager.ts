@@ -59,6 +59,19 @@ export interface JobResult {
   };
 }
 
+/**
+ * One file in flight, in bytes. `startedAt` is here rather than derived in the UI because an ETA
+ * needs a start the client did not witness — a page opened mid-upload would otherwise have to guess,
+ * and `transfer.ts` deliberately returns null rather than guess (issue #177).
+ */
+export interface JobTransfer {
+  /** What is moving, in the words the page already uses for an album — its name. */
+  label: string;
+  sent: number;
+  total: number;
+  startedAt: string;
+}
+
 export interface GenerationJob {
   id: string;
   kind: JobKind;
@@ -77,6 +90,19 @@ export interface GenerationJob {
   index?: number;
   /** e.g. `{ done: 3, total: 5 }` — the UI shows "Generating 3/5…". */
   progress: { done: number; total: number };
+  /**
+   * The file currently moving, when a job is streaming bytes — a visualizer upload inside a
+   * `runtimeSync`.
+   *
+   * A **separate channel from `progress` on purpose.** These are bytes; `progress` counts
+   * album-legs. Sharing one field is precisely the bug that made a running sync read `24248819/998`
+   * ([#268](https://github.com/dylanleatham/Marquee/issues/268)), so the two units get two fields
+   * and the display never has to guess which it is holding.
+   *
+   * Absent whenever nothing is in flight, which is most of the time: a sync spends the Conductor leg
+   * and every skipped album with no transfer to report.
+   */
+  transfer?: JobTransfer;
   createdAt: string;
   updatedAt: string;
   /** Set when `status === "failed"` (or a restart-interrupted job). */
@@ -92,6 +118,11 @@ export interface GenerationJob {
  */
 export type JobRunner = (ctx: {
   onProgress: (done: number, total: number) => void;
+  /**
+   * Report the file currently streaming, or `null` when none is. Separate from `onProgress` because
+   * the units differ — see `GenerationJob.transfer`.
+   */
+  onTransfer: (transfer: Omit<JobTransfer, "startedAt"> | null) => void;
   signal: AbortSignal;
 }) => Promise<JobResult>;
 
@@ -127,6 +158,7 @@ export interface JobManagerOptions {
 const snapshot = (j: GenerationJob): GenerationJob => ({
   ...j,
   progress: { ...j.progress },
+  ...(j.transfer ? { transfer: { ...j.transfer } } : {}),
   ...(j.result ? { result: j.result } : {}),
 });
 
@@ -311,6 +343,22 @@ export class GenerationJobs {
           job.progress = { done, total };
           job.updatedAt = this.now();
         },
+        onTransfer: (transfer) => {
+          if (job.status !== "running") return;
+          if (!transfer) {
+            delete job.transfer;
+          } else {
+            // The manager owns the clock (it already stamps createdAt/updatedAt), so a runner
+            // reporting bytes does not need one. Carrying the start forward while a transfer is
+            // present, and taking a fresh one when it was absent, relies on the runner clearing to
+            // `null` between files — which `resyncAll` does in a `finally`, so it holds even when an
+            // upload throws. Without that reset an ETA would be computed from the previous file's
+            // start and read as wildly optimistic.
+            const startedAt = job.transfer?.startedAt ?? this.now();
+            job.transfer = { ...transfer, startedAt };
+          }
+          job.updatedAt = this.now();
+        },
         signal: controller.signal,
       });
       // Cancelled mid-flight (the abort raced the resolve) — keep it cancelled, drop the result.
@@ -325,6 +373,10 @@ export class GenerationJobs {
         job.error = err instanceof Error ? err.message : String(err);
       }
     }
+    // Nothing is in flight once the runner has returned, however it returned. Left set, a job that
+    // died mid-upload would sit on the page for its whole TTL claiming to be sending a file — the
+    // most misleading state available, and exactly the shape of stall this panel exists to expose.
+    delete job.transfer;
     job.updatedAt = this.now();
     this.controllers.delete(job.id);
     this.persist();

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type ServiceHealth, type SystemStatus } from "../api";
 import { usePoll } from "../hooks";
@@ -11,6 +11,8 @@ import {
   serviceLine,
   servicePort,
   serviceState,
+  transferLine,
+  transferPercent,
 } from "../system";
 
 /**
@@ -115,6 +117,12 @@ export function System() {
     );
 
   const jobs = data.jobs.filter((j) => j.status === "running");
+  /**
+   * Read once per render, which `usePoll` drives — so the ETA re-derives on the same beat the byte
+   * count does. A separate ticking timer would move the estimate between polls without any new
+   * evidence for it, which looks like precision the numbers do not have.
+   */
+  const now = Date.now();
   const wrong = exceptions(data.albums);
   const lights = data.playing.lights?.[0];
   const audio = data.playing.audio;
@@ -189,24 +197,51 @@ export function System() {
                   )
                 : 0;
             return (
-              <p className="inflight__row" key={j.id}>
-                <span className="inflight__what">
-                  <b>{JOB_LABEL[j.kind] ?? j.kind}</b>{" "}
-                  <span className="inflight__scope">
-                    · {j.curatorId ? "one record" : "the whole collection"}
+              <Fragment key={j.id}>
+                <p className="inflight__row">
+                  <span className="inflight__what">
+                    <b>{JOB_LABEL[j.kind] ?? j.kind}</b>{" "}
+                    <span className="inflight__scope">
+                      · {j.curatorId ? "one record" : "the whole collection"}
+                    </span>
                   </span>
-                </span>
-                <span className="inflight__bar" aria-hidden="true">
-                  <span
-                    className={`inflight__fill${j.kind === "mediaTransfer" ? " inflight__fill--accent" : ""}`}
-                    style={{ width: `${pct}%` }}
-                  />
-                </span>
-                {/* Never the bar alone (curator-ui-ux §3.4) — the count carries it too. */}
-                <span className="inflight__count">
-                  {jobProgress(j.kind, j.progress.done, j.progress.total)}
-                </span>
-              </p>
+                  <span className="inflight__bar" aria-hidden="true">
+                    <span
+                      className={`inflight__fill${j.kind === "mediaTransfer" ? " inflight__fill--accent" : ""}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </span>
+                  {/* Never the bar alone (curator-ui-ux §3.4) — the count carries it too. */}
+                  <span className="inflight__count">
+                    {jobProgress(j.kind, j.progress.done, j.progress.total)}
+                  </span>
+                </p>
+                {/*
+                The file in flight, directly under the job moving it. The row above counts
+                album-legs and only advances once a whole album is done, so a 66 MB visualizer
+                crawling over a poor link is indistinguishable from a stalled sync — which is how a
+                47-minute upload went unnoticed. Bytes are the only honest signal that something is
+                still moving (ADR 0038).
+              */}
+                {j.transfer && (
+                  <p className="inflight__row inflight__row--transfer">
+                    <span className="inflight__what">
+                      <span className="inflight__scope">uploading</span>{" "}
+                      {transferLine(j.transfer, now)}
+                    </span>
+                    <span className="inflight__bar" aria-hidden="true">
+                      <span
+                        className="inflight__fill inflight__fill--accent"
+                        style={{ width: `${transferPercent(j.transfer)}%` }}
+                      />
+                    </span>
+                    {/* Same columns as the row above, and never the bar alone (§3.4). */}
+                    <span className="inflight__count">
+                      {transferPercent(j.transfer)}%
+                    </span>
+                  </p>
+                )}
+              </Fragment>
             );
           })}
         </section>

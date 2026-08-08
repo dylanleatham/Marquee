@@ -142,6 +142,61 @@ describe("System — what is happening", () => {
     expect(screen.getByText("media-sync")).toBeTruthy();
   });
 
+  // Issue #274. `3/13` advances once per album, so a 66 MB visualizer crawling over a bad link and a
+  // wedged sync look identical for minutes at a time — the state that hid a 47-minute upload on
+  // 2026-08-08. The bytes are the only thing that says which it is.
+  it("shows the file in flight under the job moving it", async () => {
+    vi.mocked(api.systemStatus).mockResolvedValue(
+      status({
+        jobs: [
+          {
+            id: "j1",
+            kind: "runtimeSync",
+            status: "running",
+            progress: { done: 3, total: 13 },
+            transfer: {
+              label: "Kind of Blue",
+              sent: 24_248_819,
+              total: 69_206_016,
+              // Long enough ago that an estimate is worth showing.
+              startedAt: new Date(Date.now() - 30_000).toISOString(),
+            },
+            createdAt: "",
+            updatedAt: "",
+          },
+        ],
+      }),
+    );
+    show();
+    expect(await screen.findByText("uploading")).toBeTruthy();
+    expect(
+      screen.getByText(/Kind of Blue — 23\.1 MB of 66\.0 MB · about \d+s left/),
+    ).toBeTruthy();
+    // The album counter is still its own number, in its own units.
+    expect(screen.getByText("3/13")).toBeTruthy();
+    expect(screen.getByText("35%")).toBeTruthy();
+  });
+
+  it("says nothing about a transfer when no file is moving", async () => {
+    vi.mocked(api.systemStatus).mockResolvedValue(
+      status({
+        jobs: [
+          {
+            id: "j1",
+            kind: "runtimeSync",
+            status: "running",
+            progress: { done: 3, total: 13 },
+            createdAt: "",
+            updatedAt: "",
+          },
+        ],
+      }),
+    );
+    show();
+    expect(await screen.findByText("3/13")).toBeTruthy();
+    expect(screen.queryByText("uploading")).toBeNull();
+  });
+
   it("says what is playing, and admits when it can't tell", async () => {
     show();
     // The record, not the room: under "playing right now" that is the answer, and for an album with

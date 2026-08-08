@@ -207,6 +207,16 @@ export type LibraryJobKind =
 
 export type JobStatus = "running" | "done" | "failed" | "cancelled";
 
+/** One file in flight inside a job. Mirrors JobTransfer on the server. */
+export interface JobTransfer {
+  /** The album whose visualizer is moving. */
+  label: string;
+  sent: number;
+  total: number;
+  /** When this file started, so an ETA survives a page opened mid-upload. */
+  startedAt: string;
+}
+
 /** A background generation job (issue #30 / ADR 0018). Mirrors GenerationJob on the server. */
 export interface GenerationJob {
   id: string;
@@ -217,6 +227,12 @@ export interface GenerationJob {
   /** The prompt-variant index for a per-prompt generation; absent on a whole-set job. */
   index?: number;
   progress: { done: number; total: number };
+  /**
+   * The file currently streaming, when one is. Bytes — a different unit from `progress`, which
+   * counts album-legs, and deliberately a different field: one channel carrying both is what made a
+   * running sync read `24248819/998` (issue #268).
+   */
+  transfer?: JobTransfer;
   createdAt: string;
   updatedAt: string;
   error?: string;
