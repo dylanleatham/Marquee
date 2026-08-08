@@ -1,13 +1,7 @@
 // The human-driven onboarding actions (step 7): mark a prompt copied, redraft a prompt, attach /
 // detach a video or card art, approve or reject a preview. Each validates the album's state and
 // throws a typed error the server maps to a status code. Kept out of server.ts to keep routes thin.
-import {
-  mkdirSync,
-  existsSync,
-  rmSync,
-  renameSync,
-  readFileSync,
-} from "node:fs";
+import { mkdirSync, existsSync, rmSync, readFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import {
@@ -27,6 +21,7 @@ import {
   type CardArtRefusal,
   type VideoClip,
 } from "./asset.js";
+import { replaceFile } from "../media/replace-file.js";
 import { ValidationError, type PaletteGenerator } from "./add-manual.js";
 import type { TagObject } from "../tags/flipper-nfc.js";
 import {
@@ -1687,8 +1682,12 @@ const basenameOnly = (name: string): string =>
 /**
  * Move a raw upload with no curatorId into /incoming/ for a later claim (curator-spec §9). The bytes
  * are already streamed to `srcPath` (a temp in /incoming/), so this is a same-directory rename rather
- * than a re-copy of a potentially multi-GB file (issue #16). Overwrites any prior file of that name,
- * matching the previous write-through behavior (renameSync onto an existing path throws on Windows).
+ * than a re-copy of a potentially multi-GB file (issue #16). Overwrites any prior file of that name.
+ *
+ * Through `replaceFile` since issue #255. This used to unlink the destination first, unconditionally,
+ * with a comment that a bare rename onto an existing path "throws on Windows" — half right: it throws
+ * only when something has the destination **open**. The helper keeps the atomic rename for the
+ * common case and unlinks only when it has to.
  */
 export function saveIncoming(
   store: AssetStore,
@@ -1698,7 +1697,6 @@ export function saveIncoming(
   const name = basenameOnly(originalFilename) || `upload-${Date.now()}`;
   mkdirSync(store.paths.incoming, { recursive: true });
   const dest = store.paths.incomingFile(name);
-  rmSync(dest, { force: true });
-  renameSync(srcPath, dest);
+  replaceFile(srcPath, dest);
   return { name };
 }

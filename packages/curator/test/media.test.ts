@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { mkdtempSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, existsSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
@@ -78,6 +78,56 @@ describe("ingestVideo", () => {
     expect(existsSync(p.visualizerFile("abcd1234"))).toBe(true);
     expect(existsSync(p.thumbnailFile("abcd1234"))).toBe(true);
     expect(existsSync(src)).toBe(false); // removeSrc
+  });
+
+  /**
+   * Issue #255. Replacing a visualizer while Curator is **serving** it fails on Windows:
+   *
+   *   EPERM: operation not permitted, rename
+   *   '…\visualizers\h1zvqyvw.mp4.tmp-82dd…' -> '…\visualizers\h1zvqyvw.mp4'
+   *
+   * The record page plays the attached clip on a loop, so `sendFile`'s `createReadStream` holds the
+   * destination open the whole time the page is up — and Windows refuses to rename **over** a file
+   * with an open handle. POSIX allows it, which is why Ubuntu CI cannot see this; the
+   * `test:unit (windows-latest)` job can, and had nothing to run.
+   *
+   * The reproduction is the open handle, not ffmpeg: an over-budget probe sends ingest down the
+   * normalize-then-rename path, which is the one that breaks.
+   */
+  it("replaces a visualizer that is currently being served (#255)", async () => {
+    const p = paths();
+    const { mkdirSync, writeFileSync, createReadStream } =
+      await import("node:fs");
+    mkdirSync(p.visualizers, { recursive: true });
+    mkdirSync(p.incoming, { recursive: true });
+
+    const dest = p.visualizerFile("abcd1234");
+    writeFileSync(dest, Buffer.from("THE OLD CLIP"));
+    const src = join(p.incoming, "new.mp4");
+    writeFileSync(src, Buffer.from("THE NEW CLIP"));
+
+    // Exactly what serving the clip to the record page does.
+    const serving = createReadStream(dest);
+    await new Promise((r) => serving.once("readable", r));
+
+    try {
+      await ingestVideo(
+        {
+          // Over the decode budget ⇒ normalize ⇒ encode to a temp and rename over `dest`.
+          prober: fakeProber({ bitRateBps: 40_000_000 }),
+          paths: p,
+        },
+        { srcPath: src, fileId: "abcd1234", originalFilename: "new.mp4" },
+      );
+    } finally {
+      serving.close();
+    }
+
+    expect(readFileSync(dest).toString()).toBe("NORMALIZED");
+    // The encode must not be left lying around under its temp name either.
+    expect(
+      readdirSync(p.visualizers).filter((f) => f.includes(".tmp-")),
+    ).toEqual([]);
   });
 
   // Re-attaching a video that is already in visualizers/ (issue #99) ingests the destination onto

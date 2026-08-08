@@ -2,7 +2,8 @@
 // visualizers/. The prober is an interface so tests inject a fake and never shell out to ffmpeg
 // (same pattern as the Spotify/palette fakes); production uses FfmpegProber over the real binaries.
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, copyFileSync, rmSync, renameSync } from "node:fs";
+import { mkdirSync, copyFileSync, rmSync } from "node:fs";
+import { replaceFile } from "./replace-file.js";
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import type { Paths } from "../store/paths.js";
@@ -263,7 +264,9 @@ export async function ingestVideo(
     const tmp = `${dest}.tmp-${randomUUID()}`;
     try {
       await deps.prober.normalize(args.srcPath, tmp, info);
-      renameSync(tmp, dest);
+      // `replaceFile`, not a bare rename: the record page may be streaming the clip being replaced,
+      // and Windows refuses to rename over an open handle (issue #255).
+      replaceFile(tmp, dest);
     } catch (err) {
       rmSync(tmp, { force: true });
       throw err;
