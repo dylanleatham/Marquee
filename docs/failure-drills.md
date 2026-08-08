@@ -70,7 +70,7 @@ idle_timeout_minutes = 2
 ```
 
 ```sh
-sudo systemctl restart marquee-conductor marquee-backdrop
+sudo systemctl restart marquee-conductor "$BACKDROP"   # $BACKDROP: your Backdrop unit — runbook Part B
 ```
 
 1. Note what the lamps look like **before** anything (this is what the snapshot must restore to).

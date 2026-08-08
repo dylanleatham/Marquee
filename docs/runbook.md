@@ -15,12 +15,13 @@ Two parts:
 **Pi 5** by the TV; **Stylus** on the **Pi Zero 2 W** in the stand. Hue bridge, both Pis, and the
 workstation must share one **LAN**.
 
-| Service       | Host        | Port          | Prod start                                    |
-| ------------- | ----------- | ------------- | --------------------------------------------- |
-| Curator       | workstation | 4739          | `pnpm --filter @marquee/curator dev`          |
-| Hue Conductor | Pi 5        | 4737          | systemd: `marquee-conductor` (`node dist/…`)  |
-| Backdrop      | Pi 5        | 4740          | systemd: `marquee-backdrop` (+ Chromium unit) |
-| Stylus        | Pi Zero 2 W | 4741 (status) | systemd: `marquee-stylus`                     |
+| Service       | Host        | Port          | Prod start                                                                   |
+| ------------- | ----------- | ------------- | ---------------------------------------------------------------------------- |
+| Curator       | workstation | 4739          | `pnpm --filter @marquee/curator dev`                                         |
+| Hue Conductor | Pi 5        | 4737          | systemd: `marquee-conductor` (`node dist/…`)                                 |
+| Backdrop      | Pi 5        | 4740          | systemd: `marquee-backdrop` **or** `backdrop` (+ Chromium unit) — see Part B |
+| Amp           | Pi 5        | 4741          | systemd: `marquee-amp`                                                       |
+| Stylus        | Pi Zero 2 W | 4741 (status) | systemd: `marquee-stylus`                                                    |
 
 **One shared secret everywhere.** Every service-to-service call carries `X-Trigger-Secret`; pick one
 value and use it in Conductor's `[auth]`, Backdrop's auth, Curator's outbound config, and Stylus's
@@ -355,31 +356,46 @@ keyboard, or any of the one-time config — it's `git pull`, rebuild what change
 
 #### Who runs what
 
-| Host                               | Services                                                          | Language                   |
-| ---------------------------------- | ----------------------------------------------------------------- | -------------------------- |
-| **Pi 5** — hostname `backdrop`     | Conductor (:4737), Backdrop (:4740), Amp (:4741, if you added it) | Node — **needs a build**   |
-| **Pi Zero 2 W** — `marquee-pizero` | Stylus                                                            | Python — **no build step** |
-| **Workstation**                    | Curator (:4739)                                                   | Node — not a Pi, no SSH    |
+| Host                               | Services                                         | Language                   |
+| ---------------------------------- | ------------------------------------------------ | -------------------------- |
+| **Pi 5** — hostname `backdrop`     | Conductor (:4737), Backdrop (:4740), Amp (:4741) | Node — **needs a build**   |
+| **Pi Zero 2 W** — `marquee-pizero` | Stylus                                           | Python — **no build step** |
+| **Workstation**                    | Curator (:4739)                                  | Node — not a Pi, no SSH    |
 
 Confirm your own unit names before restarting anything — this guide and
 [backdrop/DEPLOY.md](../packages/backdrop/DEPLOY.md) have named the Backdrop unit both
-`marquee-backdrop` and `backdrop` at different times, so yours depends on which one you followed:
+`marquee-backdrop` and `backdrop` at different times, so yours depends on which one you followed.
+Conductor and Amp are unambiguous (`marquee-conductor`, `marquee-amp`); only Backdrop varies:
 
 ```
 $ systemctl list-units --all 'marquee*' 'backdrop*' 'amp*' --no-pager
+$ BACKDROP=backdrop      # ← set this to whichever name that listed; every block below uses it
 ```
+
+> **This is a step, not advice.** Every runnable command in Part B used to hardcode
+> `marquee-backdrop`, so an install that followed `backdrop/DEPLOY.md` — which creates `backdrop` —
+> hit `Unit marquee-backdrop.service not found` mid-deploy, with the other unit in the same
+> `systemctl restart` left in an unclear state. The warning was already here; it just wasn't wired to
+> anything you'd type.
 
 Use IPs, not `*.local` — mDNS resolves for `ssh` from Windows but not reliably for `curl`/undici, and
 `marquee-pizero.local` often doesn't resolve at all.
 
-#### The Pi 5 (Conductor + Backdrop)
+#### The Pi 5 (Conductor + Backdrop + Amp)
 
 ```
 $ cd ~/Marquee && git pull && pnpm install
 $ pnpm --filter @marquee/backdrop build && pnpm --filter @marquee/hue-conductor build
-$ sudo systemctl restart marquee-conductor marquee-backdrop
+$ pnpm --filter @marquee/amp build
+$ sudo systemctl restart marquee-conductor marquee-amp "$BACKDROP"
 $ sudo reboot        # only if the kiosk SPA changed — see the table below
 ```
+
+> **Rebuild all three even when only one has source changes.** Each service's `tsc -b` follows a
+> project reference to `packages/contracts`, so a change to a shared contract — a new scan-URI kind,
+> a widened schema — reaches Conductor and Backdrop through a rebuild and no other way. Skipping them
+> because "their `src/` didn't change" leaves a runtime that rejects the new shape, which reads as a
+> bad tag rather than a stale Pi.
 
 #### The Pi Zero (Stylus)
 
@@ -389,7 +405,19 @@ No build — the core is stdlib-only Python ([ADR 0016](adrs/0016-stylus-stdlib-
 $ cd ~/Marquee && git pull
 $ cd packages/stylus && .venv/bin/pip install --no-deps .    # ← not optional; see below
 $ sudo systemctl restart marquee-stylus
+$ diff -rq -x '__pycache__' stylus/ .venv/lib/python*/site-packages/stylus/   # ← silence = good
 ```
+
+> **Check the copy, not the service.** That last line is the only thing here that distinguishes
+> "restarted" from "restarted the new code". `site-packages` holds a **copy** of the package, so the
+> two ways this step fails both leave `systemctl status` saying `active (running)` over stale code:
+> skipping the `pip install`, or running it wrong — dropping the trailing `.` gives
+> `ERROR: You must give at least one requirement to install`, which names neither the package nor the
+> problem, and is easy to scroll past.
+>
+> Any output from the `diff` is the checkout and the installed copy disagreeing: re-run the `pip
+install` above. Silence means the stand is running what you just pulled. Prefer this to eyeballing
+> a value like `URI_RE.pattern` — it catches every change, not the one you happened to look for.
 
 > **Corrected 2026-08-01 ([#201](https://github.com/dylanleatham/Marquee/issues/201)).** This block
 > used to say _"Only re-run `pip install -e '.[hardware]'` if the hardware extra itself changed — not
@@ -477,7 +505,7 @@ old symptom was a `200 text/html` for that same URL.
 #### Confirm the update landed
 
 ```
-$ systemctl status marquee-conductor marquee-backdrop --no-pager   # "active (running)", recent start time
+$ systemctl status marquee-conductor marquee-amp "$BACKDROP" --no-pager   # "active (running)", recent start time
 $ git -C ~/Marquee log --oneline -1                                 # the commit you expected
 $ curl -s -o /dev/null -w '%{http_code}\n' localhost:4740/healthz   # 200 = backend up AND kiosk connected
 ```
