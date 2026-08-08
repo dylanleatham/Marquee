@@ -552,12 +552,22 @@ static size_t album_for_uri(App* app, const char* uri) {
 
 static void show_result(App* app) {
     const char* header = "";
+    /* Every other header is a literal; the write confirmation is composed. Local because `header` is
+     * copied into app->result_header below, before this frame goes away. */
+    char written_header[sizeof(app->result_header)];
     app->result_text[0] = '\0';
 
     if(app->job_kind == JobWrite) {
         switch(app->result) {
         case JobResultOk:
-            header = app->tag_kind == TagKindCard ? "Card tag written" : "Sleeve tag written";
+            /* Through the same helper the hold screen and list header use: a kind added to the enum
+             * must not be able to confirm as some other kind (#272). */
+            snprintf(
+                written_header,
+                sizeof(written_header),
+                "%s tag written",
+                tag_kind_short(app->tag_kind));
+            header = written_header;
             snprintf(
                 app->result_text,
                 sizeof(app->result_text),

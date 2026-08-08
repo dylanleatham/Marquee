@@ -122,8 +122,11 @@ Marquee Tag Writer
    the Flipper font has no glyphs for UTF-8, so non-ASCII is replaced with `?`.
 3. **Write** — compose the NDEF (§2) and write the user pages, then read back and compare before
    claiming success.
-4. **Confirm** — "Sleeve tag written" / "Card tag written", or a named failure (`No tag seen`,
-   `Write failed`, `Tag unusable`, `Wrote, verify failed`).
+4. **Confirm** — "&lt;Kind&gt; tag written", naming the kind from the same table the hold screen and list
+   header use, or a named failure (`No tag seen`, `Write failed`, `Tag unusable`,
+   `Wrote, verify failed`). The header is composed rather than picked by a branch: a demo tag once
+   confirmed as "Sleeve tag written" because a two-way ternary outlived a third kind
+   ([#272](https://github.com/dylanleatham/Marquee/issues/272)).
 5. **Read a tag** — reads user memory, parses the NDEF, and shows the URI plus the matching album name
    from the list. This is how you check a tag you just wrote without walking to the stand.
 
