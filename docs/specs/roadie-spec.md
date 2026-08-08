@@ -132,15 +132,23 @@ Two important properties:
 - **Roadie's own progress states (fetching_metadata, downloading_art, etc.) are fine-grained.** This is deliberate — when Roadie crashes or the process restarts, it should be able to resume from the last completed sub-step, not restart from `fresh`. Each sub-step is idempotent.
 
 > **The human-driven line is not the whole record of human work (2026-08-08,
-> [ADR 0062](../adrs/0062-the-tag-step-is-recorded-on-the-asset-not-on-the-machine.md)).** The record
-> page presents four needs done in any order, and the tag step is now recorded on the asset —
-> `tag.*.written` and `verification.physicallyVerifiedAt` — whatever state the album is in. The
-> transitions above are unchanged: no new edges, and nothing skips a state. What changed is that
-> `tags-verified` walks the line only as far as it legally goes and otherwise leaves the state alone,
-> so an album can carry a checked tag step while still sitting at `awaiting_review`. Whichever of the
-> tag step and `preview/approve` happens second carries the album on to `verified`, so out-of-order
-> work still terminates. Read `roadie.state` as a summary that can lag the asset, not as the source
-> of truth for what the human has done.
+> [ADR 0062](../adrs/0062-the-tag-step-is-recorded-on-the-asset-not-on-the-machine.md); extended the
+> same day by [ADR 0063](../adrs/0063-the-machine-is-settled-from-the-asset-not-driven-by-the-button.md)).**
+> The record page presents four needs done in any order, and **both** human steps are now recorded on
+> the asset whatever state the album is in — `tag.*.written` / `verification.physicallyVerifiedAt` for
+> the tag step, `verification.previewApprovedAt` for the lights sign-off. The transitions above are
+> unchanged: no new edges, and nothing skips a state.
+>
+> What changed is that **no control drives an edge of its own**. One settler (`settleNeeds`) walks the
+> line, and each step is gated on the evidence on the asset rather than on which button was pressed:
+> `awaiting_preview → awaiting_tag_write` needs `previewApprovedAt`, and `awaiting_tag_write →
+awaiting_verify → verified` needs `physicallyVerifiedAt`. `preview/approve`, `tags-verified` and
+> **video attach** all run it, so whichever need lands last carries the album on to `verified` and
+> out-of-order work always terminates. An album can therefore carry a checked tag step and signed-off
+> lights while still sitting at `awaiting_review`, because it genuinely still has no visualizer.
+>
+> Read `roadie.state` as a summary that can lag the asset, not as the source of truth for what the
+> human has done.
 
 ## 6. What Roadie does at each Roadie-driven state
 
@@ -249,7 +257,9 @@ file. The file rsync to a Pi stays out-of-band.)_
 > default) for bulk or offline moves.
 
 **On video attach** (→ `awaiting_preview`, from either `awaiting_video` or — when you already had
-the video — `awaiting_review`; [ADR 0005](../adrs/0005-video-attach-does-not-require-copying-the-prompt.md)):
+the video — `awaiting_review`; [ADR 0005](../adrs/0005-video-attach-does-not-require-copying-the-prompt.md);
+and then straight on through `settleNeeds` when the lights were already signed off and the tags
+already checked, [ADR 0063](../adrs/0063-the-machine-is-settled-from-the-asset-not-driven-by-the-button.md)):
 the newly attached video's entry is upserted into Backdrop's `library.json` (metadata), and the file
 is made available under Backdrop's media dir — streamed to Backdrop over HTTP (`media_transfer =
 "push"`), copied in-process on a single workstation (`"local"`), or left to an out-of-band rsync

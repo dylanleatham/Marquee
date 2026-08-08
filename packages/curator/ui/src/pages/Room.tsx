@@ -11,6 +11,8 @@ import {
   type PatternType,
 } from "../api";
 import { usePoll } from "../hooks";
+import { needFactsOfAsset, outstandingNeeds } from "../needs";
+import { relativeTime } from "../format";
 import { artworkSrc } from "../components/common";
 import { errorMessage } from "../errors";
 import { paletteWash } from "../components/VisualizerPanel";
@@ -257,18 +259,46 @@ export function Room({ albums }: { albums: AlbumSummary[] | null }) {
       navigate(`/room/${next.curatorId}`);
   };
 
-  /** Sign-off is a state transition the machine gates; the gate is shown, not hidden (§4). */
-  const canApprove = asset.roadie.state === "awaiting_preview";
+  /**
+   * Sign-off asks about the **record**, not about the machine (ADR 0063). The old gate was
+   * `state === "awaiting_preview"`, whose only entrance is attaching a visualizer — so on a record
+   * with no visualizer the button was permanently dead and the lights need could never be marked
+   * done (#263). The two live reasons it can be off are both about this record: you have already
+   * done it, or there are no lights to look at yet.
+   */
   const approvedAt = asset.verification?.previewApprovedAt;
+  const lit = (asset.palette?.colors.length ?? 0) > 0;
+  const canApprove = !approvedAt && lit;
   const why = approvedAt
-    ? "Already signed off — watch it as often as you like."
-    : "The lights are signed off once a visualizer is attached.";
+    ? `Signed off ${relativeTime(approvedAt)} — watch it as often as you like.`
+    : "Roadie hasn't pulled the lights for this record yet.";
 
+  /**
+   * Signing off **confirms in place**. It used to return to the collection and fire the ready toast
+   * unconditionally — so the only evidence you had signed anything off was a toast claiming all four
+   * needs were done, on a record that usually still needed three of them (#263).
+   *
+   * The toast keeps its meaning by being fired only when it is true: this was the last outstanding
+   * need. Then the collection is where you want to be, because this record is finished.
+   *
+   * The other three needs are read from the polled asset, which can be up to 5s stale — so a card
+   * attached in another tab a moment ago means the toast is skipped, not that it fires wrongly. That
+   * is the right way round: the collection tile says READY on its next tick either way, and a missed
+   * celebration costs nothing where a false "all done" is the bug this replaced.
+   */
   const approve = () =>
     void drive(async () => {
-      await api.approvePreview(curatorId);
-      showReadyToast(curatorId);
-      navigate("/");
+      const done = await api.approvePreview(curatorId);
+      refresh();
+      const left = outstandingNeeds({
+        ...needFactsOfAsset(asset),
+        state: done.state,
+        previewApprovedAt: done.previewApprovedAt,
+      });
+      if (left.length === 0) {
+        showReadyToast(curatorId);
+        navigate("/");
+      }
     });
 
   const roomName =
@@ -453,12 +483,13 @@ export function Room({ albums }: { albums: AlbumSummary[] | null }) {
           <p className="dock__label">SIGN IT OFF</p>
           <button
             type="button"
-            className="dock__approve"
+            className={`dock__approve${approvedAt ? " dock__approve--done" : ""}`}
             disabled={!canApprove}
             title={canApprove ? "Signs the lights off for this record" : why}
             onClick={approve}
           >
-            Looks right ✓
+            {/* The glyph carries the state, never colour alone: ✓ is an offer, ●✓ is a receipt. */}
+            {approvedAt ? "● SIGNED OFF ✓" : "Looks right ✓"}
           </button>
           <p className="dock__signoff-note">
             {canApprove ? "The lights are only signed off from in here." : why}

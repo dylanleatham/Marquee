@@ -1085,6 +1085,16 @@ a:hover {
 .lights__saved--failed {
   color: var(--pp-accent-text);
 }
+/* Same line as the autosave state, one notch quieter: it reports a fact rather than an act you just
+   performed. Unsigned keeps the hollow (accent) dot the tab strip's `○` uses. */
+.lights__signoff {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 400 11.5px/1 var(--pp-body);
+  color: #4a4638;
+  margin: 0;
+}
 .lights__note {
   margin: 0;
   color: #4a4638;
@@ -2066,6 +2076,13 @@ a:hover {
   background: rgba(255, 255, 255, 0.25);
   color: rgba(255, 255, 255, 0.6);
   cursor: default;
+}
+/* A signed-off record reads as a receipt, not as a control you failed to reach: the outline and the
+   `●✓` in the label carry it, so it does not rely on the disabled dimming alone. */
+.dock__approve--done:disabled {
+  background: transparent;
+  color: var(--pp-paper);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55);
 }
 .dock__signoff-note {
   font: 400 11.5px/1.5 var(--pp-body);

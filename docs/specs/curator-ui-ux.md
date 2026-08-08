@@ -284,6 +284,13 @@ then predictable rather than dependent on state you can't see from the tile.
   a half-typed hex holds the write back rather than being sent and rejected; a burst of picker
   drags coalesces into one write; and an edit still inside the debounce window is **flushed on
   unmount**, so navigating away cannot silently discard it.
+- **One sign-off line**, under the autosave line and one notch quieter: "signed off <when>", or
+  "not signed off yet — **see it in the room**" with the link. Added 2026-08-08
+  ([ADR 0063](../adrs/0063-the-machine-is-settled-from-the-asset-not-driven-by-the-button.md)): the
+  tab strip's `●`/`○` reported the state without offering any way to act on it, which is exactly how
+  the user's report read — "the circle is always open and I can't mark it as verified". It is a
+  sentence and a link, **never a second approve button**: sign-off still happens only in the room,
+  because it means having just watched the record.
 - **Roadie's note**, as prose at 15px/1.65 capped at 62ch — when there is one. A plain cover
   extraction has no note, and the panel shows nothing rather than inventing a sentence.
 - **Two source palettes side by side** — FROM THE SLEEVE and FROM THE FEELING — inside one ink
@@ -420,6 +427,12 @@ its own visually separated step, and it is one press.
 > control on the sleeve or the card, nothing else on the panel could either. The tag step is now
 > recorded on the asset whatever the state; the machine advances only as far as it legally goes. The
 > one reason left to withhold the press is `checked <when>`.
+>
+> **The lights sign-off, which that ADR left open, went the same way on the same day**
+> ([ADR 0063](../adrs/0063-the-machine-is-settled-from-the-asset-not-driven-by-the-button.md),
+> [#263](https://github.com/dylanleatham/Marquee/issues/263)) — reported in almost the same words,
+> for the same reason. Neither the tension nor the class survives: no control drives an edge of its
+> own now, so there is no third instance to find.
 
 **Every unwritten sticker carries its own `I'VE WRITTEN THIS ONE`** — the sleeve and the card as well
 as the demo tag (ADR 0062). `TAGS VERIFIED` is the _check_, and the check happens hours or days after
@@ -551,8 +564,21 @@ THE ALBUM` follows the switch — desk audio on the bench
 > depend on it, so an unreachable Conductor shows a line and leaves the screen working.
 >
 > **Sign-off lives here and nowhere else** — approving a record's lights means having just watched
-> them, which is not a claim a form can make for you. It returns to the collection and fires the
-> ready toast (§8.6). Gated by the state machine, so it disables with its reason (§4).
+> them, which is not a claim a form can make for you.
+>
+> **Rewritten 2026-08-08** ([ADR 0063](../adrs/0063-the-machine-is-settled-from-the-asset-not-driven-by-the-button.md)).
+> It used to be gated by the state machine (`state === "awaiting_preview"`), and it disabled with its
+> reason — but the only entrance to that state is attaching a visualizer, so on a record with no
+> visualizer the control was permanently dead and the lights need could never be marked done. The
+> gate now asks about the **record**: you have already signed it off, or Roadie has not pulled the
+> lights yet. Both are temporary and both are true.
+>
+> **It confirms in place.** It used to return to the collection and fire the ready toast whatever was
+> outstanding, so the only evidence you had signed anything off was a five-second toast on a different
+> screen claiming all four needs were done. The control becomes a receipt — `● SIGNED OFF ✓`,
+> disabled, with "Signed off <when>" beneath it. The glyph carries it, never colour alone. The toast
+> and the return to the collection are kept for the case that earns them: the sign-off was the last
+> outstanding need, so the record really is finished (§8.6).
 >
 > ### The control dock's sliders are the pattern's own knobs
 >
@@ -849,6 +875,13 @@ toast is one button**, and tapping it opens the room for that record — the onl
 at a record you have just finished is to watch it. That also cancels its timer, so it cannot fade out
 from under the screen it just opened. Otherwise it goes after ~5s on its own and **never blocks
 moving to the next record**.
+
+> **It fires only when it is true (2026-08-08,
+> [ADR 0063](../adrs/0063-the-machine-is-settled-from-the-asset-not-driven-by-the-button.md)).** The
+> room used to fire it on every sign-off, so a record that still needed a card and tags was announced
+> as "all done" — the toast's own sentence naming three things that had not happened. It now fires
+> only when the sign-off was the **last** outstanding need, which is also when returning to the
+> collection is what you want. A sign-off with needs remaining confirms in the room instead (§7).
 
 It is fired by the room and outlives the navigation back, so it lives in a module store rather than a
 component, and it is **mounted in the shell** rather than on the collection — which means it floats

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   api,
   ApiError,
@@ -191,6 +192,10 @@ export function LightsPanel({
   return (
     <div className="lights">
       <SavedLine state={save} />
+      <SignOffLine
+        curatorId={curatorId}
+        at={asset.verification?.previewApprovedAt}
+      />
 
       {note && <p className="lights__note pp-prose">{note}</p>}
 
@@ -307,6 +312,39 @@ export function LightsPanel({
 }
 
 /** The autosave line. Says the rule as well as the state, so the missing Save button is explained. */
+/**
+ * Whether the lights have been signed off, said on the tab that owns them (ADR 0063).
+ *
+ * The tab's `●`/`○` already carries this, but a glyph is not an explanation: the user's report that
+ * opened #263 was "the circle is always open and I can't mark it as verified" — the state was on
+ * screen and the way to change it was not. Signing off still happens only in the room, so this is a
+ * sentence and a way there, never a second approve button.
+ */
+function SignOffLine({
+  curatorId,
+  at,
+}: {
+  curatorId: string;
+  at: string | undefined;
+}) {
+  return (
+    <p className="lights__signoff">
+      <span
+        className={`pp-dot${at ? " pp-dot--positive" : ""}`}
+        aria-hidden="true"
+      />
+      {at ? (
+        `signed off ${relativeTime(at)}`
+      ) : (
+        <>
+          not signed off yet —{" "}
+          <Link to={`/room/${curatorId}`}>see it in the room</Link>
+        </>
+      )}
+    </p>
+  );
+}
+
 function SavedLine({ state }: { state: SaveState }) {
   if (state.kind === "failed")
     return <p className="lights__saved lights__saved--failed">{state.why}</p>;

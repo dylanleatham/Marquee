@@ -6,7 +6,7 @@
 // is true by construction rather than by promise.
 //
 // Pure, no React, no DOM — the derivation is the load-bearing part, so it is unit-tested directly.
-import type { AlbumSummary, LastError, RoadieState } from "./api";
+import type { AlbumAsset, AlbumSummary, LastError, RoadieState } from "./api";
 import { isProcessing } from "./format";
 
 /** The four things a record can still need, plus the two conditions that aren't needs at all. */
@@ -111,13 +111,39 @@ export function failureSentence(err: LastError | null): string {
 }
 
 /**
+ * The facts the four predicates actually read, named as their own type so the derivation can run
+ * off either shape the app holds — a collection row (`AlbumSummary` satisfies this structurally) or
+ * a full record (`needFactsOfAsset`). The room holds an asset and needs the same answer the
+ * collection would give; two derivations would be two chances to disagree.
+ */
+export interface NeedFacts {
+  state: RoadieState;
+  previewApprovedAt?: string | null;
+  physicallyVerifiedAt?: string | null;
+  hasVideo: boolean;
+  hasCardArt: boolean;
+  tagsWritten: boolean;
+}
+
+/** The same facts, read off a full asset — the server's `summary()` in reverse. */
+export const needFactsOfAsset = (a: AlbumAsset): NeedFacts => ({
+  state: a.roadie.state,
+  previewApprovedAt: a.verification?.previewApprovedAt ?? null,
+  physicallyVerifiedAt: a.verification?.physicallyVerifiedAt ?? null,
+  hasVideo: Boolean(a.visualizer),
+  hasCardArt: Boolean(a.cardArt),
+  /** Both tags burned. One of two is not "written" — matching the collection row exactly. */
+  tagsWritten: Boolean(a.tag?.sleeve?.written && a.tag?.card?.written),
+});
+
+/**
  * Is this record's lights business finished?
  *
  * Sign-off is the test, not "has a palette" — every record has a palette within seconds of being
  * added, and approving one means having watched it in the room. That is the whole reason the room
  * screen owns the approve button.
  */
-const lightsDone = (a: AlbumSummary): boolean =>
+const lightsDone = (a: NeedFacts): boolean =>
   Boolean(a.previewApprovedAt) || a.state === "verified";
 
 /**
@@ -125,11 +151,11 @@ const lightsDone = (a: AlbumSummary): boolean =>
  * real bugs — a sticker that opens the wrong record looks identical to one that works until you tap
  * it.
  */
-const tagsDone = (a: AlbumSummary): boolean =>
+const tagsDone = (a: NeedFacts): boolean =>
   Boolean(a.physicallyVerifiedAt) || (a.tagsWritten && a.state === "verified");
 
 /** Every outstanding need, in reading order. Empty means the record is ready for the stand. */
-export function outstandingNeeds(a: AlbumSummary): Need[] {
+export function outstandingNeeds(a: NeedFacts): Need[] {
   const missing: Record<Need, boolean> = {
     lights: !lightsDone(a),
     visualizer: !a.hasVideo,

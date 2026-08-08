@@ -9,6 +9,7 @@ import {
   waitFor,
   act,
 } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 
 vi.mock("../api", () => ({
   api: {
@@ -60,8 +61,9 @@ const asset = (over: Partial<AlbumAsset> = {}): AlbumAsset =>
     ...over,
   }) as AlbumAsset;
 
-const show = (a: AlbumAsset = asset()) =>
-  render(
+/** Routed: the sign-off line links to the room, which is the only place lights are signed off. */
+const panel = (a: AlbumAsset) => (
+  <MemoryRouter>
     <LightsPanel
       curatorId="abc12345"
       asset={a}
@@ -69,8 +71,11 @@ const show = (a: AlbumAsset = asset()) =>
       run={async (fn) => {
         await fn();
       }}
-    />,
-  );
+    />
+  </MemoryRouter>
+);
+
+const show = (a: AlbumAsset = asset()) => render(panel(a));
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -199,16 +204,7 @@ describe("LightsPanel — reconciling with the poll", () => {
   it("adopts a palette that changed elsewhere while nothing is being edited", async () => {
     const { rerender } = show();
     expect((hexField(1) as HTMLInputElement).value).toBe("#4B0082");
-    rerender(
-      <LightsPanel
-        curatorId="abc12345"
-        asset={swapped}
-        refresh={() => {}}
-        run={async (fn) => {
-          await fn();
-        }}
-      />,
-    );
+    rerender(panel(swapped));
     await waitFor(() =>
       expect((hexField(1) as HTMLInputElement).value).toBe("#2B0B3F"),
     );
@@ -218,16 +214,7 @@ describe("LightsPanel — reconciling with the poll", () => {
     const { rerender } = show();
     fireEvent.change(hexField(1), { target: { value: "#ABCDEF" } });
     // The poll lands mid-debounce, before the edit has reached the server.
-    rerender(
-      <LightsPanel
-        curatorId="abc12345"
-        asset={swapped}
-        refresh={() => {}}
-        run={async (fn) => {
-          await fn();
-        }}
-      />,
-    );
+    rerender(panel(swapped));
     expect((hexField(1) as HTMLInputElement).value).toBe("#ABCDEF");
     // …and the edit still saves, rather than being stranded by the reconciliation.
     await settle();
@@ -254,16 +241,7 @@ describe("LightsPanel — reconciling with the poll", () => {
         source: "hand",
       },
     });
-    rerender(
-      <LightsPanel
-        curatorId="abc12345"
-        asset={echoed}
-        refresh={() => {}}
-        run={async (fn) => {
-          await fn();
-        }}
-      />,
-    );
+    rerender(panel(echoed));
     expect((hexField(1) as HTMLInputElement).value).toBe("#112233");
     expect(screen.getByText(/^saved /)).toBeTruthy();
     expect(api.editPalette).toHaveBeenCalledTimes(1);
@@ -328,6 +306,35 @@ describe("LightsPanel — the two source palettes", () => {
       }),
     );
     expect(screen.getByText("Late-night and smoky.")).toBeTruthy();
+  });
+});
+
+/**
+ * regression: #263 — "there doesn't appear to be UI to confirm that lights have been approved. The
+ * circle is always open in the album menu and I can't mark it as verified." The tab's `●`/`○` said
+ * the state and nothing on the tab said how to change it, or that a sign-off had ever happened.
+ */
+describe("LightsPanel — the sign-off", () => {
+  it("says when the lights were signed off", () => {
+    show(
+      asset({
+        verification: { previewApprovedAt: new Date().toISOString() },
+      } as Partial<AlbumAsset>),
+    );
+    expect(screen.getByText(/^signed off /)).toBeTruthy();
+  });
+
+  it("says they aren't, and points at the one place that can", () => {
+    show();
+    expect(screen.getByText(/not signed off yet/)).toBeTruthy();
+    const link = screen.getByRole("link", { name: /see it in the room/ });
+    expect(link.getAttribute("href")).toBe("/room/abc12345");
+  });
+
+  it("never offers a second approve button — sign-off means having watched it", () => {
+    show();
+    for (const gone of [/looks right/i, /sign.?off/i, /approve/i])
+      expect(screen.queryByRole("button", { name: gone })).toBeNull();
   });
 });
 
