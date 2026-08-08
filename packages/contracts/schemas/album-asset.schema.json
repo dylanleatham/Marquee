@@ -65,6 +65,23 @@
     "cardArt": { "type": ["object", "null"] },
     "cardArtCandidates": { "type": "array", "items": { "type": "object" } },
     "tag": { "type": "object" },
+    "demoTrack": {
+      "description": "The one track a demo tag plays (ADR 0058). Absent/null means a demo scan falls back to the whole album, as a card scan does. Only the choice is stored — the tracklist is fetched on demand.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["spotifyUri", "name", "chosenAt"],
+          "properties": {
+            "spotifyUri": { "type": "string", "pattern": "^spotify:track:" },
+            "name": { "type": "string" },
+            "trackNumber": { "type": "integer", "minimum": 1 },
+            "durationMs": { "type": "integer", "minimum": 0 },
+            "chosenAt": { "type": "string", "format": "date-time" }
+          }
+        },
+        { "type": "null" }
+      ]
+    },
     "verification": { "type": "object" },
     "roadie": {
       "type": "object",

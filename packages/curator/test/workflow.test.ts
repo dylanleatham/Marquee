@@ -241,6 +241,42 @@ describe("onboarding workflow", () => {
     expect(after.verification?.physicallyVerifiedAt).toBeFalsy();
   });
 
+  /**
+   * The demo tag (ADR 0058) is optional in a way the other two are not — most records never get one
+   * — so it is recorded on its own and must never move the workflow. If it did, an album could reach
+   * `awaiting_verify` off a sticker that isn't the one you scan on the stand.
+   */
+  it("records the demo tag without advancing the workflow", async () => {
+    const { app, store, curatorId } = await serverWithReviewedAlbum();
+    await post(app, `/api/albums/${curatorId}/prompts/video/copied`);
+    await uploadVideo(app, curatorId);
+    await post(app, `/api/albums/${curatorId}/preview/approve`);
+
+    const res = await post(app, `/api/albums/${curatorId}/tag-written`, {
+      object: "demo",
+    });
+
+    expect(res.json().state).toBe("awaiting_tag_write");
+    expect(store.read(curatorId)!.tag!.demo!.written).toBe(true);
+    expect(store.read(curatorId)!.tag!.sleeve?.written).toBeFalsy();
+  });
+
+  it("tags-verified marks the two stickers every record gets, and not the demo tag", async () => {
+    const { app, store, curatorId } = await serverWithReviewedAlbum();
+    await post(app, `/api/albums/${curatorId}/prompts/video/copied`);
+    await uploadVideo(app, curatorId);
+    await post(app, `/api/albums/${curatorId}/preview/approve`);
+
+    await post(app, `/api/albums/${curatorId}/tags-verified`);
+
+    const tag = store.read(curatorId)!.tag!;
+    expect(tag.sleeve!.written).toBe(true);
+    expect(tag.card!.written).toBe(true);
+    // Claiming a demo tag was written when you never made one would be a lie on the one screen
+    // whose job is catching mis-written stickers.
+    expect(tag.demo).toBeUndefined();
+  });
+
   it("400s a tag-written call with an invalid object", async () => {
     const { app, curatorId } = await serverWithReviewedAlbum();
     const res = await post(app, `/api/albums/${curatorId}/tag-written`, {

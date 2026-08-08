@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
+import { CURATOR_URI_KINDS } from "@marquee/contracts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const schemaDir = join(here, "..", "packages", "contracts", "schemas");
@@ -51,28 +52,21 @@ test("a malformed palette payload is rejected", () => {
   assert.equal(validate(bad), false);
 });
 
-// --- scan-event: both album (sleeve) and card kinds are accepted (ADR 0034) ---
+// --- scan-event: every URI kind the fan-out can carry (ADR 0034 card, ADR 0058 demo) ---
+// Driven off CURATOR_URI_KINDS so the schema's pattern and the parser's regex cannot drift apart:
+// declaring a kind in the helper without widening the schema fails here.
 
-test("a start scan for a sleeve (curator:album) validates", () => {
+test("a start scan validates for every declared URI kind", () => {
   const validate = ajv.getSchema(SCAN_ID);
-  const ev = {
-    event: "start",
-    uri: "curator:album:2k7bxq9m",
-    tagUid: "04:A1:B2:C3:D4:E5:F6",
-    at: "2026-07-24T20:15:22Z",
-  };
-  assert.ok(validate(ev), JSON.stringify(validate.errors, null, 2));
-});
-
-test("a start scan for a card (curator:card) validates", () => {
-  const validate = ajv.getSchema(SCAN_ID);
-  const ev = {
-    event: "start",
-    uri: "curator:card:2k7bxq9m",
-    tagUid: "04:A1:B2:C3:D4:E5:F6",
-    at: "2026-07-24T20:15:22Z",
-  };
-  assert.ok(validate(ev), JSON.stringify(validate.errors, null, 2));
+  for (const kind of CURATOR_URI_KINDS) {
+    const ev = {
+      event: "start",
+      uri: `curator:${kind}:2k7bxq9m`,
+      tagUid: "04:A1:B2:C3:D4:E5:F6",
+      at: "2026-07-24T20:15:22Z",
+    };
+    assert.ok(validate(ev), `${kind}: ${JSON.stringify(validate.errors)}`);
+  }
 });
 
 test("a scan URI with an unknown kind is rejected", () => {

@@ -4,20 +4,22 @@ import {
   parseCuratorUri,
   curatorUri,
   scanIgnoredReason,
+  CURATOR_URI_KINDS,
 } from "@marquee/contracts";
 
-// The scan-URI kind (album=sleeve, card=card) is a cross-service fact (ADR 0034) — pin the
-// parse/build helpers so every service decodes and encodes it identically.
+// The scan-URI kind (album=sleeve, card=card, demo=one chosen track) is a cross-service fact
+// (ADR 0034, ADR 0058) — pin the parse/build helpers so every service decodes and encodes it
+// identically. The kind list is enumerated rather than restated, so a fourth kind is covered here
+// the moment it is declared.
 
-test("parseCuratorUri parses album and card kinds", () => {
-  assert.deepEqual(parseCuratorUri("curator:album:2k7bxq9m"), {
-    kind: "album",
-    curatorId: "2k7bxq9m",
-  });
-  assert.deepEqual(parseCuratorUri("curator:card:2k7bxq9m"), {
-    kind: "card",
-    curatorId: "2k7bxq9m",
-  });
+test("parseCuratorUri parses every declared kind", () => {
+  assert.deepEqual(CURATOR_URI_KINDS, ["album", "card", "demo"]);
+  for (const kind of CURATOR_URI_KINDS) {
+    assert.deepEqual(parseCuratorUri(`curator:${kind}:2k7bxq9m`), {
+      kind,
+      curatorId: "2k7bxq9m",
+    });
+  }
 });
 
 test("parseCuratorUri rejects unknown kinds and malformed ids", () => {
@@ -28,7 +30,7 @@ test("parseCuratorUri rejects unknown kinds and malformed ids", () => {
 });
 
 test("curatorUri is the inverse of parseCuratorUri", () => {
-  for (const kind of ["album", "card"]) {
+  for (const kind of CURATOR_URI_KINDS) {
     const uri = curatorUri(kind, "2k7bxq9m");
     assert.equal(uri, `curator:${kind}:2k7bxq9m`);
     assert.deepEqual(parseCuratorUri(uri), { kind, curatorId: "2k7bxq9m" });

@@ -6,7 +6,7 @@ Lives in [`flipper/marquee-tag-writer/`](../../flipper/marquee-tag-writer/).
 
 ## 1. Purpose
 
-A Flipper Zero app (FAP) that writes an album's `curator:album:<curatorId>` URI to a blank **NTAG213**
+A Flipper Zero app (FAP) that writes an album's `curator:<kind>:<curatorId>` URI to a blank **NTAG213**
 in one selection — no hand-typing 8-character IDs. It reads the list of albums awaiting a tag write
 (exported by Curator), shows a menu, and on select composes the NDEF and writes it to a held tag.
 
@@ -48,6 +48,15 @@ composes) cannot drift silently the way it could when "keep it byte-identical" w
 > length rather than assuming 30 bytes, so the shorter card TLV needs no special case.
 > Stylus reads both (`curator:(album|card)`); Conductor/Backdrop treat them alike, only Amp streams the
 > card over Sonos.
+>
+> **Demo kind (2026-08-08, [ADR 0058](../adrs/0058-a-demo-tag-plays-one-chosen-track.md)).** A third
+> sticker, `curator:demo:<id>`, plays the one track chosen for that album in Curator. `curator:demo:`
+> is the **same length** as `curator:card:`, so its TLV is the same fixed 29 bytes and the byte
+> contract above needs no new arithmetic — the only new thing is the word. Which is exactly the part a
+> byte test can't catch: a FAP writing `curator:demo:` where Curator writes some other word produces a
+> perfectly well-formed tag that resolves to nothing. So `flipper-c-bytes.test.ts` now reads the C's
+> `tag_kind_word()` table and checks the _words_ against Route A's for every object, and asserts the
+> menu offers all three. Stylus reads `curator:(album|card|demo)`.
 
 ## 3. Input — the pending list from Curator
 
@@ -97,14 +106,18 @@ the album list, because that list is data, not controls. Back pops exactly one l
 Marquee Tag Writer
 ├─ Write a tag
 │    └─ Which kind of tag?
-│         ├─ Sleeve (album)  →  Pick album  →  hold tag  →  confirm
-│         └─ Card (Sonos)    →  Pick album  →  hold tag  →  confirm
-└─ Read a tag                →  hold tag  →  shows the URI on it
+│         ├─ Sleeve (album)    →  Pick album  →  hold tag  →  confirm
+│         ├─ Card (Sonos)      →  Pick album  →  hold tag  →  confirm
+│         └─ Demo (one song)   →  Pick album  →  hold tag  →  confirm
+└─ Read a tag                  →  hold tag  →  shows the URI on it
 ```
 
-1. **Kind** — sleeve (`curator:album:`) or card (`curator:card:`, ADR 0034). The choice follows you
-   forward: the album list's header reads "Sleeve tag - pick album", and the confirmation says which
-   kind was written. A kind chosen once and then forgotten is how you write forty wrong tags.
+1. **Kind** — sleeve (`curator:album:`), card (`curator:card:`, ADR 0034) or demo
+   (`curator:demo:`, [ADR 0058](../adrs/0058-a-demo-tag-plays-one-chosen-track.md)). The choice
+   follows you forward: the album list's header reads "Sleeve tag - pick album", and the confirmation
+   says which kind was written. A kind chosen once and then forgotten is how you write forty wrong
+   tags. **The FAP does not choose the demo track** — that lives on the album asset and is picked in
+   Curator, so a demo tag written today keeps working when you change your mind about the song.
 2. **Album** — a Submenu of `name - artist` from the CSV (curatorId carried per item). ASCII only —
    the Flipper font has no glyphs for UTF-8, so non-ASCII is replaced with `?`.
 3. **Write** — compose the NDEF (§2) and write the user pages, then read back and compare before

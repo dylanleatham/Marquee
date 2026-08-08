@@ -3,13 +3,14 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type AlbumAsset, type AlbumSummary } from "../api";
 import { usePoll } from "../hooks";
 import {
-  NEED_ORDER,
-  NEED_TAB_LABEL,
+  SECTION_ORDER,
+  SECTION_TAB_LABEL,
+  isNeedSection,
   outstandingNeeds,
   recordState,
   roadieNarration,
   stateLabel,
-  type Need,
+  type RecordSection,
 } from "../needs";
 import { artworkSrc } from "../components/common";
 import { errorMessage } from "../errors";
@@ -17,6 +18,7 @@ import { LightsPanel } from "../components/LightsPanel";
 import { VisualizerPanel } from "../components/VisualizerPanel";
 import { CardPanel } from "../components/CardPanel";
 import { TagsPanel } from "../components/TagsPanel";
+import { DemoPanel } from "../components/DemoPanel";
 import type { Run } from "../run";
 
 /**
@@ -27,9 +29,12 @@ import type { Run } from "../run";
  * tab is always open, because the reason you are here might be the artifact you are already holding.
  *
  * Preview is not a tab. Signing the lights off means having watched them, so that lives in the room.
+ *
+ * **One tab is not a need**: the demo cut (ADR 0058), set apart at the end of the strip. The heading
+ * still names the four, because a record with no demo cut is finished — see `RecordSection`.
  */
-const isNeed = (s: string | undefined): s is Need =>
-  NEED_ORDER.includes(s as Need);
+const isSection = (s: string | undefined): s is RecordSection =>
+  SECTION_ORDER.includes(s as RecordSection);
 
 export function Record({ albums }: { albums: AlbumSummary[] | null }) {
   const { curatorId = "", section } = useParams();
@@ -44,7 +49,7 @@ export function Record({ albums }: { albums: AlbumSummary[] | null }) {
 
   // Opening a record always lands on Lights, whatever is outstanding — the design's one fixed entry
   // point, so clicking a tile is predictable rather than dependent on state you can't see.
-  const need: Need = isNeed(section) ? section : "lights";
+  const open: RecordSection = isSection(section) ? section : "lights";
 
   const run = useCallback<Run>(
     async (fn) => {
@@ -93,7 +98,7 @@ export function Record({ albums }: { albums: AlbumSummary[] | null }) {
   const state = summary ? recordState(summary) : null;
   const outstanding = summary ? outstandingNeeds(summary) : [];
   const colors = asset.palette?.colors ?? [];
-  const go = (n: Need) => navigate(`/albums/${curatorId}/${n}`);
+  const go = (s: RecordSection) => navigate(`/albums/${curatorId}/${s}`);
 
   return (
     <main className="record">
@@ -155,7 +160,7 @@ export function Record({ albums }: { albums: AlbumSummary[] | null }) {
             disabled={!peers.prev}
             title={peers.prev ? peers.prev.title : "This is the first record"}
             onClick={() =>
-              peers.prev && navigate(`/albums/${peers.prev.curatorId}/${need}`)
+              peers.prev && navigate(`/albums/${peers.prev.curatorId}/${open}`)
             }
           >
             ↑ PREV
@@ -166,7 +171,7 @@ export function Record({ albums }: { albums: AlbumSummary[] | null }) {
             disabled={!peers.next}
             title={peers.next ? peers.next.title : "That was the last one"}
             onClick={() =>
-              peers.next && navigate(`/albums/${peers.next.curatorId}/${need}`)
+              peers.next && navigate(`/albums/${peers.next.curatorId}/${open}`)
             }
           >
             NEXT ↓
@@ -183,21 +188,40 @@ export function Record({ albums }: { albums: AlbumSummary[] | null }) {
             className="record__tabs"
             aria-label="What this record still needs"
           >
-            {NEED_ORDER.map((n) => {
-              const done = !outstanding.includes(n);
+            {SECTION_ORDER.map((s) => {
+              /**
+               * A need's tab carries its `●`/`○` and says "done"/"still needed"; the demo cut's
+               * carries neither, because there is no state in which a record is missing one. Giving
+               * it a hollow glyph would put a permanent "still needed" on every finished record —
+               * exactly the misreading ADR 0056 was written about.
+               */
+              if (!isNeedSection(s))
+                return (
+                  <button
+                    key={s}
+                    type="button"
+                    className="record__tab record__tab--optional"
+                    aria-current={open === s ? "page" : undefined}
+                    onClick={() => go(s)}
+                  >
+                    {SECTION_TAB_LABEL[s]}
+                    <span className="visually-hidden"> — optional</span>
+                  </button>
+                );
+              const done = !outstanding.includes(s);
               return (
                 <button
-                  key={n}
+                  key={s}
                   type="button"
                   className="record__tab"
-                  aria-current={need === n ? "page" : undefined}
-                  onClick={() => go(n)}
+                  aria-current={open === s ? "page" : undefined}
+                  onClick={() => go(s)}
                 >
                   {/* Filled or hollow, never colour alone — the glyph is the channel. */}
                   <span className="record__tab-glyph" aria-hidden="true">
                     {done ? "●" : "○"}
                   </span>
-                  {NEED_TAB_LABEL[n]}
+                  {SECTION_TAB_LABEL[s]}
                   <span className="visually-hidden">
                     {done ? " — done" : " — still needed"}
                   </span>
@@ -210,7 +234,7 @@ export function Record({ albums }: { albums: AlbumSummary[] | null }) {
         <div className="record__panel">
           {actionError && <p className="pp-error">{actionError}</p>}
 
-          {need === "lights" && (
+          {open === "lights" && (
             <LightsPanel
               curatorId={curatorId}
               asset={asset}
@@ -218,7 +242,7 @@ export function Record({ albums }: { albums: AlbumSummary[] | null }) {
               run={run}
             />
           )}
-          {need === "visualizer" && (
+          {open === "visualizer" && (
             <VisualizerPanel
               curatorId={curatorId}
               asset={asset}
@@ -227,7 +251,7 @@ export function Record({ albums }: { albums: AlbumSummary[] | null }) {
               canGenerate={gemini?.generateVideo ?? false}
             />
           )}
-          {need === "card" && (
+          {open === "card" && (
             <CardPanel
               curatorId={curatorId}
               asset={asset}
@@ -236,8 +260,11 @@ export function Record({ albums }: { albums: AlbumSummary[] | null }) {
               canGenerate={gemini?.generateCardArt ?? false}
             />
           )}
-          {need === "tags" && (
+          {open === "tags" && (
             <TagsPanel curatorId={curatorId} asset={asset} run={run} />
+          )}
+          {open === "demo" && (
+            <DemoPanel curatorId={curatorId} asset={asset} run={run} />
           )}
         </div>
       </div>

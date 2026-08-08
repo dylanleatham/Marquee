@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import type { LibraryEntry } from "@marquee/contracts";
+import { CURATOR_URI_KINDS, type LibraryEntry } from "@marquee/contracts";
 import { PlaybackController, type LibraryLookup } from "../src/controller.js";
 import { FakeTimers, RecordingHub, tempMedia } from "./fakes.js";
 
@@ -38,22 +38,28 @@ describe("PlaybackController", () => {
     controller.dispose();
   });
 
-  it("a card scan plays the same album video as the sleeve (ADR 0034)", () => {
-    const { dir, paths } = tempMedia(["x.mp4"]);
-    // Library is keyed by the album URI (as Curator syncs it) — no card key.
-    const { controller, hub } = setup(
-      { "curator:album:2k7bxq9m": { filePath: paths["x.mp4"]! } },
-      dir,
-    );
+  // Backdrop plays one video per album whatever object was scanned: a shelf card (ADR 0034) and a
+  // demo tag (ADR 0058) show the same visualizer as the sleeve. Enumerated off the contract's kind
+  // list so a new kind is covered here the moment it exists.
+  it.each(CURATOR_URI_KINDS.filter((k) => k !== "album"))(
+    "a %s scan plays the same album video as the sleeve",
+    (kind) => {
+      const { dir, paths } = tempMedia(["x.mp4"]);
+      // Library is keyed by the album URI (as Curator syncs it) — no per-kind key.
+      const { controller, hub } = setup(
+        { "curator:album:2k7bxq9m": { filePath: paths["x.mp4"]! } },
+        dir,
+      );
 
-    controller.play("curator:card:2k7bxq9m");
+      controller.play(`curator:${kind}:2k7bxq9m`);
 
-    expect(hub.last()).toEqual({ type: "play", filePath: paths["x.mp4"] });
-    expect(controller.status().state).toBe("playing");
-    // Status keeps the actual scanned URI, even though lookup normalised to the album key.
-    expect(controller.status().uri).toBe("curator:card:2k7bxq9m");
-    controller.dispose();
-  });
+      expect(hub.last()).toEqual({ type: "play", filePath: paths["x.mp4"] });
+      expect(controller.status().state).toBe("playing");
+      // Status keeps the actual scanned URI, even though lookup normalised to the album key.
+      expect(controller.status().uri).toBe(`curator:${kind}:2k7bxq9m`);
+      controller.dispose();
+    },
+  );
 
   it("stop → broadcasts stop, returns to idle, clears the idle timeout", () => {
     const { dir, paths } = tempMedia(["x.mp4"]);

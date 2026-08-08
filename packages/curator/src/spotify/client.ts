@@ -16,6 +16,16 @@ export interface SpotifyAlbumMeta {
   artUrl?: string;
 }
 
+/** One track off an album, as the demo-track picker needs it (ADR 0058). */
+export interface SpotifyTrack {
+  /** `spotify:track:<id>` — the only field Amp needs to play it. */
+  spotifyUri: string;
+  name: string;
+  trackNumber: number;
+  discNumber: number;
+  durationMs: number;
+}
+
 export interface SpotifyClientOptions {
   clientId: string;
   clientSecret: string;
@@ -41,6 +51,16 @@ export class SpotifyError extends Error {
     super(message);
     this.name = "SpotifyError";
   }
+}
+
+/** One item of `/v1/albums/{id}/tracks` — a simplified track object. */
+interface TrackResponse {
+  id?: string;
+  uri?: string;
+  name: string;
+  track_number?: number;
+  disc_number?: number;
+  duration_ms?: number;
 }
 
 interface AlbumResponse {
@@ -171,6 +191,42 @@ export class SpotifyClient {
       }
     }
     return this.normalize(album, genres);
+  }
+
+  /**
+   * An album's tracks, in album order, for the demo-track picker (ADR 0058).
+   *
+   * **Fetched on demand, never stored.** The choice lands on the asset; the list does not — see
+   * `DemoTrack` in albums/asset.ts for why a git-tracked store doesn't carry twelve rows per album.
+   *
+   * Paged, and the loop is **bounded** (`MAX_PAGES`) rather than "follow `next` until it's null":
+   * Curator is always-on and a paging bug on Spotify's side must not spin the event loop. 50 per
+   * page × 4 pages covers 200 tracks — past any real album — and a longer one is truncated, which
+   * for choosing one memorable song is a non-event.
+   */
+  async getAlbumTracks(spotifyId: string): Promise<SpotifyTrack[]> {
+    const MAX_PAGES = 4;
+    const PAGE = 50;
+    const tracks: SpotifyTrack[] = [];
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const r = await this.api<{ items: TrackResponse[]; next: string | null }>(
+        `/v1/albums/${encodeURIComponent(spotifyId)}/tracks?limit=${PAGE}&offset=${page * PAGE}`,
+      );
+      for (const t of r.items ?? []) {
+        // A track with no id is a local/unavailable entry — it has no URI to hand Sonos, so it
+        // cannot be chosen and is dropped rather than offered as a row that would play nothing.
+        if (!t.id) continue;
+        tracks.push({
+          spotifyUri: t.uri ?? `spotify:track:${t.id}`,
+          name: t.name,
+          trackNumber: t.track_number ?? tracks.length + 1,
+          discNumber: t.disc_number ?? 1,
+          durationMs: t.duration_ms ?? 0,
+        });
+      }
+      if (!r.next) break;
+    }
+    return tracks;
   }
 
   async searchAlbums(query: string, limit = 10): Promise<SpotifyAlbumMeta[]> {

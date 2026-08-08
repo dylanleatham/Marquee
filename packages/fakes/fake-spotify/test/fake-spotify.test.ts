@@ -86,6 +86,84 @@ describe("fake-spotify", () => {
         .status,
     ).toBe(404);
   });
+
+  // The tracklist backs Curator's demo-track picker (ADR 0058). Paging is modelled for real, since
+  // the client's page loop is bounded and a single-page fake would never reach that boundary.
+  describe("album tracks", () => {
+    const withTracks: FakeAlbum = {
+      ...album,
+      tracks: [
+        { id: "t1", name: "Let's Go Crazy", durationMs: 279_000 },
+        { id: "t2", name: "Take Me With U" },
+        { name: "A Local File" }, // no id — unplayable, and the client must drop it
+      ],
+    };
+
+    it("serves a page with track numbers, URIs and a null next", async () => {
+      const fs = createFakeSpotify([withTracks]);
+      const r = await (
+        await fs.fetch(
+          `https://api.spotify.com/v1/albums/${album.id}/tracks?limit=50&offset=0`,
+          withToken,
+        )
+      ).json();
+
+      expect(r.total).toBe(3);
+      expect(r.next).toBeNull();
+      expect(r.items[0]).toMatchObject({
+        id: "t1",
+        uri: "spotify:track:t1",
+        name: "Let's Go Crazy",
+        track_number: 1,
+        disc_number: 1,
+        duration_ms: 279_000,
+      });
+      expect(r.items[2].id).toBeNull();
+    });
+
+    it("honours limit/offset and sets next while more remain", async () => {
+      const fs = createFakeSpotify([withTracks]);
+      const page = async (offset: number) =>
+        (
+          await fs.fetch(
+            `https://api.spotify.com/v1/albums/${album.id}/tracks?limit=2&offset=${offset}`,
+            withToken,
+          )
+        ).json();
+
+      const first = await page(0);
+      expect(first.items).toHaveLength(2);
+      expect(first.next).toContain("offset=2");
+
+      const second = await page(2);
+      expect(second.items.map((t: { name: string }) => t.name)).toEqual([
+        "A Local File",
+      ]);
+      // Track numbers continue across pages rather than restarting at 1.
+      expect(second.items[0].track_number).toBe(3);
+      expect(second.next).toBeNull();
+    });
+
+    it("serves an empty list for an album with no tracklist, and 404s an unknown one", async () => {
+      const fs = createFakeSpotify([album]);
+      const r = await (
+        await fs.fetch(
+          `https://api.spotify.com/v1/albums/${album.id}/tracks`,
+          withToken,
+        )
+      ).json();
+      expect(r.items).toEqual([]);
+      expect(r.total).toBe(0);
+      expect(
+        (
+          await fs.fetch(
+            "https://api.spotify.com/v1/albums/nope/tracks",
+            withToken,
+          )
+        ).status,
+      ).toBe(404);
+    });
+  });
 });
 
 describe("fake-spotify OAuth (Authorization Code + PKCE)", () => {

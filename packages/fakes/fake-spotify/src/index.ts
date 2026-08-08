@@ -9,6 +9,18 @@
 //     code (verifying the PKCE `code_verifier` against the stored S256 challenge) and refreshes.
 import { createHash, randomUUID } from "node:crypto";
 
+/**
+ * One track on a fake album. `id` is optional so a catalog can model the local/unavailable entries
+ * Spotify really does return — they have no playable URI, and a client that offers one as a choice
+ * would produce a tag that plays nothing.
+ */
+export interface FakeTrack {
+  id?: string;
+  name: string;
+  durationMs?: number;
+  discNumber?: number;
+}
+
 export interface FakeAlbum {
   id: string;
   name: string;
@@ -16,6 +28,8 @@ export interface FakeAlbum {
   year: number;
   genres: string[]; // artist genres (Spotify puts genres on the artist, not the album)
   artwork: Buffer; // bytes served at the album's image URL
+  /** Album tracklist, in order, served paged at `/v1/albums/{id}/tracks`. Empty when omitted. */
+  tracks?: FakeTrack[];
 }
 
 export type FetchLike = (
@@ -132,6 +146,34 @@ export function createFakeSpotify(initial: FakeAlbum[] = []): FakeSpotify {
     genres: [] as string[],
   });
 
+  /**
+   * `/v1/albums/{id}/tracks` — a real paged response, honouring `limit`/`offset` and setting `next`
+   * only while more remain. Paging is modelled rather than stubbed because the client's loop is
+   * bounded (it stops at MAX_PAGES), and a fake that always returned everything in one page would
+   * never exercise the boundary that bound exists for.
+   */
+  const tracksBody = (a: FakeAlbum, limit: number, offset: number) => {
+    const all = a.tracks ?? [];
+    const page = all.slice(offset, offset + limit);
+    const hasMore = offset + limit < all.length;
+    return {
+      href: `https://api.spotify.com/v1/albums/${a.id}/tracks?offset=${offset}&limit=${limit}`,
+      limit,
+      offset,
+      total: all.length,
+      next: hasMore
+        ? `https://api.spotify.com/v1/albums/${a.id}/tracks?offset=${offset + limit}&limit=${limit}`
+        : null,
+      items: page.map((t, i) => ({
+        ...(t.id ? { id: t.id, uri: `spotify:track:${t.id}` } : { id: null }),
+        name: t.name,
+        track_number: offset + i + 1,
+        disc_number: t.discNumber ?? 1,
+        duration_ms: t.durationMs ?? 200_000,
+      })),
+    };
+  };
+
   // POST /api/token — dispatch on grant_type: client_credentials (app), authorization_code +
   // refresh_token (user login, PKCE). Returns Spotify-shaped token payloads or OAuth errors.
   const token = (init: RequestInit | undefined): Response => {
@@ -207,6 +249,19 @@ export function createFakeSpotify(initial: FakeAlbum[] = []): FakeSpotify {
       const bearer = auth.startsWith("Bearer ") ? auth.slice(7) : "";
       if (!validAccessTokens.has(bearer)) {
         return json({ error: { status: 401, message: "no token" } }, 401);
+      }
+      const tracks = url.pathname.match(/^\/v1\/albums\/([^/]+)\/tracks$/);
+      if (tracks) {
+        const a = albums.get(tracks[1]!);
+        if (!a)
+          return json({ error: { status: 404, message: "not found" } }, 404);
+        return json(
+          tracksBody(
+            a,
+            Number(url.searchParams.get("limit") ?? 20),
+            Number(url.searchParams.get("offset") ?? 0),
+          ),
+        );
       }
       const album = url.pathname.match(/^\/v1\/albums\/([^/]+)$/);
       if (album) {

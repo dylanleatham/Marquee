@@ -52,6 +52,7 @@ def test_now_iso_is_zulu_seconds_precision():
     [
         ("curator:album:2k7bxq9m", True),
         ("curator:card:2k7bxq9m", True),  # card kind — ADR 0034
+        ("curator:demo:2k7bxq9m", True),  # demo kind (one chosen track) — ADR 0058
         ("curator:album:ABC12345", False),  # uppercase not allowed by the pattern
         ("curator:album:short", False),
         ("spotify:album:2k7bxq9m", False),

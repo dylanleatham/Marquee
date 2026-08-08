@@ -268,6 +268,37 @@ export interface BatchPaletteReport {
   items: BatchPaletteOutcome[];
 }
 
+/** Whether one physical sticker has been burned, and when. */
+export interface TagObjectState {
+  written: boolean;
+  writtenAt?: string;
+  tagUid?: string;
+}
+
+/**
+ * The physical objects a record's URI can be written to (ADR 0034 / ADR 0058). `sleeve` is the
+ * human word for the object; the URI it carries is `curator:album:`.
+ */
+export type TagObject = "sleeve" | "card" | "demo";
+
+/** One track off the album, as the picker lists them. Fetched live — never stored on the asset. */
+export interface Track {
+  spotifyUri: string;
+  name: string;
+  trackNumber: number;
+  discNumber: number;
+  durationMs: number;
+}
+
+/** The chosen one, as it is stored (ADR 0058). */
+export interface DemoTrack {
+  spotifyUri: string;
+  name: string;
+  trackNumber?: number;
+  durationMs?: number;
+  chosenAt: string;
+}
+
 export interface AlbumAsset {
   curatorId: string;
   createdAt: string;
@@ -317,9 +348,13 @@ export interface AlbumAsset {
   cardArtRefusals?: CardArtRefusal[];
   tag?: {
     payload: string;
-    sleeve?: { written: boolean; writtenAt?: string; tagUid?: string };
-    card?: { written: boolean; writtenAt?: string; tagUid?: string };
+    sleeve?: TagObjectState;
+    card?: TagObjectState;
+    /** The demo tag (ADR 0058) — optional, so absent is the normal case, not an unwritten one. */
+    demo?: TagObjectState;
   };
+  /** The one track a demo tag plays (ADR 0058). Absent/null → it plays the album, as a card does. */
+  demoTrack?: DemoTrack | null;
   verification?: { previewApprovedAt?: string; physicallyVerifiedAt?: string };
   roadie: {
     state: RoadieState;
@@ -750,8 +785,23 @@ export const api = {
       { method: "DELETE" },
     ),
 
+  /**
+   * The album's songs, for the demo-track picker (ADR 0058). Always 200: a record with no tracklist
+   * — a manual pressing, no Spotify credentials, Spotify down — comes back as an empty list and a
+   * `reason` the panel shows in place, because that is an ordinary state of the screen.
+   */
+  tracks: (id: string) =>
+    req<{ tracks: Track[]; reason?: string }>(`/api/albums/${id}/tracks`),
+
+  /** Choose the track a demo tag plays, or pass `null` to fall back to the whole album. */
+  setDemoTrack: (id: string, track: Omit<DemoTrack, "chosenAt"> | null) =>
+    req<{ demoTrack: DemoTrack | null }>(`/api/albums/${id}/demo-track`, {
+      method: "PUT",
+      body: JSON.stringify({ track }),
+    }),
+
   /** The exact string to burn into a sticker, plus a QR of it (issue #102). */
-  tagPayload: (id: string, object: "sleeve" | "card") =>
+  tagPayload: (id: string, object: TagObject) =>
     req<{ object: string; payload: string; qrDataUrl: string }>(
       `/api/albums/${id}/tag-payload?object=${object}`,
     ),
@@ -930,7 +980,7 @@ export const api = {
       bytes: number;
       path: string;
     }>(`/api/albums/${id}/push-to-flipper`, { method: "POST" }),
-  markTagWritten: (id: string, object: "sleeve" | "card") =>
+  markTagWritten: (id: string, object: TagObject) =>
     req<{ state: RoadieState }>(`/api/albums/${id}/tag-written`, {
       method: "POST",
       body: JSON.stringify({ object }),
@@ -1055,7 +1105,7 @@ export const cardArtUrl = (id: string) => `/api/albums/${id}/card-art`;
 export const cardArtPrintUrl = (id: string, bleed = false) =>
   `/api/albums/${id}/card-art/print${bleed ? "?bleed=1" : ""}`;
 /** A ready-to-write `.nfc` for the Flipper (issue #67). One object per file, as the writer expects. */
-export const tagNfcUrl = (id: string, object: "sleeve" | "card") =>
+export const tagNfcUrl = (id: string, object: TagObject) =>
   `/api/albums/${id}/tag.nfc?object=${object}`;
 export const cardArtCandidateUrl = (id: string, index: number) =>
   `/api/albums/${id}/card-art/candidate/${index}`;

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { CURATOR_URI_KINDS } from "@marquee/contracts";
 import {
   FsAlbumAssetReader,
   FsAlbumAssetWriter,
@@ -22,12 +23,15 @@ const seededDir = () => {
 };
 
 describe("curatorIdFromUri", () => {
-  it("extracts the id from a curator album URI", () => {
-    expect(curatorIdFromUri(`curator:album:${ID}`)).toBe(ID);
-  });
-  it("extracts the id from a curator card URI (card == album for Conductor, ADR 0034)", () => {
-    expect(curatorIdFromUri(`curator:card:${ID}`)).toBe(ID);
-  });
+  // Conductor lights the room the same way whatever object was scanned — a sleeve, a shelf card
+  // (ADR 0034) or a demo tag (ADR 0058) — so every kind must resolve to the same album. Enumerated
+  // rather than listed, so a kind added to the contract is covered here without a test edit.
+  it.each([...CURATOR_URI_KINDS])(
+    "extracts the id from a curator %s URI — every kind is the same album",
+    (kind) => {
+      expect(curatorIdFromUri(`curator:${kind}:${ID}`)).toBe(ID);
+    },
+  );
   it("rejects non-curator / malformed URIs", () => {
     expect(curatorIdFromUri("spotify:album:abc")).toBeNull();
     expect(curatorIdFromUri("curator:disc:2k7bxq9m")).toBeNull();

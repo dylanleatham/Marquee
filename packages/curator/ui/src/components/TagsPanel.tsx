@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, tagNfcUrl, type AlbumAsset } from "../api";
+import { api, tagNfcUrl, type AlbumAsset, type TagObject } from "../api";
 import { relativeTime } from "../format";
 import { AsyncButton } from "./common";
 import type { Run } from "../run";
 
 /**
- * The tags panel (ADR 0052) — the two stickers, and the one check that catches real bugs.
+ * The tags panel (ADR 0052) — the stickers, and the one check that catches real bugs.
  *
  * Changes from the old Ship workstation:
  *
@@ -16,13 +16,22 @@ import type { Run } from "../run";
  * - **Per record only.** The bulk "send the whole list to the Flipper" went with the queue; you
  *   write these one record at a time, standing at the shelf.
  * - **No explanatory intro.** The QR, the URI and the state say what this is.
+ *
+ * **A third, optional sticker (ADR 0058).** The demo tag is not part of "both tags": it is made for
+ * a handful of records, so `TAGS VERIFIED` leaves it alone and it carries its own write record. It
+ * also states what it will play, because a demo tag with no cut chosen behaves exactly like the
+ * shelf card, and a screen that didn't say so would make that look like a bug.
  */
 
-type Which = "sleeve" | "card";
-
-const OBJECTS: Array<{ which: Which; label: string }> = [
+/**
+ * The three stickers, and what each does in the room (ADR 0034, ADR 0058). The demo tag is
+ * **optional** — most records never get one — which is why it is the only one `TAGS VERIFIED` does
+ * not mark written, and why it says what it will play rather than only what it is.
+ */
+const OBJECTS: Array<{ which: TagObject; label: string }> = [
   { which: "sleeve", label: "THE SLEEVE" },
   { which: "card", label: "THE SHELF CARD" },
+  { which: "demo", label: "THE DEMO TAG" },
 ];
 
 /**
@@ -35,8 +44,8 @@ const OBJECTS: Array<{ which: Which; label: string }> = [
  * kind of mismatch. The derived string is shown only while the fetch is in flight or has failed, and
  * it says so.
  */
-function useTagPayload(curatorId: string, which: Which) {
-  const derived = `curator:${which === "sleeve" ? "album" : "card"}:${curatorId}`;
+function useTagPayload(curatorId: string, which: TagObject) {
+  const derived = `curator:${which === "sleeve" ? "album" : which}:${curatorId}`;
   const [state, setState] = useState<{
     payload: string;
     qr: string | null;
@@ -75,7 +84,7 @@ function TagCode({
 }: {
   qr: string | null;
   failed: boolean;
-  which: Which;
+  which: TagObject;
 }) {
   if (failed)
     return (
@@ -95,17 +104,23 @@ function TagCode({
   );
 }
 
-/** One object's panel — its code, its URI, and whether the sticker is burned. */
-function TagObject({
+/** One object's panel — its code, its URI, what it plays, and whether the sticker is burned. */
+function TagSticker({
   curatorId,
   which,
   label,
   written,
+  plays,
+  onWritten,
 }: {
   curatorId: string;
-  which: Which;
+  which: TagObject;
   label: string;
   written: boolean;
+  /** What this sticker will do in the room, when that isn't already obvious from its name. */
+  plays?: string;
+  /** Present only for a sticker no other control records — today, the demo tag. */
+  onWritten?: () => unknown;
 }) {
   const { payload, qr, failed } = useTagPayload(curatorId, which);
   return (
@@ -114,6 +129,8 @@ function TagObject({
       <div className="tagobj__body">
         <p className="pp-label">{label}</p>
         <p className="tagobj__uri">{payload}</p>
+        {/* The one thing this screen must never get wrong is what a sticker does once it exists. */}
+        {plays && <p className="tagobj__plays">{plays}</p>}
         {failed && (
           <p className="tagobj__warn">
             couldn&apos;t reach the server — this is what it should say, not
@@ -126,6 +143,15 @@ function TagObject({
         >
           {written ? "✓ written" : "not written yet"}
         </p>
+        {onWritten && !written && (
+          <AsyncButton
+            className="pp-action tagobj__mark"
+            pendingLabel="RECORDING…"
+            onClick={onWritten}
+          >
+            I&apos;VE WRITTEN THIS ONE
+          </AsyncButton>
+        )}
       </div>
     </div>
   );
@@ -156,16 +182,36 @@ export function TagsPanel({
     ? `checked ${relativeTime(verifiedAt)}`
     : "The lights, a visualizer and a card come first — this is the last step.";
 
+  /**
+   * What the demo tag will actually do — the one fact this screen could silently get wrong.
+   *
+   * With no chosen cut the tag plays the whole record, exactly like the shelf card, and saying so
+   * here is the difference between "the tag is broken" and "I never picked a song". The choosing
+   * itself lives on its own tab (ADR 0058); this is a statement, not a control.
+   */
+  const demoPlays = asset.demoTrack
+    ? `plays “${asset.demoTrack.name}”`
+    : "no cut chosen — plays the whole record";
+
   return (
     <div className="tags">
       <div className="tags__objects">
         {OBJECTS.map(({ which, label }) => (
-          <TagObject
+          <TagSticker
             key={which}
             curatorId={curatorId}
             which={which}
             label={label}
             written={tag?.[which]?.written ?? false}
+            {...(which === "demo"
+              ? {
+                  plays: demoPlays,
+                  // The demo tag is the one sticker TAGS VERIFIED does not cover, so it needs its
+                  // own record — otherwise it reads "not written yet" forever after you wrote it.
+                  onWritten: () =>
+                    run(() => api.markTagWritten(curatorId, "demo")),
+                }
+              : {})}
           />
         ))}
       </div>
@@ -185,6 +231,9 @@ export function TagsPanel({
         </AsyncButton>
         <a className="pp-action" href={tagNfcUrl(curatorId, "sleeve")} download>
           DOWNLOAD .NFC
+        </a>
+        <a className="pp-action" href={tagNfcUrl(curatorId, "demo")} download>
+          DOWNLOAD DEMO .NFC
         </a>
         <Link className="pp-action" to="/help/tags">
           HOW DO I WRITE THESE?

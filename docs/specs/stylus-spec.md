@@ -4,7 +4,7 @@ _The physical device inside the album stand that reads the tagged sleeve and pub
 
 ## 1. Purpose
 
-A small physical device mounted in the album stand that continuously polls for NFC tags on record sleeves. When it detects a tagged sleeve, it reads the Curator album URI written on the NTAG213 sticker (of the form `curator:album:<curatorId>`) and publishes a `start` event to the runtime services (Conductor for lights, Backdrop for video). When the sleeve is removed, it publishes `stop`.
+A small physical device mounted in the album stand that continuously polls for NFC tags on record sleeves. When it detects a tagged sleeve, it reads the Curator album URI written on the NTAG213 sticker (of the form `curator:<kind>:<curatorId>`, where kind is `album`, `card` or `demo` — Stylus forwards any of them unchanged and acts on none) and publishes a `start` event to the runtime services (Conductor for lights, Backdrop for video). When the sleeve is removed, it publishes `stop`.
 
 This is the moment where the physical world meets the software system. Everything else you've spec'd is preparation for this thirty-line loop.
 
@@ -215,7 +215,7 @@ To Conductor (`http://<pi5>:4737/api/scan`):
 To Backdrop (`http://<pi5>:4740/api/scan` — same host as Conductor, see §9):
 Same payload shape. Backdrop and Conductor both get identical events; they're not synchronized, just fan-out. (Renamed from "Player" — Backdrop is the committed name, runtime-overview §12. The config key `[downstream.player]` is still accepted as a legacy alias; [ADR 0016](../adrs/0016-stylus-stdlib-core-and-hardware-seams.md).)
 
-To Amp (`http://<pi5>:4741/api/scan` — same host again, see §9): same payload once more, and the third leg of the fan-out ([ADR 0034](../adrs/0034-amp-sonos-playback-and-card-uri.md)). Stylus does not gate on the URI kind; it forwards `album` and `card` alike and Amp decides — `card` streams over Sonos, `album` answers `202 ignored` because you're playing the vinyl.
+To Amp (`http://<pi5>:4741/api/scan` — same host again, see §9): same payload once more, and the third leg of the fan-out ([ADR 0034](../adrs/0034-amp-sonos-playback-and-card-uri.md)). Stylus does not gate on the URI kind; it forwards `album`, `card` and `demo` alike and Amp decides — `card` streams the album over Sonos, `demo` streams the album's one chosen track ([ADR 0058](../adrs/0058-a-demo-tag-plays-one-chosen-track.md)), and `album` answers `202 ignored` because you're playing the vinyl.
 
 Also fires:
 
@@ -303,7 +303,7 @@ url = "http://192.168.1.50:4740/api/scan"
 timeout_ms = 2000                    # only accepts and signals the kiosk, so it answers fast
 shared_secret = "..."
 
-[downstream.amp]                     # audio for a `curator:card:` scan (ADR 0034)
+[downstream.amp]                     # audio for a `curator:card:`/`curator:demo:` scan (ADR 0034/0058)
 url = "http://192.168.1.50:4741/api/scan"
 timeout_ms = 5000                    # resolves the album and drives Sonos over UPnP before replying
 shared_secret = "..."

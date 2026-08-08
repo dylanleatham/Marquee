@@ -78,6 +78,31 @@ describe("GET /api/albums/:curatorId/tag-payload", () => {
     });
   });
 
+  it("returns the demo URI for ?object=demo (ADR 0058)", async () => {
+    const res = await app().inject({
+      method: "GET",
+      url: "/api/albums/abcd1234/tag-payload?object=demo",
+    });
+
+    expect(res.json()).toMatchObject({
+      object: "demo",
+      payload: "curator:demo:abcd1234",
+    });
+  });
+
+  it("gives each object its own QR — three stickers, three codes", async () => {
+    const qr = async (object: string) =>
+      (
+        await app().inject({
+          method: "GET",
+          url: `/api/albums/abcd1234/tag-payload?object=${object}`,
+        })
+      ).json().qrDataUrl;
+
+    const codes = [await qr("sleeve"), await qr("card"), await qr("demo")];
+    expect(new Set(codes).size).toBe(3);
+  });
+
   it("treats an unknown object as the sleeve rather than erroring", async () => {
     const res = await app().inject({
       method: "GET",

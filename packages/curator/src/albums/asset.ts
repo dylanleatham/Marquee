@@ -195,13 +195,40 @@ export interface TagObjectSection {
 
 export interface TagSection {
   /**
-   * The **sleeve** URI, `curator:album:<id>`. Since ADR 0034 the two stickers carry different URIs —
-   * a card is `curator:card:<id>` (derived from the same curatorId) so Amp can tell them apart. This
-   * field is the sleeve/album URI; the card URI comes from the `?object=card` tag download.
+   * The **sleeve** URI, `curator:album:<id>`. Since ADR 0034 the stickers carry different URIs — a
+   * card is `curator:card:<id>` and a demo tag `curator:demo:<id>` (ADR 0058), all derived from the
+   * same curatorId so Amp can tell them apart. This field is the sleeve/album URI; the other two
+   * come from the `?object=card` / `?object=demo` tag downloads.
    */
   payload: string;
   sleeve?: TagObjectSection;
   card?: TagObjectSection;
+  /**
+   * The demo tag (ADR 0058). Optional in a way the other two are not — most records never get one —
+   * so it is never marked written by `verifyTags`, only by an explicit `tag-written` for `demo`.
+   */
+  demo?: TagObjectSection;
+}
+
+/**
+ * The one track a **demo tag** plays (ADR 0058) — the album's calling card, chosen by hand because
+ * no derivation gets it right: the song that makes someone put the record on is not track 1 and is
+ * not the most-streamed single.
+ *
+ * Only the *choice* lives on the asset, never the full tracklist. The album-assets store is in git
+ * and Curator holds hundreds of records; persisting twelve rows per album to support one pick would
+ * bloat every diff for data Spotify can answer on demand (`GET /api/albums/:id/tracks`). `name` and
+ * `trackNumber` are carried so the UI, and a human reading the JSON, can say what the tag plays
+ * without a network call — `spotifyUri` is the only field Amp needs.
+ */
+export interface DemoTrack {
+  /** `spotify:track:<id>` — what Amp hands Sonos. */
+  spotifyUri: string;
+  name: string;
+  /** 1-based position on its disc, as Spotify reports it. Display only. */
+  trackNumber?: number;
+  durationMs?: number;
+  chosenAt: string;
 }
 
 export interface RoadieSection {
@@ -272,8 +299,14 @@ export interface AlbumAsset {
   cardArtCandidates?: CardArtCandidate[];
   /** Variants Gemini refused outright, so an absent candidate explains itself (ADR 0032). */
   cardArtRefusals?: CardArtRefusal[];
-  /** Per-object tag-write status (step 11); `tag.payload` is the URI written to both stickers. */
+  /** Per-object tag-write status (step 11); `tag.payload` is the sleeve URI (ADR 0034/0058). */
   tag?: TagSection;
+  /**
+   * The track a demo tag plays for this album (ADR 0058). Absent — the default for every record —
+   * means a demo scan falls back to the whole album from track 1, exactly as a card scan does, so
+   * an unchosen demo tag is never silent.
+   */
+  demoTrack?: DemoTrack | null;
   /** Preview-approval and physical-verification timestamps (steps 7/11). */
   verification?: VerificationSection;
   roadie: RoadieSection;

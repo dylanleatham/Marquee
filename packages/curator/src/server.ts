@@ -21,7 +21,11 @@ import {
   ValidationError,
   type PaletteGenerator,
 } from "./albums/add-manual.js";
-import { addSpotifyAlbum, DuplicateAlbumError } from "./albums/add-spotify.js";
+import {
+  addSpotifyAlbum,
+  DuplicateAlbumError,
+  parseAlbumId,
+} from "./albums/add-spotify.js";
 import { bucketFor, peerContext } from "./albums/peers.js";
 import {
   addAlbumsBatch,
@@ -62,7 +66,13 @@ import {
   FileJobStore,
   type GenerationJob,
 } from "./jobs/manager.js";
-import { flipperNfcFile } from "./tags/flipper-nfc.js";
+import {
+  flipperNfcFile,
+  isTagObject,
+  tagUri,
+  TAG_OBJECTS,
+  type TagObject,
+} from "./tags/flipper-nfc.js";
 import { pendingCsv } from "./tags/pending-csv.js";
 import {
   pushToFlipper,
@@ -694,15 +704,21 @@ export function buildServer(opts: BuildOptions = {}) {
     }
   });
 
+  /**
+   * `?object=card` writes a card tag (`curator:card:<id>`), `?object=demo` a demo tag
+   * (`curator:demo:<id>`, ADR 0058); anything else — including a typo — is the sleeve. Falling back
+   * rather than 400ing is deliberate and predates the demo kind: this URL is typed by hand and
+   * pasted into a browser, and the sleeve is the safe default. The `?object=` value is echoed in the
+   * filename, so a mistyped one is visible in the download rather than silently substituted.
+   */
   app.get("/api/albums/:curatorId/tag.nfc", async (req, reply) => {
     const { curatorId } = req.params as { curatorId: string };
-    // `?object=card` writes a card tag (curator:card:<id>); default is the sleeve (curator:album:<id>).
-    const object =
-      (req.query as { object?: string }).object === "card" ? "card" : "sleeve";
+    const requested = (req.query as { object?: string }).object;
+    const object: TagObject = isTagObject(requested) ? requested : "sleeve";
     if (!store.read(curatorId))
       return reply.code(404).send({ error: "not found" });
     const filename =
-      object === "card" ? `${curatorId}-card.nfc` : `${curatorId}.nfc`;
+      object === "sleeve" ? `${curatorId}.nfc` : `${curatorId}-${object}.nfc`;
     reply.header("content-disposition", `attachment; filename="${filename}"`);
     reply.type("application/octet-stream");
     return flipperNfcFile(curatorId, object);
@@ -718,16 +734,16 @@ export function buildServer(opts: BuildOptions = {}) {
    */
   app.get("/api/albums/:curatorId/tag-payload", async (req, reply) => {
     const { curatorId } = req.params as { curatorId: string };
-    const object =
-      (req.query as { object?: string }).object === "card" ? "card" : "sleeve";
+    const requested = (req.query as { object?: string }).object;
+    const object: TagObject = isTagObject(requested) ? requested : "sleeve";
     const asset = store.read(curatorId);
     if (!asset) return reply.code(404).send({ error: "not found" });
     // A sleeve keeps any payload already recorded on the asset, so a tag written before this route
-    // existed still round-trips; a card is always derived (ADR 0034).
+    // existed still round-trips; card and demo are always derived (ADR 0034 / ADR 0058).
     const payload =
-      object === "card"
-        ? curatorUri("card", curatorId)
-        : (asset.tag?.payload ?? curatorUri("album", curatorId));
+      object === "sleeve"
+        ? (asset.tag?.payload ?? curatorUri("album", curatorId))
+        : tagUri(curatorId, object);
     return {
       object,
       payload,
@@ -1640,19 +1656,78 @@ export function buildServer(opts: BuildOptions = {}) {
     }
   });
 
+  // --- The demo track (ADR 0058) ---
+
+  /**
+   * The album's tracklist, for the demo-track picker.
+   *
+   * **Always 200**, with an empty list and a `reason` for every way this can come back with nothing:
+   * no Spotify credentials, an album that isn't on Spotify at all (a manual or Discogs-only
+   * pressing), or Spotify being down. The picker renders the reason in place — a record with no
+   * tracklist is an ordinary state of this screen, not a failure of it, and a 4xx here would make
+   * the panel look broken for a manual album that is working exactly as designed.
+   *
+   * Not cached and not stored: see `DemoTrack` for why the choice lives on the asset and the list
+   * does not.
+   */
+  app.get("/api/albums/:curatorId/tracks", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const asset = store.read(curatorId);
+    if (!asset) return reply.code(404).send({ error: "not found" });
+    if (!spotify)
+      return {
+        tracks: [],
+        reason:
+          "Spotify isn't set up — add credentials in Settings to see this record's songs",
+      };
+    const spotifyId = parseAlbumId({ spotifyUri: asset.metadata.spotifyUri });
+    if (!spotifyId)
+      return {
+        tracks: [],
+        reason:
+          "This record isn't on Spotify, so there's no tracklist to choose from",
+      };
+    try {
+      return { tracks: await spotify.getAlbumTracks(spotifyId) };
+    } catch (err) {
+      return { tracks: [], reason: (err as Error).message };
+    }
+  });
+
+  /**
+   * Choose the track a demo tag plays — or clear it with `{ track: null }`, which returns the tag to
+   * card behaviour (the whole album from track 1) rather than making it silent.
+   *
+   * One route for set and clear because they are the same decision at two values, and a DELETE would
+   * imply the demo track is a resource that can be absent versus present; it is a field.
+   */
+  app.put("/api/albums/:curatorId/demo-track", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const { track } = (req.body ?? {}) as {
+      track?: actions.DemoTrackChoice | null;
+    };
+    try {
+      const asset = actions.setDemoTrack(actionDeps, curatorId, track ?? null);
+      return { demoTrack: asset.demoTrack ?? null };
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
+  });
+
   // --- Tag write / verify (step 11, curator-spec §7) ---
   // Record that a physical sticker was written. Writing the sleeve (scanned on the stand) advances
-  // awaiting_tag_write → awaiting_verify; the card is independent bookkeeping. Optional tagUid.
+  // awaiting_tag_write → awaiting_verify; the card and demo tags are independent bookkeeping.
+  // Optional tagUid.
   app.post("/api/albums/:curatorId/tag-written", async (req, reply) => {
     const { curatorId } = req.params as { curatorId: string };
     const { object, tagUid } = (req.body ?? {}) as {
-      object?: "sleeve" | "card";
+      object?: TagObject;
       tagUid?: string;
     };
-    if (object !== "sleeve" && object !== "card")
-      return reply
-        .code(400)
-        .send({ error: 'object must be "sleeve" or "card"' });
+    if (!isTagObject(object))
+      return reply.code(400).send({
+        error: `object must be one of ${TAG_OBJECTS.map((o) => `"${o}"`).join(", ")}`,
+      });
     try {
       const asset = actions.markTagWritten(
         actionDeps,

@@ -52,7 +52,7 @@ class Stop:
 
 @dataclass(frozen=True)
 class BadTag:
-    """A stable tag whose URI didn't parse to a ``curator:(album|card)`` URI — flag it (LED/log), don't fire."""
+    """A stable tag whose URI didn't parse to a ``curator:(album|card|demo)`` URI — flag it (LED/log), don't fire."""
 
     uid: str
 

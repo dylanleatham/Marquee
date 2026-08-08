@@ -57,6 +57,30 @@ export const NEED_TAB_LABEL: Record<Need, string> = {
 };
 
 /**
+ * The record page's tab strip is the four needs **plus** the demo cut (ADR 0058) — the first tab
+ * that is not a need.
+ *
+ * The distinction is load-bearing, not cosmetic. A `Need` is something every record must have before
+ * it goes on the shelf; the strip's heading says so, the tiles label the first outstanding one, and
+ * `outstandingNeeds` is what makes "any order" true by construction. A demo cut is a preference most
+ * records never express — counting it would put a permanent NEEDS DEMO CUT on 500 records that are
+ * finished. So it is a *section* here and never a `Need` anywhere, and the two types stay separate
+ * rather than one type with a flag.
+ */
+export type RecordSection = Need | "demo";
+
+export const SECTION_ORDER: RecordSection[] = [...NEED_ORDER, "demo"];
+
+export const SECTION_TAB_LABEL: Record<RecordSection, string> = {
+  ...NEED_TAB_LABEL,
+  demo: "A demo cut",
+};
+
+/** Is this section one of the four things a record can still need? */
+export const isNeedSection = (s: RecordSection): s is Need =>
+  NEED_ORDER.includes(s as Need);
+
+/**
  * Plain English for a failure. Raw codes are allowed in exactly one place in the app — the
  * per-service errors on the System screen, where `connect ECONNREFUSED` is the actionable text. A
  * record that failed gets a sentence that says what to do next.

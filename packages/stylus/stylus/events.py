@@ -12,13 +12,14 @@ from datetime import datetime, timezone
 from typing import Any
 
 # The URI written to a tag and keyed on downstream (scan-event.schema.json). `kind` is `album` for a
-# record sleeve or `card` for a streaming-only card (ADR 0034); Stylus forwards either unchanged —
-# Conductor/Backdrop treat them the same, and Amp acts on the difference.
-URI_RE = re.compile(r"^curator:(album|card):[a-z0-9]{8}$")
+# record sleeve, `card` for a streaming-only card (ADR 0034), or `demo` for a tag that plays the one
+# track chosen for the album (ADR 0058). Stylus forwards any of them unchanged — Conductor/Backdrop
+# treat them the same, and Amp is the only service that acts on the difference.
+URI_RE = re.compile(r"^curator:(album|card|demo):[a-z0-9]{8}$")
 
 
 def is_curator_uri(uri: str) -> bool:
-    """True if ``uri`` is a well-formed ``curator:(album|card):<id>`` scan URI."""
+    """True if ``uri`` is a well-formed ``curator:(album|card|demo):<id>`` scan URI."""
     return bool(URI_RE.match(uri))
 
 
