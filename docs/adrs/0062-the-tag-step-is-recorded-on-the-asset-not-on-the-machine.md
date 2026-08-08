@@ -1,4 +1,4 @@
-# ADR 0060 — The tag step is recorded on the asset, not on the machine
+# ADR 0062 — The tag step is recorded on the asset, not on the machine
 
 - **Status:** Accepted
 - **Date:** 2026-08-08

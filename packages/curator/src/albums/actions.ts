@@ -1376,7 +1376,7 @@ export function selectCardArt(
 /**
  * "Looks good" — approve the preview, advancing to awaiting_tag_write (curator-spec §10).
  *
- * If the tag step was already done out of order ([ADR 0060](../../../../docs/adrs/0060-the-tag-step-is-recorded-on-the-asset-not-on-the-machine.md)),
+ * If the tag step was already done out of order ([ADR 0062](../../../../docs/adrs/0062-the-tag-step-is-recorded-on-the-asset-not-on-the-machine.md)),
  * this is the last need landing, so it carries on to `verified` rather than parking the record one
  * step short of done forever. Whichever of the two came second settles the machine.
  */
@@ -1564,7 +1564,7 @@ export function markTagWritten(
  * sleeve does not leave the card claiming otherwise, and pressing it twice is a no-op rather than an
  * error — the panel keeps the button on screen after the check.
  *
- * **The record is on the asset, not in the machine** ([ADR 0060](../../../../docs/adrs/0060-the-tag-step-is-recorded-on-the-asset-not-on-the-machine.md)).
+ * **The record is on the asset, not in the machine** ([ADR 0062](../../../../docs/adrs/0062-the-tag-step-is-recorded-on-the-asset-not-on-the-machine.md)).
  * A sticker is a physical object: writing and checking it does not wait on a visualizer, so this
  * never throws for being early. It records the writes and `physicallyVerifiedAt` whatever the state,
  * and moves the machine only as far as the linear human path legally goes (`settleTagStep`).

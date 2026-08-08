@@ -402,7 +402,7 @@ time.
 > that button covers only the two stickers every record gets: claiming a demo tag was written when you
 > never made one is a lie on the one screen whose job is catching mis-written stickers. (Its own
 > `I'VE WRITTEN THIS ONE` was the demo tag's alone until 2026-08-08; all three carry one now — see
-> [ADR 0060](../adrs/0060-the-tag-step-is-recorded-on-the-asset-not-on-the-machine.md). What stays
+> [ADR 0062](../adrs/0062-the-tag-step-is-recorded-on-the-asset-not-on-the-machine.md). What stays
 > unique to it is being outside the one-press check.)
 
 Below a hairline, set apart on purpose: **THEN CHECK THEM**, and **one `TAGS VERIFIED` button
@@ -411,7 +411,7 @@ act at the Flipper; the _check_ — tapping each tag and confirming it opens the
 only part that is a decision, and it is where a mis-written sticker turns up. So verification stays
 its own visually separated step, and it is one press.
 
-> **Resolved 2026-08-08** ([ADR 0060](../adrs/0060-the-tag-step-is-recorded-on-the-asset-not-on-the-machine.md),
+> **Resolved 2026-08-08** ([ADR 0062](../adrs/0062-the-tag-step-is-recorded-on-the-asset-not-on-the-machine.md),
 > [#261](https://github.com/dylanleatham/Marquee/issues/261)). This paragraph used to say the gate was
 > shown rather than hidden: `TAGS VERIFIED` was disabled with its reason until the record reached the
 > tag step, and the tension between "any order" and a linear machine was "real and not resolved
@@ -422,7 +422,7 @@ its own visually separated step, and it is one press.
 > one reason left to withhold the press is `checked <when>`.
 
 **Every unwritten sticker carries its own `I'VE WRITTEN THIS ONE`** — the sleeve and the card as well
-as the demo tag (ADR 0060). `TAGS VERIFIED` is the _check_, and the check happens hours or days after
+as the demo tag (ADR 0062). `TAGS VERIFIED` is the _check_, and the check happens hours or days after
 the writing; a panel whose only control is the check has nothing to say the evening you burned the
 stickers. The visible wording is identical on all three, because you are answering the same question
 about the sticker beside it; the **accessible name** is where they differ (`I've written the sleeve`),
@@ -771,7 +771,7 @@ unreachable, which is a fault).
 Also on the page: what is playing (screen / lights / sound / **the stand**), jobs in flight with a
 count as well as a bar, and one **Sync everything** button.
 
-> **Amended 2026-08-08** ([ADR 0060](../adrs/0060-the-lights-are-stopped-from-the-system-page.md)).
+> **Amended 2026-08-08** ([ADR 0061](../adrs/0061-the-lights-are-stopped-from-the-system-page.md)).
 > This said "Read-only apart from that button — this is the page you open when something is wrong, so
 > it must never be the reason something is wrong." The reason stands; the rule was one notch too
 > tight. **The page writes to the runtime, never to the collection.** A stray click here must never
