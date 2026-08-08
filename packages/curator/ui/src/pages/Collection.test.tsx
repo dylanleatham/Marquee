@@ -89,13 +89,16 @@ const LIBRARY: AlbumSummary[] = [
   }),
 ];
 
+/** Roadie idle with an empty queue — these cases are about the grid, not the strip. */
+const IDLE = { current: null, queueDepth: 0, paused: false, activity: [] };
+
 const show = (
   albums: AlbumSummary[] | null = LIBRARY,
   error: string | null = null,
 ) =>
   render(
     <MemoryRouter initialEntries={["/"]}>
-      <Collection albums={albums} error={error} />
+      <Collection albums={albums} error={error} status={IDLE} />
     </MemoryRouter>,
   );
 
@@ -337,7 +340,7 @@ describe("Collection — the shuffle is stable within a visit", () => {
     const first = order();
     rerender(
       <MemoryRouter initialEntries={["/"]}>
-        <Collection albums={[...LIBRARY]} error={null} />
+        <Collection albums={[...LIBRARY]} error={null} status={IDLE} />
       </MemoryRouter>,
     );
     expect(order()).toEqual(first);

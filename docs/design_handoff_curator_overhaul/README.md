@@ -296,8 +296,13 @@ and a FIX IT button.
 **Roadie's log** — ~~a footer strip~~ a strip **docked to the bottom of the window**
 (**changed 2026-08-07**, [ADR 0055](../adrs/0055-roadies-log-is-docked-to-the-window-not-to-the-page.md):
 at the foot of the page you had to scroll the whole collection to reach it). Left:
-pulsing dot + "ROADIE'S LOG". Middle: the newest entry, time in mono, truncated with
-ellipsis. Right: a THE WHOLE LOG toggle. Expanded, it becomes a `#EAE5DA` panel of
+a dot + "ROADIE'S LOG" — the dot pulses **only while Roadie is busy**, where it once
+pulsed unconditionally. Middle: the newest entry, time in mono, truncated with
+ellipsis. Then **where Roadie stands**, in words (`IDLE · NOTHING QUEUED`,
+`WORKING · n QUEUED`, `PAUSED`) — **added 2026-08-08**,
+[ADR 0057](../adrs/0057-the-log-strip-says-where-roadie-stands-not-only-what-it-did.md):
+the sentence is history and goes still whether Roadie finished or died, so the strip
+has to say which. Right: a THE WHOLE LOG toggle. Expanded, it becomes a `#EAE5DA` panel of
 time-and-sentence rows, failures in accent, ending with "Cleared when Curator
 restarts." The panel opens **upward** from the dock and is bounded at `45vh`.
 **The log is session-only** — do not persist it. Failures live durably in the Stuck

@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { type AlbumSummary } from "../api";
+import { type AgentStatus, type AlbumSummary } from "../api";
 import { artworkSrc } from "../components/common";
 import {
   collectionCounts,
@@ -179,9 +179,13 @@ function StatCell({
 export function Collection({
   albums,
   error,
+  status,
 }: {
   albums: AlbumSummary[] | null;
   error: string | null;
+  /** Roadie's live standing, polled once in App and passed down — the strip says whether it is
+   * still working or genuinely done (ADR 0057). */
+  status: AgentStatus | null;
 }) {
   const [params, setParams] = useSearchParams();
   // Reshuffled per visit, not per render: React re-renders on every poll tick, and a grid that
@@ -381,7 +385,7 @@ export function Collection({
           </div>
         ))}
 
-      <RoadieLog />
+      <RoadieLog status={status} />
     </main>
   );
 }

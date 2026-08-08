@@ -9,7 +9,7 @@
 // lights from **Kind of Blue**" is this module's whole job, because ADR 0052 forbids showing a state
 // name or an id anywhere in the UI.
 import { useSyncExternalStore } from "react";
-import type { ActivityEntry, RoadieState } from "./api";
+import type { ActivityEntry, AgentStatus, RoadieState } from "./api";
 
 /**
  * One line of the log, already split around the album title so the component can bold it without
@@ -67,6 +67,45 @@ export function logSentence(
     default:
       return null;
   }
+}
+
+/**
+ * Where Roadie stands right now — the strip's own state, as distinct from what it has *done*.
+ *
+ * This exists because a finished Roadie and a wedged one looked identical. Roadie moves a record
+ * through in ~130ms, so a whole sync's transitions land in the same minute; the log renders at
+ * `HH:MM` and then simply stops changing. On a 499-record sync that read as "Roadie died halfway",
+ * and it sent us hunting for a stalled pipeline that had in fact finished (ADR 0056, ADR 0057).
+ *
+ * **The word is the signal, never the dot.** The dot stops pulsing when Roadie is idle, but a
+ * pulsing and a still dot are the same shape and nearly the same colour — this project's own user is
+ * colour-blind, and curator-ui-ux §3.4 makes the pairing a rule rather than a courtesy.
+ *
+ * Each label is literally true of the state it names: `IDLE · NOTHING QUEUED` claims only that
+ * Roadie's queue is empty, not that the *collection* is finished — 482 records can still want your
+ * eyes. Claiming "all caught up" here would repeat the mistake in the other direction.
+ */
+export interface RoadieStanding {
+  /** The mono word in the strip. */
+  label: string;
+  /** Roadie is actually doing something. Drives the pulse, and only the pulse. */
+  busy: boolean;
+}
+
+export function roadieStanding(
+  status: Pick<AgentStatus, "paused" | "current" | "queueDepth"> | null,
+): RoadieStanding {
+  // Before the first poll answers we know nothing, and "IDLE" would be a claim we can't make yet.
+  if (!status) return { label: "CHECKING…", busy: false };
+  if (status.paused) return { label: "PAUSED", busy: false };
+  if (!status.current && status.queueDepth === 0)
+    return { label: "IDLE · NOTHING QUEUED", busy: false };
+  return {
+    label: status.queueDepth
+      ? `WORKING · ${status.queueDepth} QUEUED`
+      : "WORKING",
+    busy: true,
+  };
 }
 
 /** Bounded: a long session must not grow this without limit, and nothing reads past the first few. */

@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { Link, Route, Routes, useLocation } from "react-router-dom";
 import { api } from "./api";
 import { usePoll } from "./hooks";
-import { recordActivity } from "./roadieLog";
+import { recordActivity, roadieStanding } from "./roadieLog";
 import { Collection } from "./pages/Collection";
 import { Record } from "./pages/Record";
 import { AddRecord } from "./pages/AddRecord";
@@ -54,9 +54,10 @@ export function App() {
     recordActivity(status.activity, (id) => byId.get(id) || null);
   }, [status, albums]);
 
-  const roadieWorking = Boolean(
-    status && !status.paused && (status.current || status.queueDepth > 0),
-  );
+  // One definition of "Roadie is working", shared with the log strip that reports it in words —
+  // the masthead dot and the strip disagreeing about whether Roadie is busy is exactly the kind of
+  // drift that made a finished Roadie look wedged in the first place (ADR 0057).
+  const roadieWorking = roadieStanding(status ?? null).busy;
 
   // Per-route boundary keyed on the path: a page that throws mid-render is contained to the body
   // (the masthead survives), and navigating elsewhere clears the error (issue #63).
@@ -71,7 +72,11 @@ export function App() {
               <Route
                 path="/"
                 element={
-                  <Collection albums={albums} error={albumsPoll.error} />
+                  <Collection
+                    albums={albums}
+                    error={albumsPoll.error}
+                    status={status ?? null}
+                  />
                 }
               />
               <Route path="/add" element={<AddRecord />} />
