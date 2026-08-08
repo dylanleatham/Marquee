@@ -153,7 +153,7 @@ describe("System — what is happening", () => {
   });
 });
 
-describe("System — stopping the lights (ADR 0060)", () => {
+describe("System — stopping the lights (ADR 0061)", () => {
   const stopButton = () =>
     screen.findByRole("button", { name: /STOP THE LIGHTS/ });
 

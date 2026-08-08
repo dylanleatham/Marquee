@@ -233,7 +233,7 @@ describe("onboarding workflow", () => {
    * regression: #261 — `TAGS VERIFIED` was gated on the linear machine, so on a record with no
    * visualizer (478 of 499 in the real collection) the whole panel was inert: the button 409'd, and
    * nothing else on it could record a written sticker. The stickers are physical objects; recording
-   * them was never a place in the machine ([ADR 0060](../../../docs/adrs/0060-the-tag-step-is-recorded-on-the-asset-not-on-the-machine.md)).
+   * them was never a place in the machine ([ADR 0062](../../../docs/adrs/0062-the-tag-step-is-recorded-on-the-asset-not-on-the-machine.md)).
    */
   it("records the tag step from awaiting_review, without moving the machine", async () => {
     const { app, store, curatorId } = await serverWithReviewedAlbum();

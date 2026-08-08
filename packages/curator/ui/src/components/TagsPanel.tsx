@@ -22,7 +22,7 @@ import type { Run } from "../run";
  * because a demo tag with no cut chosen behaves exactly like the shelf card, and a screen that
  * didn't say so would make that look like a bug.
  *
- * **Nothing here waits on the machine (ADR 0060, issue #261).** A sticker is a physical object, so
+ * **Nothing here waits on the machine (ADR 0062, issue #261).** A sticker is a physical object, so
  * every control on this panel is live from any state. The one button was gated on the record having
  * reached the tag step, which — with no per-sticker control on the sleeve or the card — left the
  * whole panel inert on 478 of 499 real records. Each unwritten sticker now records its own write
@@ -181,7 +181,7 @@ export function TagsPanel({
   const verifiedAt = asset.verification?.physicallyVerifiedAt;
 
   /**
-   * The one reason left to withhold the press: it has already been done (ADR 0060, issue #261).
+   * The one reason left to withhold the press: it has already been done (ADR 0062, issue #261).
    *
    * This used to be gated on the machine reaching the tag step, which put the panel's every control
    * behind three unrelated needs — on the real collection, 478 of 499 records could not record a

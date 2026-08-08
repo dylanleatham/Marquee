@@ -132,7 +132,7 @@ Two important properties:
 - **Roadie's own progress states (fetching_metadata, downloading_art, etc.) are fine-grained.** This is deliberate — when Roadie crashes or the process restarts, it should be able to resume from the last completed sub-step, not restart from `fresh`. Each sub-step is idempotent.
 
 > **The human-driven line is not the whole record of human work (2026-08-08,
-> [ADR 0060](../adrs/0060-the-tag-step-is-recorded-on-the-asset-not-on-the-machine.md)).** The record
+> [ADR 0062](../adrs/0062-the-tag-step-is-recorded-on-the-asset-not-on-the-machine.md)).** The record
 > page presents four needs done in any order, and the tag step is now recorded on the asset —
 > `tag.*.written` and `verification.physicallyVerifiedAt` — whatever state the album is in. The
 > transitions above are unchanged: no new edges, and nothing skips a state. What changed is that

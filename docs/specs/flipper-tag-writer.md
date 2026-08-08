@@ -188,6 +188,6 @@ Anything picking this up on a different firmware should re-check the first three
       of a written tag against a runtime that has the album. Everything up to the tag being written
       and read back correctly is verified; the last link is the runbook's "Read/verify" step plus a
       real scan. (Reaching `awaiting_tag_write` first is **no longer** a precondition —
-      [ADR 0060](../adrs/0060-the-tag-step-is-recorded-on-the-asset-not-on-the-machine.md) untied
+      [ADR 0062](../adrs/0062-the-tag-step-is-recorded-on-the-asset-not-on-the-machine.md) untied
       recording a tag from the state machine, and `tags-verified` pushes the album to the runtime on
       the way through.)

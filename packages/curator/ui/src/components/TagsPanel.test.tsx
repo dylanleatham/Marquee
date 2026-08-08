@@ -179,7 +179,7 @@ describe("TagsPanel — the check", () => {
     // regression: #261 — this was gated on the linear machine, so on a record with no visualizer
     // (478 of 499 in the real collection) the button was dead and nothing else on the panel could
     // record a written sticker. A sticker is a physical object; writing and checking it does not
-    // wait on a visualizer (ADR 0060).
+    // wait on a visualizer (ADR 0062).
     show(asset("awaiting_review"));
     const btn = screen.getByRole("button", { name: "TAGS VERIFIED" });
     expect((btn as HTMLButtonElement).disabled).toBe(false);

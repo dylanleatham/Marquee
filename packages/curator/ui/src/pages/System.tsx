@@ -24,7 +24,7 @@ import {
  * text for a service that won't answer, and paraphrasing it would take away the thing you need to
  * paste into a search.
  *
- * The page was read-only apart from Sync everything until 2026-08-08. **Stop the lights** (ADR 0060)
+ * The page was read-only apart from Sync everything until 2026-08-08. **Stop the lights** (ADR 0061)
  * is the second write, and it is here because this is the screen that tells you they are on.
  */
 

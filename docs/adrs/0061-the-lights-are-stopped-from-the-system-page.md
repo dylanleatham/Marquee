@@ -1,4 +1,4 @@
-# ADR 0060 — The lights are stopped from the System page, which is no longer read-only
+# ADR 0061 — The lights are stopped from the System page, which is no longer read-only
 
 Status: accepted · Date: 2026-08-08 · Amends:
 [curator-ui-ux.md](../specs/curator-ui-ux.md) (§8.5 said the page was read-only apart from **Sync
