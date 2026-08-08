@@ -1661,6 +1661,33 @@ export function buildServer(opts: BuildOptions = {}) {
     }
   });
 
+  /**
+   * **Name this album on Spotify by hand** (ADR 0059) — the escape hatch behind the "add the album's
+   * Spotify URI" the picker suggests, for the two cases the matcher can't serve: it found nothing,
+   * or it found something it deliberately won't play from.
+   *
+   * Accepts the `spotify:album:…` URI *or* an `open.spotify.com/album/…` share link, because the
+   * share button is where anyone actually gets this. `{ spotifyUri: null }` clears it, which also
+   * clears the demo cut — that named a track on an album we just disowned.
+   */
+  app.put("/api/albums/:curatorId/spotify-uri", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const { spotifyUri } = (req.body ?? {}) as { spotifyUri?: string | null };
+    try {
+      const asset = actions.setSpotifyUri(
+        actionDeps,
+        curatorId,
+        spotifyUri ?? null,
+      );
+      return {
+        spotifyUri: asset.metadata.spotifyUri ?? null,
+        demoTrack: asset.demoTrack ?? null,
+      };
+    } catch (err) {
+      return actionError(err, reply, req);
+    }
+  });
+
   // --- The demo track (ADR 0058) ---
 
   /**

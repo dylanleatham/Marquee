@@ -20,7 +20,7 @@
         "source": { "enum": ["spotify", "manual", "discogs"] },
         "spotifyUri": {
           "type": "string",
-          "description": "Presence means trusted enough to play — a Discogs album only gets one on an `exact` match (ADR 0059)."
+          "description": "Presence means trusted enough to play. Set three ways (ADR 0059): a Spotify add, an `exact` Discogs→Spotify match, or a human naming the album by hand via PUT /api/albums/:id/spotify-uri. A `close` match never sets it."
         },
         "spotifyArtUrl": { "type": "string" },
         "spotifyMatch": {

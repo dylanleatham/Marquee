@@ -7,11 +7,15 @@ import {
   fireEvent,
   waitFor,
 } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 
 vi.mock("../api", () => ({
   api: {
     tracks: vi.fn(),
     setDemoTrack: vi.fn().mockResolvedValue({ demoTrack: null }),
+    setSpotifyUri: vi
+      .fn()
+      .mockResolvedValue({ spotifyUri: null, demoTrack: null }),
   },
 }));
 
@@ -58,13 +62,15 @@ const asset = (demoTrack?: DemoTrack | null): AlbumAsset =>
 
 const show = (a: AlbumAsset = asset()) =>
   render(
-    <DemoPanel
-      curatorId="abc12345"
-      asset={a}
-      run={async (fn) => {
-        await fn();
-      }}
-    />,
+    <MemoryRouter>
+      <DemoPanel
+        curatorId="abc12345"
+        asset={a}
+        run={async (fn) => {
+          await fn();
+        }}
+      />
+    </MemoryRouter>,
   );
 
 beforeEach(() => {
@@ -193,5 +199,70 @@ describe("DemoPanel — choosing", () => {
     expect(screen.queryByRole("button", { name: /play|preview|listen/i })).toBe(
       null,
     );
+  });
+});
+
+/**
+ * The escape hatch (ADR 0059). Before this the panel told you to "add the album's Spotify URI" and
+ * gave you nowhere to add it — the copy described a feature that had been explicitly deferred.
+ */
+describe("DemoPanel — naming the album by hand", () => {
+  const noTracklist = async () => {
+    vi.mocked(api.tracks).mockResolvedValue({
+      tracks: [],
+      reason: "Curator hasn't matched this to a Spotify album yet",
+    });
+    show();
+    await waitFor(() =>
+      expect(screen.getByText(/hasn't matched/)).toBeTruthy(),
+    );
+  };
+
+  it("offers somewhere to paste, right beside the explanation", async () => {
+    await noTracklist();
+    expect(screen.getByLabelText(/Paste this record on Spotify/i)).toBeTruthy();
+  });
+
+  it("saves what was pasted", async () => {
+    await noTracklist();
+    fireEvent.change(screen.getByLabelText(/Paste this record on Spotify/i), {
+      target: { value: "https://open.spotify.com/album/abc123?si=x" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /USE THIS ALBUM/i }));
+
+    await waitFor(() =>
+      expect(api.setSpotifyUri).toHaveBeenCalledWith(
+        "abc12345",
+        "https://open.spotify.com/album/abc123?si=x",
+      ),
+    );
+  });
+
+  it("won't submit an empty box", async () => {
+    await noTracklist();
+    expect(
+      (
+        screen.getByRole("button", {
+          name: /USE THIS ALBUM/i,
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+  });
+
+  /** The sweep is the answer for hundreds of records; offering it here as a button invites using it
+      to fix one, so it is a link to where it lives. */
+  it("points at the library-wide sweep as a link, not a button", async () => {
+    await noTracklist();
+    expect(
+      screen
+        .getByRole("link", { name: /Settings → Library/i })
+        .getAttribute("href"),
+    ).toBe("/settings");
+  });
+
+  it("doesn't clutter the panel when there is a tracklist", async () => {
+    show();
+    await waitFor(() => expect(screen.getByText("Playa Playa")).toBeTruthy());
+    expect(screen.queryByLabelText(/Paste this record on Spotify/i)).toBeNull();
   });
 });

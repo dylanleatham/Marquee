@@ -327,3 +327,105 @@ describe("PUT /api/albums/:curatorId/demo-track", () => {
     ).not.toThrow();
   });
 });
+
+/**
+ * Naming an album on Spotify by hand (ADR 0059) — the escape hatch the picker's copy promised
+ * before it existed. Two cases it serves: the matcher found nothing, and the matcher found something
+ * it deliberately won't play from.
+ */
+describe("PUT /api/albums/:curatorId/spotify-uri", () => {
+  let s: AssetStore;
+  const app = () =>
+    buildServer({ store: s, roadie: fakeRoadie(s), prober: fakeProber() }).app;
+
+  beforeEach(() => {
+    s = store();
+    const asset = makeAsset(ID);
+    asset.metadata.source = "discogs";
+    s.save(asset);
+  });
+
+  const put = (spotifyUri: unknown) =>
+    app().inject({
+      method: "PUT",
+      url: `/api/albums/${ID}/spotify-uri`,
+      payload: { spotifyUri },
+    });
+
+  it("accepts the curator-scheme URI", async () => {
+    const res = await put(`spotify:album:${SPOTIFY_ID}`);
+    expect(res.statusCode).toBe(200);
+    expect(s.read(ID)!.metadata.spotifyUri).toBe(`spotify:album:${SPOTIFY_ID}`);
+  });
+
+  /**
+   * The share button gives a URL, not a URI. Refusing it would mean documenting a conversion that
+   * nobody should have to perform to name an album they are looking at.
+   */
+  it("accepts an open.spotify.com share link, tracking parameters and all", async () => {
+    const res = await put(
+      `https://open.spotify.com/album/${SPOTIFY_ID}?si=abc123&nd=1`,
+    );
+    expect(res.statusCode).toBe(200);
+    expect(s.read(ID)!.metadata.spotifyUri).toBe(`spotify:album:${SPOTIFY_ID}`);
+  });
+
+  it("accepts a localised share link", async () => {
+    await put(`https://open.spotify.com/intl-de/album/${SPOTIFY_ID}`);
+    expect(s.read(ID)!.metadata.spotifyUri).toBe(`spotify:album:${SPOTIFY_ID}`);
+  });
+
+  /** A hand-entered URI is a fact, so the record of a guess beside it would only confuse the UI. */
+  it("drops the recorded match — a human's answer replaces the guess", async () => {
+    s.update(ID, (a) => {
+      a.metadata.spotifyMatch = {
+        confidence: "close",
+        name: "Something Else",
+        artist: "Someone Else",
+        matchedAt: "2026-08-08T00:00:00.000Z",
+      };
+    });
+    await put(`spotify:album:${SPOTIFY_ID}`);
+    expect(s.read(ID)!.metadata.spotifyMatch).toBeUndefined();
+  });
+
+  /** Clearing disowns the album, so a demo cut naming one of its tracks can't be trusted either. */
+  it("clearing removes the URI and the demo cut with it", async () => {
+    await put(`spotify:album:${SPOTIFY_ID}`);
+    s.update(ID, (a) => {
+      a.demoTrack = {
+        spotifyUri: "spotify:track:t1",
+        name: "A Song",
+        chosenAt: "2026-08-08T00:00:00.000Z",
+      };
+    });
+
+    const res = await put(null);
+    expect(res.statusCode).toBe(200);
+    expect(s.read(ID)!.metadata.spotifyUri).toBeUndefined();
+    expect(s.read(ID)!.demoTrack).toBeNull();
+  });
+
+  it("refuses anything that isn't a Spotify album, and says what it wants", async () => {
+    for (const bad of [
+      "not a link",
+      "https://open.spotify.com/track/abc123", // a track, not an album
+      "spotify:track:abc123",
+      "https://music.apple.com/album/123",
+    ]) {
+      const res = await put(bad);
+      expect(res.statusCode, bad).toBe(400);
+      expect(res.json().error).toMatch(/spotify:album/);
+    }
+    expect(s.read(ID)!.metadata.spotifyUri).toBeUndefined();
+  });
+
+  it("404s an unknown album", async () => {
+    const res = await app().inject({
+      method: "PUT",
+      url: "/api/albums/zzzzzzzz/spotify-uri",
+      payload: { spotifyUri: `spotify:album:${SPOTIFY_ID}` },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});
