@@ -5,6 +5,8 @@ import { join } from "node:path";
 import {
   albumUri,
   tagUri,
+  isTagObject,
+  TAG_OBJECTS,
   ndefUriTlv,
   ntag213Pages,
   flipperNfcFile,
@@ -51,20 +53,38 @@ describe("albumUri", () => {
   });
 });
 
-describe("tagUri — sleeve vs card (ADR 0034)", () => {
+describe("tagUri — sleeve vs card vs demo (ADR 0034, ADR 0058)", () => {
   it("builds the right URI per physical object", () => {
     expect(tagUri(ID)).toBe(`curator:album:${ID}`); // default = sleeve
     expect(tagUri(ID, "sleeve")).toBe(`curator:album:${ID}`);
     expect(tagUri(ID, "card")).toBe(`curator:card:${ID}`);
+    expect(tagUri(ID, "demo")).toBe(`curator:demo:${ID}`);
   });
-  it("validates the curatorId for either object", () => {
-    expect(() => tagUri("BAD", "card")).toThrow();
+  it("validates the curatorId for every object", () => {
+    for (const object of TAG_OBJECTS)
+      expect(() => tagUri("BAD", object)).toThrow();
     expect(() => tagUri("../etc")).toThrow();
   });
-  it("a card tag's pages round-trip back to the curator:card URI", () => {
-    const pages = ntag213Pages(tagUri(ID, "card"));
-    const user = Buffer.from(pages.slice(4, 40).flat());
-    expect(decodeUri(user)).toBe(`curator:card:${ID}`);
+
+  /**
+   * Writing the wrong URI onto a sticker is a *silent* failure — the tag writes fine and simply does
+   * the wrong thing in the room — so every object's bytes are round-tripped through the same decode
+   * Stylus performs, enumerated so a fourth object cannot be added without landing here.
+   */
+  it.each([...TAG_OBJECTS])(
+    "a %s tag's pages round-trip to its own URI",
+    (object) => {
+      const pages = ntag213Pages(tagUri(ID, object));
+      const user = Buffer.from(pages.slice(4, 40).flat());
+      expect(decodeUri(user)).toBe(tagUri(ID, object));
+    },
+  );
+
+  it("recognises exactly the three objects, and nothing else", () => {
+    expect(TAG_OBJECTS).toEqual(["sleeve", "card", "demo"]);
+    expect(isTagObject("demo")).toBe(true);
+    expect(isTagObject("nonsense")).toBe(false);
+    expect(isTagObject(undefined)).toBe(false);
   });
 });
 
@@ -166,6 +186,34 @@ describe("tag routes (issue #67)", () => {
     expect(res.headers["content-disposition"]).toContain(`${ID}-card.nfc`);
     // card URI is one byte shorter than the album's, so the TLV length is 0x1A not 0x1B.
     expect(res.body).toContain("Page 4: 03 1A D1 01");
+  });
+
+  it("GET /api/albums/:id/tag.nfc?object=demo downloads the demo .nfc (ADR 0058)", async () => {
+    const { app, store } = server();
+    store.save(makeAsset(ID, "Purple Rain", "Prince"));
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/albums/${ID}/tag.nfc?object=demo`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-disposition"]).toContain(`${ID}-demo.nfc`);
+    // `curator:demo:` is the same length as `curator:card:`, so the TLV length is 0x1A too.
+    expect(res.body).toContain("Page 4: 03 1A D1 01");
+    // The bytes on the sticker say `demo`, not `card` — the whole point of a distinct kind.
+    expect(flipperNfcFile(ID, "demo")).toBe(res.body);
+    expect(res.body).not.toBe(flipperNfcFile(ID, "card"));
+  });
+
+  it("falls back to the sleeve for an unrecognised ?object=", async () => {
+    const { app, store } = server();
+    store.save(makeAsset(ID, "Purple Rain", "Prince"));
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/albums/${ID}/tag.nfc?object=nonsense`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-disposition"]).toContain(`${ID}.nfc`);
+    expect(res.body).toBe(flipperNfcFile(ID, "sleeve"));
   });
 
   it("404s the .nfc for an unknown album", async () => {

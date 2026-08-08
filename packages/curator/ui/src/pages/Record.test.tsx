@@ -23,6 +23,8 @@ vi.mock("../api", () => ({
     feelingPalette: vi.fn().mockResolvedValue({}),
     albumJobs: vi.fn().mockResolvedValue({ jobs: [] }),
     tagPayload: vi.fn().mockResolvedValue({ payload: "", qrDataUrl: "" }),
+    tracks: vi.fn().mockResolvedValue({ tracks: [] }),
+    setDemoTrack: vi.fn().mockResolvedValue({ demoTrack: null }),
   },
   artworkUrl: (id: string) => `/api/albums/${id}/artwork`,
   videoUrl: (id: string) => `/api/albums/${id}/video`,
@@ -33,6 +35,8 @@ vi.mock("../api", () => ({
   videoClipThumbnailUrl: (id: string, i: number) => `/vt/${id}/${i}`,
   videoClipDownloadUrl: (id: string, i: number) => `/vd/${id}/${i}`,
   thumbnailUrl: (id: string) => `/t/${id}`,
+  tagNfcUrl: (id: string, object: string) =>
+    `/api/albums/${id}/tag.nfc?object=${object}`,
   activePromptText: () => "",
   ApiError: class extends Error {},
 }));
@@ -203,6 +207,33 @@ describe("Record — the needs tabs", () => {
     expect(lights.textContent).toContain("still needed");
   });
 
+  /**
+   * The demo cut (ADR 0058) is the first tab that is not a need. It must be reachable like the rest
+   * and must **not** wear a need's marking — a hollow glyph or "still needed" there would put a
+   * permanent outstanding item on every finished record, which is the ADR 0056 misreading again.
+   */
+  it("offers the demo cut as a fifth tab, marked as optional rather than outstanding", async () => {
+    show();
+    await loaded();
+    const demo = screen.getByRole("button", { name: /A demo cut/ });
+
+    expect((demo as HTMLButtonElement).disabled).toBe(false);
+    expect(demo.textContent).not.toContain("○");
+    expect(demo.textContent).not.toContain("still needed");
+    expect(demo.textContent).toContain("optional");
+  });
+
+  it("opens the demo cut's panel", async () => {
+    show("/albums/2k7bxq9m/demo");
+    await loaded();
+    expect(
+      screen
+        .getByRole("button", { name: /A demo cut/ })
+        .getAttribute("aria-current"),
+    ).toBe("page");
+    expect(screen.getByText("THE DEMO CUT")).toBeTruthy();
+  });
+
   it("swaps the panel without leaving the page", async () => {
     show();
     await loaded();
@@ -218,7 +249,7 @@ describe("Record — the needs tabs", () => {
     expect(screen.getByRole("heading", { name: "Purple Rain" })).toBeTruthy();
   });
 
-  it("falls back to Lights for a segment that isn't a need", async () => {
+  it("falls back to Lights for a segment that names no section", async () => {
     show("/albums/2k7bxq9m/banana");
     await loaded();
     expect(

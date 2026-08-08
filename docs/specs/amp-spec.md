@@ -1,7 +1,7 @@
 # Amp — Technical Spec
 
-_Plays a card-scanned album's audio over the house Sonos. The audio leg of the fan-out, alongside
-Conductor (lights) and Backdrop (video)._
+_Plays a card- or demo-scanned album's audio over the house Sonos. The audio leg of the fan-out,
+alongside Conductor (lights) and Backdrop (video)._
 
 > **Status (2026-07-24): core built + tested; real Sonos driver pending LAN verification.** Decision
 > in [ADR 0034](../adrs/0034-amp-sonos-playback-and-card-uri.md); viability proven by the spikes under
@@ -13,11 +13,19 @@ Conductor (lights) and Backdrop (video)._
 > forwarding `card` URIs. **Milestone 5** — the real `SvrooijSonosDriver` — is written behind the
 > port but can't run in CI (no Sonos); verify it on the LAN with `POST /api/admin/play`. Research:
 > [sonos-spotify-playback.md](../research/sonos-spotify-playback.md).
+>
+> **Amended 2026-08-08 ([ADR 0058](../adrs/0058-a-demo-tag-plays-one-chosen-track.md)):** a **third**
+> kind, `curator:demo:<id>`, plays the album's one chosen track (`asset.demoTrack`) instead of the
+> whole record, falling back to the album when nothing has been chosen. Amp's shape is unchanged — one
+> more branch on `parsed.kind` and one more field read off the synced asset — but it is the first time
+> Amp hands Sonos a `spotify:track:` URI, which surfaced a real `patchContainerUri` bug (§10). The
+> milestone list in §14 is the original build's record and is left as history; the sections above it
+> describe today.
 
 ## 1. Purpose
 
-A local, headless service that, when a **card** is placed on the stand, plays that album from Spotify
-over the household Sonos speakers — so albums you don't own on vinyl still get the full Marquee
+A local, headless service that, when a **card** or a **demo tag** is placed on the stand, plays that
+album (or its one chosen track) from Spotify over the household Sonos speakers — so albums you don't own on vinyl still get the full Marquee
 treatment (lights + video + now audio). When a **sleeve** is placed, Amp stays silent: you have the
 record, you drop the needle. Amp knows how to talk to Sonos; it knows nothing about lights or video.
 
@@ -33,10 +41,12 @@ streaming-only records.
 ### In scope
 
 - `POST /api/scan` accepting the shared `ScanEvent` (same shape Conductor/Backdrop accept)
-- Gating on URI kind: play for `curator:card:<id>`, ignore `curator:album:<id>`
-- Resolving a card's `curator:card:<id>` → the album's `metadata.spotifyUri` via the synced
-  album-assets store
-- Playing / stopping a `spotify:album:<id>` on a configured Sonos target via local UPnP
+- Gating on URI kind: play for `curator:card:<id>` and `curator:demo:<id>`, ignore `curator:album:<id>`
+- Resolving a card's `curator:card:<id>` → the album's `metadata.spotifyUri`, and a demo tag's
+  `curator:demo:<id>` → the album's chosen `demoTrack.spotifyUri`
+  ([ADR 0058](../adrs/0058-a-demo-tag-plays-one-chosen-track.md)), both via the synced album-assets store
+- Playing / stopping a `spotify:album:<id>` **or `spotify:track:<id>`** on a configured Sonos target
+  via local UPnP
 - Deriving the household's Spotify binding (`sid`/`sn`/`cdudn` token) from a Sonos favorite
 - Graceful degradation (202 "ignored") for anything it can't act on
 - The 90-minute idle-timeout safety net for lost `stop` events
@@ -156,20 +166,26 @@ next to Conductor 4737 and Backdrop 4740).
 
 ## 9. Scan handling (the exact flow)
 
-Mirrors Conductor's `/api/scan` (ADR 0019), with the card gate added:
+Mirrors Conductor's `/api/scan` (ADR 0019), with the kind gate added:
 
 1. `parseScan(body)` → `400` if malformed (reuse the Conductor/Backdrop parser shape).
 2. **stop** → `driver.stop(target)`; `202 { action:"stopped" }` (or `{ action:"ignored", reason:"no target" }`).
 3. **start** → `parseCuratorUri(scan.uri)`:
-   - not `curator:(album|card):<id>` → **`400`** (malformed URI — even when no target configured).
+   - not `curator:(album|card|demo):<id>` → **`400`** (malformed URI — even when no target configured).
    - `kind === "album"` → **`202 { action:"ignored", reason:"sleeve — vinyl plays" }`.** (The whole
      point: sleeves don't stream.)
-   - `kind === "card"`:
+   - `kind === "card"` or `"demo"` — identical but for _what_ is handed to Sonos:
      - no target configured → `202 { action:"ignored", reason:"no target" }`.
      - `assets.read(curatorId)` is `null` (not synced) → `202 { reason:"album not synced" }`.
-     - `metadata.spotifyUri` absent → `202 { reason:"album not on spotify" }`.
+     - **what plays**: `card` → `metadata.spotifyUri`. `demo` → `demoTrack.spotifyUri` if the album
+       has a chosen track, **else `metadata.spotifyUri`** — a demo tag with no choice plays the whole
+       album exactly as a card does, and logs that it fell back
+       ([ADR 0058](../adrs/0058-a-demo-tag-plays-one-chosen-track.md) §3: a silent tag is
+       indistinguishable from a mis-written one).
+     - neither present → `202 { reason:"album not on spotify" }`.
      - Spotify binding not derivable (no favorite / Sonos unreachable) → `202 { reason:"no sonos binding" }`.
-     - else `driver.play(target, spotifyUri)` → `202 { action:"playing", curatorId, spotifyUri }`.
+     - else `driver.play(target, uri)` → `202 { action:"playing", curatorId, spotifyUri }`, and for a
+       demo scan also `demoTrack: <uri> | null` so a caller can tell a real choice from the fallback.
 
 **Every "can't act" case is a logged `202`, never an error** — a hardware scan must not error-storm an
 always-on service (runtime-overview §9). Only a malformed body/URI is a 4xx.
@@ -188,7 +204,11 @@ Distilled from the working spike (`spikes/sonos-spotify/play-album.js`):
   wrong for a real account).
 - **Enqueue.** Let `@svrooij/sonos` build the container URI + metadata (its serialization is
   UPnP-valid), then patch in the derived `sid`/`sn`; region for the metadata token comes from the
-  derived token itself. Sequence: `RemoveAllTracksFromQueue` → `AddURIToQueue` → `SwitchToQueue` →
+  derived token itself. **The patch must handle both separator spellings**: the library emits an
+  album container with bare `&`, but a **track** URI with `&amp;` already escaped
+  (`x-sonos-spotify:…?sid=9&amp;flags=8224&amp;sn=7`). Matching only `[?&]` left the hardcoded `sn=7`
+  in place on exactly that shape — a UPnP 800 on a live account, and unreachable until demo tags made
+  Amp play tracks ([ADR 0058](../adrs/0058-a-demo-tag-plays-one-chosen-track.md)). Sequence: `RemoveAllTracksFromQueue` → `AddURIToQueue` → `SwitchToQueue` →
   `Play`. (Hand-rolled metadata tripped UPnP 402 in the spike — use the library's.)
 - **Bounded everything.** Discovery and each SOAP call get a timeout — Amp is always-on and a hung
   Sonos call must not wedge the event loop (CLAUDE.md "bound your fetch/spawn/loops").

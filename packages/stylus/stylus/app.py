@@ -80,7 +80,9 @@ class StylusApp:
         elif isinstance(action, Stop):
             self._publish(stop_event(self._reader_id, at=self._now()))
         elif isinstance(action, BadTag):
-            log.warning("tag %s carried no valid curator:(album|card) URI — ignoring", action.uid)
+            log.warning(
+                "tag %s carried no valid curator:(album|card|demo) URI — ignoring", action.uid
+            )
             # Kept after the sleeve is lifted, so "I took it off before I thought to look" still has
             # an answer. `observed` goes null the moment the reader sees nothing; this does not.
             self._last_bad_tag = {

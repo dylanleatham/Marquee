@@ -28,6 +28,7 @@ import {
   type VideoClip,
 } from "./asset.js";
 import { ValidationError, type PaletteGenerator } from "./add-manual.js";
+import type { TagObject } from "../tags/flipper-nfc.js";
 import {
   selectDefaultPattern,
   type PaletteColor,
@@ -1404,19 +1405,69 @@ export function rejectPreview(
   return asset;
 }
 
+// --- the demo track (ADR 0058) -----------------------------------------------------------------
+
+/** What the picker sends: the track's identity, without the bookkeeping the store adds. */
+export interface DemoTrackChoice {
+  spotifyUri: string;
+  name: string;
+  trackNumber?: number;
+  durationMs?: number;
+}
+
+/**
+ * Choose (or clear, with `null`) the track a demo tag plays for this album (ADR 0058).
+ *
+ * Gated on nothing: a demo track is a preference, not a step, so unlike the tag transitions this
+ * works in any roadie state. Written through `store.update` rather than load-mutate-save because
+ * this can land while Roadie is mid-pipeline on the same album — the read-before-save is what stops
+ * the two clobbering each other.
+ *
+ * The URI must be a `spotify:track:` — the one field Amp actually hands Sonos. A `spotify:album:`
+ * here would be accepted by Sonos and quietly play the whole record, which is precisely the bug
+ * this feature exists to fix, so it is rejected at the boundary instead.
+ */
+export function setDemoTrack(
+  deps: ActionDeps,
+  curatorId: string,
+  choice: DemoTrackChoice | null,
+): AlbumAsset {
+  if (choice) {
+    if (!/^spotify:track:[A-Za-z0-9]+$/.test(choice.spotifyUri))
+      throw new ValidationError(
+        `not a Spotify track URI: ${JSON.stringify(choice.spotifyUri)}`,
+      );
+    if (!choice.name?.trim()) throw new ValidationError("track name is empty");
+  }
+  const at = clock(deps)();
+  const asset = deps.store.update(curatorId, (a) => {
+    a.demoTrack = choice
+      ? {
+          spotifyUri: choice.spotifyUri,
+          name: choice.name.trim(),
+          ...(choice.trackNumber ? { trackNumber: choice.trackNumber } : {}),
+          ...(choice.durationMs ? { durationMs: choice.durationMs } : {}),
+          chosenAt: at,
+        }
+      : null;
+  });
+  if (!asset) throw new NotFoundError(`no such album: ${curatorId}`);
+  return asset;
+}
+
 // --- tag write / verify (step 11, curator-spec §7) ---------------------------------------------
 
 /**
- * Record that a physical sticker was written for this album (curator-spec §7). Sleeve and card are
- * tracked separately, since one may be written without the other. Writing the **sleeve** — the object
- * scanned on the stand — advances `awaiting_tag_write → awaiting_verify`; the card is independent
- * bookkeeping (it may be printed and tagged later) and never gates the transition. The physical act
- * (actually writing the NTAG) is manual; this is the Curator-side record.
+ * Record that a physical sticker was written for this album (curator-spec §7). Each object is
+ * tracked separately, since one may be written without the others. Writing the **sleeve** — the
+ * object scanned on the stand — advances `awaiting_tag_write → awaiting_verify`; the card and the
+ * demo tag are independent bookkeeping (either may be made weeks later, or never) and never gate the
+ * transition. The physical act (actually writing the NTAG) is manual; this is the Curator-side record.
  */
 export function markTagWritten(
   deps: ActionDeps,
   curatorId: string,
-  object: "sleeve" | "card",
+  object: TagObject,
   tagUid?: string,
 ): AlbumAsset {
   const asset = load(deps.store, curatorId);

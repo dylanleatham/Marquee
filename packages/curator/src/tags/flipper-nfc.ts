@@ -1,20 +1,42 @@
-// Generate Flipper Zero-writable NTAG213 tags for an album's `curator:album:<id>` URI (issue #67,
+// Generate Flipper Zero-writable NTAG213 tags for an album's `curator:<kind>:<id>` URI (issue #67,
 // "Route A"). The invariant, rigorously-tested core is the NDEF/NTAG **byte layout** — an NDEF
 // well-known URI record, wrapped in the NTAG NDEF-message TLV, laid into the tag's pages — which is
 // exactly the format Stylus's reader parses (`packages/stylus/stylus/ndef.py`). The `.nfc` file
 // wrapper on top is a thin, isolated layer targeting a recent Flipper firmware schema; the page data
 // it carries is the tested part.
 import { Buffer } from "node:buffer";
-import { curatorUri } from "@marquee/contracts";
+import { curatorUri, type CuratorUriKind } from "@marquee/contracts";
 import { isCuratorId } from "../ids.js";
 
-/** The physical object a tag is stuck to: a record `sleeve` or a printed `card` (ADR 0034). */
-export type TagObject = "sleeve" | "card";
+/**
+ * The physical object a tag is stuck to: a record `sleeve` (ADR 0034), a printed `card` (ADR 0034),
+ * or a `demo` tag that plays the album's one chosen track (ADR 0058).
+ */
+export type TagObject = "sleeve" | "card" | "demo";
+
+/** The objects as a runtime list — every route and panel that must cover them all enumerates this. */
+export const TAG_OBJECTS: readonly TagObject[] = ["sleeve", "card", "demo"];
+
+/** Is this an object Curator can author a tag for? The one validator every tag route shares. */
+export function isTagObject(value: unknown): value is TagObject {
+  return TAG_OBJECTS.includes(value as TagObject);
+}
+
+/**
+ * The scan-URI kind each physical object carries. Only the sleeve's differs from its own name —
+ * `sleeve` is the human word for the object, `album` the kind on the wire.
+ */
+const KIND_FOR: Record<TagObject, CuratorUriKind> = {
+  sleeve: "album",
+  card: "card",
+  demo: "demo",
+};
 
 /**
  * The URI written to a tag for a given object. A **sleeve** carries `curator:album:<id>` (you drop the
- * needle on the vinyl); a **card** carries `curator:card:<id>` (Amp streams it over Sonos). Both name
- * the same album — only the kind differs, and only Amp acts on it.
+ * needle on the vinyl); a **card** carries `curator:card:<id>` (Amp streams the album over Sonos); a
+ * **demo** tag carries `curator:demo:<id>` (Amp streams the one track chosen for the album). All three
+ * name the same album — only the kind differs, and only Amp acts on it.
  */
 export function tagUri(
   curatorId: string,
@@ -22,7 +44,7 @@ export function tagUri(
 ): string {
   if (!isCuratorId(curatorId))
     throw new Error(`not a curatorId: ${JSON.stringify(curatorId)}`);
-  return curatorUri(object === "card" ? "card" : "album", curatorId);
+  return curatorUri(KIND_FOR[object], curatorId);
 }
 
 /** The album (sleeve) URI written to the tag. Back-compat alias of `tagUri(id, "sleeve")`. */

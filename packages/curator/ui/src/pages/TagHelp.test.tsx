@@ -46,14 +46,15 @@ describe("TagHelp", () => {
     expect(tab(/Phone/).getAttribute("aria-selected")).toBe("true");
   });
 
-  // The silent failure: a sleeve and a card carry different URIs (ADR 0034), and writing the wrong
-  // one produces a tag that works perfectly and does the wrong thing.
-  it("explains the sleeve/card distinction and that getting it wrong fails quietly", () => {
+  // The silent failure: each object carries a different URI (ADR 0034, ADR 0058), and writing the
+  // wrong one produces a tag that works perfectly and does the wrong thing.
+  it("explains what each kind does and that getting it wrong fails quietly", () => {
     renderAt();
-    expect(screen.getByText(/Sleeve and card are different tags/)).toBeTruthy();
+    expect(screen.getByText(/three tags are not interchangeable/)).toBeTruthy();
     expect(screen.getByText(/fails\s+quietly/)).toBeTruthy();
     expect(screen.getByText("curator:album:…")).toBeTruthy();
     expect(screen.getByText("curator:card:…")).toBeTruthy();
+    expect(screen.getByText("curator:demo:…")).toBeTruthy();
   });
 
   // The irreversible one.

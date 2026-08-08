@@ -1,7 +1,7 @@
 /*
  * Marquee Tag Writer — Flipper Zero app (Route B, issue #68).
  *
- * Pick an album from a Curator-exported list and write its `curator:album:<id>` NDEF URI to a blank
+ * Pick an album from a Curator-exported list and write its `curator:<kind>:<id>` NDEF URI to a blank
  * NTAG213; or read a tag back to see which album is on it. See docs/specs/flipper-tag-writer.md.
  *
  * Validated against official firmware 1.4.3 (ufbt --channel=release, API 87.1).
@@ -46,7 +46,8 @@
 #define NTAG_USER_PAGE_START 4
 #define NTAG_USER_PAGE_END 39
 
-/* The TLV for a 22-char album URI is 30 bytes; a card URI is 29. 48 covers both plus slack. */
+/* The TLV for a 22-char album URI is 30 bytes; card and demo URIs are 21 chars → 29. 48 covers all
+ * three plus slack. The write path derives its page count from the TLV length, so no special case. */
 #define TLV_CAP 48
 /* Read enough user memory to hold any TLV we write: 3 READs x 16 bytes. */
 #define READ_CAP 48
@@ -93,23 +94,35 @@ static size_t marquee_build_ndef_tlv(const char* uri, uint8_t* out, size_t out_c
 }
 
 /**
- * The physical object a tag is stuck to (ADR 0034). A **sleeve** carries `curator:album:<id>` — you
- * drop the needle on the vinyl; a **card** carries `curator:card:<id>`, which Amp streams over Sonos.
- * Both name the same album; only the kind differs. Mirrors `tagUri()` in Route A.
+ * The physical object a tag is stuck to (ADR 0034, ADR 0058). A **sleeve** carries
+ * `curator:album:<id>` — you drop the needle on the vinyl; a **card** carries `curator:card:<id>`,
+ * which Amp streams over Sonos; a **demo** tag carries `curator:demo:<id>`, which Amp streams as the
+ * one track chosen for that album in Curator. All three name the same album; only the kind differs.
+ * Mirrors `tagUri()` in Route A.
  */
 typedef enum {
     TagKindSleeve,
     TagKindCard,
+    TagKindDemo,
 } TagKind;
+
+/** The kind's word on the wire — the middle segment of `curator:<kind>:<id>`. */
+static const char* tag_kind_word(TagKind kind) {
+    if(kind == TagKindCard) return "card";
+    if(kind == TagKindDemo) return "demo";
+    return "album";
+}
 
 /** Compose the tag URI for a curator id and object kind. */
 static void marquee_tag_uri(TagKind kind, const char* curator_id, char* out, size_t out_cap) {
-    snprintf(out, out_cap, "curator:%s:%s", kind == TagKindCard ? "card" : "album", curator_id);
+    snprintf(out, out_cap, "curator:%s:%s", tag_kind_word(kind), curator_id);
 }
 
 /** Short form used on the hold/confirm screens and the album-list header. */
 static const char* tag_kind_short(TagKind kind) {
-    return kind == TagKindCard ? "Card" : "Sleeve";
+    if(kind == TagKindCard) return "Card";
+    if(kind == TagKindDemo) return "Demo";
+    return "Sleeve";
 }
 
 /**
@@ -153,8 +166,9 @@ typedef struct {
 
 /*
  * Navigation: Main -> (Write) -> Kind -> Albums -> Popup, or Main -> (Read) -> Popup. Each level is
- * its own Submenu view so Back pops one step naturally. Mode choices (read/write, sleeve/card) are
- * their own screens rather than rows mixed into the album list — the list is data, not controls.
+ * its own Submenu view so Back pops one step naturally. Mode choices (read/write, and which of the
+ * three tag kinds) are their own screens rather than rows mixed into the album list — the list is
+ * data, not controls.
  */
 typedef enum {
     ViewMenuMain,
@@ -213,9 +227,11 @@ typedef struct {
 /* Main menu entries. */
 #define MENU_MAIN_WRITE 0u
 #define MENU_MAIN_READ 1u
-/* Kind menu entries — the values double as the TagKind they select. */
+/* Kind menu entries — the values double as the TagKind they select, so the enum's order and these
+ * must stay in step. Asserted below rather than trusted. */
 #define MENU_KIND_SLEEVE 0u
 #define MENU_KIND_CARD 1u
+#define MENU_KIND_DEMO 2u
 
 typedef enum {
     CustomEventJobFinished = 1,
@@ -643,7 +659,11 @@ static void on_main_selected(void* context, uint32_t index) {
 
 static void on_kind_selected(void* context, uint32_t index) {
     App* app = context;
-    app->tag_kind = (index == MENU_KIND_CARD) ? TagKindCard : TagKindSleeve;
+    /* The menu values ARE the TagKind values (see the MENU_KIND_* defines); anything unexpected
+     * falls back to the sleeve rather than composing a URI for a kind that doesn't exist. */
+    app->tag_kind = (index == MENU_KIND_CARD)  ? TagKindCard :
+                    (index == MENU_KIND_DEMO)  ? TagKindDemo :
+                                                 TagKindSleeve;
 
     /* Carry the choice into the album list's header, so the kind is still on screen at the moment the
      * album — the irreversible part — is picked. */
@@ -710,6 +730,7 @@ static App* app_alloc(void) {
     submenu_set_header(app->menu_kind, "Which kind of tag?");
     submenu_add_item(app->menu_kind, "Sleeve (album)", MENU_KIND_SLEEVE, on_kind_selected, app);
     submenu_add_item(app->menu_kind, "Card (Sonos)", MENU_KIND_CARD, on_kind_selected, app);
+    submenu_add_item(app->menu_kind, "Demo (one song)", MENU_KIND_DEMO, on_kind_selected, app);
 
     /* Header is replaced with the chosen kind on entry; this is only what shows if that never ran. */
     submenu_set_header(app->menu_albums, app->from_csv ? "Pick an album" : "No list on SD");

@@ -32,12 +32,16 @@ export function TagHelp() {
 
       {/* The single most consequential thing on this page: getting it wrong fails silently. */}
       <section className="taghelp__warn">
-        <h2>Sleeve and card are different tags</h2>
+        <h2>The three tags are not interchangeable</h2>
         <p>
           A <strong>sleeve</strong> carries <code>curator:album:…</code> — the
           lights and the video come up, and you drop the needle on the vinyl
           yourself. A <strong>card</strong> carries <code>curator:card:…</code>{" "}
-          — same lights and video, but Amp also streams the album over Sonos.
+          — same lights and video, but Amp also streams the album over Sonos. A{" "}
+          <strong>demo tag</strong> carries <code>curator:demo:…</code> — same
+          again, but Amp plays only the one song you chose on the record&apos;s{" "}
+          <strong>demo cut</strong> tab. Choose no song and it plays the whole
+          record, exactly like a card.
         </p>
         <p>
           They are <em>not</em> interchangeable, and writing the wrong one fails
@@ -55,7 +59,8 @@ export function TagHelp() {
         </li>
         <li>
           One sticker per physical object — a sleeve tag per album, plus a card
-          tag for any album you print a card for.
+          tag for any album you print a card for, plus a demo tag for the few
+          you want to play one song from.
         </li>
         <li>
           Either an <strong>iPhone or Android phone</strong> with NFC Tools, or

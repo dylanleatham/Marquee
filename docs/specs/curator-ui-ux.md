@@ -247,6 +247,15 @@ privately and two of them landed the other way.
 One page listing the four things a record still needs — **Lights · A visualizer · A card · Tags** —
 done in any order. No stepper, no rail, no machine-state name.
 
+> **A fifth tab that is not a need (2026-08-08,
+> [ADR 0058](../adrs/0058-a-demo-tag-plays-one-chosen-track.md)).** **A demo cut** sits after the four,
+> past a hairline, in italics — with **no `●`/`○` glyph** and the screen-reader text "optional". A
+> demo cut is a preference most records never express, so counting it would put a permanent
+> outstanding item on several hundred finished records — the misreading
+> [ADR 0056](../adrs/0056-need-labels-name-the-act-not-the-artifact.md) exists to prevent. `Need` and
+> `RecordSection` are separate types in `needs.ts` for exactly this reason, and the collection's tile
+> labels are unchanged. See §5.3.
+
 **A 310px sidebar**, top to bottom: `← THE COLLECTION`, the cover, a 26px strip of the live palette,
 the title in Archivo Black 25px, the byline, the state label, and a full-width ink
 `▶ SEE IT IN THE ROOM`. Pinned to the bottom: `↑ PREV`, `NEXT ↓`, and **the one place in the app an
@@ -379,14 +388,23 @@ slot. A candidate whose image won't load is dropped rather than shown as a broke
 > but there is no API for editing a drafted prompt's text by hand — only selecting a variant or
 > asking Gemini to redraft. Left out rather than faked; it needs a backend before it needs a button.
 
-**Tags.** THE SLEEVE and THE SHELF CARD side by side, each with its **real QR** (the server renders
-it from the URI; the prototype's checkerboard was a stand-in), its `curator:album:` / `curator:card:`
-URI, and its written state as a word plus a tick. Then `SEND THIS RECORD TO THE FLIPPER ·
-DOWNLOAD .NFC · HOW DO I WRITE THESE?` — **per record only**; the bulk "send the whole list" went
-with the queue, because you write these standing at the shelf, one at a time.
+**Tags.** THE SLEEVE, THE SHELF CARD and THE DEMO TAG, each with its **real QR** (the server renders
+it from the URI; the prototype's checkerboard was a stand-in), its `curator:album:` / `curator:card:` /
+`curator:demo:` URI, and its written state as a word plus a tick. Then `SEND THIS RECORD TO THE
+FLIPPER · DOWNLOAD .NFC · DOWNLOAD DEMO .NFC · HOW DO I WRITE THESE?` — **per record only**; the bulk
+"send the whole list" went with the queue, because you write these standing at the shelf, one at a
+time.
+
+> **The demo tag is the odd one of the three (ADR 0058)**, and the panel says so in two ways. It
+> **states what it will play** — the chosen cut by name, or "no cut chosen — plays the whole record",
+> because with nothing chosen it behaves exactly like the shelf card and a screen that stayed silent
+> would make that look like a bug. And it carries its **own** `I'VE WRITTEN THIS ONE`, because
+> `TAGS VERIFIED` deliberately marks only the two stickers every record gets: claiming a demo tag was
+> written when you never made one is a lie on the one screen whose job is catching mis-written
+> stickers.
 
 Below a hairline, set apart on purpose: **THEN CHECK THEM**, and **one `TAGS VERIFIED` button
-covering both tags**. Marking the sleeve written and the card written were bookkeeping about a single
+covering the sleeve and the card**. Marking the sleeve written and the card written were bookkeeping about a single
 act at the Flipper; the _check_ — tapping each tag and confirming it opens the right record — is the
 only part that is a decision, and it is where a mis-written sticker turns up. So verification stays
 its own visually separated step, and it is one press.
@@ -395,6 +413,31 @@ its own visually separated step, and it is one press.
 > even though the four needs are done in any order, so `TAGS VERIFIED` is **disabled with its reason**
 > until the record reaches the tag step, rather than offering a press that 409s. That tension between
 > "any order" and a linear machine is real and is not resolved here — it is simply not hidden.
+
+### 5.3 The demo-cut panel ([ADR 0058](../adrs/0058-a-demo-tag-plays-one-chosen-track.md))
+
+Built 2026-08-08. Which one song a **demo tag** plays — the cut that makes someone want to hear the
+rest of the record.
+
+**The choice is stated in words before any list**, inside an ink border: the song's name, its track
+number and length, and `PLAY THE WHOLE RECORD INSTEAD`. With nothing chosen the same box carries the
+honest sentence — "No demo cut chosen — a demo tag plays the whole record, just like the shelf card
+does" — because clearing is not a deletion and must not read like one.
+
+Then the tracklist, one row each: `●`/`○`, number, name, length, and either `IN USE` or
+`USE THIS ONE`. The chosen row is raised **and** filled-glyphed **and** labelled — never colour alone
+(§3.4). `IN USE`, matching the card gallery, because the app has one word for "this is the one".
+
+**Fetched live, stored never.** The songs come from `GET /api/albums/:curatorId/tracks` on mount; only
+the _choice_ lands on the asset. A record with no tracklist — a manual pressing, no Spotify
+credentials, Spotify unreachable — shows the server's own sentence in a dashed box, because that is an
+ordinary state of this screen rather than a failure of it. A transport failure reads the same way:
+one place says why there is no list.
+
+**No preview button, deliberately.** You judge a demo cut by hearing it in the room, and the room
+already plays audio. A second, quieter way to play a track here would make the honest answer ("go
+listen to it properly") the harder one. `useTracks` is the panel's only fetch and it has no polling —
+a tracklist does not change under you.
 
 ## 5.2 Album detail — the rail (superseded, and now deleted)
 

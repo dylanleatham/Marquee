@@ -9,6 +9,10 @@ import {
   roadieNarration,
   stateLabel,
   NEED_LABEL,
+  NEED_ORDER,
+  SECTION_ORDER,
+  SECTION_TAB_LABEL,
+  isNeedSection,
 } from "./needs";
 
 const album = (over: Partial<AlbumSummary> = {}): AlbumSummary => ({
@@ -191,5 +195,42 @@ describe("the vocabulary", () => {
     expect(roadieNarration("downloading_art")).toBe("FINDING THE SLEEVE…");
     expect(roadieNarration("fresh")).toBe("NEXT IN LINE");
     expect(roadieNarration("verified")).toBe("ROADIE IS ON IT");
+  });
+});
+
+/**
+ * The demo cut (ADR 0058) is a *section* of the record page and never a `Need`.
+ *
+ * The separation is what stops 500 finished records growing a permanent outstanding item: the
+ * collection labels the first outstanding need, and a record with no demo cut is complete. These
+ * pin the boundary rather than the current membership, so adding a sixth section can't quietly
+ * make it a need.
+ */
+describe("sections vs needs", () => {
+  it("carries the four needs, in order, plus the demo cut last", () => {
+    expect(SECTION_ORDER).toEqual([...NEED_ORDER, "demo"]);
+    expect(SECTION_TAB_LABEL.demo).toBe("A demo cut");
+  });
+
+  it("calls the four needs needs, and the demo cut not one", () => {
+    for (const need of NEED_ORDER) expect(isNeedSection(need)).toBe(true);
+    expect(isNeedSection("demo")).toBe(false);
+  });
+
+  it("never lists the demo cut among a record's outstanding needs", () => {
+    // Nothing done at all — the state where every need is outstanding — still owes no demo cut.
+    const nothing = album({
+      previewApprovedAt: undefined,
+      hasVideo: false,
+      hasCardArt: false,
+      tagsWritten: false,
+      physicallyVerifiedAt: undefined,
+    });
+    expect(outstandingNeeds(nothing)).toEqual(NEED_ORDER);
+    expect(outstandingNeeds(nothing)).not.toContain("demo");
+  });
+
+  it("has no label for it in the collection's need vocabulary", () => {
+    expect(Object.keys(NEED_LABEL)).toEqual(NEED_ORDER);
   });
 });

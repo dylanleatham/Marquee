@@ -24,6 +24,13 @@ const startSleeve = {
   tagUid: "04:A1",
   at: "t",
 };
+const startDemo = {
+  event: "start",
+  uri: `curator:demo:${ID}`,
+  tagUid: "04:A1",
+  at: "t",
+};
+const TRACK = "spotify:track:4bz7uB4edifWKJXSDxwHcs";
 
 /** In-memory album reader (mirrors conductor's test reader). */
 function reader(albums: Record<string, AlbumSpotifyInput>): AlbumAssetReader {
@@ -114,6 +121,115 @@ describe("Amp /api/scan", () => {
       reason: "sleeve — vinyl plays",
     });
     expect(driver.playCalls).toHaveLength(0);
+  });
+
+  /**
+   * The demo tag (ADR 0058). It is the card path with one substitution — the album's chosen track
+   * instead of the album — so these cover the substitution itself, the fallback when no choice has
+   * been made, and the two degradations that must behave identically to a card's.
+   */
+  describe("a demo scan", () => {
+    const withTrack = {
+      [ID]: {
+        metadata: { name: "X", artist: "Y", spotifyUri: SPOTIFY },
+        demoTrack: { spotifyUri: TRACK, name: "Let's Go Crazy" },
+      },
+    };
+
+    const scan = (albums?: Record<string, AlbumSpotifyInput>) => {
+      const built = build(albums ? { albums } : {});
+      return built.app
+        .inject({
+          method: "POST",
+          url: "/api/scan",
+          headers: auth,
+          payload: startDemo,
+        })
+        .then((res) => ({ res, driver: built.driver }));
+    };
+
+    it("plays the album's chosen track, not the album", async () => {
+      const { res, driver } = await scan(withTrack);
+
+      expect(res.statusCode).toBe(202);
+      expect(res.json()).toMatchObject({
+        action: "playing",
+        curatorId: ID,
+        spotifyUri: TRACK,
+        demoTrack: TRACK,
+      });
+      expect(driver.playCalls).toEqual([
+        { target: "Living Room", spotifyUri: TRACK },
+      ]);
+    });
+
+    /**
+     * No choice yet → the whole album, exactly as a card. A tag that did nothing would be
+     * indistinguishable from a mis-written one; a record playing from track 1 is wrong in a way you
+     * can hear and fix. `demoTrack: null` in the response is how a caller tells the two apart.
+     */
+    it("falls back to the whole album when no track has been chosen", async () => {
+      const { res, driver } = await scan();
+
+      expect(res.json()).toMatchObject({
+        action: "playing",
+        spotifyUri: SPOTIFY,
+        demoTrack: null,
+      });
+      expect(driver.playCalls).toEqual([
+        { target: "Living Room", spotifyUri: SPOTIFY },
+      ]);
+    });
+
+    it("falls back to the album when the choice was explicitly cleared", async () => {
+      const { res } = await scan({
+        [ID]: {
+          metadata: { name: "X", artist: "Y", spotifyUri: SPOTIFY },
+          demoTrack: null,
+        },
+      });
+      expect(res.json()).toMatchObject({
+        spotifyUri: SPOTIFY,
+        demoTrack: null,
+      });
+    });
+
+    /**
+     * A chosen track outlives the album's own Spotify URI being absent — the track is what plays, so
+     * "album not on spotify" would be the wrong answer to give a demo tag that knows its song.
+     */
+    it("plays the chosen track even when the album has no Spotify URI", async () => {
+      const { res } = await scan({
+        [ID]: {
+          metadata: { name: "X", artist: "Y" },
+          demoTrack: { spotifyUri: TRACK },
+        },
+      });
+      expect(res.json()).toMatchObject({
+        action: "playing",
+        spotifyUri: TRACK,
+      });
+    });
+
+    it("is ignored when there is neither a chosen track nor a Spotify album", async () => {
+      const { res, driver } = await scan({
+        [ID]: { metadata: { name: "X", artist: "Y" } },
+      });
+      expect(res.json()).toMatchObject({
+        action: "ignored",
+        reason: "album not on spotify",
+      });
+      expect(driver.playCalls).toHaveLength(0);
+    });
+
+    it("is ignored when the album isn't in the synced store", async () => {
+      const { res, driver } = await scan({});
+      expect(res.json()).toMatchObject({
+        action: "ignored",
+        reason: "album not synced",
+      });
+      expect(driver.playCalls).toHaveLength(0);
+    });
   });
 
   it("a card for an album not in the synced store is ignored", async () => {

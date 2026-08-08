@@ -139,10 +139,12 @@ export function buildServer(opts: BuildOptions = {}) {
       });
     }
 
-    // kind === "card" — this is the one Amp plays.
+    // kind === "card" | "demo" — the two Amp plays. They differ only in *what* is handed to Sonos:
+    // a card plays the album container, a demo tag the one track chosen for it (ADR 0058).
+    const kind = parsed.kind;
     if (!target) {
       req.log.warn(
-        `card scan ${scan.uri}: no target room configured — staying silent`,
+        `${kind} scan ${scan.uri}: no target room configured — staying silent`,
       );
       return reply
         .code(202)
@@ -152,7 +154,7 @@ export function buildServer(opts: BuildOptions = {}) {
     const asset = await assets.read(parsed.curatorId);
     if (!asset) {
       req.log.warn(
-        `card scan ${scan.uri}: album not in synced store — staying silent`,
+        `${kind} scan ${scan.uri}: album not in synced store — staying silent`,
       );
       return reply.code(202).send({
         ok: true,
@@ -162,10 +164,20 @@ export function buildServer(opts: BuildOptions = {}) {
       });
     }
 
-    const spotifyUri = asset.metadata.spotifyUri;
+    /**
+     * A demo tag with no chosen track falls back to the album — the same thing a card plays.
+     *
+     * Deliberately not "stay silent with a reason": a demo tag is written before, or independently
+     * of, the choice being made, and a sticker that does nothing in the room is indistinguishable
+     * from a mis-written one. Playing the record from track 1 is wrong in a way you can hear and
+     * fix; silence sends you to the logs.
+     */
+    const demoTrackUri =
+      kind === "demo" ? asset.demoTrack?.spotifyUri : undefined;
+    const spotifyUri = demoTrackUri ?? asset.metadata.spotifyUri;
     if (!spotifyUri) {
       req.log.warn(
-        `card scan ${scan.uri}: album has no Spotify URI — staying silent`,
+        `${kind} scan ${scan.uri}: album has no Spotify URI — staying silent`,
       );
       return reply.code(202).send({
         ok: true,
@@ -174,6 +186,10 @@ export function buildServer(opts: BuildOptions = {}) {
         curatorId: parsed.curatorId,
       });
     }
+    if (kind === "demo" && !demoTrackUri)
+      req.log.info(
+        `demo scan ${scan.uri}: no demo track chosen — playing the album instead`,
+      );
 
     try {
       await engine.start(target, spotifyUri, parsed.curatorId);
@@ -181,7 +197,7 @@ export function buildServer(opts: BuildOptions = {}) {
       // Environmental Sonos failure (no favorite/binding, unreachable): degrade, don't error.
       if (err instanceof SonosUnavailableError) {
         req.log.warn(
-          `card scan ${scan.uri}: sonos unavailable (${err.message}) — staying silent`,
+          `${kind} scan ${scan.uri}: sonos unavailable (${err.message}) — staying silent`,
         );
         return reply.code(202).send({
           ok: true,
@@ -198,6 +214,9 @@ export function buildServer(opts: BuildOptions = {}) {
       curatorId: parsed.curatorId,
       spotifyUri,
       target,
+      // The chosen track, or `null` when the demo tag fell back to the album — otherwise the two
+      // outcomes produce identical `playing` responses and the fallback is invisible to a caller.
+      ...(kind === "demo" ? { demoTrack: demoTrackUri ?? null } : {}),
     });
   });
 

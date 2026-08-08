@@ -373,14 +373,16 @@ export interface PalettePayload {
 // (integration-contract §scan, stylus-spec §"Outbound events"). `stop` deliberately carries no
 // `uri` — downstream treats it as "return to idle" regardless of what was playing.
 
-/** A sleeve or card was placed on the stand. */
+/** A sleeve, card or demo tag was placed on the stand. */
 export interface ScanStartEvent {
   event: "start";
   /**
-   * Curator URI, `curator:<kind>:<curatorId>` where kind is `album` (a record sleeve) or `card`
-   * (a printed card for a streaming-only album). Conductor and Backdrop treat both kinds identically
-   * (lights + video); only Amp acts on the difference — it streams over Sonos for `card`, stays
-   * silent for `album` (you drop the needle on the vinyl). See ADR 0034 / `parseCuratorUri`.
+   * Curator URI, `curator:<kind>:<curatorId>` where kind is `album` (a record sleeve), `card` (a
+   * printed card for a streaming-only album) or `demo` (a tag that plays one chosen track).
+   * Conductor and Backdrop treat all three identically (lights + video); only Amp acts on the
+   * difference — it stays silent for `album` (you drop the needle on the vinyl), streams the whole
+   * album for `card`, and streams the album's chosen track for `demo`. See ADR 0034 / ADR 0058 /
+   * `parseCuratorUri`.
    */
   uri: string;
   /**
@@ -437,22 +439,40 @@ export function scanIgnoredReason(body: unknown): string | null {
     : "the scan was ignored";
 }
 
-/** The physical object a scan URI names: a record `sleeve` (`album`) or a `card` (ADR 0034). */
-export type CuratorUriKind = "album" | "card";
+/**
+ * The physical object a scan URI names — all three name the same album, and differ only in what the
+ * audio leg does with them:
+ *
+ * - `album` — a record **sleeve**. Amp stays silent; you drop the needle on the vinyl (ADR 0034).
+ * - `card` — a printed **shelf card**. Amp streams the whole album from track 1 (ADR 0034).
+ * - `demo` — a **demo tag**. Amp streams the one track chosen for the album (ADR 0058).
+ */
+export type CuratorUriKind = "album" | "card" | "demo";
+
+/**
+ * The kinds as a runtime list, so a caller that must handle every one of them — the contract tests,
+ * Curator's tag authoring, the Flipper's kind menu — enumerates rather than restates. Adding a kind
+ * here is what makes the round-trip tests cover it.
+ */
+export const CURATOR_URI_KINDS: readonly CuratorUriKind[] = [
+  "album",
+  "card",
+  "demo",
+];
 
 export interface ParsedCuratorUri {
   kind: CuratorUriKind;
   curatorId: string;
 }
 
-// Matches both kinds; the curatorId is the same 8-char base32-ish id regardless of kind.
-const CURATOR_URI = /^curator:(album|card):([a-z0-9]{8})$/;
+// Matches every kind; the curatorId is the same 8-char base32-ish id regardless of kind.
+const CURATOR_URI = /^curator:(album|card|demo):([a-z0-9]{8})$/;
 
 /**
  * Parse a Curator scan URI into its kind + id, or `null` if it isn't a well-formed
- * `curator:(album|card):<id>`. The one place every service (Conductor, Backdrop, Amp) should decode
- * a scan URI, so the accepted shape stays identical across the fan-out. `album` = sleeve, `card` =
- * card; the id is shared (same album, different physical object). See ADR 0034.
+ * `curator:(album|card|demo):<id>`. The one place every service (Conductor, Backdrop, Amp) should
+ * decode a scan URI, so the accepted shape stays identical across the fan-out. The id is shared
+ * across kinds — same album, different physical object. See ADR 0034 (card) and ADR 0058 (demo).
  */
 export function parseCuratorUri(uri: string): ParsedCuratorUri | null {
   const m = CURATOR_URI.exec(uri);
@@ -463,7 +483,8 @@ export function parseCuratorUri(uri: string): ParsedCuratorUri | null {
 /**
  * Build a Curator scan URI from its kind + id — the inverse of `parseCuratorUri`. Does not validate
  * the id shape (callers that write tags, e.g. Curator's Flipper authoring, validate the curatorId
- * first). `curatorUri("card", id)` is what a card sticker carries; `"album"` is a sleeve.
+ * first). `curatorUri("card", id)` is what a card sticker carries, `"demo"` a demo tag, `"album"` a
+ * sleeve.
  */
 export function curatorUri(kind: CuratorUriKind, curatorId: string): string {
   return `curator:${kind}:${curatorId}`;

@@ -1,4 +1,5 @@
-// Read the synced album-assets store at scan time to resolve a card's album → its Spotify URI.
+// Read the synced album-assets store at scan time to resolve a scan's album → what to play: the
+// album's Spotify URI for a card, or its chosen demo track for a demo tag (ADR 0058).
 // Mirrors hue-conductor's FsAlbumAssetReader (ADR 0019) but reads the Spotify slice instead of the
 // palette slice. Injectable so tests seed albums without touching disk.
 import { readFile } from "node:fs/promises";
@@ -12,6 +13,15 @@ export interface AlbumSpotifyInput {
     /** `spotify:album:<id>`, present only when the album is on Spotify (optional in the asset). */
     spotifyUri?: string;
   };
+  /**
+   * The one track a **demo** scan plays (ADR 0058), chosen by hand in Curator. Absent or null — the
+   * default for every album — means a demo scan plays the whole album, exactly as a card does.
+   */
+  demoTrack?: {
+    /** `spotify:track:<id>`. The only field Amp uses; the rest is Curator's bookkeeping. */
+    spotifyUri: string;
+    name?: string;
+  } | null;
 }
 
 /** Reads one album's Spotify-relevant fields by curatorId, or null if absent/unreadable. */

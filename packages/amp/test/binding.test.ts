@@ -67,6 +67,27 @@ describe("patchContainerUri", () => {
     expect(out).toContain("spotify:album:ABC");
     expect(out).toContain("flags=8300");
   });
+
+  /**
+   * A **track** URI — what a demo tag plays (ADR 0058) — comes out of `@svrooij/sonos` with its
+   * separators already XML-escaped: `?sid=9&amp;flags=8224&amp;sn=7`. The `sn` therefore does not sit
+   * behind a bare `&`, and a patch that only looks for `[?&]` silently leaves the library's hardcoded
+   * `sn=7` in place. On a live account that is a UPnP 800 — the exact failure the derived binding
+   * exists to prevent, reappearing only for the one URI shape the album path never produces.
+   */
+  it("patches sn even when the separators are XML-escaped, as track URIs are", () => {
+    const guessed =
+      "x-sonos-spotify:spotify%3atrack%3a4bz7uB4edifWKJXSDxwHcs?sid=9&amp;flags=8224&amp;sn=7";
+    const out = patchContainerUri(guessed, binding);
+
+    expect(out).toContain("sid=12");
+    expect(out).toContain("sn=1");
+    expect(out).not.toContain("sn=7");
+    // The escaping itself is the library's serialization and must survive untouched.
+    expect(out).toBe(
+      "x-sonos-spotify:spotify%3atrack%3a4bz7uB4edifWKJXSDxwHcs?sid=12&amp;flags=8224&amp;sn=1",
+    );
+  });
 });
 
 describe("matchRoom", () => {

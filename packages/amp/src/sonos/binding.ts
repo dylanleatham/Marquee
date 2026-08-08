@@ -41,14 +41,21 @@ export function regionFromToken(token: string): string {
  * Patch the library's guessed container URI to carry this household's real `sid`/`sn`. `@svrooij/sonos`
  * hardcodes `sid=9`/`sn=7`, which a live account rejects with UPnP 800 — the derived binding is right.
  * Replaces only the query params, leaving the rest of the URI (the `spotify:album` container id) intact.
+ *
+ * **Two separator spellings, because the library uses both.** An album container comes back with bare
+ * `&`; a **track** URI — what a demo tag plays (ADR 0058) — comes back with `&amp;` already escaped
+ * (`x-sonos-spotify:…?sid=9&amp;flags=8224&amp;sn=7`). Matching only `[?&]` left `sn=7` in place on
+ * exactly that shape, so the param is anchored on the separator *or* the end of an escaped entity.
  */
 export function patchContainerUri(
   guessedTrackUri: string,
   binding: SpotifyBinding,
 ): string {
-  return guessedTrackUri
-    .replace(/([?&])sid=\d+/, `$1sid=${binding.sid}`)
-    .replace(/([?&])sn=\d+/, `$1sn=${binding.sn}`);
+  // `$1` keeps whichever separator was matched: the escaping is the library's own serialization,
+  // and rewriting it would change bytes Sonos parses.
+  const patch = (uri: string, name: string, value: string): string =>
+    uri.replace(new RegExp(`([?&]|&amp;)${name}=\\d+`), `$1${name}=${value}`);
+  return patch(patch(guessedTrackUri, "sid", binding.sid), "sn", binding.sn);
 }
 
 /** The subset of a Sonos device the room matcher needs (a SonosDevice is a structural superset). */

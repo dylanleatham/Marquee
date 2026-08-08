@@ -11,7 +11,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { ndefUriTlv, tagUri } from "../src/tags/flipper-nfc.js";
+import { ndefUriTlv, tagUri, TAG_OBJECTS } from "../src/tags/flipper-nfc.js";
 
 const repoRoot = new URL("../../../", import.meta.url);
 const C_SOURCE = fileURLToPath(
@@ -20,9 +20,9 @@ const C_SOURCE = fileURLToPath(
 
 const source = readFileSync(C_SOURCE, "utf8");
 
-/** The body of a C function, by name — so we only read the compose, not the whole file. */
+/** The body of a `static` C function, by name — so we only read the one we mean, not the file. */
 function functionBody(name: string): string {
-  const at = source.indexOf(`static size_t ${name}(`);
+  const at = source.search(new RegExp(`static [\\w* ]+\\b${name}\\(`));
   expect(at, `${name} not found in ${C_SOURCE}`).toBeGreaterThan(-1);
   const open = source.indexOf("{", at);
   let depth = 0;
@@ -66,7 +66,7 @@ describe("the FAP's NDEF compose matches Route A byte for byte (#68)", () => {
     expect(body).toMatch(/payload_len\s*=\s*\(uint8_t\)\(1 \+ uri_len\)/);
     expect(body).toMatch(/record_len\s*=\s*\(uint8_t\)\(4 \+ payload_len\)/);
 
-    for (const object of ["sleeve", "card"] as const) {
+    for (const object of TAG_OBJECTS) {
       const uri = tagUri("2k7bxq9m", object);
       const tlv = ndefUriTlv(uri);
       expect(tlv[1], "TLV length = 4 + 1 + uri length").toBe(
@@ -76,12 +76,33 @@ describe("the FAP's NDEF compose matches Route A byte for byte (#68)", () => {
     }
   });
 
+  /**
+   * The kind *words* are the third place the URI scheme is implemented, and the one no test could
+   * catch by reading bytes: a FAP that wrote `curator:demo:` where Curator writes `curator:cut:`
+   * produces a perfectly well-formed tag that resolves to nothing in the room. So the C's word
+   * table is read out of the source and checked against Route A's output for every object.
+   */
   it("builds the URI with the same scheme and kinds as Route A", () => {
-    // The C composes `curator:%s:%s` from a kind enum; Route A composes the same two strings.
     expect(source).toContain('"curator:%s:%s"');
-    expect(source).toContain('kind == TagKindCard ? "card" : "album"');
+
+    // Sorted: the C returns them in guard order (the default last), Route A in object order. What
+    // must match is the *set* of words, not which branch happens to come first.
+    const words = functionBody("tag_kind_word");
+    const cKinds = [...words.matchAll(/return "([a-z]+)";/g)].map((m) => m[1]);
+    expect(cKinds.sort()).toEqual(
+      TAG_OBJECTS.map((o) => tagUri("2k7bxq9m", o).split(":")[1]).sort(),
+    );
+
     expect(tagUri("2k7bxq9m", "sleeve")).toBe("curator:album:2k7bxq9m");
     expect(tagUri("2k7bxq9m", "card")).toBe("curator:card:2k7bxq9m");
+    expect(tagUri("2k7bxq9m", "demo")).toBe("curator:demo:2k7bxq9m");
+  });
+
+  it("offers every object as a kind the menu can choose", () => {
+    // A kind Curator can author but the FAP cannot offer is a tag you have to write another way.
+    expect(source).toMatch(/TagKindSleeve,\s*TagKindCard,\s*TagKindDemo,/);
+    expect(source).toContain("MENU_KIND_DEMO");
+    expect(source).toContain('"Demo (one song)"');
   });
 
   it("lays the TLV into the same pages Route A does", () => {

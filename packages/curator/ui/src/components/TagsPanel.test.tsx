@@ -1,4 +1,5 @@
-// The tags panel (ADR 0052) — two stickers, and the one check that catches real bugs.
+// The tags panel (ADR 0052) — the stickers, and the one check that catches real bugs.
+// Three stickers since ADR 0058, the third of which is optional and behaves differently.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   render,
@@ -23,6 +24,7 @@ vi.mock("../api", () => ({
       path: "x",
     }),
     verifyTags: vi.fn().mockResolvedValue({ state: "verified" }),
+    markTagWritten: vi.fn().mockResolvedValue({ state: "awaiting_tag_write" }),
   },
   tagNfcUrl: (id: string, object: string) =>
     `/api/albums/${id}/tag.nfc?object=${object}`,
@@ -71,7 +73,7 @@ const show = (a: AlbumAsset = asset("awaiting_tag_write")) =>
 beforeEach(() => vi.clearAllMocks());
 afterEach(cleanup);
 
-describe("TagsPanel — the two objects", () => {
+describe("TagsPanel — the objects", () => {
   it("shows each tag's URI and its written state in words", async () => {
     show(
       asset("awaiting_verify", {
@@ -83,18 +85,21 @@ describe("TagsPanel — the two objects", () => {
     );
     expect(screen.getByText("curator:album:abc12345")).toBeTruthy();
     expect(screen.getByText("curator:card:abc12345")).toBeTruthy();
-    // Written-ness is a word plus a tick, never the tick alone.
+    expect(screen.getByText("curator:demo:abc12345")).toBeTruthy();
+    // Written-ness is a word plus a tick, never the tick alone. The card and the demo tag are both
+    // unwritten here, so there are two of the second.
     expect(screen.getByText("✓ written")).toBeTruthy();
-    expect(screen.getByText("not written yet")).toBeTruthy();
+    expect(screen.getAllByText("not written yet")).toHaveLength(2);
   });
 
   it("renders the real QR the server generates, not a placeholder", async () => {
     show();
     await waitFor(() =>
-      expect(screen.getAllByRole("img", { name: /QR code/ })).toHaveLength(2),
+      expect(screen.getAllByRole("img", { name: /QR code/ })).toHaveLength(3),
     );
     expect(api.tagPayload).toHaveBeenCalledWith("abc12345", "sleeve");
     expect(api.tagPayload).toHaveBeenCalledWith("abc12345", "card");
+    expect(api.tagPayload).toHaveBeenCalledWith("abc12345", "demo");
   });
 
   it("shows the payload the server holds, not a locally derived guess", async () => {
@@ -109,7 +114,7 @@ describe("TagsPanel — the two objects", () => {
     show();
     await waitFor(() =>
       expect(screen.getAllByText("curator:album:legacy-payload").length).toBe(
-        2,
+        3,
       ),
     );
   });
@@ -120,13 +125,13 @@ describe("TagsPanel — the two objects", () => {
     await waitFor(() =>
       expect(
         screen.getAllByRole("img", { name: /QR unavailable/ }).length,
-      ).toBe(2),
+      ).toBe(3),
     );
     // The panel still says what the URI *should* be — and marks it as exactly that.
     expect(screen.getByText("curator:album:abc12345")).toBeTruthy();
     expect(
       screen.getAllByText(/what it should say, not what was read/).length,
-    ).toBe(2);
+    ).toBe(3);
   });
 });
 
@@ -211,5 +216,75 @@ describe("TagsPanel — the check", () => {
     show();
     expect(screen.queryByText(/shelf\b(?!.*card)/i)).toBeNull();
     expect(screen.queryByText(/physically verified/i)).toBeNull();
+  });
+});
+
+/**
+ * The demo tag (ADR 0058). Optional in a way the other two are not, and the only sticker whose
+ * behaviour depends on a choice made on a different tab — so what it *plays* is the fact this panel
+ * must never get wrong.
+ */
+describe("TagsPanel — the demo tag", () => {
+  it("shows the demo URI beside the other two", async () => {
+    show();
+    await waitFor(() =>
+      expect(screen.getByText("curator:demo:abc12345")).toBeTruthy(),
+    );
+    expect(screen.getByText("THE DEMO TAG")).toBeTruthy();
+  });
+
+  it("names the song it will play once one is chosen", () => {
+    show(
+      asset("awaiting_tag_write", {
+        demoTrack: {
+          spotifyUri: "spotify:track:t1",
+          name: "Untitled (How Does It Feel)",
+          chosenAt: "2026-08-08T00:00:00.000Z",
+        },
+      }),
+    );
+    expect(screen.getByText(/Untitled \(How Does It Feel\)/)).toBeTruthy();
+  });
+
+  /**
+   * With no cut chosen the tag plays the whole record — identical to the shelf card. Saying so is
+   * the difference between "this tag is broken" and "I never picked a song", and it is the only
+   * place the fallback is visible before you are standing at the stand.
+   */
+  it("says it plays the whole record when no cut has been chosen", () => {
+    show();
+    expect(
+      screen.getByText(/no cut chosen — plays the whole record/),
+    ).toBeTruthy();
+  });
+
+  it("records its own write — TAGS VERIFIED does not cover it", async () => {
+    show();
+    fireEvent.click(
+      screen.getByRole("button", { name: /I'VE WRITTEN THIS ONE/ }),
+    );
+    await waitFor(() =>
+      expect(api.markTagWritten).toHaveBeenCalledWith("abc12345", "demo"),
+    );
+  });
+
+  it("drops its own write control once the sticker is recorded", () => {
+    show(
+      asset("awaiting_tag_write", {
+        tag: { payload: "curator:album:abc12345", demo: { written: true } },
+      }),
+    );
+    expect(
+      screen.queryByRole("button", { name: /I'VE WRITTEN THIS ONE/ }),
+    ).toBeNull();
+  });
+
+  it("offers the demo .nfc separately from the sleeve's", () => {
+    show();
+    expect(
+      screen
+        .getByRole("link", { name: "DOWNLOAD DEMO .NFC" })
+        .getAttribute("href"),
+    ).toContain("tag.nfc?object=demo");
   });
 });

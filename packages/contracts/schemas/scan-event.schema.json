@@ -9,8 +9,8 @@
     "event": { "enum": ["start", "stop"] },
     "uri": {
       "type": "string",
-      "pattern": "^curator:(album|card):[a-z0-9]{8}$",
-      "description": "Present only on start. Curator internal id `curator:<kind>:<id>`, not a Spotify URI. kind=album (sleeve) or card (ADR 0034)."
+      "pattern": "^curator:(album|card|demo):[a-z0-9]{8}$",
+      "description": "Present only on start. Curator internal id `curator:<kind>:<id>`, not a Spotify URI. kind=album (sleeve) or card (ADR 0034), or demo — one chosen track (ADR 0058)."
     },
     "tagUid": { "type": "string", "description": "Present only on start." },
     "readerId": {

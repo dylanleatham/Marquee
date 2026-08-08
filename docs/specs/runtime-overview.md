@@ -14,13 +14,16 @@ Four services that together turn "you placed a record on the stand" into "the ro
 | 2   | **Hue Conductor**           | Drive Hue lights from palette + pattern payloads                             | Pi 5 near TV (sibling to Backdrop) | Node.js  |
 | 3   | **Stylus**                  | Read NFC tags, publish scan events                                           | Pi Zero 2 W in the album stand     | Python   |
 | 4   | **Backdrop (Video Player)** | Play visualizer videos on the display                                        | Pi 5 attached to TV                | Node.js  |
-| 5   | **Amp**                     | Play a **card**-scanned album's audio over Sonos (sleeves stay silent)       | Runtime Pi (sibling to Conductor)  | Node.js  |
+| 5   | **Amp**                     | Play a **card** or **demo** scan's audio over Sonos (sleeves stay silent)    | Runtime Pi (sibling to Conductor)  | Node.js  |
 
 > **Amp added (2026-07-24, [ADR 0034](../adrs/0034-amp-sonos-playback-and-card-uri.md) /
 > [amp-spec.md](amp-spec.md)) — core built + tested (`packages/amp`); real Sonos driver pending LAN
 > verification.** The audio leg of the fan-out: a scan of a
 > **card** (`curator:card:<id>`) streams the album over the house Sonos via local UPnP; a **sleeve**
-> (`curator:album:<id>`) plays lights + video only — you drop the needle on the vinyl. So there are
+> (`curator:album:<id>`) plays lights + video only — you drop the needle on the vinyl. A third kind,
+> **demo** (`curator:demo:<id>`, 2026-08-08,
+> [ADR 0058](../adrs/0058-a-demo-tag-plays-one-chosen-track.md)), streams one chosen track instead of
+> the whole album — see the §5 table. So there are
 > now five services; the four-service prose and diagram below predate Amp (audio was originally out of
 > scope — §11) and are read as "the pre-Amp core." Viability was proven by the spikes under
 > [`spikes/`](../../spikes); Path B (Spotify Connect) was rejected because it can't start an idle
@@ -105,7 +108,7 @@ Plus one internal agent, two libraries, and two data stores:
 - **Primary location**: `~/marquee/album-assets/` on your workstation (Curator writes here)
 - **Synced location**: same path on the Pi 5 (Conductor reads from the synced copy at scan time)
 - **Shape**: one JSON file per album, keyed on curatorId (an 8-character base32 identifier generated at add-time)
-- **Contents per file**: album metadata (title, artist, year, genres, Spotify URI if available), the extracted palette (colors with hex + role + source swatch), the pattern selection (type + params), the drafted video and card-art prompts, video reference (fileId, duration, loop strategy), card art reference (Curator-only), tag payload with per-object write status (sleeve and card tracked separately), verification timestamps, and Roadie's state machine progress
+- **Contents per file**: album metadata (title, artist, year, genres, Spotify URI if available), the extracted palette (colors with hex + role + source swatch), the pattern selection (type + params), the drafted video and card-art prompts, video reference (fileId, duration, loop strategy), card art reference (Curator-only), tag payload with per-object write status (sleeve, card and demo tag tracked separately), the chosen demo track if there is one ([ADR 0058](../adrs/0058-a-demo-tag-plays-one-chosen-track.md) — the _choice_ only, never the tracklist), verification timestamps, and Roadie's state machine progress
 - **Writer**: Curator (only)
 - **Readers**: Conductor (for palette/pattern lookup at scan time), Curator itself, humans (git)
 - **Sync to Backdrop**: a projection of this store (URI → filePath + metadata) is pushed to Backdrop's `library.json` — Backdrop doesn't need or see the full asset details
@@ -128,14 +131,22 @@ Everything at runtime is driven by one event shape, published by the Stylus:
 ```json
 {
   "event": "start" | "stop",
-  "uri": "curator:album:2k7bxq9m",    // only on start
+  "uri": "curator:album:2k7bxq9m",    // only on start; kind is album | card | demo
   "tagUid": "04:A1:B2:C3:D4:E5:F6",   // only on start
   "readerId": "primary",              // stand identifier for multi-reader future
   "at": "2026-07-06T20:15:22Z"
 }
 ```
 
-The `uri` is Curator's internal identifier scheme, `curator:<kind>:<curatorId>`, not a Spotify URI. This keeps the identifier stable regardless of whether an album is on Spotify — Curator can host records that don't exist on streaming services at all. `kind` is `album` for a **sleeve** and `card` for a **card** ([ADR 0034](../adrs/0034-amp-sonos-playback-and-card-uri.md)): Conductor and Backdrop treat both identically (lights + video), while Amp streams the album only for `card` scans. (Before ADR 0034 the only kind was `album`.)
+The `uri` is Curator's internal identifier scheme, `curator:<kind>:<curatorId>`, not a Spotify URI. This keeps the identifier stable regardless of whether an album is on Spotify — Curator can host records that don't exist on streaming services at all. **Conductor and Backdrop treat every kind identically** (lights + video — it is the same record); only Amp acts on the difference:
+
+| `kind`  | Physical object            | What Amp does                                                    |
+| ------- | -------------------------- | ---------------------------------------------------------------- |
+| `album` | the record **sleeve**      | nothing — you drop the needle on the vinyl                       |
+| `card`  | the printed **shelf card** | streams the whole album over Sonos                               |
+| `demo`  | a **demo tag**             | streams the one track chosen for the album, else the whole album |
+
+`album`/`card` are [ADR 0034](../adrs/0034-amp-sonos-playback-and-card-uri.md); `demo` is [ADR 0058](../adrs/0058-a-demo-tag-plays-one-chosen-track.md), where the chosen track lives on the album asset (`demoTrack`) rather than in the tag, so changing your mind doesn't mean re-writing a sticker. A demo tag with no track chosen plays the album — deliberately, since a silent tag is indistinguishable from a mis-written one. (Before ADR 0034 the only kind was `album`.) The kinds are enumerated as `CURATOR_URI_KINDS` in `@marquee/contracts`, which is what the contract tests iterate.
 
 Fired to both Conductor (`/api/scan`) and Backdrop (`/api/scan`) in parallel. Both services independently look up what they need (Conductor reads the album-assets store; Backdrop reads its library.json).
 
