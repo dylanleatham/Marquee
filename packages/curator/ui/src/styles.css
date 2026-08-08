@@ -1597,10 +1597,17 @@ a:hover {
 }
 
 /* The way out of "no tracklist", sitting inside the explanation rather than elsewhere (ADR 0059). */
+/* Which Spotify album this is. Always present (ADR 0060), so it sits as its own quiet block rather
+   than a continuation of the "no tracklist" explanation it used to live inside. */
 .demo__uri {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid var(--pp-rule-soft);
+  border: 1px dashed var(--pp-dashed);
+  padding: 13px 15px;
+}
+.demo__uri-state {
+  font: 400 13px/1.5 var(--pp-body);
+  color: var(--pp-ink-muted);
+  margin: 6px 0 11px;
+  max-width: 60ch;
 }
 .demo__uri-label {
   display: block;
@@ -1612,8 +1619,9 @@ a:hover {
 }
 .demo__uri-row {
   display: flex;
-  gap: 10px;
-  align-items: flex-end;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
 }
 /* Matches the house field style (see .typein__field): underline, not a box. */
 .demo__uri-input {

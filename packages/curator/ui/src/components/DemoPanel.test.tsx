@@ -203,43 +203,115 @@ describe("DemoPanel — choosing", () => {
 });
 
 /**
- * The escape hatch (ADR 0059). Before this the panel told you to "add the album's Spotify URI" and
- * gave you nowhere to add it — the copy described a feature that had been explicitly deferred.
+ * Which Spotify album this record is (ADR 0059, made always-visible by ADR 0060).
+ *
+ * The first version only appeared when there was no tracklist, so it could fix a *missing* match and
+ * not a *wrong* one. Once ADR 0060 loosened the rule, a wrong-edition match became the failure to
+ * expect — and that one shows up as a tracklist full of the wrong songs, with the fix needing to be
+ * right next to them.
  */
-describe("DemoPanel — naming the album by hand", () => {
-  const noTracklist = async () => {
-    vi.mocked(api.tracks).mockResolvedValue({
-      tracks: [],
-      reason: "Curator hasn't matched this to a Spotify album yet",
-    });
-    show();
-    await waitFor(() =>
-      expect(screen.getByText(/hasn't matched/)).toBeTruthy(),
-    );
+describe("DemoPanel — which album this is on Spotify", () => {
+  const linked = (over: Partial<AlbumAsset["metadata"]> = {}) => {
+    const a = asset();
+    a.metadata = { ...a.metadata, spotifyUri: "spotify:album:abc", ...over };
+    return a;
   };
 
-  it("offers somewhere to paste, right beside the explanation", async () => {
-    await noTracklist();
-    expect(screen.getByLabelText(/Paste this record on Spotify/i)).toBeTruthy();
+  it("shows an automatic match by name, so a wrong one is visible", async () => {
+    show(
+      linked({
+        spotifyMatch: {
+          confidence: "exact",
+          name: "Voodoo",
+          artist: "D'Angelo",
+          year: 2000,
+          matchedAt: "2026-08-08T00:00:00.000Z",
+        },
+      }),
+    );
+    await waitFor(() => expect(screen.getByText("Playa Playa")).toBeTruthy());
+
+    expect(screen.getByText(/matched automatically to/)).toBeTruthy();
+    expect(screen.getByText(/D'Angelo — Voodoo/)).toBeTruthy();
+    expect(screen.getByText(/\(2000\)/)).toBeTruthy();
   });
 
-  it("saves what was pasted", async () => {
-    await noTracklist();
+  /** The case the empty-state-only version could never reach: songs are listed, and they're wrong. */
+  it("is offered even when there IS a tracklist", async () => {
+    show(linked());
+    await waitFor(() => expect(screen.getByText("Playa Playa")).toBeTruthy());
+    expect(
+      screen.getByRole("button", { name: /USE A DIFFERENT ALBUM/i }),
+    ).toBeTruthy();
+  });
+
+  /**
+   * No `spotifyMatch` means nobody guessed — either a Spotify add or a human pasting it. Both are
+   * facts, and neither should be described as a match the user might want to check.
+   */
+  it("distinguishes a hand-linked album from a guessed one", async () => {
+    // The state line is built from several nodes, so match on the element's whole text.
+    const stateText = () =>
+      document.querySelector(".demo__uri-state")?.textContent ?? "";
+
+    const { unmount } = show(linked({ source: "discogs" }));
+    await waitFor(() => expect(screen.getByText("Playa Playa")).toBeTruthy());
+    expect(stateText()).toMatch(/linked by hand/);
+    expect(screen.queryByText(/matched automatically/)).toBeNull();
+    unmount();
+
+    show(linked({ source: "spotify" }));
+    await waitFor(() => expect(screen.getByText("Playa Playa")).toBeTruthy());
+    expect(stateText()).toMatch(/added from Spotify/);
+  });
+
+  it("says so when nothing is linked, and offers to paste", async () => {
+    vi.mocked(api.tracks).mockResolvedValue({ tracks: [], reason: "no match" });
+    show();
+    await waitFor(() =>
+      expect(screen.getByText(/not linked to a Spotify album/)).toBeTruthy(),
+    );
+    expect(
+      screen.getByRole("button", { name: /PASTE THE ALBUM/i }),
+    ).toBeTruthy();
+    // Nothing to unlink when nothing is linked.
+    expect(screen.queryByRole("button", { name: /UNLINK/i })).toBeNull();
+  });
+
+  it("saves a pasted share link", async () => {
+    show(linked());
+    await waitFor(() => expect(screen.getByText("Playa Playa")).toBeTruthy());
+    fireEvent.click(
+      screen.getByRole("button", { name: /USE A DIFFERENT ALBUM/i }),
+    );
     fireEvent.change(screen.getByLabelText(/Paste this record on Spotify/i), {
-      target: { value: "https://open.spotify.com/album/abc123?si=x" },
+      target: { value: "https://open.spotify.com/album/xyz789?si=x" },
     });
     fireEvent.click(screen.getByRole("button", { name: /USE THIS ALBUM/i }));
 
     await waitFor(() =>
       expect(api.setSpotifyUri).toHaveBeenCalledWith(
         "abc12345",
-        "https://open.spotify.com/album/abc123?si=x",
+        "https://open.spotify.com/album/xyz789?si=x",
       ),
     );
   });
 
+  it("unlinks on request", async () => {
+    show(linked());
+    await waitFor(() => expect(screen.getByText("Playa Playa")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /UNLINK/i }));
+    await waitFor(() =>
+      expect(api.setSpotifyUri).toHaveBeenCalledWith("abc12345", null),
+    );
+  });
+
   it("won't submit an empty box", async () => {
-    await noTracklist();
+    show(linked());
+    await waitFor(() => expect(screen.getByText("Playa Playa")).toBeTruthy());
+    fireEvent.click(
+      screen.getByRole("button", { name: /USE A DIFFERENT ALBUM/i }),
+    );
     expect(
       (
         screen.getByRole("button", {
@@ -249,20 +321,17 @@ describe("DemoPanel — naming the album by hand", () => {
     ).toBe(true);
   });
 
-  /** The sweep is the answer for hundreds of records; offering it here as a button invites using it
-      to fix one, so it is a link to where it lives. */
+  /** The sweep is the answer for hundreds of records; a button here invites using it to fix one. */
   it("points at the library-wide sweep as a link, not a button", async () => {
-    await noTracklist();
+    show(linked());
+    await waitFor(() => expect(screen.getByText("Playa Playa")).toBeTruthy());
+    fireEvent.click(
+      screen.getByRole("button", { name: /USE A DIFFERENT ALBUM/i }),
+    );
     expect(
       screen
         .getByRole("link", { name: /Settings → Library/i })
         .getAttribute("href"),
     ).toBe("/settings");
-  });
-
-  it("doesn't clutter the panel when there is a tracklist", async () => {
-    show();
-    await waitFor(() => expect(screen.getByText("Playa Playa")).toBeTruthy());
-    expect(screen.queryByLabelText(/Paste this record on Spotify/i)).toBeNull();
   });
 });
