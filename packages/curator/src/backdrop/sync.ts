@@ -415,7 +415,18 @@ export class BackdropSync {
       throw new Error(`local visualizer file missing at ${src}`);
     // The signal reaches `putMedia`, so cancelling a full resync aborts the upload in flight rather
     // than waiting out a transfer that can take ~90 minutes on the measured link (ADR 0038).
-    await this.mediaTransfer.copyVisualizer(src, asset.visualizer.fileId, ctx);
+    //
+    // Rebuild the context instead of forwarding `ctx`, and hand down the signal *only*. The
+    // parameter type above already says `{ signal }`, but that is a claim about this function's
+    // callers, not about what it passes on: `resyncAll` hands us its own ctx, whose `onProgress`
+    // counts albums, while `copyVisualizer` reports bytes. Forwarding the object wholesale made one
+    // callback carry both units, and a running sync reported `24248819/998` — bytes of the file in
+    // flight against a total counted in album-legs ([#268](https://github.com/dylanleatham/Marquee/issues/268)).
+    // A narrow parameter type does not strip the extra property at runtime; constructing the object
+    // here is what actually enforces it.
+    await this.mediaTransfer.copyVisualizer(src, asset.visualizer.fileId, {
+      ...(ctx.signal ? { signal: ctx.signal } : {}),
+    });
   }
 
   /**
