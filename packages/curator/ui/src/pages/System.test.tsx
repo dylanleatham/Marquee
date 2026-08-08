@@ -11,7 +11,11 @@ import {
 import { MemoryRouter } from "react-router-dom";
 
 vi.mock("../api", () => ({
-  api: { systemStatus: vi.fn(), runtimeSync: vi.fn().mockResolvedValue({}) },
+  api: {
+    systemStatus: vi.fn(),
+    runtimeSync: vi.fn().mockResolvedValue({}),
+    demoStop: vi.fn().mockResolvedValue({ stopped: true }),
+  },
 }));
 
 import { api, type SystemStatus as Status } from "../api";
@@ -68,6 +72,7 @@ const show = () =>
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api.systemStatus).mockResolvedValue(status());
+  vi.mocked(api.demoStop).mockResolvedValue({ stopped: true });
   vi.mocked(api.runtimeSync).mockResolvedValue({
     id: "sync1",
     kind: "runtimeSync",
@@ -145,6 +150,75 @@ describe("System — what is happening", () => {
     expect(screen.getByText(/can't tell — Stylus is down/)).toBeTruthy();
     // The limits are stated rather than implied by a confident blank.
     expect(screen.getByText(/Streaming patterns report nothing/)).toBeTruthy();
+  });
+});
+
+describe("System — stopping the lights (ADR 0060)", () => {
+  const stopButton = () =>
+    screen.findByRole("button", { name: /STOP THE LIGHTS/ });
+
+  it("stops the lights from the row that says they are on", async () => {
+    show();
+    fireEvent.click(await stopButton());
+    await waitFor(() => expect(api.demoStop).toHaveBeenCalled());
+  });
+
+  it("says the lights are off, because the row alone may not change", async () => {
+    // The caveat in the same section says the playback view misses streaming patterns, so a stop
+    // can be entirely correct and leave every row reading exactly as it did.
+    show();
+    fireEvent.click(await stopButton());
+    expect(
+      await screen.findByText(/The lights are off — the room is back/),
+    ).toBeTruthy();
+  });
+
+  it("offers the stop even when it can't see anything playing", async () => {
+    vi.mocked(api.systemStatus).mockResolvedValue(
+      status({
+        playing: {
+          video: null,
+          lights: [],
+          audio: null,
+          caveats: ["Streaming patterns report nothing."],
+        },
+      }),
+    );
+    show();
+    // Gating on `lights` would hide the control in the one case the page admits it is blind to.
+    expect(await stopButton()).toBeTruthy();
+  });
+
+  it("hides the stop when Conductor isn't answering — it could only 502", async () => {
+    vi.mocked(api.systemStatus).mockResolvedValue(
+      status({
+        services: [
+          {
+            service: "conductor",
+            configured: true,
+            reachable: false,
+            url: "http://localhost:4741",
+            detail: "connect ECONNREFUSED",
+          },
+        ],
+      }),
+    );
+    show();
+    await screen.findByText("the lights — not answering");
+    expect(
+      screen.queryByRole("button", { name: /STOP THE LIGHTS/ }),
+    ).toBeNull();
+  });
+
+  it("says so when the stop fails, rather than settling back in silence", async () => {
+    vi.mocked(api.demoStop).mockRejectedValue(
+      new Error("no room specified and no listening room configured"),
+    );
+    show();
+    fireEvent.click(await stopButton());
+    expect(
+      await screen.findByText(/Couldn't stop the lights: no room specified/),
+    ).toBeTruthy();
   });
 });
 

@@ -520,7 +520,10 @@ invisible from the service status. For a colour-free read of the kiosk's own vie
 - **Pair / re-pair the Hue bridge:** on the Pi, `pnpm --filter @marquee/hue-conductor pair`, press the
   bridge link button when prompted.
 - **Force a service back to idle:** `POST http://<pi>:4737/api/playback/stop` (Conductor) /
-  `POST http://<pi>:4740/api/admin/stop` (Backdrop).
+  `POST http://<pi>:4740/api/admin/stop` (Backdrop). For Conductor there is now a button — Curator's
+  **System** page, **Stop the lights** in the LIGHTS row
+  ([ADR 0060](adrs/0060-the-lights-are-stopped-from-the-system-page.md)); the curl stays here because
+  it works when Curator is the thing that is down.
 - **Re-sync after adding/attaching:** Curator → `POST /api/runtime/sync`, which covers **both**
   halves — the album-assets store to Conductor (ADR 0045) and the projection to Backdrop. With
   `media_transfer = "push"` it carries the videos too, skipping any whose `contentHash` already

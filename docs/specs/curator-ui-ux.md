@@ -755,8 +755,36 @@ style: **not set up** (never configured — Amp normally) is not **not answering
 unreachable, which is a fault).
 
 Also on the page: what is playing (screen / lights / sound / **the stand**), jobs in flight with a
-count as well as a bar, and one **Sync everything** button. Read-only apart from that button — this is
-the page you open when something is wrong, so it must never be the reason something is wrong.
+count as well as a bar, and one **Sync everything** button.
+
+> **Amended 2026-08-08** ([ADR 0060](../adrs/0060-the-lights-are-stopped-from-the-system-page.md)).
+> This said "Read-only apart from that button — this is the page you open when something is wrong, so
+> it must never be the reason something is wrong." The reason stands; the rule was one notch too
+> tight. **The page writes to the runtime, never to the collection.** A stray click here must never
+> change a record, a palette, or a push — but a recovery action that takes the runtime back to
+> neutral belongs on the page that reports the runtime.
+
+**Stop the lights** sits in the LIGHTS row, the row that told you they were on. It calls
+`POST /api/demo/stop` — Conductor stops playback and fades the room back to its pre-session snapshot.
+Until this existed, the only reachable stop was inside the room and gated on the arm switch, so
+turning the lights off meant opening some record's room and turning them **on** first; the documented
+alternative was `curl` ([runbook.md](../runbook.md), "Force a service back to idle").
+
+Two details it does not get to skip:
+
+- **It is offered whenever Conductor answers, not only when a light is showing.** The caveat three
+  lines below says Conductor's playback view covers CLIP playback only — a streaming pattern lights
+  the room and reports nothing. Gating the button on the row would hide it in exactly the case the
+  page admits it cannot see. Conductor unreachable is the one state that hides it: the stop could only
+  502, and the service list above already says why.
+- **Success gets a sentence too.** Pressed while the row already read "nothing", a correct stop
+  changes nothing on screen and is indistinguishable from a broken button — so the result is stated
+  either way ("The lights are off — the room is back to how it was." / "Couldn't stop the lights: …"),
+  in wording before colour (§3.4).
+
+The stop is **room-wide, not per-record**, because Conductor's is: it defaults to the configured
+listening room. The room screen's **LIFT THE SLEEVE** is unchanged and remains the right control while
+you are in there watching one record.
 
 This is **the one place a raw error code belongs.** `connect ECONNREFUSED` is the actionable text for
 a service that won't answer; paraphrasing it takes away the string you paste into a search. It comes
