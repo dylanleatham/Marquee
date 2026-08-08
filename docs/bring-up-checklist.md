@@ -85,7 +85,7 @@ curl -s -XPOST http://$PI5:4737/api/test/color -H "X-Trigger-Secret: $SECRET" \
 ## Phase 3 — Backdrop / the video · runbook A3
 
 - [ ] Config: shared secret + media dir (`/home/pi/marquee-data/media/visualizers`)
-- [ ] `marquee-backdrop.service` up (`systemctl enable --now`)
+- [ ] Backdrop's unit up (`systemctl enable --now`) — `backdrop` or `marquee-backdrop`, depending on which guide you followed
 - [ ] Kiosk unit `marquee-kiosk.service` launches Chromium fullscreen on the TV
 
 **GATE 3:** `curl -s http://$PI5:4740/api/status` shows it **up with a browser connected**, and the TV
