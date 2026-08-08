@@ -1405,6 +1405,68 @@ export function rejectPreview(
   return asset;
 }
 
+// --- naming an album on Spotify by hand (ADR 0059) ----------------------------------------------
+
+/**
+ * What a human can paste. Curator's own scheme is `spotify:album:<id>`, but the thing you get from
+ * Spotify's share button is an `https://open.spotify.com/album/<id>?si=…` URL — and demanding the
+ * URI form would mean explaining a conversion nobody should have to do.
+ */
+const SPOTIFY_ALBUM_INPUT = [
+  /^spotify:album:([A-Za-z0-9]+)$/,
+  /^https?:\/\/open\.spotify\.com\/(?:intl-[a-z]{2}\/)?album\/([A-Za-z0-9]+)/,
+];
+
+/** Normalize a pasted album reference to `spotify:album:<id>`, or `null` if it isn't one. */
+export function normalizeSpotifyAlbum(input: string): string | null {
+  const trimmed = input.trim();
+  for (const re of SPOTIFY_ALBUM_INPUT) {
+    const m = re.exec(trimmed);
+    if (m) return `spotify:album:${m[1]}`;
+  }
+  return null;
+}
+
+/**
+ * Name this album on Spotify by hand — or clear it with `null` (ADR 0059).
+ *
+ * The escape hatch for the two cases the matcher can't serve: it found nothing, or it found
+ * something it deliberately won't play from. A pasted URI is a **fact**, not a guess, so it also
+ * drops `spotifyMatch` — leaving the record of a guess beside a human's answer would let the UI keep
+ * explaining a near-match that no longer decides anything.
+ *
+ * Deliberately not validated against Spotify: the album may be one Curator has never fetched, the
+ * network may be down, and refusing a correct paste because a lookup failed would make the escape
+ * hatch need its own escape hatch. A wrong id shows up as an empty tracklist, which is visible and
+ * fixable right where you typed it.
+ */
+export function setSpotifyUri(
+  deps: ActionDeps,
+  curatorId: string,
+  input: string | null,
+): AlbumAsset {
+  const uri = input === null ? null : normalizeSpotifyAlbum(input);
+  if (input !== null && !uri)
+    throw new ValidationError(
+      `not a Spotify album link: ${JSON.stringify(input)} — paste a spotify:album:… URI or an open.spotify.com/album/… link`,
+    );
+
+  const asset = deps.store.update(curatorId, (a) => {
+    if (uri) {
+      a.metadata.spotifyUri = uri;
+      delete a.metadata.spotifyMatch;
+    } else {
+      delete a.metadata.spotifyUri;
+      delete a.metadata.spotifyMatch;
+      // A demo cut names a track on the album we just disowned, so it can no longer be trusted to
+      // be the right song — clearing it returns the demo tag to playing the record.
+      a.demoTrack = null;
+    }
+  });
+  if (!asset) throw new NotFoundError(`no such album: ${curatorId}`);
+  return asset;
+}
+
 // --- the demo track (ADR 0058) -----------------------------------------------------------------
 
 /** What the picker sends: the track's identity, without the bookkeeping the store adds. */

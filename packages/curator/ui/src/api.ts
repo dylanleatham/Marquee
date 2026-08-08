@@ -837,6 +837,16 @@ export const api = {
   tracks: (id: string) =>
     req<{ tracks: Track[]; reason?: string }>(`/api/albums/${id}/tracks`),
 
+  /**
+   * Name this album on Spotify by hand (ADR 0059). Accepts the `spotify:album:…` URI or an
+   * `open.spotify.com/album/…` share link; `null` clears it (and the demo cut with it).
+   */
+  setSpotifyUri: (id: string, spotifyUri: string | null) =>
+    req<{ spotifyUri: string | null; demoTrack: DemoTrack | null }>(
+      `/api/albums/${id}/spotify-uri`,
+      { method: "PUT", body: JSON.stringify({ spotifyUri }) },
+    ),
+
   /** Choose the track a demo tag plays, or pass `null` to fall back to the whole album. */
   setDemoTrack: (id: string, track: Omit<DemoTrack, "chosenAt"> | null) =>
     req<{ demoTrack: DemoTrack | null }>(`/api/albums/${id}/demo-track`, {

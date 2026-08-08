@@ -47,10 +47,11 @@ export interface AlbumMetadata {
   source: "manual" | "spotify" | "discogs";
   /**
    * `spotify:album:<id>`. **Presence means "trusted enough to play"**: everything that streams audio
-   * — Amp on a card or demo scan, bench desk audio, the demo-track picker — reads this one field, so
-   * a Discogs album only gets one on an `exact` match ([ADR 0059](../../../../docs/adrs/0059-a-matched-album-plays-only-on-an-exact-match.md)).
-   * Where it came from is `spotifyMatch`; a Spotify-sourced album has no `spotifyMatch` because it
-   * was never a guess.
+   * — Amp on a card or demo scan, bench desk audio, the demo-track picker — reads this one field.
+   * Three things may set it ([ADR 0059](../../../../docs/adrs/0059-a-matched-album-plays-only-on-an-exact-match.md)):
+   * a Spotify add, an `exact` Discogs→Spotify match, or a human naming the album by hand. A `close`
+   * match never does. Where it came from is `spotifyMatch` — absent for the two that were never a
+   * guess.
    */
   spotifyUri?: string;
   spotifyArtUrl?: string;

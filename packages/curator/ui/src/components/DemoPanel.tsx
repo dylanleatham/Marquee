@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, type AlbumAsset, type Track } from "../api";
 import { errorMessage } from "../errors";
 import { AsyncButton } from "./common";
@@ -92,6 +93,48 @@ function TrackRow({
   );
 }
 
+/**
+ * Name the album on Spotify by hand — the escape hatch for a record the matcher missed, or matched
+ * only closely and refuses to play from (ADR 0059).
+ *
+ * Takes the share link as well as the URI, because the share button is where anyone actually gets
+ * this and demanding the `spotify:album:` form would mean explaining a conversion. The library-wide
+ * sweep is a link rather than a button here: it is the answer for *hundreds* of records, and putting
+ * it next to a single album invites running it to fix one.
+ */
+function SpotifyUriEntry({ curatorId, run }: { curatorId: string; run: Run }) {
+  const [value, setValue] = useState("");
+
+  return (
+    <div className="demo__uri">
+      <label className="demo__uri-label" htmlFor={`spotify-uri-${curatorId}`}>
+        Paste this record on Spotify
+      </label>
+      <div className="demo__uri-row">
+        <input
+          id={`spotify-uri-${curatorId}`}
+          className="demo__uri-input"
+          value={value}
+          placeholder="https://open.spotify.com/album/… or spotify:album:…"
+          onChange={(e) => setValue(e.target.value)}
+        />
+        <AsyncButton
+          className="pp-btn"
+          disabled={!value.trim()}
+          pendingLabel="SAVING…"
+          onClick={() => run(() => api.setSpotifyUri(curatorId, value.trim()))}
+        >
+          USE THIS ALBUM
+        </AsyncButton>
+      </div>
+      <p className="demo__uri-hint">
+        Or match the whole collection at once from{" "}
+        <Link to="/settings">Settings → Library</Link>.
+      </p>
+    </div>
+  );
+}
+
 export function DemoPanel({
   curatorId,
   asset,
@@ -153,9 +196,12 @@ export function DemoPanel({
       {tracks === null && <p className="pp-loading">Reading the tracklist…</p>}
 
       {tracks !== null && tracks.length === 0 && (
-        <p className="demo__reason">
-          {reason ?? "No songs came back for this record."}
-        </p>
+        <div className="demo__reason">
+          <p>{reason ?? "No songs came back for this record."}</p>
+          {/* The way out, next to the explanation rather than somewhere else (ADR 0059). Until this
+              existed the copy suggested pasting a URI and offered nowhere to paste it. */}
+          <SpotifyUriEntry curatorId={curatorId} run={run} />
+        </div>
       )}
 
       {tracks !== null && tracks.length > 0 && (
