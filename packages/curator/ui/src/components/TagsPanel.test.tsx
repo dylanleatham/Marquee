@@ -175,13 +175,18 @@ describe("TagsPanel — the check", () => {
     );
   });
 
-  it("says why it can't be pressed yet rather than failing when it is", () => {
-    // The human path through the machine is still linear even though the needs are done in any
-    // order — curator-ui-ux §4: the gate is shown, not hidden.
+  it("is pressable before the rest of the record is done", async () => {
+    // regression: #261 — this was gated on the linear machine, so on a record with no visualizer
+    // (478 of 499 in the real collection) the button was dead and nothing else on the panel could
+    // record a written sticker. A sticker is a physical object; writing and checking it does not
+    // wait on a visualizer (ADR 0060).
     show(asset("awaiting_review"));
     const btn = screen.getByRole("button", { name: "TAGS VERIFIED" });
-    expect((btn as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText(/this is the last step/i)).toBeTruthy();
+    expect((btn as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(btn);
+    await waitFor(() =>
+      expect(api.verifyTags).toHaveBeenCalledWith("abc12345"),
+    );
   });
 
   it("is pressable from awaiting_verify too, not only from the tag step", () => {
@@ -201,21 +206,76 @@ describe("TagsPanel — the check", () => {
     expect(screen.getByText(/This is where the bugs turn up/)).toBeTruthy();
   });
 
-  it("says so once it has been done", () => {
+  it("says so once it has been done, and stops offering the press", () => {
     show(
       asset("verified", {
         verification: { physicallyVerifiedAt: "2026-08-01T00:00:00.000Z" },
       }),
     );
-    expect(
-      screen.getByRole("button", { name: /TAGS VERIFIED ✓/ }),
-    ).toBeTruthy();
+    const btn = screen.getByRole("button", {
+      name: /TAGS VERIFIED ✓/,
+    }) as HTMLButtonElement;
+    expect(btn).toBeTruthy();
+    // The only remaining reason to withhold the press: it has already been done, and the panel
+    // says when rather than going quiet (#261).
+    expect(btn.disabled).toBe(true);
+    expect(screen.getByText(/^checked /)).toBeTruthy();
   });
 
   it("never says 'I've put it on the shelf'", () => {
     show();
     expect(screen.queryByText(/shelf\b(?!.*card)/i)).toBeNull();
     expect(screen.queryByText(/physically verified/i)).toBeNull();
+  });
+});
+
+/**
+ * Recording a sticker one at a time (#261). `TAGS VERIFIED` covers the sleeve and the card in one
+ * press because you write them in one sitting — but it is the *check*, and a panel where the only
+ * control is the check has nothing to say the evening you wrote the stickers and haven't tapped
+ * them yet. Every sticker on this panel can now record its own write.
+ */
+describe("TagsPanel — recording a written sticker", () => {
+  it("gives every unwritten sticker its own write control", () => {
+    show(asset("awaiting_review"));
+    expect(
+      screen.getAllByRole("button", { name: /^I've written/ }),
+    ).toHaveLength(3);
+  });
+
+  it.each([
+    ["I've written the sleeve", "sleeve"],
+    ["I've written the shelf card", "card"],
+  ])("records the %s write against its own object", async (name, object) => {
+    show(asset("awaiting_review"));
+    fireEvent.click(screen.getByRole("button", { name }));
+    await waitFor(() =>
+      expect(api.markTagWritten).toHaveBeenCalledWith("abc12345", object),
+    );
+  });
+
+  it("drops a sticker's control once that sticker is recorded", () => {
+    show(
+      asset("awaiting_review", {
+        tag: { payload: "curator:album:abc12345", sleeve: { written: true } },
+      }),
+    );
+    expect(
+      screen.queryByRole("button", { name: "I've written the sleeve" }),
+    ).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "I've written the shelf card" }),
+    ).toBeTruthy();
+  });
+
+  /**
+   * The visible words stay identical on all three — you are answering the same question about the
+   * sticker beside it. The accessible name is where they differ, so a screen reader never reads
+   * three buttons that sound alike.
+   */
+  it("keeps one wording on screen and distinct names for a screen reader", () => {
+    show(asset("awaiting_review"));
+    expect(screen.getAllByText("I'VE WRITTEN THIS ONE")).toHaveLength(3);
   });
 });
 
@@ -261,7 +321,7 @@ describe("TagsPanel — the demo tag", () => {
   it("records its own write — TAGS VERIFIED does not cover it", async () => {
     show();
     fireEvent.click(
-      screen.getByRole("button", { name: /I'VE WRITTEN THIS ONE/ }),
+      screen.getByRole("button", { name: "I've written the demo tag" }),
     );
     await waitFor(() =>
       expect(api.markTagWritten).toHaveBeenCalledWith("abc12345", "demo"),
@@ -275,7 +335,7 @@ describe("TagsPanel — the demo tag", () => {
       }),
     );
     expect(
-      screen.queryByRole("button", { name: /I'VE WRITTEN THIS ONE/ }),
+      screen.queryByRole("button", { name: "I've written the demo tag" }),
     ).toBeNull();
   });
 

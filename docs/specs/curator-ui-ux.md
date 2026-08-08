@@ -398,10 +398,12 @@ time.
 > **The demo tag is the odd one of the three (ADR 0058)**, and the panel says so in two ways. It
 > **states what it will play** — the chosen cut by name, or "no cut chosen — plays the whole record",
 > because with nothing chosen it behaves exactly like the shelf card and a screen that stayed silent
-> would make that look like a bug. And it carries its **own** `I'VE WRITTEN THIS ONE`, because
-> `TAGS VERIFIED` deliberately marks only the two stickers every record gets: claiming a demo tag was
-> written when you never made one is a lie on the one screen whose job is catching mis-written
-> stickers.
+> would make that look like a bug. And it is the one sticker `TAGS VERIFIED` **never** marks, because
+> that button covers only the two stickers every record gets: claiming a demo tag was written when you
+> never made one is a lie on the one screen whose job is catching mis-written stickers. (Its own
+> `I'VE WRITTEN THIS ONE` was the demo tag's alone until 2026-08-08; all three carry one now — see
+> [ADR 0060](../adrs/0060-the-tag-step-is-recorded-on-the-asset-not-on-the-machine.md). What stays
+> unique to it is being outside the one-press check.)
 
 Below a hairline, set apart on purpose: **THEN CHECK THEM**, and **one `TAGS VERIFIED` button
 covering the sleeve and the card**. Marking the sleeve written and the card written were bookkeeping about a single
@@ -409,10 +411,22 @@ act at the Flipper; the _check_ — tapping each tag and confirming it opens the
 only part that is a decision, and it is where a mis-written sticker turns up. So verification stays
 its own visually separated step, and it is one press.
 
-> **The gate is shown, not hidden (§4).** The human path through the state machine is still linear
-> even though the four needs are done in any order, so `TAGS VERIFIED` is **disabled with its reason**
-> until the record reaches the tag step, rather than offering a press that 409s. That tension between
-> "any order" and a linear machine is real and is not resolved here — it is simply not hidden.
+> **Resolved 2026-08-08** ([ADR 0060](../adrs/0060-the-tag-step-is-recorded-on-the-asset-not-on-the-machine.md),
+> [#261](https://github.com/dylanleatham/Marquee/issues/261)). This paragraph used to say the gate was
+> shown rather than hidden: `TAGS VERIFIED` was disabled with its reason until the record reached the
+> tag step, and the tension between "any order" and a linear machine was "real and not resolved
+> here". It was not survivable. The only exit from `awaiting_review` is attaching a visualizer, so on
+> the real collection **478 of 499 records could not record a tag at all** — and with no per-sticker
+> control on the sleeve or the card, nothing else on the panel could either. The tag step is now
+> recorded on the asset whatever the state; the machine advances only as far as it legally goes. The
+> one reason left to withhold the press is `checked <when>`.
+
+**Every unwritten sticker carries its own `I'VE WRITTEN THIS ONE`** — the sleeve and the card as well
+as the demo tag (ADR 0060). `TAGS VERIFIED` is the _check_, and the check happens hours or days after
+the writing; a panel whose only control is the check has nothing to say the evening you burned the
+stickers. The visible wording is identical on all three, because you are answering the same question
+about the sticker beside it; the **accessible name** is where they differ (`I've written the sleeve`),
+so a screen reader never reads three buttons that sound alike.
 
 ### 5.3 The demo-cut panel ([ADR 0058](../adrs/0058-a-demo-tag-plays-one-chosen-track.md))
 

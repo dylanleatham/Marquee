@@ -1378,17 +1378,25 @@ export function selectCardArt(
 
 // --- preview -----------------------------------------------------------------------------------
 
-/** "Looks good" — approve the preview, advancing to awaiting_tag_write (curator-spec §10). */
+/**
+ * "Looks good" — approve the preview, advancing to awaiting_tag_write (curator-spec §10).
+ *
+ * If the tag step was already done out of order ([ADR 0060](../../../../docs/adrs/0060-the-tag-step-is-recorded-on-the-asset-not-on-the-machine.md)),
+ * this is the last need landing, so it carries on to `verified` rather than parking the record one
+ * step short of done forever. Whichever of the two came second settles the machine.
+ */
 export function approvePreview(
   deps: ActionDeps,
   curatorId: string,
 ): AlbumAsset {
   const asset = load(deps.store, curatorId);
-  transitionTo(asset, "awaiting_tag_write", clock(deps)); // throws if not in awaiting_preview
+  const now = clock(deps);
+  transitionTo(asset, "awaiting_tag_write", now); // throws if not in awaiting_preview
   asset.verification = {
     ...asset.verification,
-    previewApprovedAt: clock(deps)(),
+    previewApprovedAt: now(),
   };
+  if (asset.verification.physicallyVerifiedAt) settleTagStep(asset, now);
   deps.store.save(asset);
   return asset;
 }
@@ -1558,8 +1566,13 @@ export function markTagWritten(
  * together, and verification stays a distinct, deliberate step rather than a third click.
  *
  * Both tags are marked written whatever their prior state, so pressing this after writing only the
- * sleeve does not leave the card claiming otherwise. Idempotent for the writes; the transition
- * throws once the album is already `verified`.
+ * sleeve does not leave the card claiming otherwise, and pressing it twice is a no-op rather than an
+ * error — the panel keeps the button on screen after the check.
+ *
+ * **The record is on the asset, not in the machine** ([ADR 0060](../../../../docs/adrs/0060-the-tag-step-is-recorded-on-the-asset-not-on-the-machine.md)).
+ * A sticker is a physical object: writing and checking it does not wait on a visualizer, so this
+ * never throws for being early. It records the writes and `physicallyVerifiedAt` whatever the state,
+ * and moves the machine only as far as the linear human path legally goes (`settleTagStep`).
  */
 export function verifyTags(deps: ActionDeps, curatorId: string): AlbumAsset {
   const asset = load(deps.store, curatorId);
@@ -1569,16 +1582,28 @@ export function verifyTags(deps: ActionDeps, curatorId: string): AlbumAsset {
   for (const object of ["sleeve", "card"] as const)
     if (!tag[object]?.written) tag[object] = { written: true, writtenAt: at };
   asset.tag = tag;
-  // `awaiting_tag_write` has to step through `awaiting_verify` — the machine's human path is linear
-  // (asset.ts HUMAN_TRANSITIONS) even though the record page lets the four needs be done in any
-  // order. Anything earlier than the tag step throws, and the panel disables the button with the
-  // reason rather than offering a press that 409s.
-  if (asset.roadie.state === "awaiting_tag_write")
-    transitionTo(asset, "awaiting_verify", now);
-  transitionTo(asset, "verified", now);
   asset.verification = { ...asset.verification, physicallyVerifiedAt: at };
+  settleTagStep(asset, now);
   deps.store.save(asset);
   return asset;
+}
+
+/**
+ * Move the machine as far along the linear human path as it legally goes, and no further.
+ *
+ * The four needs are done in any order (ADR 0052) but `HUMAN_TRANSITIONS` is a line, so the two
+ * models only meet here. From the tag step this walks `awaiting_tag_write → awaiting_verify →
+ * verified`, exactly as pressing the button used to. From anywhere earlier there is no legal step
+ * and the state is left alone: the record genuinely still needs the other three things, and calling
+ * it `verified` would be a lie the collection would then repeat. From `verified` there is nothing
+ * to do, which is what makes a second press harmless.
+ */
+function settleTagStep(asset: AlbumAsset, now: () => string): void {
+  if (asset.roadie.state === "awaiting_tag_write")
+    transitionTo(asset, "awaiting_verify", now);
+  if (asset.roadie.state === "awaiting_verify")
+    transitionTo(asset, "verified", now);
+  else asset.status = deriveStatus(asset.roadie);
 }
 
 /**

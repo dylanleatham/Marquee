@@ -131,6 +131,17 @@ Two important properties:
 - **Roadie only _forward_-transitions.** It never moves an album backward. If a human explicitly resets a step (regenerate palette, replace video), that's a human action; Roadie doesn't second-guess. Sync failures at the ★ triggers also don't move backward — they're logged as issues on the album.
 - **Roadie's own progress states (fetching_metadata, downloading_art, etc.) are fine-grained.** This is deliberate — when Roadie crashes or the process restarts, it should be able to resume from the last completed sub-step, not restart from `fresh`. Each sub-step is idempotent.
 
+> **The human-driven line is not the whole record of human work (2026-08-08,
+> [ADR 0060](../adrs/0060-the-tag-step-is-recorded-on-the-asset-not-on-the-machine.md)).** The record
+> page presents four needs done in any order, and the tag step is now recorded on the asset —
+> `tag.*.written` and `verification.physicallyVerifiedAt` — whatever state the album is in. The
+> transitions above are unchanged: no new edges, and nothing skips a state. What changed is that
+> `tags-verified` walks the line only as far as it legally goes and otherwise leaves the state alone,
+> so an album can carry a checked tag step while still sitting at `awaiting_review`. Whichever of the
+> tag step and `preview/approve` happens second carries the album on to `verified`, so out-of-order
+> work still terminates. Read `roadie.state` as a summary that can lag the asset, not as the source
+> of truth for what the human has done.
+
 ## 6. What Roadie does at each Roadie-driven state
 
 > **Source routing (issue #24 / [ADR 0017](../adrs/0017-discogs-personal-token-and-direct-images.md)):**
