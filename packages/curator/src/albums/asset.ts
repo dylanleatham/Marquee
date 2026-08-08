@@ -45,8 +45,29 @@ export interface AlbumMetadata {
   year?: number;
   genres?: string[];
   source: "manual" | "spotify" | "discogs";
+  /**
+   * `spotify:album:<id>`. **Presence means "trusted enough to play"**: everything that streams audio
+   * — Amp on a card or demo scan, bench desk audio, the demo-track picker — reads this one field, so
+   * a Discogs album only gets one on an `exact` match ([ADR 0059](../../../../docs/adrs/0059-a-matched-album-plays-only-on-an-exact-match.md)).
+   * Where it came from is `spotifyMatch`; a Spotify-sourced album has no `spotifyMatch` because it
+   * was never a guess.
+   */
   spotifyUri?: string;
   spotifyArtUrl?: string;
+  /**
+   * The Discogs→Spotify match that produced the two fields above, when one did (ADR 0059). Recorded
+   * so a wrong guess is inspectable and correctable rather than silently authoritative — the record
+   * page names what it matched. A `close` match sets `spotifyArtUrl` only; `exact` also sets
+   * `spotifyUri`, which is what lets it play.
+   */
+  spotifyMatch?: {
+    confidence: "exact" | "close";
+    /** What Spotify called it — shown next to the Discogs title so a mismatch is visible. */
+    name: string;
+    artist: string;
+    year?: number;
+    matchedAt: string;
+  };
   /** Stable Discogs release id + `discogs:release:<id>` URI (dedupe key, parallel to spotifyUri). */
   discogsReleaseId?: number;
   discogsUri?: string;

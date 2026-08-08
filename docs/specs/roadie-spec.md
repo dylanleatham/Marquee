@@ -155,6 +155,11 @@ Two important properties:
 
 - Input: art URL from previous step (Spotify art URL, or the Discogs release's primary image URL; or manually provided art via `override_art_url` in asset file)
 - Action: fetch art bytes, hash for cache invalidation, save to `media/artwork/{curatorId}.jpg`, and stamp `artwork.source`. For a Discogs album the metadata step attempts a conservative fuzzy match to a Spotify album (issue #58): on a confident hit it downloads the **Spotify** cover (richer/consistent, `source: "spotify"`), otherwise the **Discogs** release image (`source: "discogs"`) — best-effort, so a miss/error never blocks the add. Discogs image hosts require the same token + `User-Agent` as the API (ADR 0017).
+
+> **That match decides more than the cover now (2026-08-08, [ADR 0059](../adrs/0059-a-matched-album-plays-only-on-an-exact-match.md)).** The metadata step keeps the matched album's **identity**, not just its art URL, and the confidence decides how far it is trusted: an **exact** match (artist and title agree outright, years within a year) sets `metadata.spotifyUri`, which is what lets Amp stream the record on a card or demo scan; a **close** match sets `spotifyArtUrl` only and leaves the album deliberately unplayable. Either way `metadata.spotifyMatch` records what was matched, so a guess is inspectable rather than silently authoritative.
+>
+> Previously the step returned `bestSpotifyMatch(...)?.artUrl` and discarded the rest — so a Discogs-swept library held hundreds of albums Curator had identified and nothing could play. Albums already on disk are fixed by `POST /api/albums/spotify-backfill`, which applies this identical rule through the same shared helper.
+
 - Success: transition to `generating_palette`
 - Failure: retry with backoff; after 3 fails, `errored` with reason
 

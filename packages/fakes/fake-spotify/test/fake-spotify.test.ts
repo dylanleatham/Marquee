@@ -279,3 +279,39 @@ describe("fake-spotify OAuth (Authorization Code + PKCE)", () => {
     expect(bad.status).toBe(400);
   });
 });
+
+/**
+ * Search is token-wise because that is how the real API behaves and how callers use it: Curator's
+ * Discogs→Spotify match searches `"<artist> <title>"`. A substring-of-the-title fake never matched
+ * those, so a lookup that succeeds against real Spotify came back empty in tests — the fake was
+ * lying in the direction that hides bugs.
+ */
+describe("fake-spotify search", () => {
+  const withToken = { headers: { Authorization: "Bearer fake-token" } };
+  const search = async (q: string) =>
+    (
+      await createFakeSpotify([album]).fetch(
+        `https://api.spotify.com/v1/search?type=album&q=${encodeURIComponent(q)}`,
+        withToken,
+      )
+    ).json();
+
+  it("matches an artist-plus-title query, the way callers actually search", async () => {
+    expect((await search("Prince Purple Rain")).albums.items).toHaveLength(1);
+  });
+
+  it("still matches a single token from either field", async () => {
+    expect((await search("purple")).albums.items).toHaveLength(1);
+    expect((await search("prince")).albums.items).toHaveLength(1);
+  });
+
+  it("requires every token, so an unrelated word rules an album out", async () => {
+    expect(
+      (await search("Prince Purple Rain Remastered")).albums.items,
+    ).toEqual([]);
+  });
+
+  it("returns nothing for an empty query rather than the whole catalog", async () => {
+    expect((await search("   ")).albums.items).toEqual([]);
+  });
+});

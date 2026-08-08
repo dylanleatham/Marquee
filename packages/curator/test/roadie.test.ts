@@ -244,6 +244,81 @@ describe("Discogs → Spotify art resolution (issue #58)", () => {
     expect(artBytes(s, id)).toBe("spotify-art");
   });
 
+  /**
+   * ADR 0059. Curator was already identifying the Spotify album to borrow its cover, then throwing
+   * the identity away — so `metadata.spotifyUri` was absent for a whole Discogs-sourced collection
+   * and every consumer that streams audio (Amp on a card or demo scan, desk audio, the demo-track
+   * picker) saw "not on Spotify" for records Curator could name.
+   */
+  it("keeps the matched album's URI on an exact match, so it can play", async () => {
+    const s = store();
+    const id = seedDiscogs(s);
+    const roadie = roadieFor(s, {
+      discogs: fakeDiscogs(),
+      spotify: spotifyWithMatch(),
+    });
+    roadie.enqueue(id);
+    await roadie.drain();
+
+    const done = s.read(id)!;
+    expect(done.metadata.spotifyUri).toBe("spotify:album:sp1");
+    expect(done.metadata.spotifyMatch).toMatchObject({
+      confidence: "exact",
+      name: "In Rainbows",
+      artist: "Radiohead",
+      year: 2007,
+    });
+    expect(done.metadata.spotifyMatch!.matchedAt).toBeTruthy();
+  });
+
+  /**
+   * The whole point of the two bars: a `close` match is good enough to borrow a cover and **not**
+   * good enough to start audio. Here Spotify's title is a superset of the Discogs one — the match
+   * qualifies, so the art is used, but nothing may play from it.
+   */
+  it("lends its cover but no URI on a close match — art and audio are not the same bar", async () => {
+    const s = store();
+    const id = seedDiscogs(s);
+    const roadie = roadieFor(s, {
+      discogs: fakeDiscogs(),
+      spotify: fakeSpotify({
+        searchAlbums: async () => [
+          {
+            spotifyId: "sp2",
+            spotifyUri: "spotify:album:sp2",
+            name: "In Rainbows Disk 2", // a superset title: close, not exact
+            artist: "Radiohead",
+            year: 2007,
+            artUrl: "https://i.scdn.test/disk2",
+          },
+        ],
+        downloadArt: async () => Buffer.from("spotify-art"),
+      }),
+    });
+    roadie.enqueue(id);
+    await roadie.drain();
+
+    const done = s.read(id)!;
+    expect(done.metadata.spotifyArtUrl).toBe("https://i.scdn.test/disk2");
+    expect(done.metadata.spotifyUri).toBeUndefined();
+    expect(done.metadata.spotifyMatch!.confidence).toBe("close");
+  });
+
+  it("records nothing at all when there is no match, so absence stays honest", async () => {
+    const s = store();
+    const id = seedDiscogs(s);
+    const roadie = roadieFor(s, {
+      discogs: fakeDiscogs(),
+      spotify: fakeSpotify({ searchAlbums: async () => [] }),
+    });
+    roadie.enqueue(id);
+    await roadie.drain();
+
+    const done = s.read(id)!;
+    expect(done.metadata.spotifyUri).toBeUndefined();
+    expect(done.metadata.spotifyMatch).toBeUndefined();
+  });
+
   it("falls back to the Discogs image when Spotify has no confident match", async () => {
     const s = store();
     const id = seedDiscogs(s);

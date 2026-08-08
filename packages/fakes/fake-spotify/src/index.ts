@@ -278,13 +278,19 @@ export function createFakeSpotify(initial: FakeAlbum[] = []): FakeSpotify {
           : json({ error: { status: 404 } }, 404);
       }
       if (url.pathname === "/v1/search") {
-        const q = (url.searchParams.get("q") ?? "").toLowerCase();
+        // Token-wise, not substring-wise. Real callers search `"<artist> <title>"` (Curator's
+        // Discogs→Spotify match does exactly that), and a fake that asked whether the *whole* query
+        // was a substring of the title never matched those — so a match the real API finds every
+        // time came back empty here, and only in tests.
+        const tokens = (url.searchParams.get("q") ?? "")
+          .toLowerCase()
+          .split(/\s+/)
+          .filter(Boolean);
         const items = [...albums.values()]
-          .filter(
-            (a) =>
-              a.name.toLowerCase().includes(q) ||
-              a.artist.name.toLowerCase().includes(q),
-          )
+          .filter((a) => {
+            const hay = `${a.name} ${a.artist.name}`.toLowerCase();
+            return tokens.length > 0 && tokens.every((t) => hay.includes(t));
+          })
           .map(albumBody);
         return json({ albums: { items } });
       }
