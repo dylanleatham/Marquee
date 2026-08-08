@@ -2586,6 +2586,27 @@ a:hover {
 .nowrow--down .nowrow__what {
   color: inherit;
 }
+.nowrow__now {
+  flex: 1;
+  min-width: 0;
+}
+/* Same hairline-outline idiom as the service list's RETRY, in ink rather than accent — this is a
+   control you may well press when nothing is wrong, not a repair for a failure. */
+.nowrow__stop {
+  flex: none;
+  align-self: center;
+  font: 500 9.5px/1 var(--pp-mono);
+  letter-spacing: 0.12em;
+  color: var(--pp-ink);
+  background: transparent;
+  border: 1px solid var(--pp-rule);
+  padding: 4px 9px;
+  cursor: pointer;
+}
+.nowrow__stop[disabled] {
+  cursor: default;
+  color: var(--pp-ink-faint);
+}
 .nowrow__album {
   flex: 1;
   min-width: 0;
@@ -2595,6 +2616,16 @@ a:hover {
   letter-spacing: 0.1em;
   color: var(--pp-accent-text);
   flex: none;
+}
+/* The stop's own line. Failure differs from success in wording first (§3.4) — the colour only
+   seconds what the sentence already said. */
+.sysgrid__stopped {
+  font: 400 11.5px/1.5 var(--pp-body);
+  margin-top: 12px;
+  max-width: 62ch;
+}
+.sysgrid__stopped--failed {
+  color: var(--pp-accent-text);
 }
 .sysgrid__caveat {
   font: 400 11.5px/1.5 var(--pp-body);
