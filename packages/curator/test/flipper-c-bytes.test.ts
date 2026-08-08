@@ -98,6 +98,39 @@ describe("the FAP's NDEF compose matches Route A byte for byte (#68)", () => {
     expect(tagUri("2k7bxq9m", "demo")).toBe("curator:demo:2k7bxq9m");
   });
 
+  /**
+   * The confirm screen is the only place that says which kind you just wrote, and per the spec it is
+   * what stops you writing forty wrong tags — so naming the wrong kind defeats its purpose (#272).
+   * It said "Sleeve tag written" for a demo tag because the header was a two-way ternary over a
+   * three-valued enum, and a ternary does not fail to compile when a kind is added.
+   *
+   * The gate is structural, not a string match: every user-facing kind label must come out of
+   * `tag_kind_short`, which is exhaustive by construction, rather than a branch that has a default.
+   */
+  it("names the kind on every screen from one exhaustive helper", () => {
+    const shortBody = functionBody("tag_kind_short");
+    const cShorts = [...shortBody.matchAll(/return "(\w+)";/g)].map(
+      (m) => m[1],
+    );
+    expect(
+      cShorts.length,
+      "tag_kind_short must name every object Route A can author",
+    ).toBe(TAG_OBJECTS.length);
+
+    // Nothing may re-derive a label by comparing the kind itself. The one place that legitimately
+    // decides a kind (`on_kind_selected`) switches on the menu index, not on `tag_kind`.
+    expect(
+      [...source.matchAll(/tag_kind\s*==\s*TagKind\w+/g)].map((m) => m[0]),
+      "branch on tag_kind and a new kind silently takes the default — call tag_kind_short instead",
+    ).toEqual([]);
+
+    const resultBody = functionBody("show_result");
+    expect(
+      resultBody,
+      "the write-success header must name the kind that was written",
+    ).toMatch(/tag_kind_short\(app->tag_kind\)/);
+  });
+
   it("offers every object as a kind the menu can choose", () => {
     // A kind Curator can author but the FAP cannot offer is a tag you have to write another way.
     expect(source).toMatch(/TagKindSleeve,\s*TagKindCard,\s*TagKindDemo,/);
