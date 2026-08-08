@@ -205,6 +205,46 @@ describe("BackdropSync → Backdrop (real HTTP)", () => {
     ]);
   });
 
+  // Issue #268. The album counter and the byte counter used to be the same function: `resyncAll`
+  // forwarded its whole `ctx` down to `copyVisualizer`, whose contract includes `onProgress`, so a
+  // running sync reported `24248819/998` — bytes of the file in flight against a total counted in
+  // albums. `transferMedia`'s parameter type says `{ signal }` alone, which read as a guarantee and
+  // was not one: a *variable* assigned to a narrower parameter keeps its extra properties.
+  //
+  // The progress test above cannot catch this — it builds the sync with no `mediaTransfer`, so the
+  // transfer returns early and the two units never meet. This is the same assertion on the push path.
+  it("resyncAll keeps progress album-counted while the transfer reports bytes", async () => {
+    for (const id of ["bytes001", "bytes002"]) store.save(withVideo(id));
+    mkdirSync(store.paths.visualizers, { recursive: true });
+    for (const id of ["bytes001", "bytes002"])
+      writeFileSync(store.paths.visualizerFile(id), Buffer.from("MP4"));
+
+    const pushSync = new BackdropSync({
+      store,
+      client: new BackdropClient({ url, sharedSecret: SECRET }),
+      backdropMediaDir: mediaDir,
+      mediaTransfer: {
+        mode: "push",
+        // What the real HTTP push does (`BackdropClient.putMedia`): bytes sent of bytes total.
+        async copyVisualizer(_src, _fileId, ctx) {
+          ctx?.onProgress?.(5_000_000, 66_000_000);
+          ctx?.onProgress?.(66_000_000, 66_000_000);
+        },
+      },
+    });
+
+    const seen: Array<[number, number]> = [];
+    await pushSync.resyncAll(store.list(), {
+      onProgress: (done, total) => seen.push([done, total]),
+    });
+
+    expect(seen).toEqual([
+      [0, 2],
+      [1, 2],
+      [2, 2],
+    ]);
+  });
+
   it("resyncAll stops between albums when cancelled", async () => {
     for (const id of ["canc0001", "canc0002", "canc0003"])
       store.save(withVideo(id));
