@@ -245,6 +245,78 @@ describe("BackdropSync → Backdrop (real HTTP)", () => {
     ]);
   });
 
+  // Issue #274. The album counter advances once per album, so a single large visualizer over a poor
+  // link is indistinguishable from a wedged sync while it uploads. `onTransfer` is the byte channel
+  // that tells them apart — separate from `onProgress` by construction, per #268.
+  it("resyncAll reports the file in flight in bytes, and clears it after", async () => {
+    const a = withVideo("xfer0001");
+    a.metadata.name = "Kind of Blue";
+    store.save(a);
+    mkdirSync(store.paths.visualizers, { recursive: true });
+    writeFileSync(store.paths.visualizerFile("xfer0001"), Buffer.from("MP4"));
+
+    const seen: Array<{ label: string; sent: number; total: number } | null> =
+      [];
+    const albumTicks: Array<[number, number]> = [];
+    const pushSync = new BackdropSync({
+      store,
+      client: new BackdropClient({ url, sharedSecret: SECRET }),
+      backdropMediaDir: mediaDir,
+      mediaTransfer: {
+        mode: "push",
+        async copyVisualizer(_src, _fileId, ctx) {
+          ctx?.onProgress?.(5_000_000, 66_000_000);
+          ctx?.onProgress?.(66_000_000, 66_000_000);
+        },
+      },
+    });
+
+    await pushSync.resyncAll(store.list(), {
+      onProgress: (done, total) => albumTicks.push([done, total]),
+      onTransfer: (t) => seen.push(t),
+    });
+
+    expect(seen).toEqual([
+      { label: "Kind of Blue", sent: 5_000_000, total: 66_000_000 },
+      { label: "Kind of Blue", sent: 66_000_000, total: 66_000_000 },
+      null, // cleared once the file is done — a stale count would read as still uploading
+    ]);
+    // And the two units still do not touch: the album counter saw only album numbers.
+    expect(albumTicks).toEqual([
+      [0, 1],
+      [1, 1],
+    ]);
+  });
+
+  it("resyncAll clears the file in flight even when the upload throws", async () => {
+    const a = withVideo("xfer0002");
+    store.save(a);
+    mkdirSync(store.paths.visualizers, { recursive: true });
+    writeFileSync(store.paths.visualizerFile("xfer0002"), Buffer.from("MP4"));
+
+    const seen: Array<{ label: string } | null> = [];
+    const failing = new BackdropSync({
+      store,
+      client: new BackdropClient({ url, sharedSecret: SECRET }),
+      backdropMediaDir: mediaDir,
+      mediaTransfer: {
+        mode: "push",
+        async copyVisualizer(_src, _fileId, ctx) {
+          ctx?.onProgress?.(1_000, 66_000_000);
+          throw new Error("upload stalled for 60000ms");
+        },
+      },
+    });
+
+    const res = await failing.resyncAll(store.list(), {
+      onTransfer: (t) => seen.push(t),
+    });
+
+    expect(res.failures).toHaveLength(1);
+    // The last thing the page hears is that nothing is moving — not a frozen byte count.
+    expect(seen.at(-1)).toBeNull();
+  });
+
   it("resyncAll stops between albums when cancelled", async () => {
     for (const id of ["canc0001", "canc0002", "canc0003"])
       store.save(withVideo(id));

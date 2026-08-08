@@ -5,7 +5,8 @@
 // the screen is as long as the number of things actually wrong.
 //
 // Pure, no React.
-import type { AlbumPresence, ServiceHealth } from "./api";
+import type { AlbumPresence, JobTransfer, ServiceHealth } from "./api";
+import { etaSeconds, formatBytes, humanEta } from "./transfer";
 
 /**
  * What each service *is*, for someone who did not write it. The name alone ("Backdrop") says nothing
@@ -92,3 +93,27 @@ export const JOB_LABEL: Record<string, string> = {
   video: "making a visualizer",
   cardArt: "drawing card art",
 };
+
+/**
+ * The upload line under a running sync: what is moving, how far it has got, and — once there is
+ * enough history to be honest about it — how much longer.
+ *
+ * Its own line rather than a second number on the job row, because the two answer different
+ * questions. The job row says how much of the *library* is done; this says whether the *file* is
+ * moving at all. On 2026-08-08 a sync spent 47 minutes on one visualizer over a bad link, and with
+ * only the album counter on screen there was no way to tell that from a wedged process.
+ *
+ * The percentage is not in here: it goes in the row's count column, where the job row above puts
+ * its own, so the two line up rather than one hiding mid-sentence.
+ */
+export function transferLine(t: JobTransfer, nowMs: number): string {
+  const base = `${t.label} — ${formatBytes(t.sent)} of ${formatBytes(t.total)}`;
+  const eta = etaSeconds(t.sent, t.total, nowMs - Date.parse(t.startedAt));
+  // `etaSeconds` returns null until an estimate is worth showing; a guess made from two bytes is
+  // worse than no guess, because it will be believed (issue #177).
+  return eta === null ? base : `${base} · ${humanEta(eta)}`;
+}
+
+/** How full the upload's own bar is. Clamped: a total that lies must not overflow the track. */
+export const transferPercent = (t: JobTransfer): number =>
+  t.total > 0 ? Math.min(100, Math.round((t.sent / t.total) * 100)) : 0;

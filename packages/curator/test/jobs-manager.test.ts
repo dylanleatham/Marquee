@@ -55,6 +55,94 @@ describe("GenerationJobs", () => {
     expect(done.result).toEqual({ videoClips: [] });
   });
 
+  // Issue #274. Bytes get their own field rather than sharing `progress`, whose unit is items —
+  // sharing one channel is what made a running sync read `24248819/998` (#268). The manager stamps
+  // `startedAt` because it already owns the clock, and an ETA needs a start the browser never saw.
+  //
+  // The clock is anchored to the real present and steps a second per call: strictly increasing (so
+  // "same start" and "new start" are distinguishable) without being so far in the past that the
+  // TTL sweep treats a fresh job as ancient.
+  const steppingClock = () => {
+    const base = Date.now();
+    let at = 0;
+    return () => new Date(base + at++ * 1000).toISOString();
+  };
+
+  it("keeps one start while the same file is still going", async () => {
+    const jobs = new GenerationJobs({ now: steppingClock() });
+    const gate = deferred<void>();
+    const d = deferred<{ videoClips: [] }>();
+    const job = jobs.start("runtimeSync", undefined, async ({ onTransfer }) => {
+      onTransfer({ label: "Kind of Blue", sent: 10, total: 100 });
+      await gate.promise;
+      onTransfer({ label: "Kind of Blue", sent: 60, total: 100 });
+      return d.promise;
+    });
+    await tick();
+    const first = jobs.get(job.id)!.transfer!;
+    expect(first).toMatchObject({
+      label: "Kind of Blue",
+      sent: 10,
+      total: 100,
+    });
+
+    gate.resolve();
+    await tick();
+    const later = jobs.get(job.id)!.transfer!;
+    expect(later.sent).toBe(60);
+    // Same file, same start — otherwise every poll would restart the clock and the ETA would never
+    // settle, which is worse than showing none.
+    expect(later.startedAt).toBe(first.startedAt);
+
+    d.resolve({ videoClips: [] });
+    await tick();
+    // Nothing is in flight once the runner has returned, however it returned.
+    expect(jobs.get(job.id)!.transfer).toBeUndefined();
+  });
+
+  it("starts the clock again for the next file", async () => {
+    const jobs = new GenerationJobs({ now: steppingClock() });
+    const gate = deferred<void>();
+    const d = deferred<{ videoClips: [] }>();
+    const job = jobs.start("runtimeSync", undefined, async ({ onTransfer }) => {
+      onTransfer({ label: "first", sent: 10, total: 100 });
+      await gate.promise;
+      onTransfer(null); // resyncAll clears between files, in a `finally`
+      onTransfer({ label: "second", sent: 5, total: 100 });
+      return d.promise;
+    });
+    await tick();
+    const first = jobs.get(job.id)!.transfer!;
+
+    gate.resolve();
+    await tick();
+    const second = jobs.get(job.id)!.transfer!;
+    expect(second.label).toBe("second");
+    // A new file measured from the previous file's start would read as wildly optimistic.
+    expect(second.startedAt).not.toBe(first.startedAt);
+
+    d.resolve({ videoClips: [] });
+    await tick();
+  });
+
+  it("drops the file in flight when the job fails mid-upload", async () => {
+    const jobs = new GenerationJobs();
+    const d = deferred<{ videoClips: [] }>();
+    const job = jobs.start("runtimeSync", undefined, async ({ onTransfer }) => {
+      onTransfer({ label: "Kind of Blue", sent: 10, total: 100 });
+      return d.promise;
+    });
+    await tick();
+    expect(jobs.get(job.id)!.transfer).toBeDefined();
+
+    d.reject(new Error("no response from http://pi:4740 within 5000ms"));
+    await tick();
+    // A failed job still claiming to be uploading is the most misleading state available on a page
+    // whose whole purpose is saying what is stuck.
+    expect(jobs.get(job.id)!.status).toBe("failed");
+    expect(jobs.get(job.id)!.transfer).toBeUndefined();
+  });
+
   it("reports progress as items settle", async () => {
     const jobs = new GenerationJobs();
     const d = deferred<{ videoClips: [] }>();

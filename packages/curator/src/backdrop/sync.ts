@@ -291,6 +291,15 @@ export class BackdropSync {
     assets: AlbumAsset[],
     ctx: {
       onProgress?: (done: number, total: number) => void;
+      /**
+       * The visualizer currently streaming, in **bytes**, or `null` when none is. A second callback
+       * rather than a second meaning for `onProgress`: one channel carrying two units is what made a
+       * running sync read `24248819/998` (issue #268), and the fix was to stop forwarding the album
+       * counter into the transfer — not to start forwarding bytes back out of it.
+       */
+      onTransfer?: (
+        transfer: { label: string; sent: number; total: number } | null,
+      ) => void;
       signal?: AbortSignal;
     } = {},
   ): Promise<{
@@ -342,7 +351,22 @@ export class BackdropSync {
             `Backdrop: ${entry.uri} already up to date, skipping upload`,
           );
         } else {
-          await this.transferMedia(asset, entry.filePath, ctx);
+          const label = asset.metadata.name || asset.curatorId;
+          try {
+            await this.transferMedia(asset, entry.filePath, {
+              ...(ctx.signal ? { signal: ctx.signal } : {}),
+              ...(ctx.onTransfer
+                ? {
+                    onBytes: (sent: number, total: number) =>
+                      ctx.onTransfer?.({ label, sent, total }),
+                  }
+                : {}),
+            });
+          } finally {
+            // Cleared however the upload ended. A failed transfer that left its last byte count on
+            // screen would read as still running, which is the one thing this must never say.
+            ctx.onTransfer?.(null);
+          }
           transferred += 1;
         }
         entries.push(entry);
@@ -407,7 +431,15 @@ export class BackdropSync {
   private async transferMedia(
     asset: AlbumAsset,
     _filePath: string,
-    ctx: { signal?: AbortSignal } = {},
+    ctx: {
+      signal?: AbortSignal;
+      /**
+       * Bytes sent / bytes total for this one file. Named `onBytes`, not `onProgress`, so it cannot
+       * be confused with — or accidentally wired to — the album counter `resyncAll` reports on
+       * (issue #268). The unit is in the name.
+       */
+      onBytes?: (sent: number, total: number) => void;
+    } = {},
   ): Promise<void> {
     if (!this.mediaTransfer || !asset.visualizer) return; // off → rsync handles the file (Pi)
     const src = this.store.paths.visualizerFile(asset.visualizer.fileId);
@@ -424,8 +456,13 @@ export class BackdropSync {
     // flight against a total counted in album-legs ([#268](https://github.com/dylanleatham/Marquee/issues/268)).
     // A narrow parameter type does not strip the extra property at runtime; constructing the object
     // here is what actually enforces it.
+    //
+    // `onBytes` is wired to `copyVisualizer`'s byte-counting `onProgress` deliberately and by hand.
+    // That is the only unit it has ever reported; what #268 forbade was letting the *album* counter
+    // arrive here by inheritance, which is why the context is still rebuilt rather than forwarded.
     await this.mediaTransfer.copyVisualizer(src, asset.visualizer.fileId, {
       ...(ctx.signal ? { signal: ctx.signal } : {}),
+      ...(ctx.onBytes ? { onProgress: ctx.onBytes } : {}),
     });
   }
 

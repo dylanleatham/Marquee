@@ -2276,6 +2276,10 @@ export function buildServer(opts: BuildOptions = {}) {
       const backdropRes = backdrop.enabled
         ? await backdrop.resyncAll(assets, {
             onProgress: phase(conductorLegs),
+            // The visualizer in flight, on its own channel. Without it the bar advances once per
+            // album and a 66 MB upload over a poor link looks identical to a wedged sync for
+            // minutes at a time — which is how a 47-minute push went unnoticed on 2026-08-08.
+            onTransfer: ctx.onTransfer,
             signal: ctx.signal,
           })
         : undefined;
