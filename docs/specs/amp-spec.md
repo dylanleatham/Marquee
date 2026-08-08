@@ -187,6 +187,14 @@ Mirrors Conductor's `/api/scan` (ADR 0019), with the kind gate added:
      - else `driver.play(target, uri)` → `202 { action:"playing", curatorId, spotifyUri }`, and for a
        demo scan also `demoTrack: <uri> | null` so a caller can tell a real choice from the fallback.
 
+> **What "album not on spotify" meant in practice (2026-08-08, [ADR 0059](../adrs/0059-a-matched-album-plays-only-on-an-exact-match.md)).** Amp was
+> correct and still silent for most of a real library: Curator matched Discogs albums to Spotify for
+> their cover art and discarded the identity, so `metadata.spotifyUri` was absent on 481 of 499
+> records — 393 of which it had actually identified. Curator now keeps the URI on an **exact** match
+> (a close match lends its cover and stays unplayable), and a backfill re-matches what was already on
+> disk. Nothing in Amp changed: it reads the same field and knows nothing about match confidence,
+> which is the point of gating at write time.
+
 **Every "can't act" case is a logged `202`, never an error** — a hardware scan must not error-storm an
 always-on service (runtime-overview §9). Only a malformed body/URI is a 4xx.
 

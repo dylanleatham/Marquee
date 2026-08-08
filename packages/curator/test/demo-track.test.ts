@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createFakeSpotify, type FakeAlbum } from "@marquee/fake-spotify";
 import { AssetStore } from "../src/store/asset-store.js";
+import type { AlbumAsset } from "../src/albums/asset.js";
 import { SpotifyClient } from "../src/spotify/client.js";
 import { buildServer } from "../src/server.js";
 import { setDemoTrack } from "../src/albums/actions.js";
@@ -124,16 +125,55 @@ describe("GET /api/albums/:curatorId/tracks", () => {
     ]);
   });
 
-  it("answers 200 with a reason, not an error, when the record isn't on Spotify", async () => {
-    s.save(makeAsset(ID)); // a manual pressing
-    const res = await app(spotifyClient()).inject({
-      method: "GET",
-      url: `/api/albums/${ID}/tracks`,
+  /**
+   * ADR 0059. This used to say "This record isn't on Spotify" for anything without a URI, which is
+   * false for a Discogs pressing — it usually *is* on Spotify, Curator just hadn't kept the identity
+   * — and it sent this project's own user hunting for a bug in the picker. The three situations are
+   * genuinely different, so they get three sentences.
+   */
+  describe("why there is no tracklist", () => {
+    const reasonFor = async (mutate: (a: AlbumAsset) => void) => {
+      const asset = makeAsset(ID);
+      mutate(asset);
+      s.save(asset);
+      const res = await app(spotifyClient()).inject({
+        method: "GET",
+        url: `/api/albums/${ID}/tracks`,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().tracks).toEqual([]);
+      return res.json().reason as string;
+    };
+
+    it("a hand-added album has no streaming identity to list from", async () => {
+      expect(await reasonFor((a) => (a.metadata.source = "manual"))).toMatch(
+        /added by hand/,
+      );
     });
 
-    expect(res.statusCode).toBe(200);
-    expect(res.json().tracks).toEqual([]);
-    expect(res.json().reason).toMatch(/isn't on Spotify/);
+    it("an unmatched Discogs album says so, and what to do about it", async () => {
+      const reason = await reasonFor((a) => {
+        a.metadata.source = "discogs";
+      });
+      expect(reason).toMatch(/hasn't matched this/);
+      expect(reason).toMatch(/backfill/);
+      // The claim that was false: never assert the record itself isn't there.
+      expect(reason).not.toMatch(/isn't on Spotify/);
+    });
+
+    it("a close match names what it found, so the refusal is inspectable", async () => {
+      const reason = await reasonFor((a) => {
+        a.metadata.source = "discogs";
+        a.metadata.spotifyMatch = {
+          confidence: "close",
+          name: "In Rainbows Disk 2",
+          artist: "Radiohead",
+          matchedAt: "2026-08-08T00:00:00.000Z",
+        };
+      });
+      expect(reason).toMatch(/near match/);
+      expect(reason).toMatch(/In Rainbows Disk 2/);
+    });
   });
 
   it("answers 200 with a reason when Spotify isn't configured at all", async () => {

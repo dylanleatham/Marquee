@@ -16,7 +16,11 @@ import type {
   RoadieState,
 } from "../albums/asset.js";
 import { parseAlbumId } from "../albums/add-spotify.js";
-import { bestSpotifyMatch } from "../albums/spotify-match.js";
+import {
+  bestSpotifyMatch,
+  applySpotifyMatch,
+  type SpotifyMatch,
+} from "../albums/spotify-match.js";
 import { draftPrompts } from "./prompts.js";
 import { resolvedArtworkFile } from "../albums/artwork.js";
 import { draftPromptsWithGemini } from "../gemini/draft.js";
@@ -134,43 +138,49 @@ const fetchDiscogsMetadata: Step = async (asset, deps) => {
     ...(meta.genres.length ? { genres: meta.genres } : {}),
   };
 
-  // Try to resolve richer cover art from Spotify (issue #58 / ADR 0017). Best-effort: a miss, an
-  // unconfigured Spotify, or an API error just leaves the Discogs image in place — this never blocks
-  // the Discogs add. On a confident match we stash the Spotify art URL; the art step prefers it.
-  const spotifyArtUrl = await resolveSpotifyArtUrl(deps, {
+  // Try to resolve the album on Spotify (issue #58 / ADR 0017, widened by ADR 0059). Best-effort: a
+  // miss, an unconfigured Spotify, or an API error just leaves the Discogs image in place and the
+  // album unplayable — this never blocks the Discogs add. A `close` match lends its cover; only an
+  // `exact` one names the album for playback.
+  const match = await resolveSpotifyMatch(deps, {
     artist: meta.artist,
     title: meta.title,
     year: meta.year,
   });
-  if (spotifyArtUrl) next.spotifyArtUrl = spotifyArtUrl;
 
-  asset.metadata = next;
+  asset.metadata = applySpotifyMatch(next, match, deps.now);
   return "downloading_art";
 };
 
 /**
- * Fuzzy-match a Discogs release to a Spotify album and return its cover-art URL, or `undefined`.
- * Best-effort: no Spotify client, no confident match, or an API error → `undefined` (keep the
- * Discogs image). Never throws — art resolution must not fail a Discogs add (issue #58).
+ * Fuzzy-match a Discogs release to a Spotify album, or `null`. Best-effort: no Spotify client, no
+ * confident match, or an API error → `null` (keep the Discogs image, and stay unplayable). Never
+ * throws — matching must not fail a Discogs add (issue #58).
+ *
+ * Returns the whole match rather than just the art URL, which is the defect
+ * [ADR 0059](../../../../docs/adrs/0059-a-matched-album-plays-only-on-an-exact-match.md) exists to
+ * fix: Curator was confidently identifying the Spotify album, borrowing its cover, and discarding
+ * which album it was — so every downstream that streams audio saw "not on Spotify" for most of a
+ * Discogs-sourced collection.
  */
-async function resolveSpotifyArtUrl(
+async function resolveSpotifyMatch(
   deps: StepDeps,
   q: { artist: string; title: string; year?: number },
-): Promise<string | undefined> {
-  if (!deps.spotify || !q.artist || !q.title) return undefined;
+): Promise<SpotifyMatch | null> {
+  if (!deps.spotify || !q.artist || !q.title) return null;
   try {
     const candidates = await deps.spotify.searchAlbums(
       `${q.artist} ${q.title}`.trim(),
       10,
     );
-    return bestSpotifyMatch(q, candidates)?.artUrl;
+    return bestSpotifyMatch(q, candidates);
   } catch (err) {
     deps.logger?.warn(
-      `Discogs→Spotify art match skipped (using the Discogs image): ${
+      `Discogs→Spotify match skipped (using the Discogs image): ${
         (err as Error).message
       }`,
     );
-    return undefined;
+    return null;
   }
 }
 

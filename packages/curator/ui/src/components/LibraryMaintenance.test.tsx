@@ -16,6 +16,7 @@ vi.mock("../api", () => ({
     cancelJob: vi.fn(),
     libraryJobs: vi.fn(),
     regeneratePalettes: vi.fn(),
+    backfillSpotifyMatches: vi.fn(),
   },
   ApiError: class ApiError extends Error {},
 }));
@@ -24,6 +25,7 @@ import { api, type GenerationJob } from "../api";
 import { LibraryMaintenance } from "./LibraryMaintenance";
 import { ConfirmProvider } from "./Confirm";
 import { resetBatchJob } from "../batchJob";
+import { resetSpotifyBackfillJob } from "../spotifyBackfillJob";
 
 const running: GenerationJob = {
   id: "job-1",
@@ -47,12 +49,18 @@ const runButton = () => screen.getByRole("button", { name: /regenerate all/i });
 
 beforeEach(() => {
   resetBatchJob();
+  resetSpotifyBackfillJob();
   vi.mocked(api.regeneratePalettes).mockResolvedValue(running);
+  vi.mocked(api.backfillSpotifyMatches).mockResolvedValue({
+    ...running,
+    kind: "spotifyBackfill",
+  });
   vi.mocked(api.job).mockResolvedValue(running);
 });
 
 afterEach(() => {
   resetBatchJob();
+  resetSpotifyBackfillJob();
   cleanup();
   vi.clearAllMocks();
 });
@@ -105,5 +113,70 @@ describe("LibraryMaintenance", () => {
       ).toBe(true),
     );
     expect(forceBox().disabled).toBe(true);
+  });
+});
+
+/**
+ * The Spotify backfill (ADR 0059). Unlike the palette sweep beside it this needs no confirm — it
+ * only ever *adds* an identity, never overwrites or discards one — so the property to pin is that it
+ * starts, disables itself while running, and doesn't put a destructive-sounding gate in the way.
+ */
+describe("LibraryMaintenance — Spotify backfill", () => {
+  const backfillButton = () =>
+    screen.getByRole("button", { name: /Match Discogs records to Spotify/i });
+
+  it("starts the backfill on click", async () => {
+    show();
+    fireEvent.click(backfillButton());
+    await waitFor(() =>
+      expect(api.backfillSpotifyMatches).toHaveBeenCalledTimes(1),
+    );
+  });
+
+  it("asks for no confirmation — nothing here is destructive", async () => {
+    show();
+    fireEvent.click(backfillButton());
+    await waitFor(() =>
+      expect(api.backfillSpotifyMatches).toHaveBeenCalledTimes(1),
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("disables itself and says so while a run is going", async () => {
+    show();
+    fireEvent.click(backfillButton());
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Matching…/i }) as HTMLButtonElement,
+      ).toBeTruthy(),
+    );
+    expect(
+      (screen.getByRole("button", { name: /Matching…/i }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
+  /** Two independent sweeps in one panel: starting one must not disable the other. */
+  it("leaves the palette sweep's button alone", async () => {
+    show();
+    fireEvent.click(backfillButton());
+    await waitFor(() =>
+      expect(api.backfillSpotifyMatches).toHaveBeenCalledTimes(1),
+    );
+    expect(
+      (
+        screen.getByRole("button", {
+          name: /Regenerate all palettes/i,
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+  });
+
+  it("explains that only an exact match is allowed to play", () => {
+    show();
+    expect(screen.getByText(/exact/)).toBeTruthy();
+    expect(
+      screen.getByText(/near match keeps its cover and stays silent/i),
+    ).toBeTruthy();
   });
 });

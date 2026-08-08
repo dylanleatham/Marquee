@@ -195,12 +195,15 @@ export type JobKind =
   /** Pushing the whole library to the runtime (ADR 0045). Progress is albums. */
   | "runtimeSync"
   /** Sweeping the Discogs collection into the library (issue #234). Progress is collection rows. */
-  | "discogsSync";
+  | "discogsSync"
+  /** Re-matching Discogs albums to Spotify so they can play (ADR 0059). Library-scoped. */
+  | "spotifyBackfill";
 /**
  * The kinds that sweep the whole library rather than one album — the ones `GET /api/jobs` will
  * return and that the app-wide progress panels track.
  */
-export type LibraryJobKind = "paletteBatch" | "runtimeSync" | "discogsSync";
+export type LibraryJobKind =
+  "paletteBatch" | "runtimeSync" | "discogsSync" | "spotifyBackfill";
 
 export type JobStatus = "running" | "done" | "failed" | "cancelled";
 
@@ -222,6 +225,7 @@ export interface GenerationJob {
     cardArtCandidates?: CardArtCandidate[];
     paletteBatch?: BatchPaletteReport;
     discogsSync?: DiscogsSyncReport;
+    spotifyBackfill?: SpotifyBackfillReport;
   };
 }
 
@@ -396,6 +400,46 @@ export interface DiscogsCollectionPage {
   perPage: number;
   total: number;
 }
+
+/**
+ * What one Spotify-identity backfill did (ADR 0059) — the result of a `spotifyBackfill` job.
+ *
+ * `matched` is the number that can now play; `artOnly` matched only closely, so they keep their
+ * cover and stay silent on purpose. `abandoned` means the run stopped on a streak of failures
+ * (a dead token or a rate limit) rather than finishing.
+ */
+export interface SpotifyBackfillReport {
+  total: number;
+  matched: number;
+  artOnly: number;
+  noMatch: number;
+  skipped: number;
+  failed: number;
+  abandoned?: boolean;
+  items: Array<{
+    curatorId: string;
+    label: string;
+    status: SpotifyBackfillStatus;
+    matchedTo?: string;
+    error?: string;
+  }>;
+}
+
+/** Mirrors `SpotifyBackfillStatus` on the server (ADR 0059); the `skipped_*` ones never reach the panel. */
+export type SpotifyBackfillStatus =
+  | "matched"
+  | "art_only"
+  | "no_match"
+  | "skipped_has_uri"
+  | "skipped_not_discogs"
+  | "skipped_processing"
+  | "failed";
+
+/** The four the progress panel renders — the skips are filtered out before it gets there. */
+export type ReportedSpotifyBackfillStatus = Exclude<
+  SpotifyBackfillStatus,
+  `skipped_${string}`
+>;
 
 /** What one collection sweep did (issue #234) — the result of a `discogsSync` job. */
 export type DiscogsSyncStatus = "added" | "duplicate" | "failed";
@@ -904,6 +948,10 @@ export const api = {
   libraryJobs: (kind: LibraryJobKind) =>
     req<{ jobs: GenerationJob[] }>(`/api/jobs?kind=${kind}`),
   /** Re-derive every algorithmic palette. `force` includes hand-edited ones, which are otherwise skipped. */
+  /** Re-match Discogs albums to Spotify so they can play (ADR 0059). Returns the started job. */
+  backfillSpotifyMatches: () =>
+    req<GenerationJob>("/api/albums/spotify-backfill", { method: "POST" }),
+
   regeneratePalettes: (force = false) =>
     req<GenerationJob>(
       `/api/batch/regenerate-palettes${force ? "?force=1" : ""}`,

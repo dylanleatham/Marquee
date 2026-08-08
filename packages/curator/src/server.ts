@@ -34,6 +34,7 @@ import {
 } from "./albums/batch.js";
 import { addDiscogsAlbum } from "./albums/add-discogs.js";
 import { discogsSyncRunner } from "./albums/discogs-sync.js";
+import { spotifyBackfillRunner } from "./albums/spotify-backfill.js";
 import { DiscogsPoller } from "./discogs/poller.js";
 import { SpotifyClient, SpotifyError } from "./spotify/client.js";
 import { SpotifyAuth, SpotifyAuthError } from "./spotify/auth.js";
@@ -52,6 +53,7 @@ import { isCuratorId } from "./ids.js";
 import {
   TransitionError,
   type AlbumAsset,
+  type AlbumMetadata,
   type RoadieState,
 } from "./albums/asset.js";
 import * as actions from "./albums/actions.js";
@@ -65,6 +67,7 @@ import {
   GenerationJobs,
   FileJobStore,
   type GenerationJob,
+  type JobKind,
 } from "./jobs/manager.js";
 import {
   flipperNfcFile,
@@ -1605,15 +1608,17 @@ export function buildServer(opts: BuildOptions = {}) {
   // are deliberately not returned here; `kind` is required so this can never become "all jobs".
   app.get("/api/jobs", async (req, reply) => {
     const kind = (req.query as { kind?: string }).kind;
-    if (
-      kind !== "paletteBatch" &&
-      kind !== "runtimeSync" &&
-      kind !== "discogsSync"
-    )
+    const LIBRARY_JOB_KINDS: JobKind[] = [
+      "paletteBatch",
+      "runtimeSync",
+      "discogsSync",
+      "spotifyBackfill",
+    ];
+    if (!kind || !LIBRARY_JOB_KINDS.includes(kind as JobKind))
       return reply.code(400).send({
-        error: "kind=paletteBatch, runtimeSync, or discogsSync is required",
+        error: `kind must be one of ${LIBRARY_JOB_KINDS.join(", ")}`,
       });
-    return { jobs: jobs.library(kind) };
+    return { jobs: jobs.library(kind as JobKind) };
   });
 
   // Promote a generated candidate to the attached card art.
@@ -1659,13 +1664,36 @@ export function buildServer(opts: BuildOptions = {}) {
   // --- The demo track (ADR 0058) ---
 
   /**
+   * Why this record has no tracklist, said accurately (ADR 0059). Three different situations that a
+   * single "isn't on Spotify" used to flatten into one wrong sentence:
+   *
+   * - a **manual** album, which genuinely has no streaming identity;
+   * - a Discogs album Curator matched only **closely** — it found something and deliberately won't
+   *   play from a guess, so the sentence names what it found;
+   * - a Discogs album it has never matched, where the honest answer is "not matched yet", plus the
+   *   thing to do about it.
+   */
+  const unmatchedReason = (metadata: AlbumMetadata): string => {
+    if (metadata.source === "manual")
+      return "This record was added by hand, so there's no Spotify album behind it to list songs from";
+    const match = metadata.spotifyMatch;
+    if (match?.confidence === "close")
+      return `Curator only found a near match on Spotify (“${match.artist} — ${match.name}”), so it won't play from it. Songs stay unavailable until that is confirmed`;
+    return "Curator hasn't matched this to a Spotify album yet — run the Spotify backfill from Settings, or add the album's Spotify URI";
+  };
+
+  /**
    * The album's tracklist, for the demo-track picker.
    *
    * **Always 200**, with an empty list and a `reason` for every way this can come back with nothing:
-   * no Spotify credentials, an album that isn't on Spotify at all (a manual or Discogs-only
-   * pressing), or Spotify being down. The picker renders the reason in place — a record with no
-   * tracklist is an ordinary state of this screen, not a failure of it, and a 4xx here would make
-   * the panel look broken for a manual album that is working exactly as designed.
+   * no Spotify credentials, an album Curator has no Spotify URI for, or Spotify being down. The
+   * picker renders the reason in place — a record with no tracklist is an ordinary state of this
+   * screen, not a failure of it, and a 4xx here would make the panel look broken for a manual album
+   * that is working exactly as designed.
+   *
+   * **The reason distinguishes "we don't know" from "it isn't there"** (ADR 0059). Saying "this
+   * record isn't on Spotify" about a Discogs pressing was simply false — it usually is, Curator just
+   * hadn't kept the identity — and it sent this project's own user looking for a bug in the picker.
    *
    * Not cached and not stored: see `DemoTrack` for why the choice lives on the asset and the list
    * does not.
@@ -1682,11 +1710,7 @@ export function buildServer(opts: BuildOptions = {}) {
       };
     const spotifyId = parseAlbumId({ spotifyUri: asset.metadata.spotifyUri });
     if (!spotifyId)
-      return {
-        tracks: [],
-        reason:
-          "This record isn't on Spotify, so there's no tracklist to choose from",
-      };
+      return { tracks: [], reason: unmatchedReason(asset.metadata) };
     try {
       return { tracks: await spotify.getAlbumTracks(spotifyId) };
     } catch (err) {
@@ -2557,6 +2581,38 @@ export function buildServer(opts: BuildOptions = {}) {
       }),
     );
   };
+
+  /**
+   * **Backfill the Spotify identity of Discogs albums** (ADR 0059).
+   *
+   * Curator has matched Discogs releases to Spotify since issue #58 to borrow the cover, and threw
+   * the identity away — so a Discogs-swept library holds albums Curator can name but nothing can
+   * play. The onboarding step now keeps it; this re-runs the match for everything already on disk.
+   *
+   * A job rather than a request: one Spotify search per album, so a real collection is minutes of
+   * network that no HTTP request should hold open. `jobs.start` dedupes library-scoped jobs of a
+   * kind, so pressing it twice reattaches rather than starting a second sweep.
+   *
+   * Never overwrites an existing `spotifyUri`, and only an `exact` match sets one — a `close` match
+   * still just lends its cover.
+   */
+  app.post("/api/albums/spotify-backfill", async (_req, reply) => {
+    if (!spotify)
+      return reply.code(503).send({ error: "Spotify not configured" });
+    const job = jobs.start(
+      "spotifyBackfill",
+      undefined,
+      spotifyBackfillRunner({
+        store,
+        spotify,
+        logger: {
+          info: (m) => app.log.info(m),
+          warn: (m) => app.log.warn(m),
+        },
+      }),
+    );
+    return reply.code(202).send(job);
+  });
 
   app.post("/api/discogs/sync", async (_req, reply) => {
     const job = startDiscogsSync();

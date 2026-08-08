@@ -18,8 +18,23 @@
         "year": { "type": "integer" },
         "genres": { "type": "array", "items": { "type": "string" } },
         "source": { "enum": ["spotify", "manual", "discogs"] },
-        "spotifyUri": { "type": "string" },
+        "spotifyUri": {
+          "type": "string",
+          "description": "Presence means trusted enough to play — a Discogs album only gets one on an `exact` match (ADR 0059)."
+        },
         "spotifyArtUrl": { "type": "string" },
+        "spotifyMatch": {
+          "description": "The Discogs→Spotify match that produced spotifyUri/spotifyArtUrl (ADR 0059). `close` lends its cover only; `exact` also names the album for playback.",
+          "type": "object",
+          "required": ["confidence", "name", "artist", "matchedAt"],
+          "properties": {
+            "confidence": { "enum": ["exact", "close"] },
+            "name": { "type": "string" },
+            "artist": { "type": "string" },
+            "year": { "type": "integer" },
+            "matchedAt": { "type": "string", "format": "date-time" }
+          }
+        },
         "discogsReleaseId": { "type": "integer" },
         "discogsUri": { "type": "string" },
         "discogsArtUrl": { "type": "string" }

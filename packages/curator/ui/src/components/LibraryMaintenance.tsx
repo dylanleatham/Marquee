@@ -8,14 +8,20 @@
 // The run itself is reported by the app-wide progress panel, not here: it outlives this screen.
 import { useState } from "react";
 import { startPaletteRegen, useBatchJob } from "../batchJob";
+import {
+  startSpotifyBackfill,
+  useSpotifyBackfillJob,
+} from "../spotifyBackfillJob";
 import { useConfirm } from "./Confirm";
 import { AsyncButton } from "./common";
 
 export function LibraryMaintenance() {
   const [force, setForce] = useState(false);
   const { job } = useBatchJob();
+  const { job: backfill } = useSpotifyBackfillJob();
   const confirm = useConfirm();
   const running = job?.status === "running";
+  const backfilling = backfill?.status === "running";
 
   const run = async () => {
     // Forcing discards hand-edited palettes across the whole collection, and nothing else in Curator
@@ -61,6 +67,30 @@ export function LibraryMaintenance() {
           pendingLabel="Starting…"
         >
           {running ? "Regenerating…" : "Regenerate all palettes"}
+        </AsyncButton>
+      </div>
+
+      {/* ADR 0059. Curator has always matched Discogs releases to Spotify to borrow the cover, and
+          used to discard which album it matched — so a Discogs-swept library holds records Curator
+          can name but nothing can play. This re-runs the match for what is already on disk. */}
+      <h2>Spotify matches</h2>
+      <p className="muted">
+        Records added from Discogs don&apos;t carry a Spotify album of their
+        own. This looks each one up so a shelf card or demo tag can actually
+        play it, and so its songs appear in the demo-cut picker. Only an{" "}
+        <strong>exact</strong> match is allowed to play — a near match keeps its
+        cover and stays silent, because the cost of guessing wrong is the wrong
+        record starting in the room. Nothing already matched is touched, so
+        running it twice is safe.
+      </p>
+      <div className="row-actions">
+        <AsyncButton
+          className="btn"
+          onClick={() => startSpotifyBackfill()}
+          disabled={backfilling}
+          pendingLabel="Starting…"
+        >
+          {backfilling ? "Matching…" : "Match Discogs records to Spotify"}
         </AsyncButton>
       </div>
     </>

@@ -17,7 +17,9 @@ import { ConfirmProvider } from "./components/Confirm";
 import { BatchProgress } from "./components/BatchProgress";
 import { attachRunningBatch } from "./batchJob";
 import { attachRunningDiscogsSync } from "./discogsSyncJob";
+import { attachRunningSpotifyBackfill } from "./spotifyBackfillJob";
 import { DiscogsSyncProgress } from "./components/DiscogsSyncProgress";
+import { SpotifyBackfillProgress } from "./components/SpotifyBackfillProgress";
 import { ReadyToast } from "./components/ReadyToast";
 
 /**
@@ -44,6 +46,7 @@ export function App() {
   useEffect(() => {
     void attachRunningBatch();
     void attachRunningDiscogsSync();
+    void attachRunningSpotifyBackfill();
   }, []);
 
   // Fold Roadie's activity into the session log. It needs the album list to turn a curatorId into a
@@ -124,6 +127,7 @@ export function App() {
         <div className="job-stack">
           <BatchProgress />
           <DiscogsSyncProgress />
+          <SpotifyBackfillProgress />
         </div>
       </div>
     </ConfirmProvider>
