@@ -8,6 +8,7 @@
 // Conductor says straight to the browser. This is a typed sync client whose failures have to become
 // syncIssues on an album.
 import type { AlbumAsset } from "../albums/asset.js";
+import { describeFetchFailure } from "../net/fetch-failure.js";
 
 type FetchImpl = typeof fetch;
 
@@ -55,12 +56,23 @@ export class ConductorClient {
     // `content-type: application/json` trips Fastify's FST_ERR_CTP_EMPTY_JSON_BODY (400).
     if (init.body !== undefined) headers["content-type"] = "application/json";
     if (this.sharedSecret) headers["x-trigger-secret"] = this.sharedSecret;
-    const res = await this.fetchImpl(`${this.url}${path}`, {
-      method: init.method,
-      headers,
-      ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
-      signal: AbortSignal.timeout(this.timeoutMs),
-    });
+    // Describe a transport failure here so every caller inherits a message naming Conductor and the
+    // address. This throw becomes an album's syncIssue and a job's `error`, both of which used to
+    // carry the transport's wording alone (issue #270).
+    let res;
+    try {
+      res = await this.fetchImpl(`${this.url}${path}`, {
+        method: init.method,
+        headers,
+        ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch (err) {
+      throw new Error(
+        `Conductor ${init.method} ${path}: ${describeFetchFailure(err, this.url, this.timeoutMs)}`,
+        { cause: err },
+      );
+    }
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
       throw new ConductorError(

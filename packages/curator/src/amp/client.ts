@@ -2,6 +2,7 @@
 // (ADR 0028): a rehearsal drives lights via Conductor, video via Backdrop, and audio via Amp. Mirrors
 // BackdropClient exactly — `fetch` with an AbortSignal timeout so a wedged Amp can't hang the caller
 // (Curator is always-on; an unbounded call would wedge the event loop), `fetchImpl` injectable for tests.
+import { describeFetchFailure } from "../net/fetch-failure.js";
 
 type FetchImpl = typeof fetch;
 
@@ -57,12 +58,22 @@ export class AmpClient {
     // `content-type: application/json` trips Fastify's FST_ERR_CTP_EMPTY_JSON_BODY (400).
     if (init.body !== undefined) headers["content-type"] = "application/json";
     if (this.sharedSecret) headers["x-trigger-secret"] = this.sharedSecret;
-    const res = await this.fetchImpl(`${this.url}${path}`, {
-      method: init.method,
-      headers,
-      ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
-      signal: AbortSignal.timeout(this.timeoutMs),
-    });
+    // Describe a transport failure here so every caller inherits a message that names Amp and the
+    // address, rather than the transport's own wording (issue #270).
+    let res;
+    try {
+      res = await this.fetchImpl(`${this.url}${path}`, {
+        method: init.method,
+        headers,
+        ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+    } catch (err) {
+      throw new Error(
+        `Amp ${init.method} ${path}: ${describeFetchFailure(err, this.url, this.timeoutMs)}`,
+        { cause: err },
+      );
+    }
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
       throw new AmpError(

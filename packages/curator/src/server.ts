@@ -119,6 +119,7 @@ import {
 } from "./conductor/sync.js";
 import { AmpClient } from "./amp/client.js";
 import { probeService } from "./runtime/probe.js";
+import { describeFetchFailure } from "./net/fetch-failure.js";
 import { buildSystemStatus } from "./runtime/system-status.js";
 import { createLogger } from "@marquee/observability";
 
@@ -1807,9 +1808,7 @@ export function buildServer(opts: BuildOptions = {}) {
       const push = await pushAlbumToRuntime(asset);
       const verify = await backdrop.verifyAlbum(asset).catch((err) => ({
         ok: false,
-        discrepancies: [
-          `Backdrop verify unreachable: ${(err as Error).message}`,
-        ],
+        discrepancies: [`verify failed — ${(err as Error).message}`],
       }));
       return { state: asset.roadie.state, push, verify };
     } catch (err) {
@@ -1831,9 +1830,7 @@ export function buildServer(opts: BuildOptions = {}) {
       // (non-blocking — the album is verified regardless of Backdrop reachability).
       const verify = await backdrop.verifyAlbum(asset).catch((err) => ({
         ok: false,
-        discrepancies: [
-          `Backdrop verify unreachable: ${(err as Error).message}`,
-        ],
+        discrepancies: [`verify failed — ${(err as Error).message}`],
       }));
       return { state: asset.roadie.state, push, verify };
     } catch (err) {
@@ -1848,6 +1845,10 @@ export function buildServer(opts: BuildOptions = {}) {
   type FetchInit = Parameters<typeof fetch>[1];
   type FetchResponse = Awaited<ReturnType<typeof fetch>>;
 
+  /** How long a proxied demo call waits. Named so the timeout and the message that reports it
+   *  can't drift apart — the operator is told the budget the call was actually given. */
+  const CONDUCTOR_PROXY_TIMEOUT_MS = 5000;
+
   const callConductor = (path: string, init?: FetchInit) => {
     const headers: Record<string, string> = {
       "content-type": "application/json",
@@ -1858,7 +1859,7 @@ export function buildServer(opts: BuildOptions = {}) {
       ...init,
       // Cap the call so a wedged (not just down) Conductor can't hang a /api/demo/* request; the
       // abort surfaces as a fetch rejection → conductorDown → 502 (review: runtime).
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(CONDUCTOR_PROXY_TIMEOUT_MS),
       headers: { ...headers, ...(init?.headers as Record<string, string>) },
     });
   };
@@ -1869,10 +1870,18 @@ export function buildServer(opts: BuildOptions = {}) {
     return reply.code(res.status).send(body);
   };
 
-  // A fetch that throws means Conductor is down/unreachable — a clean 502 the UI can render.
+  // A fetch that throws means the call did not complete — a clean 502 the UI can render.
+  //
+  // It used to read `not reachable at <url> — is it running?`, which asserted a cause this code has
+  // no way to know. On 2026-08-08 it said exactly that about a Conductor that was running and
+  // answering in 60ms, over a link dropping 12% of packets, and it sent the afternoon to journalctl
+  // on a healthy service (issue #270). Name the failure and the address; diagnose nothing.
+  // `includeCode` because this backs the System page's stop control, which curator-ui-ux §8.5 calls
+  // "the one place a raw error code belongs" — paraphrasing alone would take away the string you
+  // paste into a search. The sentence says what happened; the code stays greppable.
   const conductorDown = (reply: FastifyReply, err: unknown) =>
     reply.code(502).send({
-      error: `Hue Conductor not reachable at ${config.conductor.url} — is it running? (${(err as Error).message})`,
+      error: `Hue Conductor: ${describeFetchFailure(err, config.conductor.url, CONDUCTOR_PROXY_TIMEOUT_MS, { includeCode: true })}`,
     });
 
   // Start (or crossfade to) an album's palette+pattern on the configured listening room.
@@ -2214,7 +2223,7 @@ export function buildServer(opts: BuildOptions = {}) {
       return await backdrop.verify(store.list());
     } catch (err) {
       return reply.code(502).send({
-        error: `Backdrop not reachable: ${(err as Error).message}`,
+        error: `verify failed — ${(err as Error).message}`,
       });
     }
   });

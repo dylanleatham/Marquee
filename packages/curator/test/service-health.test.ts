@@ -99,6 +99,31 @@ describe("GET /api/settings/service-health", () => {
     });
   });
 
+  // Issue #270. `detail` was the raw transport message — `The operation was aborted due to timeout`
+  // — which named neither the address it gave up on nor how long it waited. On 2026-08-08 that line
+  // sat on this screen through a stale address in the process env and a wifi link at 12% loss, and
+  // both times it read as "this service is broken" when it meant "look at the address".
+  it("says what failed and against which address, without guessing that the service is down", async () => {
+    // Bind a port, learn it, then release it — a port that is certainly closed, so the probe fails
+    // at the transport rather than waiting out the full 5s budget.
+    const gone = Fastify();
+    const url = await listen(gone);
+    await gone.close();
+
+    const byName = await health(curator({ conductor: { url } }));
+
+    expect(byName.conductor).toMatchObject({
+      configured: true,
+      reachable: false,
+      url,
+    });
+    expect(byName.conductor!.detail).toBe(
+      `${url} refused the connection — nothing is listening there`,
+    );
+    // The specific regression: the page must not assert a cause the probe cannot know.
+    expect(byName.conductor!.detail).not.toMatch(/is it running|is down/i);
+  });
+
   it("probes each service on its own health path", async () => {
     const conductorUrl = await stub("/api/bridge/status");
     const backdropUrl = await stub("/healthz");
