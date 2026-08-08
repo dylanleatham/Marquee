@@ -151,7 +151,7 @@ describe("Discogs — what arrived", () => {
   it("labels each arrival with the same words the collection uses", async () => {
     show();
     expect(await screen.findByText("Pet Sounds")).toBeTruthy();
-    expect(screen.getByText("NEEDS LIGHTS")).toBeTruthy();
+    expect(screen.getByText("NEEDS A LOOK")).toBeTruthy();
     expect(screen.getByText("FINDING THE SLEEVE…")).toBeTruthy();
   });
 

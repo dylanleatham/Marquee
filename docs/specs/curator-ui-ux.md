@@ -612,13 +612,21 @@ they cannot disagree about the same record.
 The vocabulary is fixed and was settled over three rounds of review. Not cosmetic — the old words
 were rejected:
 
-| Say                                         | Never say                            |
-| ------------------------------------------- | ------------------------------------ |
-| the collection                              | the wall, the queue                  |
-| Not complete / Ready                        | wants you / fully lit, lit, verified |
-| Needs Lights / Visualizer / Card / Sign-off | needs colours, awaiting anything     |
-| Roadie is on it                             | processing, generating palette       |
-| Stuck                                       | errored                              |
+| Say                                         | Never say                                          |
+| ------------------------------------------- | -------------------------------------------------- |
+| the collection                              | the wall, the queue                                |
+| Not complete / Ready                        | wants you / fully lit, lit, verified               |
+| Needs a look / Visualizer / Card / Sign-off | **Needs Lights**, needs colours, awaiting anything |
+| Roadie is on it                             | processing, generating palette                     |
+| Stuck                                       | errored                                            |
+
+**A need label names the act you still have to perform, never the artifact**
+([ADR 0056](../adrs/0056-need-labels-name-the-act-not-the-artifact.md)). `Visualizer` and `Card` are
+allowed to read as their artifact only because there genuinely isn't one yet. `Lights` never is:
+Roadie derives the palette seconds after a record lands, so `NEEDS LIGHTS` claimed something false
+for the record's whole life — on a 499-record sync it read as "Roadie never looked at the covers"
+while 458 of those records held a full palette. It is `NEEDS A LOOK`; the outstanding act is watching
+it in the room. The stat band's sentence matches ("three still need a look").
 
 **No machine state name and no album id appears anywhere on this screen.** Roadie's log says "Pulled
 the lights from **Kind of Blue**". A failure reads as a sentence with a way out, not as

@@ -90,7 +90,7 @@ cosmetic; the old words were rejected. Nothing in the UI should say otherwise.
 | the collection | the wall, the queue |
 | **Not complete** | wants you, needs you |
 | **Ready** | fully lit, lit, verified |
-| **Needs Lights** | needs colours, awaiting review |
+| **Needs a look** | **Needs Lights**, needs colours, awaiting review |
 | **Needs Visualizer** | needs video, needs a moving picture, awaiting video |
 | **Needs Card** | awaiting card |
 | **Needs Sign-off** | awaiting verification |
@@ -251,7 +251,8 @@ Replaces `pages/QueueView.tsx`.
 
 **Stat band** — four cells in a row, `background:#EFEBE2`, hairline-separated.
 
-- NOT COMPLETE — count in accent, plus a one-line detail ("three still need lights").
+- NOT COMPLETE — count in accent, plus a one-line detail ("three still need a look";
+  ~~"three still need lights"~~ **changed 2026-08-07**, [ADR 0056](../adrs/0056-need-labels-name-the-act-not-the-artifact.md)).
 - READY — count in ink, "ready for the stand".
 - NOT STARTED — count in ink, "Roadie will get to them".
 - **The rotating stat** (`flex:1.5`) — a button. Clicking advances it. Shows
@@ -284,7 +285,10 @@ last cell is a dashed "Add a record" tile.
 across re-renders within a visit but different next time; SHUFFLED ↻ reseeds.
 
 **Grouped mode** — selecting NOT COMPLETE regroups the grid under section headers
-(NEEDS LIGHTS · n, NEEDS VISUALIZER · n, NEEDS CARD · n, NEEDS SIGN-OFF · n).
+(NEEDS A LOOK · n, NEEDS VISUALIZER · n, NEEDS CARD · n, NEEDS SIGN-OFF · n).
+**Changed 2026-08-07** ([ADR 0056](../adrs/0056-need-labels-name-the-act-not-the-artifact.md)):
+the lights group was ~~NEEDS LIGHTS~~, which claimed a palette was missing when one always exists.
+A need label names the act, never the artifact.
 **Empty groups are not rendered at all.** Below them sits a single STUCK · 1 row on
 `#F7ECE9`: a `?` placeholder, the record name, the plain-English failure sentence,
 and a FIX IT button.

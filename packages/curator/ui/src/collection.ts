@@ -185,8 +185,10 @@ export function notCompleteDetail(counts: CollectionCounts): string {
     counts.byNeed[n] > counts.byNeed[best] ? n : best,
   );
   const n = counts.byNeed[biggest];
+  // Same rule as NEED_LABEL: name the act, not the artifact. "still need lights" read as "have no
+  // lights", which is false the moment Roadie finishes — they have a palette and want your eyes.
   const what = {
-    lights: "lights",
+    lights: "a look",
     visualizer: "a visualizer",
     card: "a card",
     tags: "signing off",

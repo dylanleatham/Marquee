@@ -114,7 +114,7 @@ describe("Collection — the grid", () => {
   it("labels a record with its first outstanding need only — never a count", () => {
     show();
     // Purple Rain is missing all four; the tile says one thing.
-    expect(within(tile("Purple Rain")).getByText("NEEDS LIGHTS")).toBeTruthy();
+    expect(within(tile("Purple Rain")).getByText("NEEDS A LOOK")).toBeTruthy();
     expect(within(tile("Purple Rain")).queryByText(/\+\d|\d of 4/)).toBeNull();
     expect(within(tile("Aja")).getByText("NEEDS VISUALIZER")).toBeTruthy();
     expect(within(tile("Blue")).getByText("READY")).toBeTruthy();
@@ -127,7 +127,7 @@ describe("Collection — the grid", () => {
     show();
     const folded = (title: string) =>
       Boolean(tile(title).querySelector(".tile__sleeve--needs"));
-    expect(folded("Purple Rain")).toBe(true); // needs lights
+    expect(folded("Purple Rain")).toBe(true); // needs a look
     expect(folded("Aja")).toBe(true); // needs a visualizer
     expect(folded("Blue")).toBe(false); // ready
     expect(folded("Kind of Blue")).toBe(false); // Roadie has it
@@ -219,7 +219,7 @@ describe("Collection — the stat band", () => {
 
   it("says what the outstanding work actually is", () => {
     show();
-    expect(screen.getByText("one still needs lights")).toBeTruthy();
+    expect(screen.getByText("one still needs a look")).toBeTruthy();
   });
 
   it("advances to the next statistic when clicked, and says which one it is", () => {
@@ -244,7 +244,7 @@ describe("Collection — filtering and grouping", () => {
     const headings = screen
       .getAllByRole("heading")
       .map((h) => h.textContent ?? "");
-    expect(headings).toEqual(["NEEDS LIGHTS· 1", "NEEDS VISUALIZER· 1"]);
+    expect(headings).toEqual(["NEEDS A LOOK· 1", "NEEDS VISUALIZER· 1"]);
     // Nothing needs a card or signing off today, so those headings are not drawn at all.
     expect(headings.join()).not.toMatch(/NEEDS CARD|NEEDS SIGN-OFF/);
   });

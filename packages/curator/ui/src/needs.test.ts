@@ -100,11 +100,32 @@ describe("outstandingNeeds", () => {
   });
 });
 
+describe("the labels name the act, not the artifact", () => {
+  // The rule the lights label broke (ADR 0056). A record has a full palette within seconds of
+  // landing, so a label built from the *artifact* claims something false for the entire life of the
+  // record — which is how a finished Roadie came to look like a broken one on a 500-record
+  // collection. `visualizer` and `card` are allowed to read as their artifact because there really
+  // isn't one; `lights` and `tags` are not.
+  it("never says a record lacks lights, because it never does", () => {
+    const lit = album({ paletteColors: 4, previewApprovedAt: null });
+    // The palette is there and the need is still outstanding — that pairing is the whole point.
+    expect(lit.paletteColors).toBeGreaterThan(0);
+    expect(outstandingNeeds(lit)).toContain("lights");
+    expect(NEED_LABEL.lights).not.toMatch(/LIGHTS|PALETTE|COLOUR|COLOR/);
+  });
+
+  it("never says a record lacks tags, only that they want checking", () => {
+    const written = album({ tagsWritten: true, physicallyVerifiedAt: null });
+    expect(outstandingNeeds(written)).toContain("tags");
+    expect(NEED_LABEL.tags).not.toMatch(/\bTAGS?\b/);
+  });
+});
+
 describe("recordState", () => {
   it("shows the first outstanding need only, never a count", () => {
     const s = recordState(album());
     expect(s).toEqual({ kind: "needs", need: "lights" });
-    expect(stateLabel(s)).toBe("NEEDS LIGHTS");
+    expect(stateLabel(s)).toBe("NEEDS A LOOK");
   });
 
   it("reads a finished record as ready", () => {
