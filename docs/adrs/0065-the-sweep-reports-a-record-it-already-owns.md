@@ -1,7 +1,15 @@
-# ADR 0064 — The sweep reports a record it already owns instead of adding it again
+# ADR 0065 — The sweep reports a record it already owns instead of adding it again
 
 **Status:** accepted · 2026-08-09 · closes
 [#279](https://github.com/dylanleatham/Marquee/issues/279)
+
+> **Renumbered from 0064 on 2026-08-09.** This landed in
+> [#280](https://github.com/dylanleatham/Marquee/pull/280) the same day
+> [ADR 0064](0064-ci-is-priced-per-pr-expensive-checks-move-to-nightly.md) landed in
+> [#281](https://github.com/dylanleatham/Marquee/pull/281), from a branch cut before that one
+> existed — so both claimed 0064 and `adr-numbering.test.ts` failed on `main` for every branch. This
+> is the case [#151](https://github.com/dylanleatham/Marquee/issues/151) put the test there to catch;
+> the test caught it, and the later of the two moved. Decision and consequences below are unchanged.
 
 ## Context
 

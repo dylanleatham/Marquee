@@ -1,6 +1,7 @@
 // The card panel (ADR 0052) — four candidates, big enough to judge, with the chosen one obvious.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  act,
   render,
   screen,
   cleanup,
@@ -225,5 +226,35 @@ describe("CardPanel", () => {
       fireEvent.click(screen.getByRole("button", { name: "UPLOAD MY OWN" })),
     );
     await waitFor(() => expect(api.uploadCardArt).toHaveBeenCalled());
+  });
+
+  /**
+   * The same silence the visualizer panel had (issue #284) — a card image is small enough that it
+   * rarely bites, but it is the same defect and it gets the same strip rather than a second idiom.
+   */
+  it("says the card is on its way while it uploads, and shuts the control", async () => {
+    let report: (sent: number, total: number) => void = () => {};
+    vi.mocked(api.uploadCardArt).mockImplementation(
+      (_id, _form, opts) =>
+        new Promise(() => {
+          report = (sent, total) => opts?.onProgress?.(sent, total);
+        }),
+    );
+    show();
+    choose(new File(["png"], "mine.png", { type: "image/png" }), () =>
+      fireEvent.click(screen.getByRole("button", { name: "UPLOAD MY OWN" })),
+    );
+    await waitFor(() => expect(api.uploadCardArt).toHaveBeenCalled());
+    act(() => report(1024, 4096));
+    expect(screen.getByRole("status").textContent).toContain(
+      "Sending mine.png",
+    );
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "UPLOAD MY OWN",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
   });
 });

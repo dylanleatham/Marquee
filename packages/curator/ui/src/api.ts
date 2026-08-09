@@ -720,6 +720,58 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
 
+/** How a caller watches its own upload leave the browser. */
+export interface UploadOptions {
+  /**
+   * Bytes written so far, and the size of the body — `0` when the browser won't say, which the strip
+   * reads as "unknown" rather than dividing by it.
+   */
+  onProgress?: (sent: number, total: number) => void;
+}
+
+/**
+ * POST a multipart form, reporting how much of it has actually gone out (issue #284).
+ *
+ * The one thing here that isn't `fetch`, and only because `fetch` cannot do this: it has no
+ * upload-progress event. A visualizer is a several-hundred-megabyte file, so without this the panel
+ * can say "something is happening" but never how much of it — and it said nothing at all.
+ *
+ * **No timeout, deliberately.** A legitimate upload of a 240 MB loop runs for minutes, and a fixed
+ * ceiling would abort exactly the transfers this exists to report on. Progress is the liveness
+ * signal: `onerror` still fires on a dropped connection, which is the failure that actually happens.
+ */
+function postForm<T>(
+  url: string,
+  form: FormData,
+  opts?: UploadOptions,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+    xhr.responseType = "text";
+    if (opts?.onProgress)
+      xhr.upload.onprogress = (e) =>
+        opts.onProgress?.(e.loaded, e.lengthComputable ? e.total : 0);
+    xhr.onload = () => {
+      // Same shape of answer as `req`: the server's own sentence when it wrote one, the status when
+      // it didn't — a proxy's HTML error page must not surface as a parse crash.
+      let body: { error?: string } = {};
+      try {
+        body = JSON.parse(xhr.responseText) as { error?: string };
+      } catch {
+        /* not JSON — fall back to the status */
+      }
+      if (xhr.status >= 200 && xhr.status < 300) return resolve(body as T);
+      reject(new ApiError(body.error ?? `HTTP ${xhr.status}`, xhr.status));
+    };
+    // A cut connection has no status at all. Rejecting matters more here than anywhere else in this
+    // file: resolving would attach nothing and report success on the longest request the app makes.
+    xhr.onerror = () =>
+      reject(new ApiError("the upload didn't reach Curator", 0));
+    xhr.send(form);
+  });
+}
+
 export const api = {
   queue: () => req<QueueGroups>("/api/agent/queue"),
   queueCounts: () => req<QueueCounts>("/api/agent/queue/counts"),
@@ -928,12 +980,9 @@ export const api = {
       `/api/albums/${id}/prompts/${type}/regenerate-ai`,
       { method: "POST" },
     ),
-  uploadVideo: (id: string, form: FormData) => {
+  uploadVideo: (id: string, form: FormData, opts?: UploadOptions) => {
     form.set("curatorId", id);
-    return req<{ state: RoadieState }>("/api/videos/upload", {
-      method: "POST",
-      body: form,
-    });
+    return postForm<{ state: RoadieState }>("/api/videos/upload", form, opts);
   },
   detachVideo: (id: string, del = false) =>
     req<{ state: RoadieState }>(
@@ -962,12 +1011,9 @@ export const api = {
         }),
       },
     ),
-  uploadCardArt: (id: string, form: FormData) => {
+  uploadCardArt: (id: string, form: FormData, opts?: UploadOptions) => {
     form.set("curatorId", id);
-    return req<{ cardArt: CardArt }>("/api/card-art/upload", {
-      method: "POST",
-      body: form,
-    });
+    return postForm<{ cardArt: CardArt }>("/api/card-art/upload", form, opts);
   },
   generateCardArtSet: (id: string) =>
     req<GenerationJob>(`/api/albums/${id}/card-art/generate`, {

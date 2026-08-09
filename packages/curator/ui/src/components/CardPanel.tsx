@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { api, cardArtCandidateUrl, cardArtUrl, type AlbumAsset } from "../api";
+import { useUpload } from "../hooks";
 import { AsyncButton, pickFile } from "./common";
+import { UploadStrip } from "./UploadStrip";
 import type { Run } from "../run";
 
 /**
@@ -43,12 +45,15 @@ export function CardPanel({
   const [broken, setBroken] = useState<Set<number>>(new Set());
   const candidates = asset.cardArtCandidates ?? [];
   const attached = asset.cardArt;
+  const card = useUpload();
 
+  // Same strip as the visualizer's (issue #284). A card image is small enough that the wait rarely
+  // bites, but the silence was identical, and one answer for "a file is going up" beats two.
   const upload = (file: File) =>
     run(async () => {
       const form = new FormData();
       form.append("file", file);
-      await api.uploadCardArt(curatorId, form);
+      await card.send(file, (opts) => api.uploadCardArt(curatorId, form, opts));
       refresh();
     });
 
@@ -83,11 +88,13 @@ export function CardPanel({
           <button
             type="button"
             className="pp-action"
+            disabled={Boolean(card.inFlight)}
             onClick={() => pickFile("image/*", upload)}
           >
             UPLOAD MY OWN
           </button>
         </div>
+        <UploadStrip upload={card.inFlight} />
       </div>
     );
 
@@ -173,11 +180,15 @@ export function CardPanel({
         <button
           type="button"
           className="pp-action"
+          disabled={Boolean(card.inFlight)}
           onClick={() => pickFile("image/*", upload)}
         >
           UPLOAD MY OWN
         </button>
       </div>
+      {/* Across all the grid's columns, like the actions row above it — a strip squeezed into one
+          7:5 cell would wrap into nonsense. */}
+      <UploadStrip upload={card.inFlight} className="bdstrip--full" />
     </div>
   );
 }

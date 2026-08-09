@@ -767,7 +767,7 @@ export function buildServer(opts: BuildOptions = {}) {
 
   /**
    * Fold one copy of a record into another and drop the twin (issue #279,
-   * [ADR 0064](../../../docs/adrs/0064-the-sweep-reports-a-record-it-already-owns.md)).
+   * [ADR 0065](../../../docs/adrs/0065-the-sweep-reports-a-record-it-already-owns.md)).
    *
    * `:curatorId` survives; `from` is absorbed and deleted. The sweep no longer *creates* duplicates,
    * but eighteen already exist, and a plain delete would not clear them: the Discogs copy is the one
