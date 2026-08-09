@@ -24,10 +24,9 @@ Monorepo, per the testing strategy's recommendation. Layout:
 marquee/
 ├── .github/
 │   ├── workflows/
-│   │   ├── ci.yml               # tests, lint, type-check
-│   │   ├── contract-tests.yml   # fast schema validation gate
-│   │   ├── code-review.yml      # AI reviewer orchestration
-│   │   └── nightly.yml          # fake-vs-real audit, extended e2e
+│   │   ├── ci.yml               # the PR gate: static, tests, integration, python
+│   │   ├── code-review.yml      # AI reviewer orchestration (not built)
+│   │   └── nightly.yml          # Windows unit suite; fake-vs-real audit and e2e not built
 │   ├── CODEOWNERS
 │   └── pull_request_template.md
 ├── .husky/                       # git hooks
@@ -115,7 +114,8 @@ If any fail, commit is blocked. `--no-verify` exists for genuine emergencies; do
 
 ### Pre-push (runs on `git push`, budget: 20-30 seconds)
 
-- **Contract validation**: run the JSON schema validators against every checked-in fixture and reference payload. Catches schema drift before CI does. The same suite carries the repo-wide conflict-marker scan — a backstop for the pre-commit check, since that one can be skipped with `--no-verify` and the CI `contract-tests` job runs it unfiltered.
+- **Contract validation**: run the JSON schema validators against every checked-in fixture and reference payload. Catches schema drift before CI does. The same suite carries the repo-wide conflict-marker scan — a backstop for the pre-commit check, since that one can be skipped with `--no-verify` and CI's `test:contracts` step (in the **static**
+  job) runs it unfiltered.
 - **Unit tests** on affected packages via turbo cache. Only re-runs what changed.
 - **Type-check** across the full workspace.
 
@@ -143,52 +143,40 @@ The `--filter=...[HEAD^1]` syntax runs turbo tasks only for packages affected by
 
 ## 5. CI pipeline
 
-Three GitHub Actions workflows, staged by cost and coverage. Every PR blocks on all three passing.
+Two GitHub Actions workflows, split by **how often they need to run**, not by what they check.
+`ci.yml` gates every PR and is priced to run a dozen times a day; `nightly.yml` holds the checks
+that are worth having but not worth having within four minutes.
 
-`ci.yml` carries a matrix of turbo tasks (`lint`, `type-check`, `test:unit`, `test:integration`,
-`build`) plus two jobs that aren't turbo tasks: **`format`** (`pnpm run format:check` over the whole
-tree — issue #97) and **`python (stylus)`** (`pytest -q`, `ruff check stylus tests`, `mypy stylus` —
-the same three commands as the local loop in `packages/stylus/README.md`).
+> **2026-08-09** — this section previously described three workflows, with `contract-tests.yml`
+> standing alone and a `windows-latest` leg on every PR. That pipeline cost ~21 billable minutes per
+> event across nine jobs, against a 2,000-minute monthly allowance it exhausted twice in eleven
+> days. [ADR 0064](../adrs/0064-ci-is-priced-per-pr-expensive-checks-move-to-nightly.md) restructured
+> it to four jobs and ~7 minutes; the arithmetic and the tradeoffs are recorded there.
+> `packages/curator/test/workflow-cost.test.ts` is the gate that keeps the shape.
 
-### `contract-tests.yml` — the fastest, most valuable gate
+### `ci.yml` — the PR gate
 
-Runs first, in isolation. If contracts are broken, nothing else matters — kill the build fast.
+Triggers on `pull_request` and `workflow_dispatch`. **Not** on `push: main`: `pull_request` already
+builds PR-head merged into the current main base, so a post-merge run re-tests a tree that just went
+green. It sets `concurrency.cancel-in-progress`, so pushing three times to a branch runs one suite,
+not three.
 
-- Validates all JSON schemas parse
-- Validates all fixture files against their schemas
-- Runs the cross-service contract tests in `contract-tests/`
-- Runs any consumer-driven contract tests
-- Total budget: **under 60 seconds**
+Four jobs:
 
-Blocks merge if red.
-
-### `ci.yml` — the main check
-
-Runs on every PR push, in parallel where possible.
-
-Jobs:
-
-1. **lint** — full workspace, all languages
-2. **type-check** — full workspace
-3. **unit tests** — all Node packages, in parallel via turbo. Runs on **both `ubuntu-latest` and
-   `windows-latest`** (issue #129): the Pi is Linux but the workstation is Windows, and while CI was
-   Linux-only a POSIX-only path assumption could only be caught by hand. The other jobs stay
-   Linux-only to limit cost. Job names carry the OS, e.g. `test:unit (windows-latest)`.
-   The Windows leg bounds process spawning from both directions (issues #131, #156) — parallel
-   package tasks each spawn their own vitest fork pool, and on a 4-core Windows runner that got a
-   worker killed mid-run. Across packages, turbo runs at `--concurrency=1`; within a package,
-   `VITEST_MAX_FORKS`/`VITEST_MIN_FORKS` cap vitest's own pool at 1. It costs almost nothing:
-   serialized, the whole `test:unit` graph is ~37s.
-
-   The env-var half only works because `turbo.json` **declares** those two names on the `test:unit`
-   task. Turbo runs in `envMode: strict` and silently drops anything undeclared, which is exactly how
-   the setting sat inert from the day it was added until issue #223 — the workflow said the pool was
-   capped and it never was. Any variable a workflow sets on a turbo step needs a matching declaration
-   in `turbo.json`; `packages/curator/test/workflow-turbo-env.test.ts` fails the build if one is
-   missing.
-
-4. **unit tests (Python)** — nfc-trigger package
-5. **integration tests** — `turbo run test:integration`. Curator is currently the only package that
+1. **static** — `pnpm run format:check`, then a single
+   `turbo run lint type-check build test:contracts`. One job rather than five, because GitHub bills
+   every job rounded up to a whole minute and each one pays its own `checkout` + `pnpm install`; one
+   `turbo run` also shares the `^build` all four tasks depend on. `format:check` is here and not a
+   turbo task, which is how 28 files once drifted unnoticed (issue #97). `test:contracts` validates
+   that every JSON schema parses, that every checked-in fixture matches its schema, and carries the
+   repo-wide conflict-marker scan. Steps after the first run under `if: ${{ !cancelled() }}` so a
+   formatting failure doesn't hide a type error.
+2. **test:unit** — all Node packages via turbo, on `ubuntu-latest`. This leg also carries the two
+   repo-wide guards that have no package of their own, `adr-numbering.test.ts` and
+   `workflow-turbo-env.test.ts`, which is why it deliberately does **not** run affected-only
+   (`--filter=...[origin/main]`): a docs-only PR changes no package, so the ADR-numbering guard
+   would go unrun on exactly the PRs it exists to check.
+3. **test:integration** — `turbo run test:integration`. Curator is currently the only package that
    defines the script: it runs the tests that shell out to the **real** ffmpeg/ffprobe rather than a
    faked prober. This leg installs ffmpeg (`apt-get install -y ffmpeg`) and sets
    `MARQUEE_REQUIRE_FFMPEG=1`, which turns a missing binary into a build failure instead of a skip —
@@ -197,21 +185,69 @@ Jobs:
    than on `test:unit` so an encode never competes with the rest of the monorepo suite for a 2-core
    runner; that contention once flaked Backdrop's timing-sensitive server/ws tests. `test:unit` still
    runs the same files, where they skip for want of ffmpeg exactly as they did before.
-6. **coverage report** — aggregated across packages, posted as PR comment (not gating)
-7. **build** — all packages build cleanly
+4. **python (stylus)** — `pytest -q`, `ruff check stylus tests`, `mypy stylus`: the same three
+   commands as the local loop in `packages/stylus/README.md`. Separate from **static** only because
+   it needs a different toolchain (`setup-python`), and folding it in wouldn't save a billable
+   minute.
 
-Budget: **under 5 minutes** total on typical PR. Blocks merge if any job fails except coverage.
+Budget: **~7 billable minutes** per PR event, under 4 minutes of wall-clock. Blocks merge if any job
+fails.
 
-### `nightly.yml` — the audits
+**Coverage reporting is not built.** It was specified as a non-gating PR comment and never
+implemented; adding it means adding a job, which now costs a measured minute — see the job budget in
+`workflow-cost.test.ts` before doing so.
 
-Runs on schedule (2 AM UTC daily) and on-demand.
+### The kill switch
+
+Every job carries `if: ${{ vars.CI_ENABLED != 'false' }}`. When the Actions allowance runs out
+GitHub doesn't queue jobs, it fails them in 2-4 seconds with no logs and emails about each run —
+which reads like a broken repo rather than a spent budget. Setting the variable turns those failures
+into skips, which neither bill nor notify:
+
+```bash
+gh variable set CI_ENABLED --body false   # blown budget: stop the noise
+gh variable delete CI_ENABLED             # new month: back to normal
+```
+
+Unset is the normal state, and `!= 'false'` reads unset as enabled, so a fresh clone needs no setup.
+
+### `nightly.yml` — the slow lane
+
+Runs on schedule (2 AM UTC daily) and on-demand via `workflow_dispatch`. It skips its own suite when
+nothing landed in the last 25 hours, so a quiet weekend costs a checkout rather than a full run.
+
+**Built today:**
+
+- **`test:unit (windows-latest)`** (issue #129) — the Pi is Linux but the workstation is Windows,
+  and while CI was Linux-only a POSIX-only path assumption could only be caught by hand. This ran on
+  every PR until 2026-08-09; Windows runners bill at **2x** on private repos, which made one job 48%
+  of the entire CI bill ([ADR 0064](../adrs/0064-ci-is-priced-per-pr-expensive-checks-move-to-nightly.md)).
+  Nightly keeps the signal at a twelfth of the price, and `workflow_dispatch` lets a path-touching
+  PR request it by hand. It doubles as the post-merge canary that dropping the `push: main` trigger
+  gave up, since it runs the whole `test:unit` graph against `main`.
+
+  The leg bounds process spawning from both directions (issues #131, #156) — parallel package tasks
+  each spawn their own vitest fork pool, and on a 4-core Windows runner that got a worker killed
+  mid-run with `STATUS_DLL_INIT_FAILED`. Across packages, turbo runs at `--concurrency=1`; within a
+  package, `VITEST_MAX_FORKS`/`VITEST_MIN_FORKS` cap vitest's own pool at 1. It isn't a speed trade:
+  serialized, the whole graph ran _faster_ (43.3s vs 48.5s) with 32% less system time.
+
+  The env-var half only works because `turbo.json` **declares** those two names on the `test:unit`
+  task. Turbo runs in `envMode: strict` and silently drops anything undeclared, which is exactly how
+  the setting sat inert from the day it was added until issue #223 — the workflow said the pool was
+  capped and it never was. Any variable a workflow sets on a turbo step needs a matching declaration
+  in `turbo.json`; `packages/curator/test/workflow-turbo-env.test.ts` fails the build if one is
+  missing.
+
+**Specified, not built** — each is a job, and jobs now have a measured price:
 
 - **E2E tests**: spins up all services in Docker Compose, exercises the runtime scenarios
 - **Fake-vs-real audit**: runs each fake's test suite against the real dependency in a controlled lab environment (needs a spare Hue bridge, or Spotify sandbox tokens, etc.)
 - **Dependency audit**: `pnpm audit`, `pip-audit`, alert on new CVEs
 - **License audit**: verify no incompatible licenses in the dep tree
 
-Reports findings; doesn't block anything unless there's a security-critical finding, in which case it opens a GitHub issue with `priority:high`.
+Those would report findings rather than block, opening a `priority:high` issue on a security-critical
+result.
 
 ### `code-review.yml` — the agent gate
 
@@ -219,7 +255,17 @@ Verifies that the pre-push review agent report exists and matches the current co
 
 ### Caching
 
-Turbo's remote cache configured on GitHub Actions (via the built-in `TURBO_TOKEN` secret) means the second run of a workflow that touches no source is nearly free — most CI time collapses to cache-hits when a PR only touches docs or a single package.
+**Not configured.** This section long claimed that Turbo's remote cache was set up on Actions via a
+`TURBO_TOKEN` secret; it never was, and the claim survived unchallenged for the life of the doc —
+the kind of spec-that-lies this repo tries not to keep.
+
+It was reconsidered under
+[ADR 0064](../adrs/0064-ci-is-priced-per-pr-expensive-checks-move-to-nightly.md) and deliberately
+left off. GitHub's Actions cache is scoped so a branch can read its own caches and the default
+branch's; with no workflow running on `main` any more, nothing populates the default-branch cache,
+so every PR would start cold. Warming it would mean paying for a `main` run that costs more than the
+cache saves. Revisit if a `main` trigger ever comes back, or if a remote cache backend
+(Vercel or self-hosted) is set up — that one isn't branch-scoped and would work today.
 
 ## 6. Code review agents
 
@@ -419,13 +465,14 @@ Configured via GitHub's branch protection UI. Settings for `main`:
 - ✅ **Require approvals**: 1 (you approving your own PR is fine for solo; add more when there's a team)
 - ✅ **Dismiss stale pull request approvals when new commits are pushed**
 - ✅ **Require review from Code Owners** (uses `.github/CODEOWNERS`; owner is you)
-- ✅ **Require status checks to pass before merging**:
-  - `contract-tests`
-  - `ci / lint`
-  - `ci / type-check`
-  - `ci / unit-tests`
-  - `ci / integration-tests`
-  - `ci / build`
+- ✅ **Require status checks to pass before merging** (job names as of
+  [ADR 0064](../adrs/0064-ci-is-priced-per-pr-expensive-checks-move-to-nightly.md) — `lint`,
+  `type-check`, `build` and `contracts` are steps of `static` now, not checks of their own, and
+  `test:unit (windows-latest)` has moved to `nightly.yml` and must **not** be required here):
+  - `static`
+  - `test:unit`
+  - `test:integration`
+  - `python (stylus)`
   - `code-review / agents` (blocking reviewers only)
 - ✅ **Require branches to be up to date before merging**
 - ✅ **Require conversation resolution before merging**
@@ -541,6 +588,9 @@ Order matters. Some things unblock others.
 4. **Set up Husky + lint-staged + commitlint.** Pre-commit and pre-push hooks per §4.
 5. **First empty package**: `packages/contracts/`. Add `palette-payload.schema.json` from the integration contract doc. Configure schema-to-typescript codegen. Now `contracts` exports a `PalettePayload` type.
 6. **First CI workflow**: `contract-tests.yml`. Validates schemas parse. Green build achieved.
+   (Historical: that workflow was folded into `ci.yml`'s **static** job on 2026-08-09 —
+   [ADR 0064](../adrs/0064-ci-is-priced-per-pr-expensive-checks-move-to-nightly.md). This list
+   records the bootstrap order that was actually followed, not the layout to build today.)
 7. **Add `ci.yml`**: lint, type-check, empty test suite. Green build extended.
 8. **First code review agent**: Contract Guardian. Its whole job at this point is "the contracts package changed — did we test it?" Baby steps. Wire it into the pre-push hook + `code-review.yml` report check.
 9. **`packages/palette-press/` scaffolded.** Test infra, first fixture album, first golden test. Now you have a real thing to test and a real thing to review.
@@ -564,7 +614,7 @@ With the harness in place, working on this project should feel like:
 - You open a feature branch, write code with fast-feedback loops (type-check on save, `pnpm run test:fast` between changes).
 - You commit; pre-commit hook keeps garbage out.
 - You push; pre-push hook keeps larger garbage out.
-- You open a PR; contract-tests block within 60 seconds if you've broken the API surface; CI runs in parallel.
+- You open a PR; the four CI jobs run in parallel and settle in under four minutes, with the **static** job blocking within about ninety seconds if you've broken the API surface, formatting, or types.
 - Reviewer agents post findings; you address the ones that matter, learn from the ones that don't.
 - Green build; you approve; squash-merge. Main is now that much better.
 - Nightly audit runs; catches drift you didn't see.

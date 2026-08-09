@@ -307,18 +307,39 @@ At current scale, you don't need semantic versioning discipline yet — but orga
 
 ## 6. CI setup
 
-GitHub Actions, matching your existing pattern from the newsletter project.
+GitHub Actions. The full job layout, and the cost reasoning behind it, is in
+[dev-harness §5](dev-harness.md#5-ci-pipeline); this is the testing view of it.
 
-**On PR to any branch:**
+> **2026-08-09** — the shape below changed under
+> [ADR 0064](../adrs/0064-ci-is-priced-per-pr-expensive-checks-move-to-nightly.md). CI is now priced
+> per PR: a job costs a whole billable minute floor plus its own checkout and install, so "one job
+> per concern" is no longer free. Contract tests share a runner with the other static checks, and
+> anything on a 2x-billed runner lives in the nightly.
 
-1. **Contract tests first.** Fast, catch drift immediately. If these fail, nothing else runs — the whole PR is broken by definition.
-2. **Unit tests per service.** Parallel, one job per service. Node services use one runner, Python service uses another.
-3. **Integration tests per service.** Slower, still parallel.
-4. **Coverage report** posted as a PR comment. Not enforced as a threshold — the moment you enforce coverage as a number, people write tests to hit the number, not to catch bugs. Coverage is a signal; investigate drops but don't gate on them.
+**On PR:**
 
-**On merge to main:** 5. **End-to-end tests.** Spin up all services in Docker Compose (or as sibling Node/Python processes), run the runtime overview scenarios. Slower, more flaky, worth it for the higher-value validations.
+1. **Static checks, one job.** Formatting, lint, type-check, build, and contract tests — schemas
+   parse, fixtures validate against them. Contract failures still mean the PR is broken by
+   definition; they just no longer get a runner to themselves to say so.
+2. **Unit tests, one job for all Node packages** (turbo runs them in parallel within it), plus one
+   for Python. Not one job per service — that was the old layout and it was mostly paying for
+   repeated installs. Runs the whole suite, never affected-only: the repo-wide guards live inside
+   `packages/curator`, so a filtered run would skip them on docs-only PRs.
+3. **Integration tests, one job.** Kept apart from the unit job specifically so a real ffmpeg encode
+   doesn't compete with the rest of the suite on a 2-core runner — that contention has flaked
+   timing-sensitive tests before.
+4. **Coverage report** — specified as a non-gating PR comment, **not built**. Still the right
+   policy if it is: the moment you enforce coverage as a number, people write tests to hit the
+   number, not to catch bugs. Coverage is a signal; investigate drops but don't gate on them.
+   Adding it now means adding a job, which has a measured price.
 
-**Nightly:** 6. **The fake-vs-real audit.** Run each fake's own test suite against the real dependency (real Hue bridge in a lab environment, real Spotify sandbox, etc.). Catches upstream drift. Alerts, doesn't gate.
+**On merge to main:** nothing. The PR check already built PR-head merged into the current main base,
+so a post-merge run re-tests a tree that just went green.
+
+**Nightly:** the Windows unit suite (2x billing, too expensive per-PR — it is also what covers the
+main-branch canary case). End-to-end tests and the fake-vs-real audit — running each fake's own
+suite against the real dependency, to catch upstream drift — remain specified but not built. Both
+would alert rather than gate.
 
 **Not in CI:**
 
