@@ -14,7 +14,7 @@ Three lines of defense, each catching different problems:
 
 Plus one meta-line:
 
-4. **Branch protection on `main`** — makes all of the above mandatory. Without this, all the harness work is optional and eventually gets skipped.
+4. **Branch protection on `main`** — makes all of the above mandatory. Without this, all the harness work is optional and eventually gets skipped. **This line does not exist today** — protected branches are a paid feature for private repos, so lines 1-3 are held by convention rather than enforced (§7).
 
 ## 2. Repository structure
 
@@ -67,7 +67,7 @@ marquee/
 
 ## 3. Git hosting and workflow
 
-**GitHub** — matches your existing pattern from the newsletter project. Free for private repos; features we need (Actions, branch protection, CODEOWNERS, PR reviews) are all included.
+**GitHub** — matches your existing pattern from the newsletter project. Free for private repos; Actions, CODEOWNERS and PR reviews are all included. **Branch protection is not** — it needs Pro or a public repo (§7), which this sentence claimed otherwise for the life of the doc. Actions minutes are also capped at 2,000/month on the free plan, which the CI pipeline is now designed around ([ADR 0064](../adrs/0064-ci-is-priced-per-pr-expensive-checks-move-to-nightly.md)).
 
 **Repo visibility**: private for now. The specs and code are yours; no reason to publish before you're ready.
 
@@ -459,7 +459,21 @@ Same code path as CI. This is the primary iteration loop during dev — you catc
 
 ## 7. Branch protection
 
-Configured via GitHub's branch protection UI. Settings for `main`:
+> **Status (2026-08-09): none of this is in effect, and none of it can be on the current plan.**
+> Both the classic branch-protection API and rulesets return
+> `403 Upgrade to GitHub Pro or make this repository public to enable this feature` for
+> `dylanleatham/Marquee` — protected branches are a paid feature for private repos. `main` is
+> therefore unprotected: nothing requires a PR, nothing requires a status check, and nothing stops a
+> direct push. **The git hooks in §4 are the only real gate**, which is why CLAUDE.md says not to
+> commit product code straight to `main` — that's a convention held by hand, not an enforced rule.
+>
+> This section has read as configuration since it was written, and it was aspirational the whole
+> time; §1 even calls branch protection the "meta-line" that makes the other three mandatory, which
+> means the harness has never had that line. Treat what follows as **the settings to apply if the
+> repo ever goes public or onto Pro** — the same two options that would fix the Actions budget
+> ([ADR 0064](../adrs/0064-ci-is-priced-per-pr-expensive-checks-move-to-nightly.md)).
+
+Settings for `main`, once available:
 
 - ✅ **Require a pull request before merging**
 - ✅ **Require approvals**: 1 (you approving your own PR is fine for solo; add more when there's a team)
@@ -583,7 +597,7 @@ Neither is retrospective work; both happen in the PR that fixes the bug or refin
 Order matters. Some things unblock others.
 
 1. **Create the GitHub repo.** Private. Add `.gitignore`, `README.md` stub, LICENSE.
-2. **Configure branch protection on `main`.** Full settings from §7. Do this before writing any code — otherwise you'll push directly and lose the discipline.
+2. **Configure branch protection on `main`.** Full settings from §7. Do this before writing any code — otherwise you'll push directly and lose the discipline. (Historical: this step was never completed and could not have been — see the status note on §7.)
 3. **Scaffold the monorepo.** pnpm-workspace.yaml, turbo.json, package.json, tsconfig.base.json.
 4. **Set up Husky + lint-staged + commitlint.** Pre-commit and pre-push hooks per §4.
 5. **First empty package**: `packages/contracts/`. Add `palette-payload.schema.json` from the integration contract doc. Configure schema-to-typescript codegen. Now `contracts` exports a `PalettePayload` type.
