@@ -480,7 +480,8 @@ export type ReportedSpotifyBackfillStatus = Exclude<
 >;
 
 /** What one collection sweep did (issue #234) — the result of a `discogsSync` job. */
-export type DiscogsSyncStatus = "added" | "duplicate" | "failed";
+/** `collision` — the library already holds this record from another source (issue #279). */
+export type DiscogsSyncStatus = "added" | "duplicate" | "collision" | "failed";
 
 export interface DiscogsSyncOutcome {
   releaseId: number;
@@ -496,6 +497,8 @@ export interface DiscogsSyncReport {
   scanned: number;
   added: number;
   duplicate: number;
+  /** Records left untouched because the library already had them from another source (#279). */
+  collision: number;
   failed: number;
   pages: number;
   truncated: boolean;

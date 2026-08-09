@@ -22,12 +22,13 @@ import type {
   DiscogsClient,
   DiscogsCollectionItem,
 } from "../discogs/client.js";
-import { DiscogsError } from "../discogs/client.js";
+import { DiscogsError, discogsUri } from "../discogs/client.js";
 import { backoffDelay, realSleep } from "../roadie/backoff.js";
 import { DuplicateAlbumError } from "./add-spotify.js";
 import {
   addDiscogsAlbum,
-  buildDiscogsIndex,
+  albumKey,
+  buildAlbumIndexes,
   type DiscogsIndex,
 } from "./add-discogs.js";
 
@@ -45,7 +46,19 @@ const PER_PAGE = 100;
 /** How many times a failed *page* fetch is retried before the sweep gives up and reports partial. */
 const PAGE_RETRIES = 3;
 
-export type DiscogsSyncStatus = "added" | "duplicate" | "failed";
+export type DiscogsSyncStatus =
+  | "added"
+  | "duplicate"
+  /**
+   * The library already holds this record, added by something other than this sweep — so the
+   * release id it dedupes on was never there to match ([#279](https://github.com/dylanleatham/Marquee/issues/279)).
+   *
+   * Kept apart from `duplicate` because they mean different things to a human. `duplicate` is the
+   * sweep working: the same release, already swept, nothing to do. A `collision` is a record you
+   * own twice over, and it needs a decision the sweep is not entitled to make on its own.
+   */
+  | "collision"
+  | "failed";
 
 export interface DiscogsSyncOutcome {
   releaseId: number;
@@ -64,6 +77,12 @@ export interface DiscogsSyncReport {
   scanned: number;
   added: number;
   duplicate: number;
+  /**
+   * Records the library already had from another source, left untouched. The first full sweep
+   * created 15 of these before this existed, and reported them as `added` — which is why the
+   * duplicates went unnoticed for a day (#279).
+   */
+  collision: number;
   failed: number;
   /** Collection pages fetched. */
   pages: number;
@@ -133,6 +152,7 @@ export function discogsSyncRunner(deps: DiscogsSyncDeps) {
       scanned: 0,
       added: 0,
       duplicate: 0,
+      collision: 0,
       failed: 0,
       pages: 0,
       truncated: false,
@@ -161,7 +181,16 @@ export function discogsSyncRunner(deps: DiscogsSyncDeps) {
     // deletes, and an index that wrongly remembers a deleted album reports a real add as a duplicate
     // — a worse failure than the one it fixes. A cache that rebuilds on a known cadence can only be
     // stale, never wrong for long.
-    let index: DiscogsIndex = buildDiscogsIndex(deps.store);
+    /**
+     * `index` keys on the Discogs release id; `byAlbum` keys on the record itself. Both come from
+     * one pass, and both are refreshed each page for the reason above.
+     *
+     * `byAlbum` exists because release-id dedupe cannot see an album that arrived from Spotify — it
+     * has no release id — so all fifteen of those fell through and were added a second time
+     * ([#279](https://github.com/dylanleatham/Marquee/issues/279)). It is also the only thing that
+     * catches two pressings of one record inside a single sweep, whose release ids genuinely differ.
+     */
+    let { byUri: index, byAlbum } = buildAlbumIndexes(deps.store);
 
     let page = 1;
     let pages = 1;
@@ -189,7 +218,8 @@ export function discogsSyncRunner(deps: DiscogsSyncDeps) {
       report.total = fetched.total;
       pages = fetched.pages;
       // Pick up anything another writer added while the previous page was being processed.
-      if (report.pages > 1) index = buildDiscogsIndex(deps.store);
+      if (report.pages > 1)
+        ({ byUri: index, byAlbum } = buildAlbumIndexes(deps.store));
       ctx.onProgress(report.scanned, report.total);
 
       for (const item of fetched.items) {
@@ -207,6 +237,7 @@ export function discogsSyncRunner(deps: DiscogsSyncDeps) {
 
     deps.logger?.info(
       `Discogs sync: ${report.added} added, ${report.duplicate} already here, ` +
+        `${report.collision} already owned from elsewhere, ` +
         `${report.failed} failed (${report.scanned}/${report.total} scanned)`,
     );
     return { discogsSync: report };
@@ -245,6 +276,23 @@ export function discogsSyncRunner(deps: DiscogsSyncDeps) {
         });
         report[o.status]++;
       };
+      // Checked before the add, not caught after it: the point is that no second copy is created.
+      // The existing record is left exactly as it is — the sweep reports the collision and moves on,
+      // because choosing between two copies (which keeps the visualizer, which year is right) is a
+      // decision the owner makes, not one a background job makes on their behalf.
+      //
+      // **Only when the release id is unknown.** The id is the precise, authoritative match: a
+      // re-run of an unchanged collection must keep reading as `duplicate`, and letting the looser
+      // title+artist check run first would relabel every one of those a `collision` — turning the
+      // sweep's healthy no-op into a library full of imaginary conflicts.
+      const key = albumKey(item.title, item.artist);
+      const owned = index.get(discogsUri(item.releaseId))
+        ? undefined
+        : byAlbum.get(key);
+      if (owned) {
+        record({ status: "collision", curatorId: owned });
+        return;
+      }
       try {
         const { curatorId } = await addDiscogsAlbum(
           { store: deps.store, roadie: deps.roadie, index },
@@ -258,6 +306,9 @@ export function discogsSyncRunner(deps: DiscogsSyncDeps) {
           },
         );
         report.curatorIds.push(curatorId);
+        // So the next row of this same sweep sees it. Two pressings of one record arrive as two
+        // honest release ids, and this is the only thing standing between them.
+        byAlbum.add(key, curatorId);
         record({ status: "added", curatorId });
       } catch (err) {
         if (err instanceof DuplicateAlbumError)

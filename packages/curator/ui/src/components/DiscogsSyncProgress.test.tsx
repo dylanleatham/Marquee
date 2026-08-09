@@ -26,6 +26,7 @@ const report = (patch: Partial<DiscogsSyncReport> = {}): DiscogsSyncReport => ({
   scanned: 3,
   added: 2,
   duplicate: 1,
+  collision: 0,
   failed: 0,
   pages: 1,
   truncated: false,
@@ -84,6 +85,35 @@ describe("DiscogsSyncProgress", () => {
     render(<DiscogsSyncProgress />);
 
     expect(screen.getByText("2 added · 1 already here")).toBeTruthy();
+  });
+
+  // Issue #279. The first sweep created 15 duplicates and reported every one of them as an ordinary
+  // "Added", which is exactly why they went unnoticed for a day. A collision has to reach the
+  // summary line, not just a row you might scroll to.
+  it("says how many records it left alone because you already owned them", () => {
+    state = {
+      job: job({ result: { discogsSync: report({ added: 2, collision: 3 }) } }),
+      error: null,
+      unreachable: false,
+    };
+    render(<DiscogsSyncProgress />);
+
+    expect(
+      screen.getByText(
+        "2 added · 1 already here · 3 already owned from elsewhere",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("stays quiet about collisions when there were none", () => {
+    state = {
+      job: job({ result: { discogsSync: report({ collision: 0 }) } }),
+      error: null,
+      unreachable: false,
+    };
+    render(<DiscogsSyncProgress />);
+
+    expect(screen.queryByText(/already owned/)).toBeNull();
   });
 
   it("says a truncated sweep is finishable by running it again", () => {
