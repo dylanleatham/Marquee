@@ -1,0 +1,89 @@
+name: nightly
+
+# Where the expensive-but-slow-moving checks live. `ci.yml` is what gates a PR and is priced to run
+# a dozen times a day; this is priced to run once. See ADR 0064.
+on:
+  schedule:
+    - cron: "0 2 * * *" # 02:00 UTC daily
+  workflow_dispatch:
+
+concurrency:
+  group: nightly
+  cancel-in-progress: true
+
+jobs:
+  # Windows was a leg of ci.yml's matrix, on every PR push. It was 250s of a ~21-minute event and
+  # Windows runners bill at **2x** on private repos, so that one job was 10 billable minutes —
+  # 48% of the entire CI bill, more than every other job put together. Nightly keeps the signal and
+  # pays for it once a day instead of a dozen times.
+  #
+  # What it's for (issue #129): the Pi runs Linux but the workstation is Windows, and with CI
+  # Linux-only a POSIX-only path assumption could only ever be found by hand. That class of bug
+  # doesn't arrive on a schedule, but it also doesn't need catching within four minutes — the
+  # trade is finding it next morning against a day of commits instead of on the PR that caused it.
+  # `workflow_dispatch` is the escape hatch: run this by hand on a PR branch when the diff touches
+  # path handling and you'd rather not wait.
+  #
+  # It doubles as the post-merge canary that dropping `push: main` from ci.yml gave up, because it
+  # runs the whole `test:unit` graph against `main` — the case it covers is two PRs that were green
+  # apart and broken together. That window is small in practice: `pull_request` builds PR-head
+  # merged into the *current* main base, so the next PR opened after a bad merge sees it too.
+  windows:
+    name: test:unit (windows-latest)
+    if: ${{ vars.CI_ENABLED != 'false' }}
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Deep enough for the "did anything land?" check below to see a day of commits, shallow
+          # enough not to pay for the full history.
+          fetch-depth: 50
+      # A nightly against an unchanged `main` is ten billable minutes spent re-confirming yesterday's
+      # answer, and quiet stretches are common here. Checking first costs the ~30s of a checkout.
+      # `workflow_dispatch` always runs — if you asked for it by hand, you want it regardless.
+      - name: Did anything land today?
+        id: changed
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] \
+            || [ -n "$(git log --since='25 hours ago' --oneline)" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "No commits in the last 25 hours — skipping the suite."
+          fi
+      - uses: pnpm/action-setup@v4
+        if: steps.changed.outputs.run == 'true'
+      - uses: actions/setup-node@v4
+        if: steps.changed.outputs.run == 'true'
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        if: steps.changed.outputs.run == 'true'
+      # This leg flaked twice, for the two halves of one cause (issues #131, #156): a Windows runner
+      # has far higher process overhead than Linux, and the suite spawns Node processes from two
+      # directions at once. Both need bounding — fixing only the first left it failing at ~1 run in 7,
+      # with STATUS_DLL_INIT_FAILED (a process failing to *initialize*) instead of any assertion.
+      #
+      #   1. Across packages — turbo defaults to ~10 concurrent tasks, hence `--concurrency=1`.
+      #   2. Within a package — each `vitest run` forks a pool sized to the CPU count, and no package
+      #      configures one. Vitest honours VITEST_MAX_FORKS/VITEST_MIN_FORKS at config resolution, so
+      #      one setting reaches all six vitest packages (curator's own vitest.config.ts included);
+      #      review-agents runs `node --test` and ignores them.
+      #
+      #      Setting them here is only half of it: turbo runs in strict env mode and drops any
+      #      variable turbo.json doesn't declare, so these two are declared on the `test:unit` task
+      #      there. Without that they never reach vitest and this leg quietly runs the default pool —
+      #      which is what it did until issue #223 found it.
+      #      `packages/curator/test/workflow-turbo-env.test.ts` is the guard that keeps them declared.
+      #
+      # Not a speed trade, despite what #131 assumed: measured over the full fleet, capping forks ran
+      # *faster* (43.3s vs 48.5s) with 32% less system time, because fork-spawn overhead exceeds the
+      # parallelism benefit at this suite size.
+      - run: pnpm turbo run test:unit --concurrency=1
+        if: steps.changed.outputs.run == 'true'
+        env:
+          VITEST_MAX_FORKS: 1
+          VITEST_MIN_FORKS: 1

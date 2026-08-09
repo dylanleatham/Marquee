@@ -2,48 +2,47 @@ name: ci
 
 on:
   pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
+
+# `push: branches: [main]` used to be here, and it doubled the bill for no signal: the `pull_request`
+# event already builds PR-head-merged-into-main-base, so the post-merge run re-tested a tree that had
+# just gone green. Half of every day's runs — and half of every day's failure emails — were that
+# duplicate. See ADR 0064. The post-merge canary it nominally provided (main moved between the PR
+# check and the merge) is bought back by `nightly.yml`, whose Windows leg runs the whole `test:unit`
+# graph against main once a day.
+
+# A PR branch pushed three times in a minute used to run three full suites to completion; the first
+# two are answered by the third. Nothing on this trigger list is a ref where a cancelled run loses
+# information — `main` isn't here any more — so cancellation is unconditional.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Every job carries `if: ${{ vars.CI_ENABLED != 'false' }}`. When the Actions allowance runs out
+# GitHub doesn't queue jobs, it fails them in 2-4 seconds with no logs — and mails you about each
+# run. Flipping the variable makes the jobs *skip* instead, which neither bills nor notifies:
+#
+#     gh variable set CI_ENABLED --body false     # blown budget: stop the noise
+#     gh variable delete CI_ENABLED               # new month: back to normal
+#
+# Unset is the normal state, and `!= 'false'` reads unset as enabled, so a fresh clone needs no
+# setup. The gate is per-job rather than workflow-level on purpose: a skipped *job* still reports a
+# conclusion against the PR, so the checks list says "skipped", not "waiting forever".
 
 jobs:
-  node:
-    name: ${{ matrix.task }} (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+  # lint, type-check, build, test:contracts and format:check were five separate jobs. Each paid its
+  # own checkout + `pnpm install` (~25s) to do 5-40s of actual work, and GitHub bills every job
+  # rounded up to a whole minute — so five jobs cost six billable minutes to do about ninety seconds
+  # of work. Folded together they cost two, and the single `turbo run` shares the `^build` those
+  # tasks all depend on instead of rebuilding it per job.
+  #
+  # `lint` is in the list for completeness only: every package's lint script is currently
+  # `echo "(no linter configured yet)"`. It costs nothing here, where it once cost a whole job.
+  static:
+    name: static
+    if: ${{ vars.CI_ENABLED != 'false' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 10
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest]
-        task: [lint, type-check, test:unit, test:integration, build]
-        include:
-          # The Pi runs Linux but the workstation is Windows, and CI was Linux-only — so
-          # platform-specific breakage (path resolution above all) could only ever be found by
-          # hand. One Windows leg over the unit tests covers that class; lint/build/integration
-          # stay Linux-only to keep the bill down (Windows runners bill at 2x on private repos).
-          - os: windows-latest
-            task: test:unit
-            # This leg flaked twice, for the two halves of one cause (issues #131, #156): a Windows
-            # runner has far higher process overhead than Linux, and the suite spawns Node processes
-            # from two directions at once. Both need bounding — fixing only the first left it
-            # failing at ~1 run in 7, with STATUS_DLL_INIT_FAILED (a process failing to *initialize*)
-            # instead of any assertion.
-            #
-            #   1. Across packages — turbo defaults to ~10 concurrent tasks.
-            turboFlags: --concurrency=1
-            #   2. Within a package — each `vitest run` forks a pool sized to the CPU count, and no
-            #      package configures one. Vitest honours these at config resolution, so one setting
-            #      reaches all six vitest packages (curator's own vitest.config.ts included);
-            #      review-agents runs `node --test` and ignores them.
-            #
-            #      Setting them here is only half of it: turbo runs in strict env mode and drops any
-            #      variable turbo.json doesn't declare, so these two are declared on the `test:unit`
-            #      task there. Without that they never reach vitest and this leg quietly runs the
-            #      default pool — which is what it did until issue #223 found it.
-            #
-            # Not a speed trade, despite what #131 assumed: measured over the full fleet, capping
-            # forks ran *faster* (43.3s vs 48.5s) with 32% less system time, because fork-spawn
-            # overhead exceeds the parallelism benefit at this suite size.
-            vitestForks: 1
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -52,61 +51,87 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # Curator's real-binary tests (`test/video-ffmpeg-integration.test.ts`, and the ffmpeg half of
-      # `test/card-art-print.test.ts`) skip themselves when ffmpeg is absent — and nothing here ever
-      # installed it, so on CI they were *always* skipped, which reads identically to passing. Two
-      # defects shipped straight through that hole: #180 (no `-f mp4`, so every real encode died on
-      # the muxer) and #217 (the downscale emitted odd dimensions and libx264 refused them). Both
-      # were invisible to the faked-prober tests, which assert argv as a string and cannot watch
-      # ffmpeg reject it.
-      #
-      # This runs on `test:integration` rather than `test:unit` on purpose. `test:unit` fans out
-      # across the whole monorepo, and a real encode competing for a 2-core runner is exactly what
-      # once starved Backdrop's timing-sensitive server/ws tests into a flake (see the note on
-      # `makeOverBudgetClip`). Curator is the only package with a `test:integration` script, so this
-      # leg has the runner to itself and that contention cannot arise. `test:unit` still runs the
-      # same files — with no ffmpeg they skip there, as before, and locally they run in full.
-      #
-      # Linux only: the class being caught is codec/muxer behaviour, not path handling, so the
-      # Windows leg would pay 2x billing for a second copy of the same signal.
+      # Formatting is a root-level script, not a turbo task, so the old matrix never ran it — which is
+      # how 28 files drifted unnoticed (issue #97). `pnpm run validate` covered it, but only for
+      # whoever remembered to run it; lint-staged only ever touches files someone happened to stage.
+      # Generated files are excluded via .prettierignore rather than fought with.
+      - name: Format
+        run: pnpm run format:check
+      # `!cancelled()` so a formatting failure doesn't hide a type error — the same reason the python
+      # job below does it, and the same reason the old matrix set `fail-fast: false`. Consolidating
+      # jobs is only cheaper if it doesn't also cost you the parallel red X's.
+      - name: Lint, type-check, build, contracts
+        if: ${{ !cancelled() }}
+        run: pnpm turbo run lint type-check build test:contracts
+
+  # Deliberately *not* merged into `static`, and deliberately not merged with test:integration below:
+  # the unit suite is the one job whose runtime (~2.5 min) genuinely earns its own runner, and the
+  # integration leg must not share one (see the note on that job).
+  #
+  # This leg also carries two repo-wide guards that have no package of their own —
+  # `adr-numbering.test.ts` and `workflow-turbo-env.test.ts` — which is why CI can't take the obvious
+  # next saving of running `turbo run test:unit --filter=...[origin/main]`. A docs-only PR changes no
+  # package, so an affected-only filter would run nothing, and the ADR-numbering guard would go
+  # quietly unrun on exactly the PRs it exists to check. A gate that skips itself is the failure mode
+  # this repo keeps having; see ADR 0064.
+  test:
+    name: test:unit
+    if: ${{ vars.CI_ENABLED != 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm turbo run test:unit
+
+  # Curator's real-binary tests (`test/video-ffmpeg-integration.test.ts`, and the ffmpeg half of
+  # `test/card-art-print.test.ts`) skip themselves when ffmpeg is absent — and nothing here ever
+  # installed it, so on CI they were *always* skipped, which reads identically to passing. Two
+  # defects shipped straight through that hole: #180 (no `-f mp4`, so every real encode died on the
+  # muxer) and #217 (the downscale emitted odd dimensions and libx264 refused them). Both were
+  # invisible to the faked-prober tests, which assert argv as a string and cannot watch ffmpeg
+  # reject it.
+  #
+  # This stays a job of its own rather than folding into `test:unit` — which would look like a free
+  # minute — because a real encode competing for a 2-core runner is exactly what once starved
+  # Backdrop's timing-sensitive server/ws tests into a flake (see the note on `makeOverBudgetClip`).
+  # Curator is the only package with a `test:integration` script, so this leg has the runner to
+  # itself and that contention cannot arise. `test:unit` still runs the same files — with no ffmpeg
+  # they skip there, as before, and locally they run in full.
+  integration:
+    name: test:integration
+    if: ${{ vars.CI_ENABLED != 'false' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - name: Install ffmpeg
-        if: matrix.task == 'test:integration' && runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
-      - run: pnpm turbo run ${{ matrix.task }} ${{ matrix.turboFlags }}
+      - run: pnpm turbo run test:integration
         env:
-          # Unset on every other leg: matrix.vitestForks is undefined there, which renders as the
-          # empty string, and vitest's own `if (process.env.VITEST_MAX_FORKS)` guard treats that as
-          # absent. Linux keeps its default pool sizing.
-          VITEST_MAX_FORKS: ${{ matrix.vitestForks }}
-          VITEST_MIN_FORKS: ${{ matrix.vitestForks }}
-          # Installing ffmpeg closes the gap today; this is what keeps it closed. On the leg that
-          # installed it, a missing binary becomes a hard failure instead of a silent skip, so a
-          # broken apt step or a changed runner image goes red rather than quietly green — see
-          # `packages/curator/test/ffmpeg-gate.ts`. Empty elsewhere, which the gate reads as absent.
+          # Installing ffmpeg closes the gap today; this is what keeps it closed. A missing binary
+          # becomes a hard failure instead of a silent skip, so a broken apt step or a changed runner
+          # image goes red rather than quietly green — see `packages/curator/test/ffmpeg-gate.ts`.
           # Declared in turbo.json's `test:integration` env, without which turbo's strict env mode
           # strips it before vitest ever sees it.
-          MARQUEE_REQUIRE_FFMPEG: ${{ matrix.task == 'test:integration' && '1' || '' }}
+          MARQUEE_REQUIRE_FFMPEG: "1"
 
-  # Formatting is a root-level script, not a turbo task, so the matrix above never ran it — which is
-  # how 28 files drifted unnoticed (issue #97). `pnpm run validate` covered it, but only for whoever
-  # remembered to run it; lint-staged only ever touches files someone happened to stage. Generated
-  # files are excluded via .prettierignore rather than fought with.
-  format:
-    name: format
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm run format:check
-
+  # Separate toolchain (setup-python, not setup-node), so folding this into `static` would add a pip
+  # install to that job for no net minute — it rounds to one either way.
   python:
     name: python (stylus)
+    if: ${{ vars.CI_ENABLED != 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -128,10 +153,8 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pytest 'ruff~=0.15.9' 'mypy~=2.3.0' jsonschema freezegun hypothesis responses
-      # The three steps below are exactly the local loop in packages/stylus/README.md. Until now the
-      # job installed ruff and mypy and then ran neither, so both were documented-but-unenforced;
-      # `!cancelled()` keeps a failure in one from masking the other two, the same reason the node
-      # matrix sets fail-fast: false.
+      # The three steps below are exactly the local loop in packages/stylus/README.md. `!cancelled()`
+      # keeps a failure in one from masking the other two.
       - name: Test
         working-directory: packages/stylus
         run: pytest -q
