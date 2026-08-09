@@ -637,9 +637,23 @@ checkpoint before you commit to writing stickers.
 The existing **Demo Room** (`/demo/:curatorId`,
 [ADR 0007](../adrs/0007-demo-room-drives-conductor-via-curator-proxy.md)) is the full-viewport
 presentation of this mode — including its place/lift/swap controls and room picker — not a separate
-feature. Curator proxies each runtime service so the browser never holds the shared secret; audio
-follows the same pattern (`POST /api/demo/audio` → Amp's `POST /api/admin/play`), which is why this
-costs almost nothing to build.
+feature.
+
+> **This was aspirational until 2026-08-08** ([#277](https://github.com/dylanleatham/Marquee/issues/277)):
+> every `/api/demo/*` route drove Conductor alone, so placing a record lit the room and left the
+> screen black while this section claimed otherwise. `play` and `stop` now drive Backdrop too.
+>
+> The two legs deliberately carry **different payloads**. Conductor is handed the _live-edited_
+> palette, which is what makes the pattern knobs re-apply as you turn them; Backdrop is sent a scan
+> event, because it resolves the video by URI from its own library and has nothing live to edit.
+> Pointing the screen at `simulate-scan` instead would have made Conductor resolve from its _synced_
+> copy and silently broken that tuning. A pattern change therefore re-applies **lights only** — a
+> video that restarted on every knob nudge would make tuning unusable.
+>
+> The screen leg is best-effort: an unreachable or unconfigured Backdrop leaves the lights running
+> and reports why, because a black screen otherwise looks exactly like a record with no visualizer. Curator proxies each runtime service so the browser never holds the shared secret; audio
+> follows the same pattern (`POST /api/demo/audio` → Amp's `POST /api/admin/play`), which is why this
+> costs almost nothing to build.
 
 ### 6.3 Arming
 

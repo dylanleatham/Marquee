@@ -1843,6 +1843,72 @@ export function buildServer(opts: BuildOptions = {}) {
     }
   });
 
+  // --- Room rehearsal: the real runtime path minus the physical tag (ADR 0028) ---
+  // Fans a scan event out to Conductor and Backdrop exactly as Stylus would, and drives Amp via its
+  // documented admin override. Every leg is best-effort and independently reported, so one dead
+  // service degrades the rehearsal instead of failing it (runtime-overview §8 error philosophy).
+  const scanEvent = (curatorId: string, event: "start" | "stop") => ({
+    event,
+    ...(event === "start"
+      ? { uri: `curator:album:${curatorId}`, tagUid: "00:00:00:00:00:00:00" }
+      : {}),
+    readerId: "curator-rehearsal",
+    at: new Date().toISOString(),
+  });
+
+  /**
+   * POST a scan event to a sibling service. Bounded like every other outbound call (5s).
+   *
+   * A 2xx is not proof the room did anything. Conductor accepts a scan it cannot act on and says so
+   * in the body — `202 {ok:true, action:"ignored", reason}` for `no listening room`,
+   * `album not synced` and `album not ready` (ADR 0019). Treating that as success reported
+   * "Lights running" over a dark room and sent every diagnosis down the wrong path (issue #164), so
+   * an explicitly-ignored scan throws its own reason and lands on the leg as a failure.
+   *
+   * The check lives here, in the shared helper, rather than at the Conductor call site: Backdrop
+   * posts through the same function and may grow the same degrade shape. A service that simply
+   * accepts (Backdrop's `202 {accepted:true}`) has no `action` and stays a success.
+   */
+  const callScan = async (
+    base: string,
+    secret: string | undefined,
+    body: unknown,
+  ) => {
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+    };
+    if (secret) headers["x-trigger-secret"] = secret;
+    const res = await fetch(`${base}/api/scan`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) throw new Error(`${res.status}`);
+    // A non-JSON or unreadable body is not evidence of a no-op — only an explicit `ignored` is.
+    const ignored = scanIgnoredReason(await res.json().catch(() => null));
+    if (ignored) throw new Error(ignored);
+  };
+
+  /**
+   * Run one rehearsal leg, collapsing any failure into a reportable reason. `skip` is the reason a
+   * leg didn't run at all (unconfigured, opted out, nothing to play) — distinct from a leg that ran
+   * and failed, so the UI can say "no Amp configured" rather than implying the call broke.
+   */
+  const leg = async (
+    name: string,
+    skip: string | null,
+    run: () => Promise<unknown>,
+  ): Promise<{ service: string; ok: boolean; reason?: string }> => {
+    if (skip) return { service: name, ok: false, reason: skip };
+    try {
+      await run();
+      return { service: name, ok: true };
+    } catch (err) {
+      return { service: name, ok: false, reason: (err as Error).message };
+    }
+  };
+
   // --- Demo / runtime preview: drive the real Hue lights via Conductor (runtime-overview §6) ---
   // Curator proxies Conductor so the browser never holds the shared secret and there's no CORS.
   // See ADR 0007. `fetch`/`Response` are Node 22 globals; type via the fetch signature to avoid
@@ -1869,10 +1935,20 @@ export function buildServer(opts: BuildOptions = {}) {
     });
   };
 
-  // Forward a Conductor response (status + JSON body) straight back to the browser.
-  const forwardConductor = async (reply: FastifyReply, res: FetchResponse) => {
-    const body = await res.json().catch(() => ({}));
-    return reply.code(res.status).send(body);
+  // Forward a Conductor response (status + JSON body) straight back to the browser, optionally
+  // merging in what a sibling leg did — the screen's result rides alongside the lights' rather than
+  // replacing it, because the room can legitimately have one without the other.
+  const forwardConductor = async (
+    reply: FastifyReply,
+    res: FetchResponse,
+    extra: Record<string, unknown> = {},
+  ) => {
+    const body: unknown = await res.json().catch(() => ({}));
+    const merged =
+      body && typeof body === "object" && !Array.isArray(body)
+        ? { ...(body as Record<string, unknown>), ...extra }
+        : body;
+    return reply.code(res.status).send(merged);
   };
 
   // A fetch that throws means the call did not complete — a clean 502 the UI can render.
@@ -1884,6 +1960,42 @@ export function buildServer(opts: BuildOptions = {}) {
   // `includeCode` because this backs the System page's stop control, which curator-ui-ux §8.5 calls
   // "the one place a raw error code belongs" — paraphrasing alone would take away the string you
   // paste into a search. The sentence says what happened; the code stays greppable.
+  /**
+   * The screen half of the Demo Room (issue #277). curator-ui-ux §6.2 calls this screen the
+   * full-viewport presentation of the room rehearsal — lights *and* video — but every `/api/demo/*`
+   * route talked to Conductor alone, so placing a record lit the room and left the screen black.
+   *
+   * Backdrop gets a **scan event**, not the palette payload Conductor gets. That asymmetry is
+   * deliberate: Conductor is handed the live-edited palette so the Room screen's pattern tuning
+   * re-applies as you turn the knobs, while Backdrop resolves the video by URI from its own library
+   * and has nothing live to edit. Pointing the whole screen at `simulate-scan` instead would have
+   * made Conductor resolve from its *synced* copy and silently broken that tuning.
+   *
+   * Best-effort and separately reported (runtime-overview §8): a dark screen must not cost you the
+   * lights, and the reason has to reach the operator — a black screen with no explanation is
+   * indistinguishable from a record that simply has no visualizer.
+   */
+  const driveScreen = async (
+    curatorId: string,
+    event: "start" | "stop",
+  ): Promise<{ ok: boolean; reason?: string }> => {
+    const r = await leg(
+      "backdrop",
+      config.backdrop ? null : "not configured",
+      () =>
+        callScan(
+          config.backdrop!.url,
+          config.backdrop!.sharedSecret,
+          scanEvent(curatorId, event),
+        ),
+    );
+    // `leg` carries a `service` name for the rehearsal's per-service report; this route already
+    // knows the field is the screen, so it is dropped rather than leaked into the demo's response.
+    return r.reason === undefined
+      ? { ok: r.ok }
+      : { ok: r.ok, reason: r.reason };
+  };
+
   const conductorDown = (reply: FastifyReply, err: unknown) =>
     reply.code(502).send({
       error: `Hue Conductor: ${describeFetchFailure(err, config.conductor.url, CONDUCTOR_PROXY_TIMEOUT_MS, { includeCode: true })}`,
@@ -1891,7 +2003,17 @@ export function buildServer(opts: BuildOptions = {}) {
 
   // Start (or crossfade to) an album's palette+pattern on the configured listening room.
   app.post("/api/demo/play", async (req, reply) => {
-    const { curatorId } = (req.body ?? {}) as { curatorId?: string };
+    /**
+     * `video: false` re-applies the lights **without touching the screen**. The Room screen calls
+     * this on every pattern change, and restarting a visualizer each time a knob moves would make
+     * tuning unusable — the light payload is the only thing that changed (issue #277).
+     *
+     * Defaults to true: placing a record drives the whole room, which is the point.
+     */
+    const { curatorId, video: wantVideo = true } = (req.body ?? {}) as {
+      curatorId?: string;
+      video?: boolean;
+    };
     if (!curatorId)
       return reply.code(400).send({ error: "curatorId is required" });
     const asset = store.read(curatorId);
@@ -1905,13 +2027,18 @@ export function buildServer(opts: BuildOptions = {}) {
       throw err;
     }
     try {
-      return forwardConductor(
-        reply,
-        await callConductor("/api/playback", {
+      // Together, not in sequence: the room's lights and its screen should come up as one event,
+      // and `driveScreen` never rejects, so only Conductor can fail this request.
+      const [lights, video] = await Promise.all([
+        callConductor("/api/playback", {
           method: "POST",
           body: JSON.stringify({ palette: payload }),
         }),
-      );
+        wantVideo ? driveScreen(curatorId, "start") : undefined,
+      ]);
+      // Omitted rather than reported false when the caller opted out: "we did not ask" is not the
+      // same as "the screen failed", and the Room screen would otherwise show a note on every knob.
+      return forwardConductor(reply, lights, video ? { video } : {});
     } catch (err) {
       return conductorDown(reply, err);
     }
@@ -1920,13 +2047,16 @@ export function buildServer(opts: BuildOptions = {}) {
   // Lift the sleeve: stop playback and let Conductor restore the room's pre-demo lighting.
   app.post("/api/demo/stop", async (_req, reply) => {
     try {
-      return forwardConductor(
-        reply,
-        await callConductor("/api/playback/stop", {
-          method: "POST",
-          body: "{}",
-        }),
-      );
+      // Lifting the sleeve clears the room, screen included — a stop that left the video running
+      // would leave the loudest half of the room still going after the record came off.
+      //
+      // The stop event carries no `uri` (see `scanEvent`), so there is no album to name here; the
+      // empty id is passed only to satisfy the shared signature.
+      const [lights, video] = await Promise.all([
+        callConductor("/api/playback/stop", { method: "POST", body: "{}" }),
+        driveScreen("", "stop"),
+      ]);
+      return forwardConductor(reply, lights, { video });
     } catch (err) {
       return conductorDown(reply, err);
     }
@@ -2048,70 +2178,9 @@ export function buildServer(opts: BuildOptions = {}) {
   });
 
   // --- Room rehearsal: the real runtime path minus the physical tag (ADR 0028) ---
-  // Fans a scan event out to Conductor and Backdrop exactly as Stylus would, and drives Amp via its
-  // documented admin override. Every leg is best-effort and independently reported, so one dead
-  // service degrades the rehearsal instead of failing it (runtime-overview §8 error philosophy).
-  const scanEvent = (curatorId: string, event: "start" | "stop") => ({
-    event,
-    ...(event === "start"
-      ? { uri: `curator:album:${curatorId}`, tagUid: "00:00:00:00:00:00:00" }
-      : {}),
-    readerId: "curator-rehearsal",
-    at: new Date().toISOString(),
-  });
-
-  /**
-   * POST a scan event to a sibling service. Bounded like every other outbound call (5s).
-   *
-   * A 2xx is not proof the room did anything. Conductor accepts a scan it cannot act on and says so
-   * in the body — `202 {ok:true, action:"ignored", reason}` for `no listening room`,
-   * `album not synced` and `album not ready` (ADR 0019). Treating that as success reported
-   * "Lights running" over a dark room and sent every diagnosis down the wrong path (issue #164), so
-   * an explicitly-ignored scan throws its own reason and lands on the leg as a failure.
-   *
-   * The check lives here, in the shared helper, rather than at the Conductor call site: Backdrop
-   * posts through the same function and may grow the same degrade shape. A service that simply
-   * accepts (Backdrop's `202 {accepted:true}`) has no `action` and stays a success.
-   */
-  const callScan = async (
-    base: string,
-    secret: string | undefined,
-    body: unknown,
-  ) => {
-    const headers: Record<string, string> = {
-      "content-type": "application/json",
-    };
-    if (secret) headers["x-trigger-secret"] = secret;
-    const res = await fetch(`${base}/api/scan`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!res.ok) throw new Error(`${res.status}`);
-    // A non-JSON or unreadable body is not evidence of a no-op — only an explicit `ignored` is.
-    const ignored = scanIgnoredReason(await res.json().catch(() => null));
-    if (ignored) throw new Error(ignored);
-  };
-
-  /**
-   * Run one rehearsal leg, collapsing any failure into a reportable reason. `skip` is the reason a
-   * leg didn't run at all (unconfigured, opted out, nothing to play) — distinct from a leg that ran
-   * and failed, so the UI can say "no Amp configured" rather than implying the call broke.
-   */
-  const leg = async (
-    name: string,
-    skip: string | null,
-    run: () => Promise<unknown>,
-  ): Promise<{ service: string; ok: boolean; reason?: string }> => {
-    if (skip) return { service: name, ok: false, reason: skip };
-    try {
-      await run();
-      return { service: name, ok: true };
-    } catch (err) {
-      return { service: name, ok: false, reason: (err as Error).message };
-    }
-  };
+  // `scanEvent` / `callScan` / `leg` moved above the Demo Room section (issue #277): the Demo Room
+  // drives the same screen leg through the same helpers, and a helper has to be declared before the
+  // section that reads it.
 
   app.post("/api/albums/:curatorId/simulate-scan", async (req, reply) => {
     const { curatorId } = req.params as { curatorId: string };
