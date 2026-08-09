@@ -71,7 +71,7 @@ jobs:
       #   2. Within a package — each `vitest run` forks a pool sized to the CPU count, and no package
       #      configures one. Vitest honours VITEST_MAX_FORKS/VITEST_MIN_FORKS at config resolution, so
       #      one setting reaches all six vitest packages (curator's own vitest.config.ts included);
-      #      review-agents runs `node --test` and ignores them.
+      #      review-agents drives node's own test runner (via scripts/node-test.mjs) and ignores them.
       #
       #      Setting them here is only half of it: turbo runs in strict env mode and drops any
       #      variable turbo.json doesn't declare, so these two are declared on the `test:unit` task

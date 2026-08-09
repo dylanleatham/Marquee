@@ -8,8 +8,6 @@
   "scripts": {
     "build": "tsc -b",
     "type-check": "tsc --noEmit",
-    "test": "node --test",
-    "test:unit": "node --test",
     "lint": "echo \"(no linter configured yet)\""
   },
   "devDependencies": {

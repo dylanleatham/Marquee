@@ -14,7 +14,6 @@
     "build": "tsc -b",
     "gen": "node ../../scripts/gen-schemas.mjs",
     "type-check": "tsc --noEmit",
-    "test:contracts": "node --test",
     "lint": "echo \"(no linter configured yet)\""
   },
   "devDependencies": {

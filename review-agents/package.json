@@ -5,8 +5,8 @@
   "type": "module",
   "description": "Claude Code review specialists that gate pushes (dev-harness §6).",
   "scripts": {
-    "test": "node --test",
-    "test:unit": "node --test",
+    "test": "node ../scripts/node-test.mjs",
+    "test:unit": "node ../scripts/node-test.mjs",
     "type-check": "echo \"(no ts here yet)\"",
     "lint": "echo \"(no linter configured yet)\""
   }
