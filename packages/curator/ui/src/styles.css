@@ -1359,6 +1359,10 @@ a:hover {
   border-color: var(--pp-rule);
   color: var(--pp-positive);
 }
+/* The same strip inside the card grid, which is two columns of 7:5 cells (issue #284). */
+.bdstrip--full {
+  grid-column: 1 / -1;
+}
 .bdstrip--failed {
   border-color: var(--pp-accent);
   background: var(--pp-accent-wash);

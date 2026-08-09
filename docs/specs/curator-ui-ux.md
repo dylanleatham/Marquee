@@ -348,6 +348,23 @@ black screen in the room, and the old panel said nothing at all once the transfe
 and failure looked identical, which is the case
 [ADR 0038](../adrs/0038-curator-pushes-media-over-http.md) exists to prevent.
 
+**Both legs of the transfer report, not just the second** (2026-08-09,
+[issue #284](https://github.com/dylanleatham/Marquee/issues/284)). The strip above describes Curator
+→ Backdrop. The leg before it — browser → Curator, which is the one carrying the file the user just
+picked — said nothing at all: the panel kept reading `No visualizer yet` (or kept playing the old
+clip on `REPLACE`) until the server answered, so a several-hundred-megabyte clip looked like a press
+that missed. It now gets the same strip and the same numbers: the file's name, percent _and_ bytes,
+an ETA once there is enough to make one honestly. Once every byte is out it stops claiming a
+percentage and says `Adding <file> to the record…` — against a local Curator the probe and the copy
+are most of the wait, and a bar parked at 100% for them reads as a stall. While it runs, the controls
+that would start a second upload are shut. The card panel's `UPLOAD MY OWN` had the identical
+silence and gets the identical strip.
+
+> **No `STOP` on this one**, unlike the Backdrop strip beside it. That one cancels a server-side job
+> through a route built to be cancelled; aborting an HTTP request mid-body only stops the browser
+> talking — the server may already have the whole file and attach it anyway, so the button would be
+> free to lie. Left out rather than faked.
+
 A 280px side panel lists **every drafted prompt, numbered, each separately copyable**. The old bench
 showed one behind a variant chooser, so the rest may as well not have been written. `LET ROADIE MAKE
 IT` is marked `◈` as a control that spends, and says why it is off when it is.

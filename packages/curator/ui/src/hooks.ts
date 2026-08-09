@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type GenerationJob, type JobKind } from "./api";
+import {
+  api,
+  type GenerationJob,
+  type JobKind,
+  type UploadOptions,
+} from "./api";
 import { errorMessage } from "./errors";
 
 export interface Poll<T> {
@@ -182,6 +187,68 @@ export function usePending(): [boolean, (fn: () => unknown) => Promise<void>] {
     }
   }, []);
   return [pending, wrap];
+}
+
+/** A file on its way to Curator, in the numbers `UploadStrip` prints. */
+export interface UploadInFlight {
+  /** The file's own name — what the user picked, so the strip names the thing they are waiting on. */
+  name: string;
+  sent: number;
+  /** The body's size. Never 0 in practice: an unknown-length progress event keeps the file's size. */
+  total: number;
+  /** For the ETA, which comes from how fast this transfer has actually been going. */
+  startedAt: number;
+}
+
+/**
+ * One in-flight upload, for the panels that take a file (issue #284).
+ *
+ * Both of them used to render nothing between the file chooser closing and the server answering —
+ * for a several-hundred-megabyte visualizer that is the whole transfer, and silence there reads as a
+ * press that missed. One hook rather than two `useState`s so the visualizer and card panels can't
+ * drift into two idioms for the same wait, the way the Backdrop leg once did.
+ *
+ * Errors are not swallowed: `send` rejects exactly as its poster does, so the page's `run` still owns
+ * what a failure looks like. All this owns is the strip's state, and it clears it either way.
+ */
+export function useUpload(): {
+  inFlight: UploadInFlight | null;
+  /** Run `post` with progress wired in; resolves and rejects as `post` itself does. */
+  send: <T>(
+    file: File,
+    post: (opts: UploadOptions) => Promise<T>,
+  ) => Promise<T>;
+} {
+  const [inFlight, setInFlight] = useState<UploadInFlight | null>(null);
+
+  const send = useCallback(
+    async <T>(
+      file: File,
+      post: (opts: UploadOptions) => Promise<T>,
+    ): Promise<T> => {
+      setInFlight({
+        name: file.name,
+        sent: 0,
+        total: file.size,
+        startedAt: Date.now(),
+      });
+      try {
+        return await post({
+          onProgress: (sent, total) =>
+            // A total of 0 means "the browser won't say", not "the file is empty" — keep the size we
+            // already know from the file itself rather than throwing the percentage away.
+            setInFlight((cur) =>
+              cur ? { ...cur, sent, total: total || cur.total } : cur,
+            ),
+        });
+      } finally {
+        setInFlight(null);
+      }
+    },
+    [],
+  );
+
+  return { inFlight, send };
 }
 
 export interface GenerationJobHook {

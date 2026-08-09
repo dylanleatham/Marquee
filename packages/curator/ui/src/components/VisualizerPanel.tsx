@@ -1,8 +1,9 @@
 import { useRef, useState } from "react";
 import { api, videoUrl, type AlbumAsset, type PaletteColor } from "../api";
-import { useGenerationJob, useMediaTransferJob } from "../hooks";
+import { useGenerationJob, useMediaTransferJob, useUpload } from "../hooks";
 import { etaSeconds, formatBytes, humanEta } from "../transfer";
 import { AsyncButton, pickFile } from "./common";
+import { UploadStrip } from "./UploadStrip";
 import type { Run } from "../run";
 
 /**
@@ -126,17 +127,25 @@ export function VisualizerPanel({
   const [copied, setCopied] = useState<number | null>(null);
   const [splicing, setSplicing] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const clip = useUpload();
 
   const visualizer = asset.visualizer;
   const drafts = asset.promptDrafts?.video?.variants ?? [];
   const clips = asset.videoClips ?? [];
   const wash = paletteWash(asset.palette?.colors ?? []);
 
+  /**
+   * Take a clip, and say so while it goes (issue #284).
+   *
+   * The strip is the whole point: this request carries the file itself, so it runs for as long as
+   * the transfer does, and the panel used to render nothing for the duration — the same silence the
+   * Backdrop leg below was fixed for.
+   */
   const upload = (file: File) =>
     run(async () => {
       const form = new FormData();
       form.append("file", file);
-      await api.uploadVideo(curatorId, form);
+      await clip.send(file, (opts) => api.uploadVideo(curatorId, form, opts));
       refresh();
     });
 
@@ -220,15 +229,23 @@ export function VisualizerPanel({
           <button
             type="button"
             className="viz__empty"
+            /* Shut while a clip is on its way in, or a second pick would start a second upload of
+               the same thing over a link that is already busy carrying the first. */
+            disabled={Boolean(clip.inFlight)}
             onClick={() => pickFile("video/*", upload)}
           >
-            <span className="viz__empty-title">No visualizer yet</span>
+            <span className="viz__empty-title">
+              {clip.inFlight ? "Bringing it in…" : "No visualizer yet"}
+            </span>
             <span>
-              Drop a clip in, or copy a draft into your own tool and bring the
-              result back.
+              {clip.inFlight
+                ? "It plays here the moment Curator has it."
+                : "Drop a clip in, or copy a draft into your own tool and bring the result back."}
             </span>
           </button>
         )}
+
+        <UploadStrip upload={clip.inFlight} />
 
         {/* The two cases auto-splice can't reach: the app was closed while the job ran (the hook
             adopts a finished job without re-firing `onDone`), or the splice failed. Both leave clips
@@ -274,12 +291,14 @@ export function VisualizerPanel({
               <button
                 type="button"
                 className="pp-action"
+                disabled={Boolean(clip.inFlight)}
                 onClick={() => pickFile("video/*", upload)}
               >
                 REPLACE
               </button>
               <AsyncButton
                 className="pp-action"
+                disabled={Boolean(clip.inFlight)}
                 onClick={() => run(() => api.detachVideo(curatorId))}
                 pendingLabel="REMOVING…"
               >
@@ -290,6 +309,7 @@ export function VisualizerPanel({
           <button
             type="button"
             className="pp-action"
+            disabled={Boolean(clip.inFlight)}
             onClick={() => pickFile("video/*", upload)}
           >
             PICK A FILE

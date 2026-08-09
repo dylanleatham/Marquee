@@ -2,6 +2,7 @@
 // record's own lights — and that the Backdrop leg admits all three of its states on this page.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  act,
   render,
   screen,
   cleanup,
@@ -177,6 +178,92 @@ describe("VisualizerPanel — the clip", () => {
     fireEvent.click(screen.getByRole("button", { name: "REMOVE" }));
     await waitFor(() =>
       expect(api.detachVideo).toHaveBeenCalledWith("abc12345"),
+    );
+  });
+});
+
+/**
+ * The window between picking a file and the server answering (issue #284).
+ *
+ * It used to render nothing at all: the panel kept saying "No visualizer yet" (or kept playing the
+ * old clip on REPLACE) for the length of a several-hundred-megabyte transfer, which reads as a press
+ * that missed — the reported symptom was navigating away and back to find the clip already there.
+ * The one test that touched upload asserted the call was made and the mock's promise resolved, which
+ * is precisely the moment the gap is invisible.
+ */
+describe("VisualizerPanel — the clip on its way in", () => {
+  /** Hold the upload open, so the in-flight window can be inspected rather than raced past. */
+  const holdUpload = () => {
+    let report: (sent: number, total: number) => void = () => {};
+    let land: () => void = () => {};
+    vi.mocked(api.uploadVideo).mockImplementation(
+      (_id, _form, opts) =>
+        new Promise((resolve) => {
+          report = (sent, total) => opts?.onProgress?.(sent, total);
+          land = () => resolve({} as never);
+        }),
+    );
+    return {
+      report: (sent: number, total: number) => act(() => report(sent, total)),
+      land: () => act(async () => land()),
+    };
+  };
+
+  const start = async (a: AlbumAsset, control: RegExp) => {
+    const upload = holdUpload();
+    show(a);
+    choose(new File(["mp4"], "clip.mp4", { type: "video/mp4" }), () =>
+      fireEvent.click(screen.getByRole("button", { name: control })),
+    );
+    await waitFor(() => expect(api.uploadVideo).toHaveBeenCalled());
+    return upload;
+  };
+
+  const strip = () => screen.getByRole("status").textContent ?? "";
+
+  it("says so, in percent and bytes, while the bytes are moving", async () => {
+    const upload = await start(
+      asset({ visualizer: undefined }),
+      /No visualizer yet/,
+    );
+    upload.report(5 * 1024 * 1024, 20 * 1024 * 1024);
+    // Never the bar alone (curator-ui-ux §3.4) — the same shape the Backdrop strip below it uses, so
+    // the two legs of the same transfer read as one system.
+    expect(strip()).toContain("Sending clip.mp4");
+    expect(strip()).toContain("25%");
+    expect(strip()).toContain("5.0 MB of 20.0 MB");
+  });
+
+  it("stops claiming a percentage once every byte is out and Curator is still working", async () => {
+    // Against a local server this is most of the wait — the bytes land at once and the server then
+    // probes the file and copies it into place. A bar frozen at 100% reads as a stall.
+    const upload = await start(
+      asset({ visualizer: undefined }),
+      /No visualizer yet/,
+    );
+    upload.report(20 * 1024 * 1024, 20 * 1024 * 1024);
+    expect(strip()).toContain("Adding clip.mp4 to the record");
+  });
+
+  it("shuts the controls that would start a second upload", async () => {
+    const upload = await start(asset(), /REPLACE/);
+    upload.report(1, 2);
+    for (const name of ["REPLACE", "PICK A FILE"])
+      expect(
+        (screen.getByRole("button", { name }) as HTMLButtonElement).disabled,
+      ).toBe(true);
+  });
+
+  it("says nothing once the clip has landed", async () => {
+    const upload = await start(
+      asset({ visualizer: undefined }),
+      /No visualizer yet/,
+    );
+    upload.report(1, 2);
+    expect(screen.queryByText(/Sending clip.mp4/)).toBeTruthy();
+    await upload.land();
+    await waitFor(() =>
+      expect(screen.queryByText(/Sending clip.mp4/)).toBeNull(),
     );
   });
 });

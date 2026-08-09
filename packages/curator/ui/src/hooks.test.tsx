@@ -5,6 +5,7 @@ import {
   useGenerationJob,
   usePending,
   useVisibleCycle,
+  useUpload,
 } from "./hooks";
 import { api, type GenerationJob, type JobKind } from "./api";
 
@@ -443,5 +444,86 @@ describe("useVisibleCycle", () => {
       "visibilitychange",
       expect.any(Function),
     );
+  });
+});
+
+/**
+ * The state behind the upload strip (issue #284). Two panels take files, and they both used to show
+ * nothing at all while one was moving — one hook so they can't drift into two answers for it.
+ */
+describe("useUpload", () => {
+  const file = (name: string, size: number) => {
+    const f = new File(["x"], name);
+    Object.defineProperty(f, "size", { value: size });
+    return f;
+  };
+
+  it("names the file and its size before a single byte is reported", async () => {
+    const { result } = renderHook(() => useUpload());
+    act(
+      () =>
+        void result.current.send(
+          file("clip.mp4", 2048),
+          () => new Promise(() => {}),
+        ),
+    );
+    expect(result.current.inFlight).toMatchObject({
+      name: "clip.mp4",
+      sent: 0,
+      total: 2048,
+    });
+  });
+
+  it("tracks the bytes the poster reports", async () => {
+    const { result } = renderHook(() => useUpload());
+    let report!: (sent: number, total: number) => void;
+    act(() => {
+      void result.current.send(file("clip.mp4", 2048), (opts) => {
+        report = (sent, total) => opts.onProgress?.(sent, total);
+        return new Promise(() => {});
+      });
+    });
+    act(() => report(512, 2048));
+    expect(result.current.inFlight).toMatchObject({ sent: 512, total: 2048 });
+  });
+
+  it("keeps the file's own size when the browser won't say how big the body is", async () => {
+    // A total of 0 means "unknown", not "empty" — taking it literally would divide the strip by zero.
+    const { result } = renderHook(() => useUpload());
+    let report!: (sent: number, total: number) => void;
+    act(() => {
+      void result.current.send(file("clip.mp4", 2048), (opts) => {
+        report = (sent, total) => opts.onProgress?.(sent, total);
+        return new Promise(() => {});
+      });
+    });
+    act(() => report(512, 0));
+    expect(result.current.inFlight).toMatchObject({ sent: 512, total: 2048 });
+  });
+
+  it("clears when the upload lands, and hands back what the poster returned", async () => {
+    const { result } = renderHook(() => useUpload());
+    let landed: unknown;
+    await act(async () => {
+      landed = await result.current.send(file("clip.mp4", 2048), () =>
+        Promise.resolve({ state: "awaiting_preview" }),
+      );
+    });
+    expect(landed).toEqual({ state: "awaiting_preview" });
+    expect(result.current.inFlight).toBeNull();
+  });
+
+  it("clears when the upload fails, and lets the failure through to the caller", async () => {
+    // The strip must not outlive the transfer: a panel stuck on "Sending…" after a refused upload is
+    // the same lie in the other direction.
+    const { result } = renderHook(() => useUpload());
+    await act(async () => {
+      await expect(
+        result.current.send(file("clip.mp4", 2048), () =>
+          Promise.reject(new Error("nope")),
+        ),
+      ).rejects.toThrow("nope");
+    });
+    expect(result.current.inFlight).toBeNull();
   });
 });
