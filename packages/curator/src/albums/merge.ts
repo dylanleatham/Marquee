@@ -2,7 +2,7 @@
 //
 // The library holds eighteen records twice, because the first Discogs sweep could not see albums
 // added from Spotify — they carry no release id to match on
-// ([ADR 0064](../../../../docs/adrs/0064-the-sweep-reports-a-record-it-already-owns.md)). ADR 0064
+// ([ADR 0065](../../../../docs/adrs/0065-the-sweep-reports-a-record-it-already-owns.md)). ADR 0065
 // deliberately stops the sweep creating more; it does not clean up what already exists, because
 // choosing which copy survives is the owner's call and not a sweep's.
 //
@@ -57,7 +57,7 @@ export function planMerge(
 
   // Two different Discogs releases is not a duplicate to tidy; it is either two pressings the owner
   // deliberately has, or a mis-selected survivor. Either way the app must not pick one identity over
-  // the other on its own (ADR 0064).
+  // the other on its own (ADR 0065).
   const a = survivor.metadata.discogsUri;
   const b = absorbed.metadata.discogsUri;
   if (a && b && a !== b)
