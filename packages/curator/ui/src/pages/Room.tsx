@@ -132,9 +132,27 @@ export function Room({ albums }: { albums: AlbumSummary[] | null }) {
    * control that needs pressing. Leaving the screen stops it too; nothing should keep driving a
    * room you have walked away from.
    */
+  /**
+   * The room is lights *and* screen (issue #277). A screen that did not start is reported as a note
+   * rather than a problem: the lights are running, the room is usable, and the thing the operator
+   * needs is the reason — a black screen says nothing about whether the record even has a
+   * visualizer.
+   */
+  const playRoom = useCallback(
+    async (id: string) => {
+      const res = await api.demoPlay(id);
+      setNote(
+        res.video && !res.video.ok
+          ? `The lights are running, but the screen isn't: ${res.video.reason ?? "no reason given"}`
+          : null,
+      );
+    },
+    [setNote],
+  );
+
   useEffect(() => {
     if (!armed || !curatorId) return;
-    void serial(() => drive(() => api.demoPlay(curatorId)));
+    void serial(() => drive(() => playRoom(curatorId)));
     return () => {
       // A stop that fails leaves the real lights and speakers running in a room nobody is watching,
       // and the screen is already gone — so it goes to the console rather than nowhere at all.
@@ -150,7 +168,7 @@ export function Room({ albums }: { albums: AlbumSummary[] | null }) {
           ),
       );
     };
-  }, [armed, curatorId, drive, serial]);
+  }, [armed, curatorId, drive, serial, playRoom]);
 
   // Clear the pending slider write on the way out, the way the Lights panel does — an adjustment
   // made and then navigated away from should not be lost.
@@ -230,7 +248,9 @@ export function Room({ albums }: { albums: AlbumSummary[] | null }) {
       // nothing here, and carrying them over would silently produce a payload for the wrong shape.
       await api.setPatternOverride(curatorId, type, {});
       refresh();
-      if (armed) await api.demoPlay(curatorId);
+      // Lights only, deliberately: this fires on every pattern change, and restarting the video
+      // each time a knob moves would make tuning unusable (issue #277).
+      if (armed) await api.demoPlay(curatorId, { video: false });
     });
 
   const playAlbum = () =>

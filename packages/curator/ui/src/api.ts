@@ -217,6 +217,17 @@ export interface JobTransfer {
   startedAt: string;
 }
 
+/**
+ * What the screen did when the room was driven (issue #277). Separate from the lights' result
+ * because the room degrades rather than fails: one can work without the other, and a dark screen
+ * with no reason is indistinguishable from a record that has no visualizer.
+ */
+export interface ScreenLeg {
+  ok: boolean;
+  /** Why there is no picture — unset when `ok`. */
+  reason?: string;
+}
+
 /** A background generation job (issue #30 / ADR 0018). Mirrors GenerationJob on the server. */
 export interface GenerationJob {
   id: string;
@@ -763,13 +774,20 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ roomId }),
     }),
-  demoPlay: (curatorId: string) =>
-    req<{ playbackId?: string }>("/api/demo/play", {
+  /**
+   * Drive the room for this album. `video: false` re-applies the lights **only** — what a pattern
+   * change wants, since restarting the visualizer on every knob nudge would make tuning unusable
+   * (issue #277). Placing a record leaves it unset and drives the whole room.
+   */
+  demoPlay: (curatorId: string, opts: { video?: boolean } = {}) =>
+    req<{ playbackId?: string; video?: ScreenLeg }>("/api/demo/play", {
       method: "POST",
-      body: JSON.stringify({ curatorId }),
+      body: JSON.stringify({ curatorId, ...opts }),
     }),
   demoStop: () =>
-    req<{ stopped?: boolean }>("/api/demo/stop", { method: "POST" }),
+    req<{ stopped?: boolean; video?: ScreenLeg }>("/api/demo/stop", {
+      method: "POST",
+    }),
   /** Reachability of each sibling service, for the Settings screen (issue #101). */
   serviceHealth: () =>
     req<{ services: ServiceHealth[] }>("/api/settings/service-health"),

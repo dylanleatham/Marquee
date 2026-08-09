@@ -129,6 +129,52 @@ describe("Room — bench and the real thing, one screen", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  // Issue #277. The room is lights *and* screen. When the screen does not come up the lights still
+  // do, so this is a note rather than a failure — but it has to be said, because a black screen is
+  // indistinguishable from a record that simply has no visualizer.
+  it("says why the screen is dark, without taking the lights down with it", async () => {
+    vi.mocked(api.demoPlay).mockResolvedValue({
+      playbackId: "pb-1",
+      video: { ok: false, reason: "not configured" },
+    });
+    show();
+    await loaded();
+    fireEvent.click(screen.getByRole("switch"));
+
+    expect(
+      await screen.findByText(/the screen isn't: not configured/i),
+    ).toBeTruthy();
+    // Still in the room — the lights ran.
+    expect(screen.getByRole("switch").textContent).toBe("IN THE ROOM");
+  });
+
+  it("changes a light pattern without restarting the video", async () => {
+    show();
+    await loaded();
+    fireEvent.click(screen.getByRole("switch"));
+    await waitFor(() => expect(api.demoPlay).toHaveBeenCalled());
+    vi.mocked(api.demoPlay).mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: "PULSE" }));
+
+    await waitFor(() =>
+      expect(api.demoPlay).toHaveBeenCalledWith("abc12345", { video: false }),
+    );
+  });
+
+  it("says nothing about the screen when the screen is fine", async () => {
+    vi.mocked(api.demoPlay).mockResolvedValue({
+      playbackId: "pb-1",
+      video: { ok: true },
+    });
+    show();
+    await loaded();
+    fireEvent.click(screen.getByRole("switch"));
+
+    await waitFor(() => expect(api.demoPlay).toHaveBeenCalled());
+    expect(screen.queryByText(/the screen isn't/i)).toBeNull();
+  });
+
   it("stops driving the room when it is un-armed", async () => {
     show();
     await loaded();
