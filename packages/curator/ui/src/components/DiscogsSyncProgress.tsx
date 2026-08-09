@@ -13,6 +13,7 @@ import { JobProgress } from "./JobProgress";
 const OUTCOME_LABEL: Record<DiscogsSyncOutcome["status"], string> = {
   added: "Added",
   duplicate: "Already here",
+  collision: "Already owned",
   failed: "Failed",
 };
 
@@ -20,6 +21,9 @@ const OUTCOME_LABEL: Record<DiscogsSyncOutcome["status"], string> = {
 const OUTCOME_TONE: Record<DiscogsSyncOutcome["status"], string> = {
   added: "ok",
   duplicate: "off",
+  // Not "bad" — nothing failed, and nothing was lost. It is a record you own twice, waiting on a
+  // decision only you can make, so it reads as something to look at rather than something broken.
+  collision: "warn",
   failed: "bad",
 };
 
@@ -54,6 +58,11 @@ export function DiscogsSyncProgress() {
       ? (job.error ?? "The sync failed.")
       : report
         ? `${report.added} added · ${report.duplicate} already here` +
+          // Surfaced in the summary, not only in the rows: the whole reason 15 duplicates went
+          // unnoticed for a day is that the sweep reported them as ordinary adds (#279).
+          (report.collision > 0
+            ? ` · ${report.collision} already owned from elsewhere`
+            : "") +
           (report.failed > 0 ? ` · ${report.failed} failed` : "") +
           (report.truncated && report.truncatedReason
             ? ` — ${TRUNCATED_NOTE[report.truncatedReason]}`

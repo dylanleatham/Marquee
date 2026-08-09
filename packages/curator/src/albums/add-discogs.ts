@@ -38,6 +38,54 @@ export function buildDiscogsIndex(store: AssetStore): DiscogsIndex {
   };
 }
 
+/**
+ * The key a cross-source duplicate is caught on: the record itself, rather than any one source's id
+ * for it ([#279](https://github.com/dylanleatham/Marquee/issues/279)).
+ *
+ * Normalisation is deliberately timid — lower-case and collapse whitespace, nothing else. It is what
+ * found all eighteen real duplicates in the live library, and every step beyond it trades a false
+ * negative for a false positive: strip punctuation and `DAMN.` merges with a hypothetical `DAMN`;
+ * strip articles and `The The` stops being a band. A missed duplicate is a record to resolve later;
+ * a wrong match is two different records the app refuses to let you own.
+ */
+export const albumKey = (title: string, artist: string): string =>
+  `${title.trim().toLowerCase().replace(/\s+/g, " ")}\u0000${artist
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")}`;
+
+const asIndex = (m: Map<string, string>): DiscogsIndex => ({
+  get: (k) => m.get(k),
+  add: (k, curatorId) => {
+    m.set(k, curatorId);
+  },
+});
+
+/**
+ * Both dedupe views of the library, from **one** pass over the store.
+ *
+ * One pass, not two: the sweep rebuilds these every page, and `discogs-sync.test.ts` pins "reads the
+ * store once per page, not once per row" — a second builder would quietly double the disk work that
+ * test exists to bound.
+ *
+ * - `byUri` — Discogs release id. The precise match: same release, already swept.
+ * - `byAlbum` — the record itself ([#279](https://github.com/dylanleatham/Marquee/issues/279)). The
+ *   fallback for a record the library holds without a release id to match on.
+ */
+export function buildAlbumIndexes(store: AssetStore): {
+  byUri: DiscogsIndex;
+  byAlbum: DiscogsIndex;
+} {
+  const byUri = new Map<string, string>();
+  const byKey = new Map<string, string>();
+  for (const asset of store.list()) {
+    const { discogsUri: uri, name, artist } = asset.metadata;
+    if (uri) byUri.set(uri, asset.curatorId);
+    if (name && artist) byKey.set(albumKey(name, artist), asset.curatorId);
+  }
+  return { byUri: asIndex(byUri), byAlbum: asIndex(byKey) };
+}
+
 /** What the collection browser hands off when the user clicks "Send to Roadie". */
 export interface DiscogsAddInput {
   releaseId: number;

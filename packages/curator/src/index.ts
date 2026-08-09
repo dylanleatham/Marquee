@@ -16,6 +16,7 @@ export {
 } from "./albums/add-spotify.js";
 export {
   addDiscogsAlbum,
+  buildAlbumIndexes,
   buildDiscogsIndex,
   type DiscogsIndex,
 } from "./albums/add-discogs.js";

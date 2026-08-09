@@ -119,6 +119,7 @@ import {
 } from "./conductor/sync.js";
 import { AmpClient } from "./amp/client.js";
 import { probeService } from "./runtime/probe.js";
+import { planMerge } from "./albums/merge.js";
 import { describeFetchFailure } from "./net/fetch-failure.js";
 import { buildSystemStatus } from "./runtime/system-status.js";
 import { createLogger } from "@marquee/observability";
@@ -762,6 +763,45 @@ export function buildServer(opts: BuildOptions = {}) {
     // Drop it from Backdrop too so a stale scan doesn't resolve to a now-deleted album (best-effort).
     await backdrop.removeAlbum(curatorId);
     return { deleted: curatorId };
+  });
+
+  /**
+   * Fold one copy of a record into another and drop the twin (issue #279,
+   * [ADR 0064](../../../docs/adrs/0064-the-sweep-reports-a-record-it-already-owns.md)).
+   *
+   * `:curatorId` survives; `from` is absorbed and deleted. The sweep no longer *creates* duplicates,
+   * but eighteen already exist, and a plain delete would not clear them: the Discogs copy is the one
+   * carrying the release id, so removing it leaves the survivor unmatched and the next sweep adds it
+   * straight back. The identity has to move first — which is why this is a merge.
+   *
+   * Refusals are 409 with the reasons, and change nothing. `planMerge` decides them.
+   */
+  app.post("/api/albums/:curatorId/merge", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const { from } = (req.body ?? {}) as { from?: string };
+    if (!from) return reply.code(400).send({ error: "`from` is required" });
+
+    const survivor = store.read(curatorId);
+    const absorbed = store.read(from);
+    if (!survivor || !absorbed)
+      return reply.code(404).send({ error: "not found" });
+
+    const plan = planMerge(survivor, absorbed);
+    if (plan.blockers.length)
+      return reply
+        .code(409)
+        .send({ error: "this merge would lose something", ...plan });
+
+    // Adopt, then delete — never the other way round. If the delete landed and the write did not,
+    // the release id would be gone from both copies and the next sweep would re-add the twin: the
+    // exact loop this route exists to break. `store.update` re-reads before saving (#38).
+    if (Object.keys(plan.adopt).length > 0)
+      store.update(curatorId, (a) => {
+        Object.assign(a.metadata, plan.adopt);
+      });
+    store.delete(from);
+    await backdrop.removeAlbum(from);
+    return { merged: curatorId, removed: from, adopted: plan.adopt };
   });
 
   // Serve an album's cover art (the UI shows a thumbnail per row, polled every 2s). Validate the

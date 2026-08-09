@@ -17,7 +17,7 @@ import {
   addDiscogsAlbum,
   buildDiscogsIndex,
 } from "../src/albums/add-discogs.js";
-import { fakeRoadie } from "./helpers.js";
+import { fakeRoadie, makeAsset } from "./helpers.js";
 
 const store = () =>
   new AssetStore(mkdtempSync(join(tmpdir(), "curator-sync-")));
@@ -112,6 +112,67 @@ describe("discogsSyncRunner", () => {
 
     expect(discogsSync).toMatchObject({ added: 2, duplicate: 3, failed: 0 });
     expect(h.store.list()).toHaveLength(5);
+  });
+
+  // Issue #279. The first full sweep on 2026-08-07 re-added 15 albums that were already in the
+  // library from Spotify: dedupe is on the Discogs release id, and a Spotify-added album has no
+  // release id, so there is nothing for the index to match and it falls straight through. Every
+  // Spotify copy predated its Discogs twin, 15 times out of 15.
+  //
+  // The copies then diverge silently — the one with the visualizer advances, the bare one sits at
+  // `awaiting_review` looking merely unfinished — so tagging the wrong one gives a dead sleeve.
+  it("does not re-add a record the library already has from another source", async () => {
+    const h = harness(2);
+    // What a Spotify add looks like in the store: same record, no Discogs identity to match on.
+    h.store.save(makeAsset("spot0001", "Album 1000", "Artist 1000"));
+
+    const { discogsSync } = await h.run()(ctx());
+
+    expect(discogsSync).toMatchObject({ added: 1, collision: 1, duplicate: 0 });
+    // The library gains only the release it did not already have.
+    expect(h.store.list()).toHaveLength(2);
+    // And the collision names the record it collided with, so it can be resolved rather than hunted.
+    const hit = discogsSync.items.find((i) => i.status === "collision");
+    expect(hit).toMatchObject({ curatorId: "spot0001" });
+    expect(hit!.label).toContain("Album 1000");
+  });
+
+  it("matches on the record, not on punctuation or casing", async () => {
+    const h = harness(1);
+    h.store.save(makeAsset("spot0002", "  album 1000 ", "ARTIST 1000"));
+
+    const { discogsSync } = await h.run()(ctx());
+
+    expect(discogsSync).toMatchObject({ added: 0, collision: 1 });
+    expect(h.store.list()).toHaveLength(1);
+  });
+
+  // The other three of the eighteen: one sweep produced two copies of one album under two release
+  // ids (reissues/pressings), each passing release-id dedupe honestly. Release-id dedupe cannot
+  // catch that by construction — the ids really are different.
+  it("catches two pressings of one record inside a single sweep", async () => {
+    const h = harness(0);
+    const fd = createFakeDiscogs(
+      [
+        { ...release(2001), title: "Kid A", artist: "Radiohead" },
+        // A reissue: different release id, same record.
+        { ...release(2002), title: "Kid A", artist: "Radiohead" },
+      ],
+      { username: "digger" },
+    );
+    const discogs = client(fd);
+    const s = store();
+    const { discogsSync } = await discogsSyncRunner({
+      store: s,
+      roadie: fakeRoadie(s, { discogs }),
+      discogs,
+      resolveUsername: async () => "digger",
+      sleep: async () => {},
+      rand: () => 0,
+    })(ctx());
+
+    expect(discogsSync).toMatchObject({ added: 1, collision: 1 });
+    expect(s.list()).toHaveLength(1);
   });
 
   it("adds nothing on a re-run of an unchanged collection", async () => {
