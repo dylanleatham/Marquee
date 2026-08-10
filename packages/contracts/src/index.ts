@@ -42,7 +42,11 @@ export type ClipPatternType = "static" | "rotate" | "pulse" | "crossfade";
  */
 export type StreamPatternType = "aurora" | "shimmer" | "wave";
 
-/** Every motion an album can play, and so every answer the Look tab's picker offers (ADR 0039). */
+/**
+ * Every motion an album can play, and so every answer the room dock's LIGHT PATTERN picker offers
+ * beside AUTO (ADR 0039; it moved off the Look tab with ADR 0052, and see issue #287 for what
+ * happens when a screen keeps its own list instead of `PATTERN_TYPES`).
+ */
 export type PatternType = ClipPatternType | StreamPatternType;
 
 /** The CLIP patterns, as a runtime list. */

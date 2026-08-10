@@ -970,8 +970,10 @@ _Manual entry_ — form with title, artist, year, optional genres, and required 
 > - **Ship's separate sleeve/card "mark as written" toggles and Verify physical are one button**,
 >   `TAGS VERIFIED`, backed by `POST /api/albums/:curatorId/tags-verified`.
 >
-> **Look's Motion picker has no replacement yet** and is the one live gap — it belongs in the room's
-> control dock (curator-ui-ux §5.0).
+> - **Look's Motion picker moved to the room's control dock**, as LIGHT PATTERN, because motion is
+>   judged by watching. It landed there offering three of its eight answers and was corrected
+>   2026-08-09 ([#287](https://github.com/dylanleatham/Marquee/issues/287)); the group is specified in
+>   [curator-ui-ux §6](curator-ui-ux.md#6-preview--bench-and-room).
 
 _Left, fixed_ — art (large), metadata, state badge, album actions (Demo Room, delete), curatorId.
 

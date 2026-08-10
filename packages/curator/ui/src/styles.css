@@ -2026,6 +2026,27 @@ a:hover {
   gap: 9px;
   align-items: flex-start;
 }
+/* Eight chips in one column would make the dock as tall as the stage it sits under. Given the room,
+   the three groups sit side by side and each wraps its own chips two-up, so the whole picker is one
+   glance and the dock stays a footer. Below that, everything falls back to the single column. */
+.dock__stack--half {
+  gap: 7px;
+}
+@media (min-width: 900px) {
+  /* One row per group, its note as the row's label. Three rows of chips is the height three chips
+     in a column already cost, so restoring the missing five doesn't grow the dock at all. */
+  .dock__group--pattern .dock__stack--half {
+    flex-direction: row;
+    align-items: center;
+    gap: 7px;
+  }
+  .dock__group--pattern .dock__gate {
+    flex: none;
+    width: 200px;
+    margin: 0;
+    line-height: 1.5;
+  }
+}
 .dock__btn {
   font: 500 10px/1 var(--pp-mono);
   letter-spacing: 0.14em;
@@ -2039,6 +2060,19 @@ a:hover {
 .dock__btn:hover:not(:disabled) {
   border-color: #fff;
   color: #fff;
+}
+/* Reserved whether or not it holds the tick, so choosing a pattern doesn't shift the labels. */
+.dock__tick {
+  display: inline-block;
+  width: 1.1em;
+}
+/* The streaming half of the picker: gated on hardware this screen can't see, so it says so in words
+   rather than greying out (issue #287, ADR 0039). */
+.dock__gate {
+  font: 500 8.5px/1 var(--pp-mono);
+  letter-spacing: 0.16em;
+  color: rgba(255, 255, 255, 0.45);
+  margin: 5px 0 0;
 }
 /* The chosen pattern is filled paper — readable as "this one" without relying on the hue. */
 .dock__btn[aria-pressed="true"] {
