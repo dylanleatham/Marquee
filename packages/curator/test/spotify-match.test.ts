@@ -177,6 +177,114 @@ describe("match confidence — what may play audio", () => {
     expect(m?.confidence).toBe("exact");
   });
 
+  /**
+   * regression: [#288](https://github.com/dylanleatham/Marquee/issues/288) — the Blue Album wore the
+   * Teal Album's sleeve.
+   *
+   * Weezer have six self-titled albums. A 2020 repress of the 1994 Blue Album asks this function for
+   * `{ Weezer, Weezer, 2020 }`; all six are exact on artist and title, so the year decided, and it
+   * picked Teal (2019) — a different record released twenty-five years after the one on the shelf.
+   *
+   * Nearest-to-pressing-year only means "right edition" when the same-named candidates are editions
+   * of one record. Among genuinely different records sharing a name it means nothing, and on a
+   * repress — the ordinary case per ADR 0060 — it actively misleads.
+   */
+  it("refuses to pick between an artist's several self-titled albums", () => {
+    const weezer = (year: number, art: string) =>
+      album({ name: "Weezer", artist: "Weezer", year, artUrl: art });
+    const m = bestSpotifyMatch(
+      { artist: "Weezer", title: "Weezer", year: 2020 }, // a 2020 repress of the 1994 Blue Album
+      [
+        weezer(1994, "https://art/blue.jpg"),
+        weezer(2001, "https://art/green.jpg"),
+        weezer(2008, "https://art/red.jpg"),
+        weezer(2016, "https://art/white.jpg"),
+        weezer(2019, "https://art/teal.jpg"),
+        weezer(2019, "https://art/black.jpg"),
+      ],
+    );
+    expect(m).toBeNull();
+  });
+
+  /** The other half of the rule: when the year *does* land, it has genuinely identified the record. */
+  it("picks the right self-titled album when the year lands exactly", () => {
+    const m = bestSpotifyMatch(
+      { artist: "Weezer", title: "Weezer", year: 1994 }, // an original 1994 pressing
+      [
+        album({
+          name: "Weezer",
+          artist: "Weezer",
+          year: 1994,
+          artUrl: "https://art/blue.jpg",
+        }),
+        album({
+          name: "Weezer",
+          artist: "Weezer",
+          year: 2019,
+          artUrl: "https://art/teal.jpg",
+        }),
+      ],
+    );
+    expect(m?.album.artUrl).toBe("https://art/blue.jpg");
+    expect(m?.confidence).toBe("exact");
+  });
+
+  /**
+   * A near miss is not weak evidence, it is no evidence — so the size of the miss must not matter.
+   * Parametrized because "off by one is surely fine" is exactly the reasoning that produced #288:
+   * the Teal Album was one year off.
+   */
+  it("refuses at every distance when only the year separates two namesakes", () => {
+    for (const gap of [1, 2, 5, 25]) {
+      const m = bestSpotifyMatch(
+        { artist: "Weezer", title: "Weezer", year: 2020 },
+        [
+          album({ name: "Weezer", artist: "Weezer", year: 2020 - gap }),
+          album({ name: "Weezer", artist: "Weezer", year: 1994 }),
+        ],
+      );
+      expect(m, `gap ${gap}`).toBeNull();
+    }
+  });
+
+  /** Namesakes and no year to separate them at all — the most honest possible "don't know". */
+  it("refuses between namesakes when the pressing has no year", () => {
+    const m = bestSpotifyMatch({ artist: "Weezer", title: "Weezer" }, [
+      album({ name: "Weezer", artist: "Weezer", year: 1994 }),
+      album({ name: "Weezer", artist: "Weezer", year: 2019 }),
+    ]);
+    expect(m).toBeNull();
+  });
+
+  /**
+   * The guard keys on the **raw** title, so it does not sweep up the case `stripEditions` was built
+   * for. A deluxe reissue is the same record in a different dress: ranking between it and the
+   * original is meaningful, and picking either puts the right sleeve on the shelf. Were this keyed
+   * on the stripped title, every album with a deluxe edition would stop matching — which would
+   * re-open the mass-refusal problem ADR 0060 was written to close.
+   */
+  it("does not treat a deluxe edition as a namesake", () => {
+    const m = bestSpotifyMatch(
+      { artist: "Prince", title: "Purple Rain", year: 2015 }, // a repress, matching neither year
+      [
+        album({
+          name: "Purple Rain",
+          artist: "Prince",
+          year: 1984,
+          artUrl: "https://art/original.jpg",
+        }),
+        album({
+          name: "Purple Rain (Deluxe Expanded Edition)",
+          artist: "Prince",
+          year: 2017,
+          artUrl: "https://art/deluxe.jpg",
+        }),
+      ],
+    );
+    expect(m).not.toBeNull();
+    expect(m?.album.artUrl).toBe("https://art/original.jpg");
+  });
+
   it("does not strip a parenthetical that is part of the name", () => {
     const m = bestSpotifyMatch(
       { artist: "Godspeed You! Black Emperor", title: "Lift Yr Skinny Fists" },

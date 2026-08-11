@@ -148,6 +148,40 @@ describe("spotifyBackfillRunner", () => {
     expect(s.read("aaaa1111")!.metadata.spotifyMatch).toBeUndefined();
   });
 
+  /**
+   * regression: [#288](https://github.com/dylanleatham/Marquee/issues/288) — the same guard, at the
+   * second surface that uses it. The sweep runs over a whole library unattended, so a wrong identity
+   * written here is one nobody watched being written; the onboarding step at least happens while
+   * you're looking at the record. Both go through `bestSpotifyMatch`, and this is what proves the
+   * sweep inherits its refusal rather than having its own idea.
+   */
+  it("leaves an album unmatched when it can't tell its namesakes apart", async () => {
+    seedDiscogs(s, "aaaa1111", {
+      name: "Weezer",
+      artist: "Weezer",
+      year: 2020, // a repress of the 1994 Blue Album
+    });
+    const { spotifyBackfill: r } = await run(
+      s,
+      spotify(
+        [1994, 2001, 2008, 2016, 2019].map((year) => ({
+          spotifyId: `sp${year}`,
+          spotifyUri: `spotify:album:sp${year}`,
+          name: "Weezer",
+          artist: "Weezer",
+          year,
+          artUrl: `https://art/${year}.jpg`,
+        })),
+      ),
+    );
+
+    expect(r.noMatch).toBe(1);
+    expect(r.matched).toBe(0);
+    const saved = s.read("aaaa1111")!;
+    expect(saved.metadata.spotifyUri).toBeUndefined();
+    expect(saved.metadata.spotifyArtUrl).toBeUndefined();
+  });
+
   it("keeps going after one album fails", async () => {
     seedDiscogs(s, "aaaa1111");
     seedDiscogs(s, "bbbb2222");

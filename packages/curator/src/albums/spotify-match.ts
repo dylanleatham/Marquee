@@ -89,6 +89,22 @@ export interface SpotifyMatch {
 const SAME_EDITION_YEARS = 1;
 
 /**
+ * Who a candidate *is*, for spotting an artist's several same-titled albums
+ * ([ADR 0067](../../../../docs/adrs/0067-the-year-may-only-break-a-tie-by-hitting-it.md)).
+ *
+ * Deliberately the **raw** name, not the edition-stripped one. `stripEditions` exists to let
+ * "Purple Rain" find "Purple Rain (Deluxe)" — those are one record in two dresses and ranking
+ * between them is both meaningful and harmless. Six albums each literally called `Weezer` are a
+ * different situation, and only the raw name tells them apart from the deluxe case.
+ *
+ * `|` is a safe joiner because `norm` reduces everything to `[a-z0-9 ]` — punctuation can never
+ * survive into a normalized string, so no artist/title pair can straddle the separator and collide
+ * with another.
+ */
+const identity = (a: { artist: string; name: string }): string =>
+  `${norm(stripArtistDisambiguator(a.artist))}|${norm(a.name)}`;
+
+/**
  * The best confident Spotify match for a Discogs release, or `null`. A candidate qualifies only if
  * its artist and (edition-stripped) title both `closeMatch` the query and it actually carries cover
  * art. Among qualifiers, exact artist/title and a matching year score higher; a year off by more than
@@ -106,6 +122,7 @@ export function bestSpotifyMatch(
   const qTitle = norm(stripEditions(query.title));
   if (!qArtist || !qTitle) return null;
 
+  const qualifiers: SpotifyAlbumMeta[] = [];
   let best: { album: SpotifyAlbumMeta; score: number; exact: boolean } | null =
     null;
   for (const c of candidates) {
@@ -113,6 +130,7 @@ export function bestSpotifyMatch(
     const cArtist = norm(stripArtistDisambiguator(c.artist));
     const cTitle = norm(stripEditions(c.name));
     if (!closeMatch(qArtist, cArtist) || !closeMatch(qTitle, cTitle)) continue;
+    qualifiers.push(c);
 
     const artistExact = cArtist === qArtist;
     const titleExact = cTitle === qTitle;
@@ -132,6 +150,29 @@ export function bestSpotifyMatch(
     if (!best || score > best.score) best = { album: c, score, exact };
   }
   if (!best) return null;
+
+  /**
+   * **The year may only break a tie by hitting it** (issue #288,
+   * [ADR 0067](../../../../docs/adrs/0067-the-year-may-only-break-a-tie-by-hitting-it.md)).
+   *
+   * When the winner has a *namesake* — another candidate by the same artist with the same raw title
+   * and a different year — artist and title have said everything they can, and the ranking above
+   * chose on the year alone. That is only trustworthy when the year lands exactly. A near miss is
+   * not weak evidence for the right record, it is no evidence: Discogs dates the **pressing**
+   * (ADR 0060), so a repress's year is a fact about a piece of vinyl and says nothing about which
+   * album it holds. Weezer's 2020 repress of the 1994 Blue Album scored the 2019 Teal Album highest
+   * on exactly this reasoning.
+   *
+   * So: no exact year, no pick. The caller keeps the Discogs cover, which is the one that came off
+   * the release the user actually owns.
+   */
+  const namesakes = qualifiers.filter(
+    (c) => identity(c) === identity(best!.album) && c.year !== best!.album.year,
+  );
+  const yearLandsExactly =
+    query.year !== undefined && best.album.year === query.year;
+  if (namesakes.length > 0 && !yearLandsExactly) return null;
+
   return { album: best.album, confidence: best.exact ? "exact" : "close" };
 }
 
