@@ -812,22 +812,35 @@ Four regions:
 - **The stat band** — Not complete (accent) · Ready · Not started, each with a one-line detail; then
   a **rotating statistic** you advance by clicking. The pool is built from the statistics there is
   data for, so it is four today and becomes five when `label` is stored on an asset.
-- **The filter bar** — **one chip per state and one per need** (2026-08-10,
-  [ADR 0070](../adrs/0070-the-collection-filters-by-what-a-record-owes.md); it was Everything · Not
-  complete · Ready): `EVERYTHING · NOT COMPLETE · n · NEEDS VISUALIZER · n · NEEDS CARD · n · NEEDS
+- **The filter bar** — **one chip per state, one per need, and one per need that is all a record has
+  left** (2026-08-10, [ADR 0070](../adrs/0070-the-collection-filters-by-what-a-record-owes.md);
+  2026-08-11, [ADR 0071](../adrs/0071-a-chip-for-the-records-one-need-is-all-that-is-left-of.md); it
+  was Everything · Not complete · Ready): `EVERYTHING · NOT COMPLETE · n · NEEDS VISUALIZER · n ·
+NEEDS CARD · n · NEEDS SIGN-OFF · n · JUST NEEDS VISUALIZER · n · JUST NEEDS CARD · n · JUST NEEDS
 SIGN-OFF · n · READY · n · NOT STARTED · n · STUCK · n`, then a search over title and artist,
   `SHUFFLED ↻`, and a density cycler (5 / 7 / 9 columns). Filter, query and density live in the URL
-  so a session survives a reload; the filter is parsed **totally**, so `?filter=banana` lands on the
-  whole collection rather than a blank wall.
+  so a session survives a reload; the filter is parsed **totally**, so `?filter=banana` and
+  `?filter=only-banana` land on the whole collection rather than a blank wall.
   - The state chips are the four `RecordState` kinds named exactly, so a fifth state cannot be added
     without a chip to reach it.
   - **A need chip asks what a record still owes, not what it owes first.** A record missing both a
     visualizer and a card appears under both, so the per-need chips deliberately sum to more than
     NOT COMPLETE. Their tiles are relabelled to the need you picked.
-  - **`EVERYTHING` carries no count** (the search placeholder already says the total), and **`STUCK`
-    is dropped entirely when nothing is stuck** — the same rule that drops empty groups. The rest are
-    the standing vocabulary and stay put at zero.
-  - The bar **wraps**; eight chips no longer fit beside the search at 1280.
+  - **A `JUST NEEDS …` chip asks what a record has _left_** — it matches only the records that owe
+    that one thing and nothing else, which is the pile you can sit down and finish rather than the
+    pile you could contribute to. These sum to **at most** NOT COMPLETE. Their tiles need no
+    relabelling: a need that is the only one outstanding is also the first. `byOnly` coincides with
+    `byNeed` for the last need in `NEED_ORDER`, which is why the grouped view already held that pile.
+  - **`EVERYTHING` carries no count** (the search placeholder already says the total). **The
+    transient chips are dropped entirely at zero** — `STUCK`, `NOT STARTED` and each `JUST NEEDS …`:
+    each names a condition passing through, and empty it offers a room with nothing in it. NOT
+    COMPLETE, READY and the plain need chips are the questions you always ask of a collection and
+    stay put at zero — READY · 0 is information. Dropped is not deleted: NOT STARTED returns the
+    moment Roadie is holding something, and `?filter=only-card` still resolves to an honest empty
+    grid while its chip is hidden.
+  - The bar **wraps**; eight chips no longer fit beside the search at 1280, and the bar runs to
+    eleven at its widest (rarely — the `JUST` chips are mutually exhausting, since clearing the
+    visualizers is what makes JUST NEEDS CARD appear).
 - **The grid** — gutters are **borders, not gaps**. Selecting _Not complete_ regroups it under one
   heading per need, **first-need** so each sleeve appears exactly once; **empty groups are not
   rendered at all**. Stuck records get their own row on `--pp-accent-wash` — below the groups under

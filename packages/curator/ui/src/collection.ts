@@ -6,6 +6,7 @@ import type { AlbumSummary } from "./api";
 import {
   NEED_LABEL,
   NEED_ORDER,
+  ONLY_NEED_LABEL,
   outstandingNeeds,
   recordState,
   type Need,
@@ -22,17 +23,29 @@ import {
 export type StateFilter = RecordState["kind"];
 
 /**
- * What the collection can be narrowed to: everything, one state, or one outstanding need (ADR 0070).
+ * "This need is the **only** thing left" — the last-mile counterpart to a need filter (ADR 0071).
+ *
+ * Spelled as a prefixed need rather than its own list of three literals so it cannot drift from
+ * `NEED_ORDER`: a fourth need would produce its fourth `only-` filter, chip and count for free.
+ */
+export type OnlyNeed = `only-${Need}`;
+
+export const onlyNeedFilter = (n: Need): OnlyNeed => `only-${n}`;
+
+/**
+ * What the collection can be narrowed to: everything, one state, one outstanding need (ADR 0070),
+ * or the records one need is all that stands between and the stand (ADR 0071).
  *
  * A `Need` here means **every record that still owes that thing**, not the records it happens to be
- * first for — see `visibleTiles`.
+ * first for. An `OnlyNeed` is the strict subset that owes nothing else — see `visibleTiles`.
  */
-export type CollectionFilter = "all" | StateFilter | Need;
+export type CollectionFilter = "all" | StateFilter | Need | OnlyNeed;
 
 const FILTERS: readonly CollectionFilter[] = [
   "all",
   "needs",
   ...NEED_ORDER,
+  ...NEED_ORDER.map(onlyNeedFilter),
   "ready",
   "roadie",
   "stuck",
@@ -40,6 +53,18 @@ const FILTERS: readonly CollectionFilter[] = [
 
 const isNeedFilter = (f: CollectionFilter): f is Need =>
   (NEED_ORDER as readonly string[]).includes(f);
+
+/**
+ * The need an `only-` filter asks about, or `undefined` for any other filter. A lookup rather than a
+ * string slice, so `parseFilter`'s totality is not quietly undone by `"only-banana"` slicing into a
+ * `Need`-shaped value that nothing ever validates.
+ */
+const ONLY_NEED_OF = new Map<string, Need>(
+  NEED_ORDER.map((n) => [onlyNeedFilter(n), n]),
+);
+
+const onlyNeedOf = (f: CollectionFilter): Need | undefined =>
+  ONLY_NEED_OF.get(f);
 
 /**
  * Total, because the value round-trips through the URL and can come back as anything at all —
@@ -120,6 +145,11 @@ export const matchesQuery = (a: AlbumSummary, query: string): boolean => {
  * never contains a tile reading NEEDS VISUALIZER. Under every other filter the tile keeps its own
  * first-outstanding label.
  *
+ * **An `only-` filter asks the opposite question** (ADR 0071): the records this need is *all* that
+ * remains of. That is the pile you can sit down and finish, where the plain need chip is the pile
+ * you could contribute to. It needs no relabelling — when a need is the only one outstanding it is
+ * also the first, so the tile's own label already reads as the chip does.
+ *
  * Every work filter excludes the records Roadie is still holding and the ones that are stuck: you
  * can't make a card for a record that failed to download, and a tile offering nothing to do is a
  * dead end in a list you are working down. Both have chips of their own instead.
@@ -144,6 +174,13 @@ export function visibleTiles(
           outstandingNeeds(t.album).includes(filter),
       )
       .map(({ album }) => ({ album, state: { kind: "needs", need: filter } }));
+  const only = onlyNeedOf(filter);
+  if (only)
+    return tiles.filter((t) => {
+      if (t.state.kind !== "needs") return false;
+      const [first, ...rest] = outstandingNeeds(t.album);
+      return first === only && rest.length === 0;
+    });
   return tiles.filter((t) => t.state.kind === filter);
 }
 
@@ -186,6 +223,15 @@ export interface CollectionCounts {
    * chips say, and it matches what clicking one shows you.
    */
   byOutstanding: Record<Need, number>;
+  /**
+   * How many records each need is the **only** outstanding one for (ADR 0071) — what the `JUST
+   * NEEDS …` chips say. Adds up to at most `notComplete`, since a record with one need left is
+   * counted once and a record with two is counted nowhere here.
+   *
+   * Not the same as `byNeed` in general, though it coincides for whichever need is last in
+   * `NEED_ORDER`: nothing can outrank it, so being first there is being alone.
+   */
+  byOnly: Record<Need, number>;
 }
 
 /** Built from `NEED_ORDER` rather than written out, so a new need cannot be missed here. */
@@ -197,6 +243,7 @@ export function collectionCounts(
 ): CollectionCounts {
   const byNeed = zeroPerNeed();
   const byOutstanding = zeroPerNeed();
+  const byOnly = zeroPerNeed();
   let notComplete = 0;
   let ready = 0;
   let notStarted = 0;
@@ -206,7 +253,9 @@ export function collectionCounts(
     if (s.kind === "needs") {
       notComplete++;
       byNeed[s.need]++;
-      for (const n of outstandingNeeds(a)) byOutstanding[n]++;
+      const outstanding = outstandingNeeds(a);
+      for (const n of outstanding) byOutstanding[n]++;
+      if (outstanding.length === 1) byOnly[outstanding[0]!]++;
     } else if (s.kind === "ready") ready++;
     else if (s.kind === "roadie") notStarted++;
     else stuck++;
@@ -219,6 +268,7 @@ export function collectionCounts(
     stuck,
     byNeed,
     byOutstanding,
+    byOnly,
   };
 }
 
@@ -229,14 +279,30 @@ export interface FilterChip {
   count: number | null;
 }
 
+/** A chip that exists only when it has something in it — see `filterChips`. */
+const whenAny = (
+  count: number,
+  chip: Omit<FilterChip, "count">,
+): FilterChip[] => (count ? [{ ...chip, count }] : []);
+
 /**
- * The filter bar, in order: everything, the outstanding work narrowed from broad to specific, then
- * the three states you can't act on.
+ * The filter bar, in order: everything, the outstanding work narrowed from broad to specific, the
+ * last-mile piles, then the states you can't act on.
  *
  * EVERYTHING carries no count because the search placeholder already says how many records there
- * are, and STUCK is dropped entirely when nothing is stuck — the other chips are the standing
- * vocabulary of the collection and read fine at zero, but a permanent STUCK · 0 offers a category of
- * failure to a collection that has none.
+ * are.
+ *
+ * **Three kinds of chip are dropped at zero rather than shown empty** (ADR 0071 widens the rule ADR
+ * 0070 wrote for STUCK alone): STUCK, NOT STARTED, and each `JUST NEEDS …`. What they have in common
+ * is that they name a *transient condition* rather than standing vocabulary — a permanent STUCK · 0
+ * offers a category of failure to a collection that has none, NOT STARTED · 0 is a queue that is
+ * simply drained, and JUST NEEDS CARD · 0 invites you into an empty room. NOT COMPLETE, READY and
+ * the three plain need chips stay at zero: those are the questions you always ask of a collection,
+ * and READY · 0 is information.
+ *
+ * Dropping rather than deleting matters for NOT STARTED especially — it comes back the moment Roadie
+ * is holding something, so those records never become unreachable, which is the hole the chip was
+ * added to close.
  */
 export const filterChips = (c: CollectionCounts): FilterChip[] => [
   { value: "all", label: "EVERYTHING", count: null },
@@ -246,11 +312,15 @@ export const filterChips = (c: CollectionCounts): FilterChip[] => [
     label: NEED_LABEL[n],
     count: c.byOutstanding[n],
   })),
+  ...NEED_ORDER.flatMap((n) =>
+    whenAny(c.byOnly[n], {
+      value: onlyNeedFilter(n),
+      label: ONLY_NEED_LABEL[n],
+    }),
+  ),
   { value: "ready", label: "READY", count: c.ready },
-  { value: "roadie", label: "NOT STARTED", count: c.notStarted },
-  ...(c.stuck
-    ? [{ value: "stuck" as const, label: "STUCK", count: c.stuck }]
-    : []),
+  ...whenAny(c.notStarted, { value: "roadie", label: "NOT STARTED" }),
+  ...whenAny(c.stuck, { value: "stuck", label: "STUCK" }),
 ];
 
 const WORDS = [

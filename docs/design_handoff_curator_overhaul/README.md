@@ -15,7 +15,10 @@ The overhaul replaces that with **three places**:
 1. **The collection** — every record you own, art-first, in a shuffled grid. The old
    queue survives only as a filter chip. _(Since 2026-08-10 the bar carries one chip
    per state and one per need; the queue is the NOT STARTED chip —
-   [ADR 0070](../adrs/0070-the-collection-filters-by-what-a-record-owes.md).)_
+   [ADR 0070](../adrs/0070-the-collection-filters-by-what-a-record-owes.md). Since
+   2026-08-11 that chip is **hidden while the queue is empty**, which is most of the
+   time, and returns when Roadie is holding something —
+   [ADR 0071](../adrs/0071-a-chip-for-the-records-one-need-is-all-that-is-left-of.md).)_
 2. **The record** — one page listing the four things a record still needs (lights,
    a visualizer, a card, tags), done in any order. No stepper, no rail, no
    machine-state names in the UI. _(Three since 2026-08-10: lights became an optional
@@ -289,6 +292,17 @@ then right-aligned: a bottom-ruled search input (170px, no border except
 > The bar now wraps — eight chips do not fit beside the search at 1280 — and the chips carry their
 > own bottom rule so a wrapped row still reads as ruled paper.
 
+> **Widened again 2026-08-11**
+> ([ADR 0071](../adrs/0071-a-chip-for-the-records-one-need-is-all-that-is-left-of.md)): a
+> `JUST NEEDS …` chip per need sits after the plain ones — JUST NEEDS VISUALIZER · n · JUST NEEDS
+> CARD · n · JUST NEEDS SIGN-OFF · n. Where a need chip asks what a record **owes**, these ask what
+> it has **left**: only the records owing that one thing and nothing else, which is the pile you can
+> finish rather than the pile you can contribute to. They need no relabelling, and they sum to at
+> most NOT COMPLETE. The drop-at-zero rule widens from STUCK alone to every transient chip — STUCK,
+> NOT STARTED and each JUST NEEDS … — while NOT COMPLETE, READY and the plain need chips stay put at
+> zero. Worst case is eleven chips; in practice it stays near eight, because clearing the visualizers
+> is what makes JUST NEEDS CARD appear.
+
 **The grid** — `display:grid` with `grid-template-columns:repeat(n, minmax(0,1fr))`.
 Each tile is a button: square artwork, then the title (Helvetica 600 12.5px), the
 byline, and the **first outstanding need only** — never a count, never "+1". Ready
@@ -536,6 +550,7 @@ it is."
 | Click the density cycler | 5 → 7 → 9 → 5 columns |
 | Select NOT COMPLETE | regroup by first need; drop empty groups |
 | Select a need chip | every record still owing that thing, relabelled to it |
+| Select a JUST NEEDS … chip | only the records owing that one thing and nothing else; no relabel |
 | Select NOT STARTED / STUCK | the records no work chip includes; STUCK draws as rows |
 | Type in search | filter on title + artist, case-insensitive |
 | Click THE WHOLE LOG | expand/collapse the session log |

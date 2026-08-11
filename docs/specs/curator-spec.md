@@ -900,7 +900,10 @@ The primary UI is queue-shaped, per the album onboarding workflow's "you never f
 > The primary UI is no longer queue-shaped. The default screen is **the collection** — every record
 > you own, art-first, labelled with the one thing it still needs; the queue is one filter chip on it.
 > _(Since 2026-08-10 the bar carries one chip per state and one per need — the queue is the
-> NOT STARTED chip. [ADR 0070](../adrs/0070-the-collection-filters-by-what-a-record-owes.md).)_
+> NOT STARTED chip. [ADR 0070](../adrs/0070-the-collection-filters-by-what-a-record-owes.md). Since
+> 2026-08-11 that chip is hidden while the queue is empty and returns when Roadie is holding
+> something, and each need has a `JUST NEEDS …` counterpart for the records it is all that is left
+> of — [ADR 0071](../adrs/0071-a-chip-for-the-records-one-need-is-all-that-is-left-of.md).)_
 > The nine-bucket model below is Roadie's, and stays true of `GET /api/agent/queue`; it is no longer
 > what any screen renders. The replacement is specified in
 > [curator-ui-ux §8](curator-ui-ux.md#8-the-collection).
