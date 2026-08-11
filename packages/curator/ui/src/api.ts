@@ -351,6 +351,16 @@ export interface AlbumAsset {
       year?: number;
       matchedAt: string;
     };
+    /**
+     * Several same-titled albums by this artist, none of them separable, so the matcher refused
+     * (ADR 0067 / #289). Mutually exclusive with `spotifyMatch`. Its point is that the record page
+     * can distinguish "not looked at yet" from "looked at, and only you can settle it" — the sweep
+     * will decline this record on every future run.
+     */
+    spotifyAmbiguous?: {
+      candidateCount: number;
+      detectedAt: string;
+    };
     discogsUri?: string;
     discogsReleaseId?: number;
   };
@@ -451,6 +461,8 @@ export interface SpotifyBackfillReport {
   matched: number;
   artOnly: number;
   noMatch: number;
+  /** Refused as un-tellable-apart (#289) — unlike `noMatch`, re-running the sweep will not move it. */
+  ambiguous: number;
   skipped: number;
   failed: number;
   abandoned?: boolean;
@@ -468,12 +480,13 @@ export type SpotifyBackfillStatus =
   | "matched"
   | "art_only"
   | "no_match"
+  | "ambiguous"
   | "skipped_has_uri"
   | "skipped_not_discogs"
   | "skipped_processing"
   | "failed";
 
-/** The four the progress panel renders — the skips are filtered out before it gets there. */
+/** The ones the progress panel renders — the skips are filtered out before it gets there. */
 export type ReportedSpotifyBackfillStatus = Exclude<
   SpotifyBackfillStatus,
   `skipped_${string}`
@@ -1173,6 +1186,15 @@ export const api = {
       body: JSON.stringify(patch),
     }),
 
+  /**
+   * The albums this record could be (#289) — the matcher's own list of what it declined to choose
+   * between, so the picker offers exactly that set rather than re-deriving "looks similar" in the UI.
+   * Always 200; an empty list carries a `reason`.
+   */
+  spotifyCandidates: (id: string) =>
+    req<{ candidates: SpotifyAlbumMeta[]; reason?: string }>(
+      `/api/albums/${encodeURIComponent(id)}/spotify-candidates`,
+    ),
   searchSpotify: (q: string) =>
     req<{ results: SpotifyAlbumMeta[] }>(
       `/api/spotify/search-albums?q=${encodeURIComponent(q)}`,

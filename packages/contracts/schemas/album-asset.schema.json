@@ -35,9 +35,22 @@
             "matchedAt": { "type": "string", "format": "date-time" }
           }
         },
+        "spotifyAmbiguous": {
+          "description": "Several same-titled albums by this artist could not be told apart, so the matcher refused (ADR 0067 / #289). Mutually exclusive with spotifyMatch. Carries the count only — the candidate list belongs to Spotify and is re-fetched on demand, not stored.",
+          "type": "object",
+          "required": ["candidateCount", "detectedAt"],
+          "properties": {
+            "candidateCount": { "type": "integer", "minimum": 2 },
+            "detectedAt": { "type": "string", "format": "date-time" }
+          }
+        },
         "discogsReleaseId": { "type": "integer" },
         "discogsUri": { "type": "string" },
         "discogsArtUrl": { "type": "string" }
+      },
+      "not": {
+        "description": "spotifyMatch says which album this is; spotifyAmbiguous says why nothing can. A record carrying both asserts two contradictory things, and whichever a reader checks first wins — so the exclusion is structural here rather than a convention producers are trusted to keep (ADR 0068).",
+        "required": ["spotifyMatch", "spotifyAmbiguous"]
       }
     },
     "artwork": { "type": "object" },

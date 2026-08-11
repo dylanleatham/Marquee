@@ -174,6 +174,27 @@ describe("GET /api/albums/:curatorId/tracks", () => {
       expect(reason).toMatch(/near match/);
       expect(reason).toMatch(/In Rainbows Disk 2/);
     });
+
+    /**
+     * The fifth situation ([#289](https://github.com/dylanleatham/Marquee/issues/289)). It used to
+     * fall through to "not matched yet — run the Spotify backfill", which is worse than vague: the
+     * backfill re-derives the same ambiguity and declines this record on every run it will ever
+     * make. So the assertion that matters is the negative one — this sentence must not send anyone
+     * to the sweep.
+     */
+    it("an ambiguous album says several albums share the title, and does not send you to the sweep", async () => {
+      const reason = await reasonFor((a) => {
+        a.metadata.source = "discogs";
+        a.metadata.spotifyAmbiguous = {
+          candidateCount: 6,
+          detectedAt: "2026-08-10T00:00:00.000Z",
+        };
+      });
+      expect(reason).toMatch(/6 albums/);
+      expect(reason).toMatch(/share this title/);
+      expect(reason).not.toMatch(/backfill from Settings/);
+      expect(reason).not.toMatch(/hasn't matched this/);
+    });
   });
 
   it("answers 200 with a reason when Spotify isn't configured at all", async () => {
@@ -427,5 +448,44 @@ describe("PUT /api/albums/:curatorId/spotify-uri", () => {
       payload: { spotifyUri: `spotify:album:${SPOTIFY_ID}` },
     });
     expect(res.statusCode).toBe(404);
+  });
+
+  /**
+   * This route **is** how an ambiguous record gets resolved — the record page's picker posts here
+   * ([ADR 0068](../../../docs/adrs/0068-ambiguous-is-a-third-answer-not-a-missing-one.md), issue
+   * [#289](https://github.com/dylanleatham/Marquee/issues/289)) — so a marker left behind would sit
+   * on the asset saying "nothing can name this" directly beside the name a person just gave it.
+   * A human's answer ends the question; ADR 0068 says the marker is cleared on any successful match,
+   * and this is the most definitive match there is.
+   */
+  it("clears an ambiguity when a human names the album", async () => {
+    s.update(ID, (a) => {
+      a.metadata.spotifyAmbiguous = {
+        candidateCount: 6,
+        detectedAt: "2026-08-10T00:00:00.000Z",
+      };
+    });
+
+    const res = await put(`spotify:album:${SPOTIFY_ID}`);
+
+    expect(res.statusCode).toBe(200);
+    const saved = s.read(ID)!;
+    expect(saved.metadata.spotifyUri).toBe(`spotify:album:${SPOTIFY_ID}`);
+    expect(saved.metadata.spotifyAmbiguous).toBeUndefined();
+  });
+
+  /** And unlinking clears it too: it described a search for an album this record no longer claims. */
+  it("clears an ambiguity when the album is unlinked", async () => {
+    s.update(ID, (a) => {
+      a.metadata.spotifyUri = `spotify:album:${SPOTIFY_ID}`;
+      a.metadata.spotifyAmbiguous = {
+        candidateCount: 6,
+        detectedAt: "2026-08-10T00:00:00.000Z",
+      };
+    });
+
+    await put(null);
+
+    expect(s.read(ID)!.metadata.spotifyAmbiguous).toBeUndefined();
   });
 });

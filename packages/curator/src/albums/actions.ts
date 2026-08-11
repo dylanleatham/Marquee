@@ -1481,9 +1481,20 @@ export function setSpotifyUri(
     if (uri) {
       a.metadata.spotifyUri = uri;
       delete a.metadata.spotifyMatch;
+      /**
+       * And the ambiguity, if there was one ([ADR 0068](../../../../docs/adrs/0068-ambiguous-is-a-third-answer-not-a-missing-one.md)).
+       * This is the *primary* way an ambiguous record gets resolved — the picker on the record page
+       * posts here — so leaving the marker would strand the definitive answer next to the reason
+       * there wasn't one. A person naming the album is the strongest resolution there is; it ends
+       * the question rather than adding to it.
+       */
+      delete a.metadata.spotifyAmbiguous;
     } else {
       delete a.metadata.spotifyUri;
       delete a.metadata.spotifyMatch;
+      // The ambiguity goes too: it described a search for an album this record no longer claims, and
+      // re-matching is what would establish whether it is still ambiguous.
+      delete a.metadata.spotifyAmbiguous;
       // A demo cut names a track on the album we just disowned, so it can no longer be trusted to
       // be the right song — clearing it returns the demo tag to playing the record.
       a.demoTrack = null;

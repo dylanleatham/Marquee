@@ -19,7 +19,7 @@ import { applySpotifyMatch, bestSpotifyMatch } from "./spotify-match.js";
 
 /** The statuses the progress panel actually lists — the skips are filtered out before it renders. */
 export type ReportedSpotifyBackfillStatus =
-  "matched" | "art_only" | "no_match" | "failed";
+  "matched" | "art_only" | "no_match" | "ambiguous" | "failed";
 
 export type SpotifyBackfillStatus =
   /** An `exact` match — the album can now play. */
@@ -28,6 +28,13 @@ export type SpotifyBackfillStatus =
   | "art_only"
   /** Searched, nothing confident came back. Not a failure of the sweep. */
   | "no_match"
+  /**
+   * Several same-titled albums by the artist, none of them separable (ADR 0067 / #289). Reported
+   * apart from `no_match` because the two imply opposite next steps: a miss may become a hit on the
+   * next sweep, this one never will. Every re-run declines it again, so the row has to send the
+   * reader to the record page rather than back to this button.
+   */
+  | "ambiguous"
   /** Already had a `spotifyUri` — nothing to do, and never overwritten. */
   | "skipped_has_uri"
   /** Not a Discogs album; a Spotify or manual add is not this sweep's business. */
@@ -50,6 +57,8 @@ export interface SpotifyBackfillReport {
   matched: number;
   artOnly: number;
   noMatch: number;
+  /** Refused as un-tellable-apart (#289). Counted apart from `noMatch` — re-running won't move it. */
+  ambiguous: number;
   skipped: number;
   failed: number;
   /** True when the sweep stopped early on a run of failures — see CONSECUTIVE_FAILURE_LIMIT. */
@@ -86,6 +95,7 @@ export function spotifyBackfillRunner(deps: {
       matched: 0,
       artOnly: 0,
       noMatch: 0,
+      ambiguous: 0,
       skipped: 0,
       failed: 0,
       items: [],
@@ -111,6 +121,7 @@ export function spotifyBackfillRunner(deps: {
         if (status === "matched") report.matched++;
         else if (status === "art_only") report.artOnly++;
         else if (status === "no_match") report.noMatch++;
+        else if (status === "ambiguous") report.ambiguous++;
         else if (status === "failed") report.failed++;
         else report.skipped++;
       };
@@ -135,18 +146,21 @@ export function spotifyBackfillRunner(deps: {
             `${q.artist} ${q.title}`.trim(),
             10,
           );
-          const match = bestSpotifyMatch(q, candidates);
+          const outcome = bestSpotifyMatch(q, candidates);
           consecutiveFailures = 0;
 
-          if (!match) record("no_match");
-          else {
-            /**
-             * Re-read under the store lock and re-decide there. This loop awaits the network per
-             * album, so between the snapshot above and this write Roadie may have picked the album
-             * up and be running its own match on it — the two would clobber each other, and the
-             * loser's Spotify call was wasted. `store.update` gives a synchronous read-mutate-save,
-             * so checking here is the check that counts (the asset-write race rule).
-             */
+          /**
+           * Re-read under the store lock and re-decide there. This loop awaits the network per
+           * album, so between the snapshot above and this write Roadie may have picked the album up
+           * and be running its own match on it — the two would clobber each other, and the loser's
+           * Spotify call was wasted. `store.update` gives a synchronous read-mutate-save, so
+           * checking here is the check that counts (the asset-write race rule).
+           *
+           * One helper for **both** verdicts: an ambiguity is metadata too, and a second copy of
+           * this guard is a second place for the race to be reintroduced when only one is edited.
+           * Returns whether the write actually landed.
+           */
+          const applyUnderLock = (): boolean => {
             let applied = true;
             deps.store.update(curatorId, (fresh) => {
               if (
@@ -156,16 +170,21 @@ export function spotifyBackfillRunner(deps: {
                 applied = false;
                 return;
               }
-              fresh.metadata = applySpotifyMatch(fresh.metadata, match, now);
+              fresh.metadata = applySpotifyMatch(fresh.metadata, outcome, now);
             });
-            if (!applied) record("skipped_processing");
-            else {
-              const matchedTo = `${match.album.artist} — ${match.album.name}`;
-              record(match.confidence === "exact" ? "matched" : "art_only", {
-                matchedTo,
-              });
-            }
-          }
+            return applied;
+          };
+
+          if (outcome.kind === "none") record("no_match");
+          else if (!applyUnderLock()) record("skipped_processing");
+          else if (outcome.kind === "ambiguous")
+            record("ambiguous", {
+              matchedTo: `${outcome.candidates.length} albums share this title`,
+            });
+          else
+            record(outcome.confidence === "exact" ? "matched" : "art_only", {
+              matchedTo: `${outcome.album.artist} — ${outcome.album.name}`,
+            });
         } catch (err) {
           // `instanceof` rather than the `(err as Error).message` used elsewhere in this package,
           // deliberately: this string is rendered to a human in the run report, and a non-Error
@@ -186,7 +205,7 @@ export function spotifyBackfillRunner(deps: {
     }
 
     deps.logger?.info(
-      `Spotify backfill: ${report.matched} now playable, ${report.artOnly} art-only, ${report.noMatch} no match, ${report.failed} failed`,
+      `Spotify backfill: ${report.matched} now playable, ${report.artOnly} art-only, ${report.noMatch} no match, ${report.ambiguous} ambiguous, ${report.failed} failed`,
     );
     return { spotifyBackfill: report };
   };

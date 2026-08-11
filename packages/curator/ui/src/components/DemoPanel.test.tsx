@@ -16,6 +16,7 @@ vi.mock("../api", () => ({
     setSpotifyUri: vi
       .fn()
       .mockResolvedValue({ spotifyUri: null, demoTrack: null }),
+    spotifyCandidates: vi.fn(),
   },
 }));
 
@@ -333,5 +334,153 @@ describe("DemoPanel — which album this is on Spotify", () => {
         .getByRole("link", { name: /Settings → Library/i })
         .getAttribute("href"),
     ).toBe("/settings");
+  });
+});
+
+/**
+ * The record whose title its artist used more than once (#289). Ambiguity is not "not matched yet":
+ * the sweep already looked, found several, and stopped on purpose — and will do the same on every
+ * future run — so this panel is the only place it can be settled, and it has to say so.
+ */
+describe("DemoPanel — an album whose title its artist reused", () => {
+  const ambiguous = () => {
+    const a = asset();
+    a.metadata = {
+      ...a.metadata,
+      name: "Weezer",
+      artist: "Weezer",
+      source: "discogs",
+      spotifyAmbiguous: {
+        candidateCount: 6,
+        detectedAt: "2026-08-10T00:00:00.000Z",
+      },
+    };
+    return a;
+  };
+
+  const CANDIDATES = [
+    {
+      spotifyId: "b",
+      spotifyUri: "spotify:album:blue",
+      name: "Weezer",
+      artist: "Weezer",
+      year: 1994,
+      artUrl: "https://art/blue.jpg",
+      genres: [],
+    },
+    {
+      spotifyId: "t",
+      spotifyUri: "spotify:album:teal",
+      name: "Weezer",
+      artist: "Weezer",
+      year: 2019,
+      artUrl: "https://art/teal.jpg",
+      genres: [],
+    },
+  ];
+
+  beforeEach(() => {
+    vi.mocked(api.tracks).mockResolvedValue({
+      tracks: [],
+      reason: "6 albums by this artist share this title",
+    });
+    vi.mocked(api.spotifyCandidates).mockResolvedValue({
+      candidates: CANDIDATES,
+    });
+  });
+
+  it("says several albums share the title, not that nothing is linked", async () => {
+    show(ambiguous());
+    await waitFor(() =>
+      expect(screen.getByText(/share this title/)).toBeTruthy(),
+    );
+    // The old sentence would have sent them to the sweep, which refuses this record every run.
+    expect(screen.queryByText(/not linked to a Spotify album/)).toBeNull();
+  });
+
+  it("offers to choose rather than to paste", async () => {
+    show(ambiguous());
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /CHOOSE THE RIGHT ALBUM/i }),
+      ).toBeTruthy(),
+    );
+  });
+
+  it("lists the albums it couldn't tell apart, with their covers", async () => {
+    show(ambiguous());
+    fireEvent.click(
+      await screen.findByRole("button", { name: /CHOOSE THE RIGHT ALBUM/i }),
+    );
+    await waitFor(() =>
+      expect(screen.getByText(/Weezer \(1994\)/)).toBeTruthy(),
+    );
+    expect(screen.getByText(/Weezer \(2019\)/)).toBeTruthy();
+    expect(document.querySelectorAll("img.demo__candidate-art")).toHaveLength(
+      2,
+    );
+  });
+
+  it("links the album when one is picked", async () => {
+    show(ambiguous());
+    fireEvent.click(
+      await screen.findByRole("button", { name: /CHOOSE THE RIGHT ALBUM/i }),
+    );
+    const rows = await screen.findAllByRole("button", { name: /THIS ONE/i });
+    expect(rows).toHaveLength(2);
+    fireEvent.click(rows[0]!); // oldest first, so this is the 1994 Blue Album
+    await waitFor(() =>
+      expect(api.setSpotifyUri).toHaveBeenCalledWith(
+        "abc12345",
+        "spotify:album:blue",
+      ),
+    );
+  });
+
+  /**
+   * The point of the whole issue: the sweep link is the one instruction that cannot work here, and
+   * offering it is what sent this project's own user to run it and watch nothing happen.
+   */
+  it("does not offer the library sweep, which can never settle this record", async () => {
+    show(ambiguous());
+    fireEvent.click(
+      await screen.findByRole("button", { name: /CHOOSE THE RIGHT ALBUM/i }),
+    );
+    await waitFor(() =>
+      expect(screen.getByText(/can't settle this one/)).toBeTruthy(),
+    );
+    expect(
+      screen.queryByRole("link", { name: /Settings → Library/i }),
+    ).toBeNull();
+  });
+
+  /**
+   * A transport failure reads the same way as the server's own `reason` — this panel has one place
+   * to say why there is nothing to choose, and which layer failed is not the reader's problem.
+   */
+  it("shows a transport failure rather than an empty picker", async () => {
+    vi.mocked(api.spotifyCandidates).mockRejectedValue(
+      new Error("network down"),
+    );
+    show(ambiguous());
+    fireEvent.click(
+      await screen.findByRole("button", { name: /CHOOSE THE RIGHT ALBUM/i }),
+    );
+    await waitFor(() => expect(screen.getByText(/network down/)).toBeTruthy());
+  });
+
+  /** Spotify being down must not read as "there is nothing to choose". */
+  it("says why the list is empty rather than showing an empty list", async () => {
+    vi.mocked(api.spotifyCandidates).mockResolvedValue({
+      candidates: [],
+      reason: "Spotify isn't configured",
+    });
+    show(ambiguous());
+    fireEvent.click(
+      await screen.findByRole("button", { name: /CHOOSE THE RIGHT ALBUM/i }),
+    );
+    await waitFor(() =>
+      expect(screen.getByText(/Spotify isn't configured/)).toBeTruthy(),
+    );
   });
 });

@@ -23,6 +23,7 @@ for (const file of schemaFiles) ajv.addSchema(loadJson(join(schemaDir, file)));
 
 const PALETTE_ID = "marquee/schemas/palette-payload-v1.json";
 const SCAN_ID = "marquee/schemas/scan-event-v1.json";
+const ASSET_ID = "marquee/schemas/album-asset-v1.json";
 
 test("every schema is valid JSON Schema and compiles", () => {
   for (const file of schemaFiles) {
@@ -83,4 +84,69 @@ test("a scan URI with an unknown kind is rejected", () => {
 test("a start scan without a uri is rejected", () => {
   const validate = ajv.getSchema(SCAN_ID);
   assert.equal(validate({ event: "start", at: "2026-07-24T20:15:22Z" }), false);
+});
+
+/**
+ * `spotifyMatch` and `spotifyAmbiguous` answer the same question — "which Spotify album is this?" —
+ * with contradictory answers ([ADR 0068](../docs/adrs/0068-ambiguous-is-a-third-answer-not-a-missing-one.md),
+ * [#289](https://github.com/dylanleatham/Marquee/issues/289)). A record carrying both leaves every
+ * consumer to pick whichever it happens to check first, and the two would disagree.
+ *
+ * `applySpotifyMatch` clears one when it writes the other, so this is the *contract* guard behind
+ * that behaviour — a second producer (a migration, a hand-edited asset, a future importer) can't
+ * reintroduce the state without failing here.
+ */
+const asset = (metadata) => ({
+  version: 1,
+  curatorId: "6byejted",
+  createdAt: "2026-08-10T00:00:00.000Z",
+  metadata: {
+    name: "Weezer",
+    artist: "Weezer",
+    source: "discogs",
+    ...metadata,
+  },
+  roadie: { state: "awaiting_review" },
+});
+
+test("an album may say which Spotify album it is", () => {
+  const validate = ajv.getSchema(ASSET_ID);
+  const ok = asset({
+    spotifyUri: "spotify:album:5n15QbYKbO4pzAV2Iy1VVG",
+    spotifyMatch: {
+      confidence: "exact",
+      name: "Weezer",
+      artist: "Weezer",
+      matchedAt: "2026-08-10T00:00:00.000Z",
+    },
+  });
+  assert.ok(validate(ok), JSON.stringify(validate.errors, null, 2));
+});
+
+test("an album may say why nothing can name it", () => {
+  const validate = ajv.getSchema(ASSET_ID);
+  const ok = asset({
+    spotifyAmbiguous: {
+      candidateCount: 6,
+      detectedAt: "2026-08-10T00:00:00.000Z",
+    },
+  });
+  assert.ok(validate(ok), JSON.stringify(validate.errors, null, 2));
+});
+
+test("an album may not claim a match and an ambiguity at once", () => {
+  const validate = ajv.getSchema(ASSET_ID);
+  const contradictory = asset({
+    spotifyMatch: {
+      confidence: "exact",
+      name: "Weezer",
+      artist: "Weezer",
+      matchedAt: "2026-08-10T00:00:00.000Z",
+    },
+    spotifyAmbiguous: {
+      candidateCount: 6,
+      detectedAt: "2026-08-10T00:00:00.000Z",
+    },
+  });
+  assert.equal(validate(contradictory), false);
 });

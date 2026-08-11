@@ -12,6 +12,7 @@ vi.mock("../spotifyBackfillJob", () => ({
   dismissSpotifyBackfill: vi.fn(),
 }));
 
+import { MemoryRouter } from "react-router-dom";
 import { useSpotifyBackfillJob } from "../spotifyBackfillJob";
 import { SpotifyBackfillProgress } from "./SpotifyBackfillProgress";
 import type { GenerationJob, SpotifyBackfillReport } from "../api";
@@ -23,6 +24,7 @@ const report = (
   matched: 1,
   artOnly: 1,
   noMatch: 1,
+  ambiguous: 0,
   skipped: 0,
   failed: 0,
   items: [
@@ -51,7 +53,11 @@ type JobState = ReturnType<typeof useSpotifyBackfillJob>;
 
 const show = (state: Partial<JobState>) => {
   vi.mocked(useSpotifyBackfillJob).mockReturnValue(state as JobState);
-  return render(<SpotifyBackfillProgress />);
+  return render(
+    <MemoryRouter>
+      <SpotifyBackfillProgress />
+    </MemoryRouter>,
+  );
 };
 
 const finished = (r: SpotifyBackfillReport): Partial<JobState> => ({
@@ -85,6 +91,51 @@ describe("SpotifyBackfillProgress", () => {
     show(finished(report()));
     expect(screen.getByText("Near match — won't play")).toBeTruthy();
     expect(screen.getByText("→ The Who — Live at Leeds")).toBeTruthy();
+  });
+
+  /**
+   * #289. An ambiguous record is the one outcome the sweep can never improve on, so its row has to
+   * send the reader to the record rather than back to this button — and the summary has to say so,
+   * because "1 not found" invites exactly the re-run that will refuse it again.
+   */
+  it("counts records that need a human apart from ones it simply missed", () => {
+    show(
+      finished(
+        report({
+          ambiguous: 1,
+          items: [
+            {
+              curatorId: "dddd4444",
+              label: "Weezer — Weezer",
+              status: "ambiguous",
+              matchedTo: "6 albums share this title",
+            },
+          ],
+        }),
+      ),
+    );
+    expect(screen.getByText(/1 need you to pick/)).toBeTruthy();
+    expect(screen.getByText(/re-running won't help/)).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Several albums share this title — pick it on the record",
+      ),
+    ).toBeTruthy();
+    // The row is the way there. A sweep that names six records you must visit and then makes you
+    // find them by hand is the same dead end #289 is about, one level up.
+    expect(
+      screen
+        .getByRole("link", { name: "Weezer — Weezer" })
+        .getAttribute("href"),
+    ).toBe("/albums/dddd4444/demo");
+  });
+
+  /** A library with no same-titled albums must not carry a permanent "0 need you" chore. */
+  it("stays quiet about ambiguity when there is none", () => {
+    show(finished(report()));
+    expect(screen.queryByText(/need you to pick/)).toBeNull();
+    // Rows that need no visit stay plain text — a link that goes nowhere useful is noise.
+    expect(screen.queryByRole("link")).toBeNull();
   });
 
   it("says an abandoned run stopped early rather than letting a short count read as clean", () => {

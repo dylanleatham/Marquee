@@ -10,6 +10,7 @@ import type {
   ReportedSpotifyBackfillStatus,
   SpotifyBackfillReport,
 } from "../api";
+import { Link } from "react-router-dom";
 import { JobProgress } from "./JobProgress";
 
 type Item = SpotifyBackfillReport["items"][number];
@@ -22,6 +23,7 @@ const OUTCOME_LABEL: Record<ReportedSpotifyBackfillStatus, string> = {
   matched: "Can play",
   art_only: "Near match — won't play",
   no_match: "Not found",
+  ambiguous: "Several albums share this title — pick it on the record",
   failed: "Failed",
 };
 
@@ -30,6 +32,9 @@ const OUTCOME_TONE: Record<ReportedSpotifyBackfillStatus, string> = {
   matched: "ok",
   art_only: "off",
   no_match: "off",
+  // Not "bad": nothing went wrong. The sweep did its job and the answer needs a person — the label
+  // above carries that, since colour is never the only channel (curator-ui-ux §3.4).
+  ambiguous: "off",
   failed: "bad",
 };
 
@@ -40,7 +45,16 @@ function Row({
 }) {
   return (
     <li className={`batch__row batch__row--${OUTCOME_TONE[item.status]}`}>
-      <span className="batch__label">{item.label}</span>
+      {/* The one outcome with somewhere to go. A sweep over hundreds of records that reports "6
+          need you to pick" and then makes you find those six by hand is the same dead end #289 was
+          about — so the row *is* the way there, straight to the panel that holds the picker. */}
+      {item.status === "ambiguous" ? (
+        <Link className="batch__label" to={`/albums/${item.curatorId}/demo`}>
+          {item.label}
+        </Link>
+      ) : (
+        <span className="batch__label">{item.label}</span>
+      )}
       <span className="batch__outcome">{OUTCOME_LABEL[item.status]}</span>
       {/* What it matched to, so a wrong guess is visible here rather than in the room. */}
       {item.matchedTo && <em className="batch__error">→ {item.matchedTo}</em>}
@@ -59,6 +73,11 @@ export function SpotifyBackfillProgress() {
       ? (job.error ?? "The match run failed.")
       : report
         ? `${report.matched} can now play · ${report.artOnly} near matches (silent) · ${report.noMatch} not found` +
+          // Only when there are any: on a library with no same-titled albums this would be a
+          // permanent "0 need you", which reads as a chore rather than the nudge it is.
+          (report.ambiguous > 0
+            ? ` · ${report.ambiguous} need you to pick (re-running won't help)`
+            : "") +
           (report.failed > 0 ? ` · ${report.failed} failed` : "") +
           (report.abandoned
             ? " — stopped early after repeated failures; check Spotify is reachable and run it again."
