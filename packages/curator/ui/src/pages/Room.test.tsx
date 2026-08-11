@@ -13,6 +13,7 @@ import {
   act,
 } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { PATTERN_TYPES } from "@marquee/contracts";
 
 vi.mock("../api", () => ({
   api: {
@@ -43,7 +44,7 @@ import {
   type AlbumSummary,
   type RoadieState,
 } from "../api";
-import { Room } from "./Room";
+import { Room, PATTERN_LABELS } from "./Room";
 import { resetRoomArmCache } from "../roomArm";
 import { readyToastSnapshot, dismissReadyToast } from "../readyToast";
 
@@ -208,7 +209,102 @@ describe("Room — bench and the real thing, one screen", () => {
 });
 
 describe("Room — the control dock", () => {
-  it("offers the pattern the record is on as chosen", async () => {
+  /**
+   * regression: #287 — the dock built its chips from a hardcoded array of three, so `rotate` and the
+   * streaming three could not be chosen at all and an override could never be undone. Five of the
+   * eight answers ADR 0039 specifies were unreachable and nothing went red.
+   *
+   * This is the durable half: the chips come from `PATTERN_TYPES`, so an eighth pattern arriving in
+   * contracts cannot leave this screen behind the way the last five did.
+   */
+  it("offers every motion the contract defines, and auto beside them", async () => {
+    show();
+    await loaded();
+    expect(screen.getByRole("button", { name: "AUTO" })).toBeTruthy();
+    for (const type of PATTERN_TYPES)
+      expect(
+        screen.getByRole("button", { name: PATTERN_LABELS[type] }),
+      ).toBeTruthy();
+  });
+
+  it("says the streaming three need hardware rather than hiding them", async () => {
+    // ADR 0039's whole argument: the half most rooms can't play is gated *and named*, because
+    // omitting it was the original defect. Words, not a disabled chip — this screen cannot check
+    // whether the bridge has an entertainment area, and Conductor falls back on its own.
+    show();
+    await loaded();
+    // ADR 0039 asks the note to name what plays instead, so the gate is a consequence you can read
+    // rather than a warning you have to interpret. The default asset's derived pattern is crossfade.
+    expect(
+      screen.getByText(/NEEDS AN ENTERTAINMENT AREA · CROSSFADE WITHOUT ONE/i),
+    ).toBeTruthy();
+    for (const type of ["aurora", "shimmer", "wave"] as const)
+      expect(
+        (
+          screen.getByRole("button", {
+            name: PATTERN_LABELS[type],
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(false);
+  });
+
+  it("chooses a streaming effect, not merely displays one already set", async () => {
+    show();
+    await loaded();
+    fireEvent.click(screen.getByRole("button", { name: "AURORA" }));
+    await waitFor(() =>
+      expect(api.setPatternOverride).toHaveBeenCalledWith(
+        "abc12345",
+        "aurora",
+        {},
+      ),
+    );
+  });
+
+  it("marks auto as chosen when nothing is overridden, and names what Roadie chose", async () => {
+    // The derived pattern is read-only here (ADR 0039): shown, because it is what plays, but never
+    // pressed — pressing it would claim a choice nobody made.
+    show();
+    await loaded();
+    expect(
+      screen.getByRole("button", { name: "AUTO" }).getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(
+      screen
+        .getByRole("button", { name: "CROSSFADE" })
+        .getAttribute("aria-pressed"),
+    ).toBe("false");
+    expect(screen.getByText(/ROADIE CHOSE CROSSFADE/i)).toBeTruthy();
+  });
+
+  it("puts a record back on its derived pattern", async () => {
+    // Without this the override is one-way from the UI: set aurora once and there is no way back.
+    vi.mocked(api.album).mockResolvedValue(asset({ patternOverride: "pulse" }));
+    show();
+    await loaded();
+    fireEvent.click(screen.getByRole("button", { name: "AUTO" }));
+    await waitFor(() =>
+      expect(api.setPatternOverride).toHaveBeenCalledWith("abc12345", null, {}),
+    );
+  });
+
+  it("marks the chosen chip with a glyph, not a fill alone", async () => {
+    // §3.4 and ADR 0039: state never rides on colour or fill by itself.
+    vi.mocked(api.album).mockResolvedValue(asset({ patternOverride: "pulse" }));
+    show();
+    await loaded();
+    expect(screen.getByRole("button", { name: "PULSE" }).textContent).toContain(
+      "✓",
+    );
+    expect(
+      screen.getByRole("button", { name: "ROTATE" }).textContent,
+    ).not.toContain("✓");
+  });
+
+  it("offers the pattern the record is overridden onto as chosen", async () => {
+    vi.mocked(api.album).mockResolvedValue(
+      asset({ patternOverride: "crossfade" }),
+    );
     show();
     await loaded();
     expect(
@@ -221,15 +317,31 @@ describe("Room — the control dock", () => {
         .getByRole("button", { name: "PULSE" })
         .getAttribute("aria-pressed"),
     ).toBe("false");
+    expect(
+      screen.getByRole("button", { name: "AUTO" }).getAttribute("aria-pressed"),
+    ).toBe("false");
   });
 
   it("shows the knobs the chosen pattern actually has", async () => {
     // Driven by PATTERN_PARAM_SPECS rather than a fixed three: a slider the server would reject is
     // worse than no slider (ADR 0036), and `static` legally carries no params at all.
+    vi.mocked(api.album).mockResolvedValue(
+      asset({ patternOverride: "crossfade" }),
+    );
     show();
     await loaded();
     expect(screen.getByText("Fade")).toBeTruthy();
     expect(screen.getByText("Hold")).toBeTruthy();
+  });
+
+  it("leaves the derived pattern untunable — the knobs belong to an override", async () => {
+    // ADR 0030's surviving half, kept honest by ADR 0039: derivation is the default, and a slider
+    // under Auto would be editing a computed value in place. It used to convert you to an override
+    // of the derived type without saying so.
+    show();
+    await loaded();
+    expect(document.querySelectorAll('input[type="range"]')).toHaveLength(0);
+    expect(screen.getByText(/Pick a pattern below to tune/i)).toBeTruthy();
   });
 
   it("says plainly when a pattern has nothing to tune", async () => {
@@ -244,6 +356,9 @@ describe("Room — the control dock", () => {
 
   it("saves a slider against this record, debounced", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.mocked(api.album).mockResolvedValue(
+      asset({ patternOverride: "crossfade" }),
+    );
     show();
     await loaded();
     const fade = document.querySelector('input[type="range"]')!;
@@ -276,7 +391,7 @@ describe("Room — the control dock", () => {
     );
   });
 
-  it("shows the pattern a record is really on, even one the dock doesn't name", async () => {
+  it("shows the pattern a record is really on", async () => {
     // A streaming pattern is a legitimate per-album opt-in (ADR 0035). A dock with nothing pressed
     // reads as "no pattern" rather than "one you can't see from here" — which is what the first
     // real record I opened actually looked like.
@@ -287,8 +402,9 @@ describe("Room — the control dock", () => {
     await loaded();
     const aurora = screen.getByRole("button", { name: "AURORA" });
     expect(aurora.getAttribute("aria-pressed")).toBe("true");
-    // The three named ones are still offered.
+    // And every other answer is still on offer beside it.
     expect(screen.getByRole("button", { name: "CROSSFADE" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "AUTO" })).toBeTruthy();
   });
 
   it("reads a 0–1 scale as a number and a 0–100 one as a percentage", async () => {
@@ -517,6 +633,10 @@ describe("Room — when the room isn't there", () => {
 
   it("keeps a slider edit made on the way out", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
+    // Sliders belong to an override, not to the derived pattern (#287) — so pick one to have any.
+    vi.mocked(api.album).mockResolvedValue(
+      asset({ patternOverride: "crossfade" }),
+    );
     const { unmount } = show();
     await loaded();
     fireEvent.change(document.querySelector('input[type="range"]')!, {

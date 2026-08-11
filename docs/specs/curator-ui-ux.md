@@ -315,10 +315,11 @@ badge, the genre tags, and the raw `{"transitionMs":…,"holdMs":…}` JSON.
 PATTERN**, beside transition, hold and brightness — because those are things you judge by watching,
 not by reading a list. That is the whole reason colour editing stays here and movement goes there.
 
-> **This is a real gap until the room lands (2026-08-05).** The picker was deleted with the rail and
-> its replacement does not exist yet, so **there is currently no way to set an album's motion from
-> the UI.** The route is unaffected and the stored `patternOverride` still plays; only the control is
-> missing. Recorded here rather than discovered later as a bug report.
+> **Closed 2026-08-09.** The gap was real twice over. The picker was deleted with the rail, leaving no
+> way to set motion at all; the room then landed with a picker offering three of the eight answers,
+> which is how it was in fact discovered later as a bug report
+> ([#287](https://github.com/dylanleatham/Marquee/issues/287)). The dock now carries all eight —
+> §6's "The dock's LIGHT PATTERN group is the Motion picker, in full".
 
 > **Two API changes this panel required** (ADR 0052), both because the screen makes a promise the
 > server did not keep:
@@ -501,13 +502,13 @@ rendered in full, the page became a document to scroll rather than a bench to wo
 workstations is the right unit because it matches how the work actually arrives: _I have the card
 art, let me go do card things._
 
-| #   | Rail item   | Contains                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| --- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1   | **Look**    | Palette (swatches, roles, reorder, reset-to-auto), the derived pattern **read-only**, the Motion picker (Auto + all seven pattern types), artwork override _(built 2026-07-25, issue #100; streaming opt-in added 2026-07-27, [ADR 0035](../adrs/0035-streaming-effect-is-a-per-album-opt-in.md); widened to every pattern type 2026-07-29, [ADR 0039](../adrs/0039-one-motion-picker-clip-patterns-are-selectable.md))_ |
-| 2   | **Video**   | Five video prompts · clip gallery · splice · attach / detach / replace                                                                                                                                                                                                                                                                                                                                                   |
-| 3   | **Card**    | Five card-art prompts · candidate set · attach / detach / replace · download print version                                                                                                                                                                                                                                                                                                                               |
-| 4   | **Preview** | Bench preview and room rehearsal (§6)                                                                                                                                                                                                                                                                                                                                                                                    |
-| 5   | **Ship**    | Tag payload + QR · `.nfc` download · mark written (sleeve / card) · verify physical                                                                                                                                                                                                                                                                                                                                      |
+| #   | Rail item   | Contains                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| --- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **Look**    | Palette (swatches, roles, reorder, reset-to-auto), the derived pattern **read-only**, artwork override _(built 2026-07-25, issue #100; streaming opt-in added 2026-07-27, [ADR 0035](../adrs/0035-streaming-effect-is-a-per-album-opt-in.md); widened to every pattern type 2026-07-29, [ADR 0039](../adrs/0039-one-motion-picker-clip-patterns-are-selectable.md); the Motion picker moved to the room's dock 2026-08-06, [ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md) — see §6)_ |
+| 2   | **Video**   | Five video prompts · clip gallery · splice · attach / detach / replace                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 3   | **Card**    | Five card-art prompts · candidate set · attach / detach / replace · download print version                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| 4   | **Preview** | Bench preview and room rehearsal (§6)                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| 5   | **Ship**    | Tag payload + QR · `.nfc` download · mark written (sleeve / card) · verify physical                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 Notes on the grouping:
 
@@ -536,26 +537,11 @@ every album: the first answer to "the motion doesn't suit this record" is still 
 colours come from ([ADR 0030](../adrs/0030-palette-from-album-feeling.md)). The derived pattern is
 displayed read-only above the picker, because it is never written by a choice made here.
 
-Beneath it, the **Motion picker** offers one list of eight
-([ADR 0039](../adrs/0039-one-motion-picker-clip-patterns-are-selectable.md)): **Auto** plus the four
-CLIP patterns (static, rotate, pulse, crossfade) and the three streaming effects (aurora, shimmer,
-wave). Auto is a peer chip, not a separate clear button — the album always has exactly one answer,
-and the default deserves to be visible as a choice. Selection carries a check glyph as well as the
-chip fill (§3.4), never colour alone.
-
-The two halves differ in one way, and the UI says which: the streaming three need an **entertainment
-area** on the bridge, so they sit in their own labelled group and the note names the derived pattern
-they fall back to without one. A CLIP pick plays on any bridge and simply displaces the derived
-pattern in the payload. Per §10 the control states this rather than degrading silently.
-
-Choosing anything but Auto and static reveals **its own knobs** as sliders
-([ADR 0036](../adrs/0036-streaming-effect-params-are-tunable.md),
-[ADR 0039](../adrs/0039-one-motion-picker-clip-patterns-are-selectable.md)) — tunable because they
-belong to the override, not to the derived pattern, so there is still no computed value being edited
-in place. Each shows its number beside the slider, since a slider alone can't be read back or
-reproduced, and saves on release rather than on every drag frame. Ranges come from
-`PATTERN_PARAM_SPECS` in `@marquee/contracts`, the same source the server validates against. Judge
-the result in **Room rehearsal** (§6.2) — bench preview never drives the lights.
+**The picker itself is not here — it moved to the room** (§6), because how the lights move is
+something you judge by watching, not by reading a list. That is the whole reason colour editing stays
+on the record and movement goes there. What the eight answers are, how Auto behaves, and which half
+needs hardware are all specified in §6's "The dock's LIGHT PATTERN group is the Motion picker, in
+full"; this panel shows the derived pattern read-only and nothing else about motion.
 
 ## 6. Preview — bench and room
 
@@ -612,10 +598,41 @@ THE ALBUM` follows the switch — desk audio on the bench
 > contract change** across the payload schema, Conductor and Palette Press — recorded in ADR 0052,
 > not silently dropped.
 >
-> The dock names CROSSFADE · PULSE · HOLD STILL. A record already on one of the three **streaming**
-> patterns ([ADR 0035](../adrs/0035-streaming-effect-is-a-per-album-opt-in.md)) gets a fourth chip
-> for the one it is on — a dock with nothing pressed reads as "no pattern" rather than "one you can't
-> see from here".
+> ### The dock's LIGHT PATTERN group is the Motion picker, in full
+>
+> _Corrected 2026-08-09 ([#287](https://github.com/dylanleatham/Marquee/issues/287)). It shipped
+> naming CROSSFADE · PULSE · HOLD STILL, with a streaming pattern appearing as a fourth chip only if
+> the record already carried one. That is three of the eight answers
+> [ADR 0039](../adrs/0039-one-motion-picker-clip-patterns-are-selectable.md) specifies: `rotate` and
+> the streaming three could not be chosen at all, and an override could not be undone._
+>
+> The group offers **all eight**, in three columns, chips built from `PATTERN_TYPES` rather than a
+> list of its own so contracts and this screen cannot drift again:
+>
+> | Column                      | Chips                                   |
+> | --------------------------- | --------------------------------------- |
+> | LEAVE IT TO ROADIE          | AUTO                                    |
+> | PLAYS ON ANY BRIDGE         | HOLD STILL · ROTATE · PULSE · CROSSFADE |
+> | NEEDS AN ENTERTAINMENT AREA | AURORA · SHIMMER · WAVE                 |
+>
+> **AUTO is a peer chip, not a clear button** — the record always has exactly one answer, and the
+> default deserves to be visible as one. It is pressed whenever `patternOverride` is absent, which is
+> the overwhelming majority of records. The group's own label names what Roadie derived
+> (`LIGHT PATTERN · ROADIE CHOSE CROSSFADE`), read-only, because a choice made here never writes it.
+>
+> The streaming three are **named as gated, never disabled**: this screen cannot see whether the
+> bridge has an entertainment area, and Conductor falls back to the derived pattern by itself where
+> there isn't one — so the column's note says which pattern that would be. Per §10 the control states
+> the condition rather than degrading silently.
+>
+> The chosen chip carries a **✓ glyph** as well as the paper fill (§3.4) — hidden from the accessible
+> name, where `aria-pressed` already says it.
+>
+> **Under AUTO there are no sliders.** The knobs belong to an override, not to the derived pattern
+> (ADR 0039, ADR 0030's surviving half) — the movement group instead reads "Roadie's own choice plays
+> here. Pick a pattern below to tune it yourself." Until #287 a slider moved under AUTO silently
+> converted the record to an override of the derived type, which is derivation edited in place under
+> another name. Choosing a chip starts that pattern from its spec defaults, per ADR 0039 §5.
 
 Preview has **two modes** ([ADR 0028](../adrs/0028-preview-bench-and-room-modes.md)). The split is
 not stylistic; it exists because the listening room may contain other people, and taking over their
