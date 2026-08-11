@@ -32,8 +32,8 @@ The queue-first workflow — Roadie does everything it can, humans work through 
 - Video thumbnail generation and format validation
 - Album-assets store on disk (JSON, human-readable, git-friendly)
 - Media store on disk for video files, artwork, thumbnails (out of git)
-- **Collection UI as the primary screen** — every record you own, art-first, each labelled with the one thing it still needs; the queue survives as a filter chip ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md), 2026-08-04, replacing "queue-view UI as the primary screen")
-- **Record UI** — the four things a record still needs (lights, a visualizer, a card, tags), done in any order ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md), replacing the five-workstation rail of [ADR 0026](../adrs/0026-album-detail-is-a-workbench.md)). All four panels built 2026-08-05; the rail is deleted
+- **Collection UI as the primary screen** — every record you own, art-first, each labelled with the one thing it still needs; the queue survives as a filter chip ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md), 2026-08-04, replacing "queue-view UI as the primary screen"). _Widened 2026-08-10 to **one chip per state plus one per need** — EVERYTHING · NOT COMPLETE · NEEDS VISUALIZER · NEEDS CARD · NEEDS SIGN-OFF · READY · NOT STARTED · STUCK ([ADR 0070](../adrs/0070-the-collection-filters-by-what-a-record-owes.md))_
+- **Record UI** — the things a record still needs (a visualizer, a card, tags), done in any order ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md), replacing the five-workstation rail of [ADR 0026](../adrs/0026-album-detail-is-a-workbench.md)). All panels built 2026-08-05; the rail is deleted. _**Lights stopped being a need 2026-08-10** ([ADR 0069](../adrs/0069-the-lights-are-not-a-need.md)) — the tab stays and is marked optional, like the demo cut; Roadie's palette is used without sign-off, so not having watched one no longer holds a record back_
 - Add-a-record UI (search, manual — plus a link out to the Discogs screen). **Paste-a-URI was removed 2026-08-06** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md), curator-ui-ux §8.7): search finds every link it accepted. `POST /api/albums/batch` is unchanged and still takes a list — it just has no screen
 - In-app **bench preview** (sleeve + palette animating alongside video, plus desk audio on the workstation's own Spotify client; no hardware touched — [ADR 0028](../adrs/0028-preview-bench-and-room-modes.md), [ADR 0037](../adrs/0037-bench-preview-audio-via-spotify-connect.md))
 - Tag payload UI (URI + QR + mark-as-written)
@@ -899,6 +899,8 @@ The primary UI is queue-shaped, per the album onboarding workflow's "you never f
 > **Superseded 2026-08-04** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).
 > The primary UI is no longer queue-shaped. The default screen is **the collection** — every record
 > you own, art-first, labelled with the one thing it still needs; the queue is one filter chip on it.
+> _(Since 2026-08-10 the bar carries one chip per state and one per need — the queue is the
+> NOT STARTED chip. [ADR 0070](../adrs/0070-the-collection-filters-by-what-a-record-owes.md).)_
 > The nine-bucket model below is Roadie's, and stays true of `GET /api/agent/queue`; it is no longer
 > what any screen renders. The replacement is specified in
 > [curator-ui-ux §8](curator-ui-ux.md#8-the-collection).
@@ -960,7 +962,9 @@ _Manual entry_ — form with title, artist, year, optional genres, and required 
 
 > **Superseded 2026-08-05** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).
 > The rail is **deleted**; the album page is now **the record** — four needs (lights, a visualizer, a
-> card, tags) done in any order, specified in [curator-ui-ux §5](curator-ui-ux.md#5-the-record). Three
+> card, tags) done in any order, specified in [curator-ui-ux §5](curator-ui-ux.md#5-the-record).
+> _(Three needs since 2026-08-10: lights became an optional tab —
+> [ADR 0069](../adrs/0069-the-lights-are-not-a-need.md).)_ Three
 > rows below are wrong about what ships and are kept only as the record of what the rail was:
 >
 > - **Video's clip gallery and manual splice are gone.** `LET ROADIE MAKE IT` generates a clip per
@@ -1195,7 +1199,7 @@ Each ends in a demoable state.
 6. **Wire Roadie to Palette Press and Spotify.** Success: add a real album, Roadie completes to `awaiting_review` with real palette and metadata.
 7. **Prompt drafting.** Template system + prompt generation. Success: `awaiting_review` state includes a generated prompt visible in the UI.
 8. **Queue view UI.** The primary screen. Success: add 10 albums, watch them flow through the queue view as Roadie processes them. _Replaced 2026-08-04 by **the collection** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)); the queue is now one filter chip on it._
-9. **Album detail — the workbench.** The five-workstation rail ([ADR 0026](../adrs/0026-album-detail-is-a-workbench.md)). Success: click into an album from the queue, land on the workstation matching its state, and be able to reach every other one — including handing over a video for an album Roadie is still processing. _Being replaced by **the record** (ADR 0052) — four needs, any order, no rail. The rail is still the running code until that lands._
+9. **Album detail — the workbench.** The five-workstation rail ([ADR 0026](../adrs/0026-album-detail-is-a-workbench.md)). Success: click into an album from the queue, land on the workstation matching its state, and be able to reach every other one — including handing over a video for an album Roadie is still processing. _Being replaced by **the record** (ADR 0052) — four needs, any order, no rail. The rail is still the running code until that lands. (Three needs since 2026-08-10, [ADR 0069](../adrs/0069-the-lights-are-not-a-need.md).)_
 10. **Bench preview.** Sleeve + palette + video combined, plus desk audio ([ADR 0037](../adrs/0037-bench-preview-audio-via-spotify-connect.md)); no hardware touched. Success: attach a video to a Roadie-completed album, see the preview render correctly with the room untouched — then start desk audio and confirm the sound comes out of the workstation, not the listening room, and stops when you leave the bench.
 11. **Video upload + attachment.** Drag-and-drop + validation + thumbnails. Success: attach a video, see it in the detail view.
 12. **Tag payload UI + write flow.** URI, QR, mark-written. Success: write your first NFC sticker end-to-end.

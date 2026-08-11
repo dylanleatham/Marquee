@@ -1401,7 +1401,7 @@ export function approvePreview(
 ): AlbumAsset {
   const now = clock(deps);
   // Read-mutate-save in one `update` rather than load/…/save. Both are synchronous here, so they
-  // are equivalent today — but the four needs are explicitly done in any order now, and the rule
+  // are equivalent today — but the needs are explicitly done in any order now, and the rule
   // that keeps a slow action from clobbering a concurrent write (#38) is worth not having to
   // re-derive from "does this function await anything?" every time it is edited.
   const saved = deps.store.update(curatorId, (a) => {
@@ -1622,10 +1622,10 @@ export function verifyTags(deps: ActionDeps, curatorId: string): AlbumAsset {
 
 /**
  * Move the machine as far along the linear human path as the **asset** says it may go, and no
- * further. The one place the four-needs model and the linear machine meet
+ * further. The one place the needs model and the linear machine meet
  * ([ADR 0063](../../../../docs/adrs/0063-the-machine-is-settled-from-the-asset-not-driven-by-the-button.md)).
  *
- * The four needs are done in any order (ADR 0052) but `HUMAN_TRANSITIONS` is a line. Rather than
+ * The needs are done in any order (ADR 0052) but `HUMAN_TRANSITIONS` is a line. Rather than
  * each button driving its own edge — which is what made both the tag step (#261) and the lights
  * sign-off (#263) unreachable when the needs before them were outstanding — every step here is
  * gated on the **evidence on the asset**, not on which control was pressed. So it settles the same

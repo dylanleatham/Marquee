@@ -1,16 +1,16 @@
 // What a record still needs (ADR 0052) — the model the collection and the record page share.
 //
 // The old UI read `roadie.state` and showed the machine's word for it ("awaiting review"). That
-// asserted an order the system does not have: nothing requires lights before a visualizer before a
-// card. Here the four needs are **independent predicates over the asset**, so "do them in any order"
-// is true by construction rather than by promise.
+// asserted an order the system does not have: nothing requires a visualizer before a card. Here the
+// needs are **independent predicates over the asset**, so "do them in any order" is true by
+// construction rather than by promise.
 //
 // Pure, no React, no DOM — the derivation is the load-bearing part, so it is unit-tested directly.
 import type { AlbumAsset, AlbumSummary, LastError, RoadieState } from "./api";
 import { isProcessing } from "./format";
 
-/** The four things a record can still need, plus the two conditions that aren't needs at all. */
-export type Need = "lights" | "visualizer" | "card" | "tags";
+/** The three things a record can still need, plus the conditions that aren't needs at all. */
+export type Need = "visualizer" | "card" | "tags";
 
 export type RecordState =
   | { kind: "ready" }
@@ -24,59 +24,55 @@ export type RecordState =
  * Reading order, not a dependency order. A record shows only its **first** outstanding need — never
  * a count, never "+1" — so this is the tie-break when more than one is missing.
  */
-export const NEED_ORDER: Need[] = ["lights", "visualizer", "card", "tags"];
+export const NEED_ORDER: Need[] = ["visualizer", "card", "tags"];
 
 /**
  * The vocabulary, settled with the user over three rounds of review (see the design handoff). These
  * words are not cosmetic: "wants you", "fully lit", "awaiting verification" were all rejected.
  *
  * **Each label names the act you still have to perform, never the artifact.** `visualizer` and `card`
- * happen to read as the artifact because there genuinely isn't one yet. The other two don't:
- * `tags` reads as NEEDS SIGN-OFF because the outstanding act is checking the tags, not burning them,
- * and `lights` reads as NEEDS A LOOK because the palette has existed since seconds after the record
- * landed — what's outstanding is watching it in the room.
- *
- * `lights` was NEEDS LIGHTS until 2026-08-07 and it actively misled: on a 500-record collection it
- * reads as "Roadie never derived a palette", which sent this project's own user looking for a broken
- * pipeline that had in fact finished (ADR 0056). 458 of the 482 records carrying that label had a
- * full four-colour palette at the time.
+ * happen to read as the artifact because there genuinely isn't one yet. `tags` doesn't: it reads as
+ * NEEDS SIGN-OFF because the outstanding act is checking the stickers, not burning them.
  */
 export const NEED_LABEL: Record<Need, string> = {
-  lights: "NEEDS A LOOK",
   visualizer: "NEEDS VISUALIZER",
   card: "NEEDS CARD",
   tags: "NEEDS SIGN-OFF",
 };
 
-/** The same four, as the record page's tabs name them. */
+/** The same three, as the record page's tabs name them. */
 export const NEED_TAB_LABEL: Record<Need, string> = {
-  lights: "Lights",
   visualizer: "A visualizer",
   card: "A card",
   tags: "Tags",
 };
 
 /**
- * The record page's tab strip is the four needs **plus** the demo cut (ADR 0058) — the first tab
- * that is not a need.
+ * The record page's tab strip is the three needs **plus** the two sections that are not needs:
+ * the lights (ADR 0069) and the demo cut (ADR 0058).
  *
  * The distinction is load-bearing, not cosmetic. A `Need` is something every record must have before
  * it goes on the shelf; the strip's heading says so, the tiles label the first outstanding one, and
- * `outstandingNeeds` is what makes "any order" true by construction. A demo cut is a preference most
- * records never express — counting it would put a permanent NEEDS DEMO CUT on 500 records that are
- * finished. So it is a *section* here and never a `Need` anywhere, and the two types stay separate
- * rather than one type with a flag.
+ * `outstandingNeeds` is what makes "any order" true by construction. The other two fail that test in
+ * the same way from opposite ends: a demo cut is a preference most records never express, and the
+ * lights are set by Roadie and used automatically, so both would put a permanent outstanding item on
+ * records that are in fact finished. So they are *sections* here and never a `Need` anywhere, and the
+ * two types stay separate rather than one type with a flag.
+ *
+ * Lights lead the strip because they are the first thing you look at on a record, not because
+ * anything waits on them.
  */
-export type RecordSection = Need | "demo";
+export type RecordSection = Need | "lights" | "demo";
 
-export const SECTION_ORDER: RecordSection[] = [...NEED_ORDER, "demo"];
+export const SECTION_ORDER: RecordSection[] = ["lights", ...NEED_ORDER, "demo"];
 
 export const SECTION_TAB_LABEL: Record<RecordSection, string> = {
   ...NEED_TAB_LABEL,
+  lights: "Lights",
   demo: "A demo cut",
 };
 
-/** Is this section one of the four things a record can still need? */
+/** Is this section one of the things a record can still need? */
 export const isNeedSection = (s: RecordSection): s is Need =>
   NEED_ORDER.includes(s as Need);
 
@@ -118,7 +114,6 @@ export function failureSentence(err: LastError | null): string {
  */
 export interface NeedFacts {
   state: RoadieState;
-  previewApprovedAt?: string | null;
   physicallyVerifiedAt?: string | null;
   hasVideo: boolean;
   hasCardArt: boolean;
@@ -128,23 +123,12 @@ export interface NeedFacts {
 /** The same facts, read off a full asset — the server's `summary()` in reverse. */
 export const needFactsOfAsset = (a: AlbumAsset): NeedFacts => ({
   state: a.roadie.state,
-  previewApprovedAt: a.verification?.previewApprovedAt ?? null,
   physicallyVerifiedAt: a.verification?.physicallyVerifiedAt ?? null,
   hasVideo: Boolean(a.visualizer),
   hasCardArt: Boolean(a.cardArt),
   /** Both tags burned. One of two is not "written" — matching the collection row exactly. */
   tagsWritten: Boolean(a.tag?.sleeve?.written && a.tag?.card?.written),
 });
-
-/**
- * Is this record's lights business finished?
- *
- * Sign-off is the test, not "has a palette" — every record has a palette within seconds of being
- * added, and approving one means having watched it in the room. That is the whole reason the room
- * screen owns the approve button.
- */
-const lightsDone = (a: NeedFacts): boolean =>
-  Boolean(a.previewApprovedAt) || a.state === "verified";
 
 /**
  * Are the tags done? Written **and** checked. Verification stays a distinct step because it catches
@@ -154,10 +138,18 @@ const lightsDone = (a: NeedFacts): boolean =>
 const tagsDone = (a: NeedFacts): boolean =>
   Boolean(a.physicallyVerifiedAt) || (a.tagsWritten && a.state === "verified");
 
-/** Every outstanding need, in reading order. Empty means the record is ready for the stand. */
+/**
+ * Every outstanding need, in reading order. Empty means the record is ready for the stand.
+ *
+ * The lights are deliberately absent (ADR 0069). They used to be a fourth need, gated on signing the
+ * preview off in the room — but Roadie pulls a palette within seconds of a record landing and the
+ * system uses it without asking, so the only records that genuinely have no lights are the ones
+ * Roadie has not reached yet, which read as `roadie` anyway. The need was therefore outstanding on
+ * every record nobody had happened to sit and watch, which is nearly all of them. Signing off still
+ * exists on the room screen; it just no longer holds a record back.
+ */
 export function outstandingNeeds(a: NeedFacts): Need[] {
   const missing: Record<Need, boolean> = {
-    lights: !lightsDone(a),
     visualizer: !a.hasVideo,
     card: !a.hasCardArt,
     tags: !tagsDone(a),

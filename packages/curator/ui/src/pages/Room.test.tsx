@@ -439,7 +439,7 @@ describe("Room — the control dock", () => {
 });
 
 describe("Room — signing off", () => {
-  /** Everything but the lights done, so signing off is genuinely the last outstanding need. */
+  /** Everything else done, so this is the only step left that anyone could call outstanding. */
   const allButLights = (over: Partial<AlbumAsset> = {}) =>
     asset({
       cardArt: { fileId: "abc12345" },
@@ -452,7 +452,13 @@ describe("Room — signing off", () => {
       ...over,
     } as Partial<AlbumAsset>);
 
-  it("returns to the collection and fires the toast when that was the last need", async () => {
+  /**
+   * The lights are not a need (ADR 0069), so signing them off can never be what finishes a record —
+   * a record with everything else done is already ready. Firing the toast here would celebrate a
+   * no-op and then walk you off the screen; the toast now lives on the record page, where the needs
+   * that remain are actually cleared.
+   */
+  it("stays put and celebrates nothing, even on a record with nothing else outstanding", async () => {
     vi.mocked(api.album).mockResolvedValue(allButLights());
     vi.mocked(api.approvePreview).mockResolvedValue({
       state: "verified",
@@ -464,10 +470,8 @@ describe("Room — signing off", () => {
     await waitFor(() =>
       expect(api.approvePreview).toHaveBeenCalledWith("abc12345"),
     );
-    expect(readyToastSnapshot()).toBe("abc12345");
-    await waitFor(() =>
-      expect(screen.getByText("the collection")).toBeTruthy(),
-    );
+    expect(readyToastSnapshot()).toBeNull();
+    expect(screen.queryByText("the collection")).toBeNull();
   });
 
   /**

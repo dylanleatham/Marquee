@@ -56,38 +56,37 @@ describe("outstandingNeeds", () => {
   });
 
   it("lists every missing thing, in reading order", () => {
-    expect(outstandingNeeds(album())).toEqual([
-      "lights",
-      "visualizer",
-      "card",
-      "tags",
-    ]);
+    expect(outstandingNeeds(album())).toEqual(["visualizer", "card", "tags"]);
   });
 
-  it("treats the four as independent — any one can be outstanding on its own", () => {
+  it("treats the three as independent — any one can be outstanding on its own", () => {
     expect(outstandingNeeds(complete({ hasVideo: false }))).toEqual([
       "visualizer",
     ]);
     expect(outstandingNeeds(complete({ hasCardArt: false }))).toEqual(["card"]);
     expect(
       outstandingNeeds(
-        complete({ previewApprovedAt: null, state: "awaiting_preview" }),
+        complete({ physicallyVerifiedAt: null, state: "awaiting_verify" }),
       ),
-    ).toEqual(["lights"]);
+    ).toEqual(["tags"]);
   });
 
-  it("counts lights as done once the preview is approved, not once a palette exists", () => {
-    // Every record has a palette within seconds of being added; approving it means having watched
-    // it in the room, which is why the room owns the button.
-    expect(outstandingNeeds(album({ paletteColors: 5 }))).toContain("lights");
-    expect(
-      outstandingNeeds(
-        complete({
-          previewApprovedAt: "2026-08-01T10:00:00.000Z",
-          state: "awaiting_video",
-        }),
-      ),
-    ).not.toContain("lights");
+  /**
+   * The lights are not a need (ADR 0069). Roadie pulls a palette within seconds of a record landing
+   * and the system washes the room with it whether or not anyone has sat and watched it, so a record
+   * nobody has signed off is finished, not outstanding. Signing off still exists on the room screen
+   * and still records a date — it just no longer holds anything back.
+   */
+  it("never asks for the lights, signed off or not", () => {
+    const unwatched = complete({
+      previewApprovedAt: null,
+      state: "awaiting_preview",
+    });
+    expect(outstandingNeeds(unwatched)).toEqual([]);
+    expect(recordState(unwatched)).toEqual({ kind: "ready" });
+    // Pins the boundary, not today's membership: a fourth need may not arrive by this name again.
+    expect(NEED_ORDER).not.toContain("lights");
+    expect(outstandingNeeds(album())).not.toContain("lights");
   });
 
   it("counts tags as done only when they are written AND checked", () => {
@@ -106,19 +105,12 @@ describe("outstandingNeeds", () => {
 });
 
 describe("the labels name the act, not the artifact", () => {
-  // The rule the lights label broke (ADR 0056). A record has a full palette within seconds of
-  // landing, so a label built from the *artifact* claims something false for the entire life of the
-  // record — which is how a finished Roadie came to look like a broken one on a 500-record
-  // collection. `visualizer` and `card` are allowed to read as their artifact because there really
-  // isn't one; `lights` and `tags` are not.
-  it("never says a record lacks lights, because it never does", () => {
-    const lit = album({ paletteColors: 4, previewApprovedAt: null });
-    // The palette is there and the need is still outstanding — that pairing is the whole point.
-    expect(lit.paletteColors).toBeGreaterThan(0);
-    expect(outstandingNeeds(lit)).toContain("lights");
-    expect(NEED_LABEL.lights).not.toMatch(/LIGHTS|PALETTE|COLOUR|COLOR/);
-  });
-
+  // The rule the old lights label broke (ADR 0056): a label built from the *artifact* claimed
+  // something false for the whole life of a record that had a palette all along, which is how a
+  // finished Roadie came to look like a broken one on a 500-record collection. That label is gone
+  // with the need (ADR 0069), but the rule it produced still governs the ones that remain.
+  // `visualizer` and `card` are allowed to read as their artifact because there really isn't one;
+  // `tags` is not.
   it("never says a record lacks tags, only that they want checking", () => {
     const written = album({ tagsWritten: true, physicallyVerifiedAt: null });
     expect(outstandingNeeds(written)).toContain("tags");
@@ -129,8 +121,8 @@ describe("the labels name the act, not the artifact", () => {
 describe("recordState", () => {
   it("shows the first outstanding need only, never a count", () => {
     const s = recordState(album());
-    expect(s).toEqual({ kind: "needs", need: "lights" });
-    expect(stateLabel(s)).toBe("NEEDS A LOOK");
+    expect(s).toEqual({ kind: "needs", need: "visualizer" });
+    expect(stateLabel(s)).toBe("NEEDS VISUALIZER");
   });
 
   it("reads a finished record as ready", () => {
@@ -200,26 +192,29 @@ describe("the vocabulary", () => {
 });
 
 /**
- * The demo cut (ADR 0058) is a *section* of the record page and never a `Need`.
+ * The lights (ADR 0069) and the demo cut (ADR 0058) are *sections* of the record page and never a
+ * `Need`.
  *
  * The separation is what stops 500 finished records growing a permanent outstanding item: the
- * collection labels the first outstanding need, and a record with no demo cut is complete. These
- * pin the boundary rather than the current membership, so adding a sixth section can't quietly
- * make it a need.
+ * collection labels the first outstanding need, and a record with lights nobody has sat and watched
+ * — or with no demo cut — is complete. These pin the boundary rather than the current membership, so
+ * a new section can't quietly become a need.
  */
 describe("sections vs needs", () => {
-  it("carries the four needs, in order, plus the demo cut last", () => {
-    expect(SECTION_ORDER).toEqual([...NEED_ORDER, "demo"]);
+  it("brackets the needs with the two tabs that aren't needs", () => {
+    expect(SECTION_ORDER).toEqual(["lights", ...NEED_ORDER, "demo"]);
+    expect(SECTION_TAB_LABEL.lights).toBe("Lights");
     expect(SECTION_TAB_LABEL.demo).toBe("A demo cut");
   });
 
-  it("calls the four needs needs, and the demo cut not one", () => {
+  it("calls the three needs needs, and the other two not needs", () => {
     for (const need of NEED_ORDER) expect(isNeedSection(need)).toBe(true);
     expect(isNeedSection("demo")).toBe(false);
+    expect(isNeedSection("lights")).toBe(false);
   });
 
-  it("never lists the demo cut among a record's outstanding needs", () => {
-    // Nothing done at all — the state where every need is outstanding — still owes no demo cut.
+  it("never lists either among a record's outstanding needs", () => {
+    // Nothing done at all — the state where every need is outstanding — still owes neither.
     const nothing = album({
       previewApprovedAt: undefined,
       hasVideo: false,
@@ -229,9 +224,10 @@ describe("sections vs needs", () => {
     });
     expect(outstandingNeeds(nothing)).toEqual(NEED_ORDER);
     expect(outstandingNeeds(nothing)).not.toContain("demo");
+    expect(outstandingNeeds(nothing)).not.toContain("lights");
   });
 
-  it("has no label for it in the collection's need vocabulary", () => {
+  it("has no label for either in the collection's need vocabulary", () => {
     expect(Object.keys(NEED_LABEL)).toEqual(NEED_ORDER);
   });
 });
@@ -253,7 +249,7 @@ describe("needFactsOfAsset", () => {
       ...over,
     }) as AlbumAsset;
 
-  it("reads a bare record as owing all four", () => {
+  it("reads a bare record as owing all three", () => {
     expect(outstandingNeeds(needFactsOfAsset(asset()))).toEqual(NEED_ORDER);
   });
 
@@ -284,14 +280,14 @@ describe("needFactsOfAsset", () => {
   });
 
   it("agrees with the collection row about the same record", () => {
-    // regression: #263 — the room decides whether to fire the ready toast from the asset while the
-    // collection draws the tile from the row. If those two ever part company, one of the screens is
-    // lying about a record the other has right.
-    const signedOffOnly = asset({
-      verification: { previewApprovedAt: "2026-08-01T10:00:00.000Z" },
+    // regression: #263 — the record page decides whether to fire the ready toast from the asset
+    // while the collection draws the tile from the row. If those two ever part company, one of the
+    // screens is lying about a record the other has right.
+    const partly = asset({
+      cardArt: { fileId: "abc12345" },
     } as Partial<AlbumAsset>);
-    const row = album({ previewApprovedAt: "2026-08-01T10:00:00.000Z" });
-    expect(outstandingNeeds(needFactsOfAsset(signedOffOnly))).toEqual(
+    const row = album({ hasCardArt: true });
+    expect(outstandingNeeds(needFactsOfAsset(partly))).toEqual(
       outstandingNeeds(row),
     );
   });

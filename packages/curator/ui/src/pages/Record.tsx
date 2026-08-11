@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, type AlbumAsset, type AlbumSummary } from "../api";
 import { usePoll } from "../hooks";
@@ -6,6 +6,7 @@ import {
   SECTION_ORDER,
   SECTION_TAB_LABEL,
   isNeedSection,
+  needFactsOfAsset,
   outstandingNeeds,
   recordState,
   roadieNarration,
@@ -14,6 +15,7 @@ import {
 } from "../needs";
 import { artworkSrc } from "../components/common";
 import { errorMessage } from "../errors";
+import { showReadyToast } from "../readyToast";
 import { LightsPanel } from "../components/LightsPanel";
 import { VisualizerPanel } from "../components/VisualizerPanel";
 import { CardPanel } from "../components/CardPanel";
@@ -22,7 +24,7 @@ import { DemoPanel } from "../components/DemoPanel";
 import type { Run } from "../run";
 
 /**
- * The record (ADR 0052) — one page listing the four things a record still needs, done in any order.
+ * The record (ADR 0052) — one page listing the three things a record still needs, done in any order.
  *
  * It replaces the five-station rail (Look → Video → Card → Preview → Ship), which asserted an order
  * the system does not have. There is no stepper, no machine-state name, and no readiness gate: every
@@ -30,8 +32,9 @@ import type { Run } from "../run";
  *
  * Preview is not a tab. Signing the lights off means having watched them, so that lives in the room.
  *
- * **One tab is not a need**: the demo cut (ADR 0058), set apart at the end of the strip. The heading
- * still names the four, because a record with no demo cut is finished — see `RecordSection`.
+ * **Two tabs are not needs**: the lights (ADR 0069) and the demo cut (ADR 0058), which bracket the
+ * strip. The heading still names only the needs, because a record with lights it has never sat and
+ * watched — or with no demo cut — is finished. See `RecordSection`.
  */
 const isSection = (s: string | undefined): s is RecordSection =>
   SECTION_ORDER.includes(s as RecordSection);
@@ -63,6 +66,30 @@ export function Record({ albums }: { albums: AlbumSummary[] | null }) {
     },
     [refresh],
   );
+
+  /**
+   * "<Title> is ready" fires from here, because this is where the last need is cleared (ADR 0069).
+   *
+   * It used to fire from the room, off the sign-off button — the only need that screen could clear.
+   * Now that the lights are not a need, the three that remain are all cleared by the panels below,
+   * and they reach the same funnel: every one of them ends in `refresh()`, which lands here as a new
+   * `asset`. So this watches the record rather than any one action, and picks up a card attached in
+   * another tab just as readily.
+   *
+   * The transition is what fires it, never the state: the first `asset` seen only seeds the ref, so
+   * opening a record that was already finished stays quiet. Keying the ref by id rather than
+   * resetting it on navigation means stepping PREV/NEXT onto a ready record can't celebrate it
+   * either.
+   */
+  const seen = useRef<{ id: string; left: number } | null>(null);
+  useEffect(() => {
+    if (!asset) return;
+    const left = outstandingNeeds(needFactsOfAsset(asset)).length;
+    const before = seen.current;
+    seen.current = { id: curatorId, left };
+    if (before?.id === curatorId && before.left > 0 && left === 0)
+      showReadyToast(curatorId);
+  }, [asset, curatorId]);
 
   /**
    * The neighbours, in the order `GET /api/albums` returns them (newest first).

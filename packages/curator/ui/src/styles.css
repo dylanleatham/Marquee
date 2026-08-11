@@ -492,8 +492,12 @@ a:hover {
 
 /* ---- filter bar ----------------------------------------------------------------------------- */
 
+/* Wraps since ADR 0070: one chip per state is eight of them, which no longer fits beside the search
+   on a 1280 window. The chips carry their own bottom rule so a wrapped second row still reads as
+   ruled paper — on a single row it lands exactly on the bar's own border and is invisible. */
 .filterbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: stretch;
   border-bottom: 1px solid var(--pp-rule);
 }
@@ -501,6 +505,7 @@ a:hover {
   padding: 13px 20px;
   border: 0;
   border-right: 1px solid var(--pp-rule);
+  border-bottom: 1px solid var(--pp-rule);
   cursor: pointer;
   font: 500 10.5px/1 var(--pp-mono);
   letter-spacing: 0.14em;
@@ -515,14 +520,16 @@ a:hover {
   background: var(--pp-ink);
   color: var(--pp-paper);
 }
+/* `flex: 1 0 auto` with a real min-width, not `flex: 1; min-width: 0` — the latter let the search
+   input shrink towards nothing rather than ever letting the tools drop to their own row. */
 .filterbar__tools {
-  flex: 1;
+  flex: 1 0 auto;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 16px;
-  padding: 0 20px;
-  min-width: 0;
+  padding: 10px 20px;
+  min-width: 320px;
 }
 .filterbar__search {
   font: 400 13px/1 var(--pp-body);
@@ -918,7 +925,7 @@ a:hover {
 }
 
 /* ==================================================================================================
-   THE RECORD — a 310px sidebar and the four needs, done in any order
+   THE RECORD — a 310px sidebar and the needs, done in any order
    ================================================================================================ */
 
 .record {
