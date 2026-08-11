@@ -5,8 +5,8 @@
   "type": "module",
   "description": "Cross-service boundary tests. Validates fixtures + reference payloads against the shared schemas.",
   "scripts": {
-    "test": "node --test",
-    "test:contracts": "node --test",
+    "test": "node ../scripts/node-test.mjs",
+    "test:contracts": "node ../scripts/node-test.mjs",
     "type-check": "echo \"(no ts here yet)\"",
     "lint": "echo \"(no linter configured yet)\""
   },

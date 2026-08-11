@@ -4,7 +4,9 @@ import {
   parseCuratorUri,
   curatorUri,
   scanIgnoredReason,
+  readPatternOverride,
   CURATOR_URI_KINDS,
+  PATTERN_TYPES,
 } from "@marquee/contracts";
 
 // The scan-URI kind (album=sleeve, card=card, demo=one chosen track) is a cross-service fact
@@ -78,4 +80,74 @@ test("scanIgnoredReason treats anything that isn't an explicit ignore as acted o
   assert.equal(scanIgnoredReason(undefined), null);
   assert.equal(scanIgnoredReason("ignored"), null);
   assert.equal(scanIgnoredReason(42), null);
+});
+
+// --- readPatternOverride: the ADR 0039 field rename, read from both generations ------------------
+// Conductor reads the synced album-asset store directly (ADR 0019) rather than asking Curator, so an
+// album last saved under ADR 0035's `streamingEffect`/`streamingParams` must still play what its
+// owner chose. That makes the rename a cross-service compatibility fact, which is why the guard
+// lives here rather than in one service's unit tests.
+
+test("readPatternOverride reads the current field names", () => {
+  assert.deepEqual(
+    readPatternOverride({
+      patternOverride: "aurora",
+      patternOverrideParams: { speed: 0.2 },
+    }),
+    { type: "aurora", params: { speed: 0.2 } },
+  );
+});
+
+test("readPatternOverride still honours assets written before the ADR 0039 rename", () => {
+  assert.deepEqual(
+    readPatternOverride({
+      streamingEffect: "shimmer",
+      streamingParams: { intensity: 0.5 },
+    }),
+    { type: "shimmer", params: { intensity: 0.5 } },
+  );
+});
+
+test("readPatternOverride prefers the current name when an asset carries both", () => {
+  // A re-saved album keeps its legacy keys; the new field is the one the human last touched, and
+  // its params must not be crossed with the old effect's.
+  assert.deepEqual(
+    readPatternOverride({
+      patternOverride: "wave",
+      patternOverrideParams: { angleDeg: 90 },
+      streamingEffect: "aurora",
+      streamingParams: { speed: 0.4 },
+    }),
+    { type: "wave", params: { angleDeg: 90 } },
+  );
+});
+
+test("readPatternOverride reports no override for the default, untouched album", () => {
+  for (const asset of [
+    {},
+    { patternOverride: null },
+    { streamingEffect: null },
+  ])
+    assert.deepEqual(readPatternOverride(asset), { type: null, params: {} });
+});
+
+test("readPatternOverride drops a value that isn't a known pattern", () => {
+  // Best-effort posture: an unrecognized override is ignored so the derived pattern plays, rather
+  // than propagating a type no renderer knows into the payload.
+  assert.deepEqual(
+    readPatternOverride({
+      patternOverride: "strobe",
+      patternOverrideParams: { speed: 1 },
+    }),
+    { type: null, params: {} },
+  );
+});
+
+test("readPatternOverride accepts every declared pattern type", () => {
+  // Enumerated, so an eighth pattern is covered here the moment it is declared.
+  for (const type of PATTERN_TYPES)
+    assert.deepEqual(readPatternOverride({ patternOverride: type }), {
+      type,
+      params: {},
+    });
 });

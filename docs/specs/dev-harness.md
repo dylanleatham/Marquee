@@ -549,6 +549,9 @@ Keep local helpers here, not scattered in package.json's `scripts` field. Exampl
 - `scripts/gen-schemas.ts` — generate TS types from JSON schemas
 - `scripts/gen-python-models.py` — generate Pydantic models from JSON schemas
 - `scripts/smoke.ts` — smoke test the whole stack after setup
+- `scripts/node-test.mjs` — `node --test`, except that discovering zero tests fails instead of
+  passing (§11, [ADR 0066](../adrs/0066-a-test-task-that-runs-no-tests-is-a-failure.md)). Every
+  package that drives node's test runner calls this rather than `node --test`.
 
 ## 9. Secret management
 
@@ -579,6 +582,32 @@ The harness needs its own observability so you can trust it. Signals to surface:
 - **Prompt regression signals** — periodic re-benchmarks in `review-agents/eval/` catch cases where a prompt change degrades finding quality. Not urgent early; nice to have once agents have been running for a month.
 
 None of these need dashboards early on. Log to files, spot-check periodically, revisit if signals stay noisy.
+
+### A check that measures nothing must not report green
+
+The failure this harness keeps having is not a check that breaks — it's a check that goes quiet. It
+has happened three times, and each time the green tick was indistinguishable from a real pass:
+ffmpeg tests skipping because CI never installed the binary
+([#180](https://github.com/dylanleatham/Marquee/issues/180),
+[#217](https://github.com/dylanleatham/Marquee/issues/217)); `VITEST_MAX_FORKS` stripped by turbo's
+strict env mode so the fork cap never applied
+([#223](https://github.com/dylanleatham/Marquee/issues/223)); and `node --test` discovering zero test
+files and exiting 0 ([#283](https://github.com/dylanleatham/Marquee/issues/283)).
+
+So the standing rule: **a check that cannot demonstrate it measured something is a failure, not a
+pass.** Concretely, today —
+
+- `scripts/node-test.mjs` wraps every `node --test` caller and fails a run that reported `# tests 0`.
+  `packages/curator/test/node-test-guard.test.ts` tests that wrapper and also asserts no package.json
+  reintroduces a bare `node --test`. See
+  [ADR 0066](../adrs/0066-a-test-task-that-runs-no-tests-is-a-failure.md).
+- `MARQUEE_REQUIRE_FFMPEG` turns a missing ffmpeg into a hard failure instead of a silent skip on the
+  `test:integration` leg (`packages/curator/test/ffmpeg-gate.ts`).
+- `packages/curator/test/workflow-turbo-env.test.ts` fails if a workflow sets a variable `turbo.json`
+  doesn't declare, since strict env mode would otherwise drop it before the tests saw it.
+
+When you add a check, ask what its output looks like when it is silently doing nothing. If that's the
+same as success, the check isn't finished.
 
 Ongoing costs: Claude Code subscription for local runs (already paid); some GitHub Actions minutes for CI (mostly free on private repos under limits). No per-PR API token costs unless you deliberately run agents outside the subscription flow.
 
