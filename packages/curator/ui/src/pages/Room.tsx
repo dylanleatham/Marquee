@@ -15,13 +15,11 @@ import {
   type PatternType,
 } from "../api";
 import { usePoll } from "../hooks";
-import { needFactsOfAsset, outstandingNeeds } from "../needs";
 import { relativeTime } from "../format";
 import { artworkSrc } from "../components/common";
 import { errorMessage } from "../errors";
 import { paletteWash } from "../components/VisualizerPanel";
 import { setRoomArm, useRoomArm } from "../roomArm";
-import { showReadyToast } from "../readyToast";
 
 /**
  * The room (ADR 0052) — one screen where bench preview and the real thing used to be two.
@@ -348,9 +346,11 @@ export function Room({ albums }: { albums: AlbumSummary[] | null }) {
   /**
    * Sign-off asks about the **record**, not about the machine (ADR 0063). The old gate was
    * `state === "awaiting_preview"`, whose only entrance is attaching a visualizer — so on a record
-   * with no visualizer the button was permanently dead and the lights need could never be marked
-   * done (#263). The two live reasons it can be off are both about this record: you have already
-   * done it, or there are no lights to look at yet.
+   * with no visualizer the button was permanently dead (#263). The two live reasons it can be off
+   * are both about this record: you have already done it, or there are no lights to look at yet.
+   *
+   * Since ADR 0069 this records that you watched the lights and liked them; it no longer clears a
+   * need, because the lights stopped being one.
    */
   const approvedAt = asset.verification?.previewApprovedAt;
   const lit = (asset.palette?.colors.length ?? 0) > 0;
@@ -360,31 +360,18 @@ export function Room({ albums }: { albums: AlbumSummary[] | null }) {
     : "Roadie hasn't pulled the lights for this record yet.";
 
   /**
-   * Signing off **confirms in place**. It used to return to the collection and fire the ready toast
-   * unconditionally — so the only evidence you had signed anything off was a toast claiming all four
-   * needs were done, on a record that usually still needed three of them (#263).
+   * Signing off **confirms in place** — it does not navigate, and it does not celebrate.
    *
-   * The toast keeps its meaning by being fired only when it is true: this was the last outstanding
-   * need. Then the collection is where you want to be, because this record is finished.
-   *
-   * The other three needs are read from the polled asset, which can be up to 5s stale — so a card
-   * attached in another tab a moment ago means the toast is skipped, not that it fires wrongly. That
-   * is the right way round: the collection tile says READY on its next tick either way, and a missed
-   * celebration costs nothing where a false "all done" is the bug this replaced.
+   * It used to return to the collection and fire the ready toast when sign-off cleared the last
+   * outstanding need (#263). Since ADR 0069 the lights are not a need, so approving one can never be
+   * what finishes a record: the check could only ever have passed on a record that was already
+   * complete, which would have thrown a "ready!" toast at a no-op and then walked you off the screen.
+   * The toast now fires from the record page, where the needs that remain are actually cleared.
    */
   const approve = () =>
     void drive(async () => {
-      const done = await api.approvePreview(curatorId);
+      await api.approvePreview(curatorId);
       refresh();
-      const left = outstandingNeeds({
-        ...needFactsOfAsset(asset),
-        state: done.state,
-        previewApprovedAt: done.previewApprovedAt,
-      });
-      if (left.length === 0) {
-        showReadyToast(curatorId);
-        navigate("/");
-      }
     });
 
   const roomName =

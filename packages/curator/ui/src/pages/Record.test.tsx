@@ -42,6 +42,7 @@ vi.mock("../api", () => ({
 }));
 
 import { api, type AlbumAsset, type AlbumSummary } from "../api";
+import { dismissReadyToast, readyToastSnapshot } from "../readyToast";
 import { Record } from "./Record";
 
 const ASSET = {
@@ -202,15 +203,32 @@ describe("Record — the needs tabs", () => {
   it("marks what is done with a glyph and a word, never colour alone", async () => {
     show();
     await loaded();
-    const lights = screen.getByRole("button", { name: /Lights/ });
-    expect(lights.textContent).toContain("○");
-    expect(lights.textContent).toContain("still needed");
+    const visualizer = screen.getByRole("button", { name: /A visualizer/ });
+    expect(visualizer.textContent).toContain("○");
+    expect(visualizer.textContent).toContain("still needed");
   });
 
   /**
-   * The demo cut (ADR 0058) is the first tab that is not a need. It must be reachable like the rest
-   * and must **not** wear a need's marking — a hollow glyph or "still needed" there would put a
-   * permanent outstanding item on every finished record, which is the ADR 0056 misreading again.
+   * The lights are not a need (ADR 0069): Roadie pulls a palette within seconds and the system uses
+   * it without asking, so a record nobody has sat and watched is finished, not outstanding. The tab
+   * stays — you can still look at the lights and change them — but it wears the optional marking,
+   * exactly like the demo cut. A hollow glyph here would put a permanent outstanding item back on
+   * every finished record, which is the ADR 0056 misreading all over again.
+   */
+  it("offers the lights as a tab, marked optional rather than outstanding", async () => {
+    show();
+    await loaded();
+    const lights = screen.getByRole("button", { name: /Lights/ });
+
+    expect((lights as HTMLButtonElement).disabled).toBe(false);
+    expect(lights.textContent).not.toContain("○");
+    expect(lights.textContent).not.toContain("still needed");
+    expect(lights.textContent).toContain("optional");
+  });
+
+  /**
+   * The demo cut (ADR 0058) is the other tab that is not a need, and must not wear a need's marking
+   * for the same reason.
    */
   it("offers the demo cut as a fifth tab, marked as optional rather than outstanding", async () => {
     show();
@@ -281,6 +299,55 @@ describe("Record — states it owes", () => {
       (screen.getByRole("button", { name: "↑ PREV" }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
+  });
+});
+
+/**
+ * "<Title> is ready" moved here from the room in ADR 0069: with the lights no longer a need, the
+ * three that remain are all cleared by this page's panels, and every one of them ends in the
+ * `refresh()` that lands as a new asset here.
+ *
+ * The transition is what fires it, never the state — otherwise merely opening a finished record
+ * would celebrate it, and the poll would re-fire every three seconds.
+ */
+describe("Record — the ready toast", () => {
+  const finished = {
+    ...ASSET,
+    roadie: { ...ASSET.roadie, state: "verified" },
+    visualizer: { fileId: "2k7bxq9m" },
+    cardArt: { fileId: "2k7bxq9m" },
+    tag: {
+      payload: "p",
+      sleeve: { written: true },
+      card: { written: true },
+    },
+    verification: { physicallyVerifiedAt: "2026-08-07T10:00:00.000Z" },
+  } as unknown as AlbumAsset;
+
+  beforeEach(() => dismissReadyToast());
+  afterEach(() => dismissReadyToast());
+
+  it("fires when the last need is cleared while you are looking at it", async () => {
+    vi.mocked(api.album).mockResolvedValueOnce(ASSET);
+    show();
+    await loaded();
+    expect(readyToastSnapshot()).toBeNull();
+
+    // The next poll brings back a record with nothing outstanding — what attaching the last card
+    // looks like from here, whichever panel did it.
+    vi.mocked(api.album).mockResolvedValue(finished);
+    await waitFor(() => expect(readyToastSnapshot()).toBe("2k7bxq9m"), {
+      timeout: 5000,
+    });
+  });
+
+  it("stays quiet on a record that was already finished when you opened it", async () => {
+    vi.mocked(api.album).mockResolvedValue(finished);
+    show();
+    await loaded();
+    // Two polls' worth: the first seeds the watcher, and a state-based check would fire on either.
+    await waitFor(() => expect(api.album).toHaveBeenCalled());
+    expect(readyToastSnapshot()).toBeNull();
   });
 });
 

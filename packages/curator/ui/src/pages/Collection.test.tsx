@@ -116,9 +116,11 @@ describe("Collection — the grid", () => {
 
   it("labels a record with its first outstanding need only — never a count", () => {
     show();
-    // Purple Rain is missing all four; the tile says one thing.
-    expect(within(tile("Purple Rain")).getByText("NEEDS A LOOK")).toBeTruthy();
-    expect(within(tile("Purple Rain")).queryByText(/\+\d|\d of 4/)).toBeNull();
+    // Purple Rain is missing all three; the tile says one thing.
+    expect(
+      within(tile("Purple Rain")).getByText("NEEDS VISUALIZER"),
+    ).toBeTruthy();
+    expect(within(tile("Purple Rain")).queryByText(/\+\d|\d of 3/)).toBeNull();
     expect(within(tile("Aja")).getByText("NEEDS VISUALIZER")).toBeTruthy();
     expect(within(tile("Blue")).getByText("READY")).toBeTruthy();
   });
@@ -130,7 +132,7 @@ describe("Collection — the grid", () => {
     show();
     const folded = (title: string) =>
       Boolean(tile(title).querySelector(".tile__sleeve--needs"));
-    expect(folded("Purple Rain")).toBe(true); // needs a look
+    expect(folded("Purple Rain")).toBe(true); // needs a visualizer, a card and signing off
     expect(folded("Aja")).toBe(true); // needs a visualizer
     expect(folded("Blue")).toBe(false); // ready
     expect(folded("Kind of Blue")).toBe(false); // Roadie has it
@@ -222,7 +224,7 @@ describe("Collection — the stat band", () => {
 
   it("says what the outstanding work actually is", () => {
     show();
-    expect(screen.getByText("one still needs a look")).toBeTruthy();
+    expect(screen.getByText("two still need a visualizer")).toBeTruthy();
   });
 
   it("advances to the next statistic when clicked, and says which one it is", () => {
@@ -247,15 +249,20 @@ describe("Collection — filtering and grouping", () => {
     const headings = screen
       .getAllByRole("heading")
       .map((h) => h.textContent ?? "");
-    expect(headings).toEqual(["NEEDS A LOOK· 1", "NEEDS VISUALIZER· 1"]);
-    // Nothing needs a card or signing off today, so those headings are not drawn at all.
+    // Both not-complete records are first-need visualizer, so the groups are one heading, not two:
+    // the grouped view stays first-need so a sleeve appears once (ADR 0070).
+    expect(headings).toEqual(["NEEDS VISUALIZER· 2"]);
+    // Nothing has a card or signing off as its *first* need today, so those aren't drawn at all.
     expect(headings.join()).not.toMatch(/NEEDS CARD|NEEDS SIGN-OFF/);
   });
 
   it("gives a failure its own row, with a sentence and a way out", () => {
     show();
     fireEvent.click(screen.getByRole("button", { name: /NOT COMPLETE · 2/ }));
-    expect(screen.getByText("STUCK · 1")).toBeTruthy();
+    // Scoped to the row rather than the page: the STUCK chip in the filter bar carries the same
+    // count, the same way NOT COMPLETE appears in both the stat band and a chip.
+    const row = document.querySelector(".stuck") as HTMLElement;
+    expect(within(row).getByText("STUCK · 1")).toBeTruthy();
     expect(screen.getByText(/Roadie couldn't find this anywhere/)).toBeTruthy();
     expect(screen.getByRole("link", { name: "FIX IT" })).toBeTruthy();
   });
@@ -282,6 +289,85 @@ describe("Collection — filtering and grouping", () => {
       target: { value: "zzzz" },
     });
     expect(screen.getByText("Nothing matches that")).toBeTruthy();
+  });
+});
+
+/**
+ * One chip per state, and one per need (ADR 0070). The chips are how you sit down to do a batch of
+ * one kind of work, which is the thing the three-chip bar could not express.
+ */
+describe("Collection — a chip per state", () => {
+  const chip = (name: RegExp) => screen.getByRole("button", { name });
+
+  it("offers every state a record can be in", () => {
+    show();
+    for (const name of [
+      /^EVERYTHING$/,
+      /NOT COMPLETE · 2/,
+      /NEEDS VISUALIZER · 2/,
+      /NEEDS CARD · 1/,
+      /NEEDS SIGN-OFF · 1/,
+      /READY · 1/,
+      /NOT STARTED · 1/,
+      /STUCK · 1/,
+    ])
+      expect(chip(name)).toBeTruthy();
+  });
+
+  it("shows every record that owes the thing, not just the ones it is first for", () => {
+    // Purple Rain owes all three, so it belongs under NEEDS CARD as much as under NEEDS
+    // VISUALIZER — the point of the chips. Aja has a card, so it does not.
+    show();
+    fireEvent.click(chip(/NEEDS CARD · 1/));
+    expect(screen.getByText("Purple Rain")).toBeTruthy();
+    expect(screen.queryByText("Aja")).toBeNull();
+  });
+
+  it("labels the tiles with the need you picked, not their first one", () => {
+    show();
+    fireEvent.click(chip(/NEEDS CARD · 1/));
+    expect(within(tile("Purple Rain")).getByText("NEEDS CARD")).toBeTruthy();
+    expect(
+      within(tile("Purple Rain")).queryByText("NEEDS VISUALIZER"),
+    ).toBeNull();
+  });
+
+  it("marks the chip you are on, and only that one", () => {
+    show();
+    fireEvent.click(chip(/NEEDS CARD · 1/));
+    expect(chip(/NEEDS CARD · 1/).getAttribute("aria-pressed")).toBe("true");
+    expect(chip(/^EVERYTHING$/).getAttribute("aria-pressed")).toBe("false");
+    expect(chip(/NOT COMPLETE · 2/).getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("reaches the records Roadie is holding, which no work chip includes", () => {
+    show();
+    fireEvent.click(chip(/NOT STARTED · 1/));
+    expect(screen.getByText("Kind of Blue")).toBeTruthy();
+    expect(screen.queryByText("Purple Rain")).toBeNull();
+  });
+
+  it("shows the stuck ones as rows with a way out, not as tiles", () => {
+    show();
+    fireEvent.click(chip(/STUCK · 1/));
+    expect(screen.getByText(/Roadie couldn't find this anywhere/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "FIX IT" })).toBeTruthy();
+    expect(screen.queryByText("Purple Rain")).toBeNull();
+  });
+
+  it("hides STUCK entirely when nothing is stuck", () => {
+    // A permanent STUCK · 0 offers a category of failure to a collection that has none. The other
+    // chips are the standing vocabulary and stay put at zero.
+    show(LIBRARY.filter((a) => a.state !== "errored"));
+    expect(screen.queryByRole("button", { name: /STUCK/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /READY · 1/ })).toBeTruthy();
+  });
+
+  it("says the filter cleared it, rather than blaming a search you didn't type", () => {
+    show(LIBRARY.filter((a) => a.curatorId === "5j9wqz1r")); // just the ready one
+    fireEvent.click(chip(/NEEDS CARD · 0/));
+    expect(screen.getByText("Nothing here right now")).toBeTruthy();
+    expect(screen.queryByText(/clear the search/)).toBeNull();
   });
 });
 

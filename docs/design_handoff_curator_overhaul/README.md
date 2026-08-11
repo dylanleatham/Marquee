@@ -13,10 +13,13 @@ of nine machine states, and an **album detail** page with a five-station rail
 The overhaul replaces that with **three places**:
 
 1. **The collection** — every record you own, art-first, in a shuffled grid. The old
-   queue survives only as a filter chip.
+   queue survives only as a filter chip. _(Since 2026-08-10 the bar carries one chip
+   per state and one per need; the queue is the NOT STARTED chip —
+   [ADR 0070](../adrs/0070-the-collection-filters-by-what-a-record-owes.md).)_
 2. **The record** — one page listing the four things a record still needs (lights,
    a visualizer, a card, tags), done in any order. No stepper, no rail, no
-   machine-state names in the UI.
+   machine-state names in the UI. _(Three since 2026-08-10: lights became an optional
+   tab like the demo cut — [ADR 0069](../adrs/0069-the-lights-are-not-a-need.md).)_
 3. **The room** — a full-bleed simulation of the actual listening room, washed in the
    record's own palette. This is also where a record gets signed off, so approving
    always means having just watched it.
@@ -90,7 +93,8 @@ cosmetic; the old words were rejected. Nothing in the UI should say otherwise.
 | the collection | the wall, the queue |
 | **Not complete** | wants you, needs you |
 | **Ready** | fully lit, lit, verified |
-| **Needs a look** | **Needs Lights**, needs colours, awaiting review |
+| ~~**Needs a look**~~ retired 2026-08-10 ([ADR 0069](../adrs/0069-the-lights-are-not-a-need.md)) | **Needs Lights**, **Needs a look**, needs colours, awaiting review |
+| **Not started** | queued, pending, fresh |
 | **Needs Visualizer** | needs video, needs a moving picture, awaiting video |
 | **Needs Card** | awaiting card |
 | **Needs Sign-off** | awaiting verification |
@@ -251,8 +255,10 @@ Replaces `pages/QueueView.tsx`.
 
 **Stat band** — four cells in a row, `background:#EFEBE2`, hairline-separated.
 
-- NOT COMPLETE — count in accent, plus a one-line detail ("three still need a look";
-  ~~"three still need lights"~~ **changed 2026-08-07**, [ADR 0056](../adrs/0056-need-labels-name-the-act-not-the-artifact.md)).
+- NOT COMPLETE — count in accent, plus a one-line detail ("two still need a visualizer";
+  ~~"three still need lights"~~ **changed 2026-08-07**, [ADR 0056](../adrs/0056-need-labels-name-the-act-not-the-artifact.md);
+  ~~"three still need a look"~~ **changed 2026-08-10** — lights is no longer a need,
+  [ADR 0069](../adrs/0069-the-lights-are-not-a-need.md)).
 - READY — count in ink, "ready for the stand".
 - NOT STARTED — count in ink, "Roadie will get to them".
 - **The rotating stat** (`flex:1.5`) — a button. Clicking advances it. Shows
@@ -275,6 +281,14 @@ then right-aligned: a bottom-ruled search input (170px, no border except
 `border-bottom`, `outline:none`), SHUFFLED ↻, and a density cycler
 (DENSITY ▪▫▫ / ▪▪▫ / ▪▪▪ → 5 / 7 / 9 columns).
 
+> **Widened 2026-08-10** ([ADR 0070](../adrs/0070-the-collection-filters-by-what-a-record-owes.md)):
+> one chip per state and one per need — EVERYTHING · NOT COMPLETE · n · NEEDS VISUALIZER · n ·
+> NEEDS CARD · n · NEEDS SIGN-OFF · n · READY · n · NOT STARTED · n · STUCK · n. A need chip shows
+> every record that still **owes** that thing, not just the ones it is first for, and relabels its
+> tiles to the need you picked. EVERYTHING carries no count; STUCK is dropped when nothing is stuck.
+> The bar now wraps — eight chips do not fit beside the search at 1280 — and the chips carry their
+> own bottom rule so a wrapped row still reads as ruled paper.
+
 **The grid** — `display:grid` with `grid-template-columns:repeat(n, minmax(0,1fr))`.
 Each tile is a button: square artwork, then the title (Helvetica 600 12.5px), the
 byline, and the **first outstanding need only** — never a count, never "+1". Ready
@@ -285,13 +299,19 @@ last cell is a dashed "Add a record" tile.
 across re-renders within a visit but different next time; SHUFFLED ↻ reseeds.
 
 **Grouped mode** — selecting NOT COMPLETE regroups the grid under section headers
-(NEEDS A LOOK · n, NEEDS VISUALIZER · n, NEEDS CARD · n, NEEDS SIGN-OFF · n).
+(NEEDS VISUALIZER · n, NEEDS CARD · n, NEEDS SIGN-OFF · n).
 **Changed 2026-08-07** ([ADR 0056](../adrs/0056-need-labels-name-the-act-not-the-artifact.md)):
 the lights group was ~~NEEDS LIGHTS~~, which claimed a palette was missing when one always exists.
 A need label names the act, never the artifact.
+**Changed again 2026-08-10** ([ADR 0069](../adrs/0069-the-lights-are-not-a-need.md)): the
+~~NEEDS A LOOK~~ group is gone with the need. Renaming the label had fixed the sentence and left
+the claim — it was outstanding on every record nobody had personally watched, which is nearly all
+of them.
+**Grouping stays first-need**, so a sleeve appears exactly once here even though it may answer to
+several per-need chips ([ADR 0070](../adrs/0070-the-collection-filters-by-what-a-record-owes.md)).
 **Empty groups are not rendered at all.** Below them sits a single STUCK · 1 row on
 `#F7ECE9`: a `?` placeholder, the record name, the plain-English failure sentence,
-and a FIX IT button.
+and a FIX IT button — the same row that is the whole page under the STUCK chip.
 
 **Roadie's log** — ~~a footer strip~~ a strip **docked to the bottom of the window**
 (**changed 2026-08-07**, [ADR 0055](../adrs/0055-roadies-log-is-docked-to-the-window-not-to-the-page.md):
@@ -514,7 +534,9 @@ it is."
 | Click the stat panel | advance to the next of the five stats |
 | Click SHUFFLED ↻ | reseed the grid order |
 | Click the density cycler | 5 → 7 → 9 → 5 columns |
-| Select NOT COMPLETE | regroup by need; drop empty groups |
+| Select NOT COMPLETE | regroup by first need; drop empty groups |
+| Select a need chip | every record still owing that thing, relabelled to it |
+| Select NOT STARTED / STUCK | the records no work chip includes; STUCK draws as rows |
 | Type in search | filter on title + artist, case-insensitive |
 | Click THE WHOLE LOG | expand/collapse the session log |
 | Click a needs tab | swap the panel; no navigation |

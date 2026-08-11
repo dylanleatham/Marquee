@@ -198,14 +198,14 @@ checked before it lands.
 
 > **The principle survives; the rail that carried it does not (2026-08-05,
 > [ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).** "Providing an
-> artifact is never gated" was right, and the record page keeps it — all four needs are open at all
+> artifact is never gated" was right, and the record page keeps it — every need is open at all
 > times. What went is the **five-station rail** that expressed it, along with the readiness chips,
 > the stepper and the `1`–`5` keys. `rail.ts`, `PeerNav.tsx`, `PaletteEditor.tsx` and
 > `AlbumDetail.tsx` are deleted; the record page is specified in §5 below.
 >
 > The rail's own failure was subtler than gating: it asserted an **order** — Look → Video → Card →
-> Preview → Ship — that the system does not have. Nothing requires lights before a visualizer. The
-> replacement makes the four needs independent predicates over the assets, so "any order" is true by
+> Preview → Ship — that the system does not have. Nothing requires a card before a visualizer. The
+> replacement makes the needs independent predicates over the assets, so "any order" is true by
 > construction rather than by a rule the UI has to keep.
 
 **The album detail page is a workbench, not a guided session** ([ADR 0026](../adrs/0026-album-detail-is-a-workbench.md)).
@@ -244,8 +244,9 @@ privately and two of them landed the other way.
 > **Rewritten 2026-08-05** ([ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md)).
 > All four panels are built and the rail is deleted. §5.2 below is kept as the record of what it was.
 
-One page listing the four things a record still needs — **Lights · A visualizer · A card · Tags** —
-done in any order. No stepper, no rail, no machine-state name.
+One page listing the things a record still needs — **A visualizer · A card · Tags** — done in any
+order, bracketed by two tabs that are not needs: **Lights** first and **A demo cut** last. No
+stepper, no rail, no machine-state name.
 
 > **A fifth tab that is not a need (2026-08-08,
 > [ADR 0058](../adrs/0058-a-demo-tag-plays-one-chosen-track.md)).** **A demo cut** sits after the four,
@@ -255,6 +256,22 @@ done in any order. No stepper, no rail, no machine-state name.
 > [ADR 0056](../adrs/0056-need-labels-name-the-act-not-the-artifact.md) exists to prevent. `Need` and
 > `RecordSection` are separate types in `needs.ts` for exactly this reason, and the collection's tile
 > labels are unchanged. See §5.3.
+
+> **Lights joined it 2026-08-10** ([ADR 0069](../adrs/0069-the-lights-are-not-a-need.md)). The strip
+> is now **Lights · A visualizer · A card · Tags · A demo cut**, of which only the middle three are
+> needs. `lights` was true only once a human had opened the room and pressed **Looks right** — but
+> Roadie derives a palette within seconds of a record landing and the system washes the room with it
+> whether or not anyone has signed it off, so the need gated nothing and was outstanding on very
+> nearly every record, forever. [ADR 0056](../adrs/0056-need-labels-name-the-act-not-the-artifact.md)
+> renamed the label; this removes the claim underneath it.
+>
+> The Lights tab is unchanged apart from its marking — it takes the optional treatment (no `●`/`○`,
+> screen-reader "optional"), and leads the strip because the lights are the first thing you look at
+> on a record, not because anything waits on them. Sign-off survives in the room and still writes
+> `verification.previewApprovedAt`; it simply no longer holds a record back from READY. The genuinely
+> lightless cases were always covered by other states: before Roadie reaches a record it reads as
+> **Roadie is on it**, and a sleeve with too little colour fails to `palette_insufficient` and reads
+> as **stuck**.
 
 **A 310px sidebar**, top to bottom: `← THE COLLECTION`, the cover, a 26px strip of the live palette,
 the title in Archivo Black 25px, the byline, the state label, and a full-width ink
@@ -583,6 +600,15 @@ THE ALBUM` follows the switch — desk audio on the bench
 > and the return to the collection are kept for the case that earns them: the sign-off was the last
 > outstanding need, so the record really is finished (§8.6).
 >
+> **The toast and the return are gone entirely (2026-08-10,
+> [ADR 0069](../adrs/0069-the-lights-are-not-a-need.md)).** With the lights no longer a need, signing
+> one off can never be what finishes a record — the "was that the last need?" check could only have
+> passed on a record that was **already** complete, so it would have celebrated a no-op and then
+> walked you off the screen. Sign-off now only ever confirms in place. The ready toast moved to the
+> record page, where the needs that remain are actually cleared, and fires on the **transition** from
+> some needs outstanding to none rather than on any one button — so it also catches a card attached
+> in another tab. Its wording drops the lights: "Visualizer, card and tags — all done."
+>
 > ### The control dock's sliders are the pattern's own knobs
 >
 > The design draws three fixed sliders — Transition, Hold, **Brightness** — and the walkthrough is
@@ -738,30 +764,44 @@ The template fallback path costs nothing and is unaffected; it stays available o
 Home. Every record you own, art-first, in a shuffled grid.
 
 **A record shows its first outstanding need, and only that** — never a count, never "+1". The need is
-derived from the assets, not read off `roadie.state`: lights until the preview is approved, a
-visualizer until one is attached, a card until one is attached, tags until both are written _and_
-checked. Precedence is lights → visualizer → card → tags, which is a reading order, not a dependency.
-One pure module (`ui/src/needs.ts`) owns the derivation for both this screen and the record page, so
-they cannot disagree about the same record.
+derived from the assets, not read off `roadie.state`: a visualizer until one is attached, a card
+until one is attached, tags until both are written _and_ checked. Precedence is visualizer → card →
+tags, which is a reading order, not a dependency. One pure module (`ui/src/needs.ts`) owns the
+derivation for both this screen and the record page, so they cannot disagree about the same record.
+
+> **Lights was a fourth need until 2026-08-10** — outstanding until the preview was approved, and
+> first in precedence ([ADR 0069](../adrs/0069-the-lights-are-not-a-need.md) removed it; see §5).
+>
+> **One exception to "first outstanding need, and only that" (2026-08-10,
+> [ADR 0070](../adrs/0070-the-collection-filters-by-what-a-record-owes.md)):** when a **per-need
+> chip** is selected, its tiles are labelled with the need you asked for rather than their own first
+> one. Under NEEDS CARD, a tile reading NEEDS VISUALIZER looks like the filter has leaked. Under
+> every other filter the rule above is unchanged.
 
 The vocabulary is fixed and was settled over three rounds of review. Not cosmetic — the old words
 were rejected:
 
-| Say                                         | Never say                                          |
-| ------------------------------------------- | -------------------------------------------------- |
-| the collection                              | the wall, the queue                                |
-| Not complete / Ready                        | wants you / fully lit, lit, verified               |
-| Needs a look / Visualizer / Card / Sign-off | **Needs Lights**, needs colours, awaiting anything |
-| Roadie is on it                             | processing, generating palette                     |
-| Stuck                                       | errored                                            |
+| Say                          | Never say                                             |
+| ---------------------------- | ----------------------------------------------------- |
+| the collection               | the wall, the queue                                   |
+| Not complete / Ready         | wants you / fully lit, lit, verified                  |
+| Visualizer / Card / Sign-off | **Needs Lights**, **Needs a look**, awaiting anything |
+| Not started                  | queued, pending, fresh                                |
+| Roadie is on it              | processing, generating palette                        |
+| Stuck                        | errored                                               |
 
 **A need label names the act you still have to perform, never the artifact**
 ([ADR 0056](../adrs/0056-need-labels-name-the-act-not-the-artifact.md)). `Visualizer` and `Card` are
-allowed to read as their artifact only because there genuinely isn't one yet. `Lights` never is:
-Roadie derives the palette seconds after a record lands, so `NEEDS LIGHTS` claimed something false
-for the record's whole life — on a 499-record sync it read as "Roadie never looked at the covers"
-while 458 of those records held a full palette. It is `NEEDS A LOOK`; the outstanding act is watching
-it in the room. The stat band's sentence matches ("three still need a look").
+allowed to read as their artifact only because there genuinely isn't one yet; `Sign-off` is not,
+because the outstanding act is checking the stickers rather than burning them.
+
+> **`Needs a look` is retired (2026-08-10, [ADR 0069](../adrs/0069-the-lights-are-not-a-need.md)).**
+> It replaced `NEEDS LIGHTS`, which claimed something false for a record's whole life — on a
+> 499-record sync it read as "Roadie never looked at the covers" while 458 of those records held a
+> full palette. Renaming it fixed the sentence and left the claim: the need was still outstanding on
+> every record nobody had personally sat and watched, which is nearly all of them, forever. The need
+> is gone, so the label is too, and it now belongs in the right-hand column. The stat band's sentence
+> follows the needs that remain ("two still need a visualizer").
 
 **No machine state name and no album id appears anywhere on this screen.** Roadie's log says "Pulled
 the lights from **Kind of Blue**". A failure reads as a sentence with a way out, not as
@@ -772,12 +812,27 @@ Four regions:
 - **The stat band** — Not complete (accent) · Ready · Not started, each with a one-line detail; then
   a **rotating statistic** you advance by clicking. The pool is built from the statistics there is
   data for, so it is four today and becomes five when `label` is stored on an asset.
-- **The filter bar** — Everything · Not complete · Ready, a search over title and artist, `SHUFFLED ↻`,
-  and a density cycler (5 / 7 / 9 columns). Filter, query and density live in the URL so a session
-  survives a reload.
+- **The filter bar** — **one chip per state and one per need** (2026-08-10,
+  [ADR 0070](../adrs/0070-the-collection-filters-by-what-a-record-owes.md); it was Everything · Not
+  complete · Ready): `EVERYTHING · NOT COMPLETE · n · NEEDS VISUALIZER · n · NEEDS CARD · n · NEEDS
+SIGN-OFF · n · READY · n · NOT STARTED · n · STUCK · n`, then a search over title and artist,
+  `SHUFFLED ↻`, and a density cycler (5 / 7 / 9 columns). Filter, query and density live in the URL
+  so a session survives a reload; the filter is parsed **totally**, so `?filter=banana` lands on the
+  whole collection rather than a blank wall.
+  - The state chips are the four `RecordState` kinds named exactly, so a fifth state cannot be added
+    without a chip to reach it.
+  - **A need chip asks what a record still owes, not what it owes first.** A record missing both a
+    visualizer and a card appears under both, so the per-need chips deliberately sum to more than
+    NOT COMPLETE. Their tiles are relabelled to the need you picked.
+  - **`EVERYTHING` carries no count** (the search placeholder already says the total), and **`STUCK`
+    is dropped entirely when nothing is stuck** — the same rule that drops empty groups. The rest are
+    the standing vocabulary and stay put at zero.
+  - The bar **wraps**; eight chips no longer fit beside the search at 1280.
 - **The grid** — gutters are **borders, not gaps**. Selecting _Not complete_ regroups it under one
-  heading per need; **empty groups are not rendered at all**. Stuck records get their own row on
-  `--pp-accent-wash` below the groups, with the sentence and a `FIX IT` button.
+  heading per need, **first-need** so each sleeve appears exactly once; **empty groups are not
+  rendered at all**. Stuck records get their own row on `--pp-accent-wash` — below the groups under
+  _Not complete_, and as the whole page under _Stuck_ — with the sentence and a `FIX IT` button. A
+  failure is not a missing artifact and never draws as a tile.
 - **Roadie's log** — a strip **docked to the bottom of the window** with the newest entry, expanding
   into a panel that opens _upward_ and is bounded at `45vh`
   ([ADR 0055](../adrs/0055-roadies-log-is-docked-to-the-window-not-to-the-page.md); it was a footer

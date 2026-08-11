@@ -6,11 +6,12 @@ import {
   collectionCounts,
   densityColumns,
   densityLabel,
+  filterChips,
   groupByNeed,
   notCompleteDetail,
+  parseFilter,
   stuckTiles,
   visibleTiles,
-  type CollectionFilter,
   type Tile,
 } from "../collection";
 import { statsFor, type Stat } from "../collectionStats";
@@ -197,9 +198,7 @@ export function Collection({
     Math.floor(Math.random() * 5),
   );
 
-  const raw = params.get("filter");
-  const filter: CollectionFilter =
-    raw === "needs" || raw === "ready" ? raw : "all";
+  const filter = parseFilter(params.get("filter"));
   const query = params.get("q") ?? "";
   const density = Number(params.get("density") ?? 1);
 
@@ -238,6 +237,14 @@ export function Collection({
     );
 
   const grouped = filter === "needs";
+  /**
+   * The stuck row shows up in two situations, drawn the same way both times: under the groups while
+   * you work through NOT COMPLETE — where it would otherwise be invisible, since no work chip
+   * includes a failed record — and as the entire page when you pick STUCK. It is a sentence and a way
+   * out rather than a tile, which is why STUCK doesn't just fall through to the grid.
+   */
+  const stuckOnly = filter === "stuck";
+  const stuckRow = stuckOnly ? tiles : grouped ? stuck : [];
   const columns = `repeat(${densityColumns(density)}, minmax(0, 1fr))`;
   const stat = stats.length ? stats[statOffset % stats.length]! : null;
 
@@ -271,13 +278,7 @@ export function Collection({
       </section>
 
       <div className="filterbar">
-        {(
-          [
-            ["all", "EVERYTHING"],
-            ["needs", `NOT COMPLETE · ${counts.notComplete}`],
-            ["ready", `READY · ${counts.ready}`],
-          ] as Array<[CollectionFilter, string]>
-        ).map(([value, label]) => (
+        {filterChips(counts).map(({ value, label, count }) => (
           <button
             key={value}
             type="button"
@@ -285,7 +286,7 @@ export function Collection({
             aria-pressed={filter === value}
             onClick={() => set("filter", value === "all" ? null : value)}
           >
-            {label}
+            {count === null ? label : `${label} · ${count}`}
           </button>
         ))}
         <div className="filterbar__tools">
@@ -314,24 +315,31 @@ export function Collection({
         </div>
       </div>
 
+      {/* Three different empties, because "try a different name" is useless advice when you haven't
+          typed one — an empty NEEDS CARD means you have cleared it, not that you mistyped. */}
       {tiles.length === 0 && (
         <div className="pp-empty">
           <p className="pp-empty__title">
             {counts.total === 0
               ? "Your collection is empty"
-              : "Nothing matches that"}
+              : query
+                ? "Nothing matches that"
+                : "Nothing here right now"}
           </p>
           <p>
             {counts.total === 0 ? (
               <Link to="/add">Add your first record</Link>
-            ) : (
+            ) : query ? (
               "Try a different name, or clear the search."
+            ) : (
+              "No record is waiting on this — try another chip."
             )}
           </p>
         </div>
       )}
 
       {tiles.length > 0 &&
+        !stuckOnly &&
         (grouped ? (
           <div>
             {groupByNeed(tiles).map((group) => (
@@ -362,28 +370,27 @@ export function Collection({
           </div>
         ))}
 
-      {/* Stuck sits below the groups and keeps its own heading: it isn't a missing asset, it's a
-          failure, and it reads as a sentence with a way out rather than as an error code. */}
-      {grouped &&
-        stuck.map(({ album, state }, i) => (
-          <div className="stuck" key={album.curatorId}>
-            <span className="pp-label pp-label--accent">
-              {i === 0 ? `STUCK · ${stuck.length}` : ""}
-            </span>
-            <span className="stuck__mark" aria-hidden="true">
-              ?
-            </span>
-            <div className="stuck__body">
-              <p className="stuck__title">{album.title || "Untitled"}</p>
-              <p className="stuck__why">
-                {state.kind === "stuck" ? state.sentence : ""}
-              </p>
-            </div>
-            <Link to={`/albums/${album.curatorId}`} className="pp-btn">
-              FIX IT
-            </Link>
+      {/* Stuck keeps its own heading wherever it appears: it isn't a missing asset, it's a failure,
+          and it reads as a sentence with a way out rather than as an error code. */}
+      {stuckRow.map(({ album, state }, i) => (
+        <div className="stuck" key={album.curatorId}>
+          <span className="pp-label pp-label--accent">
+            {i === 0 ? `STUCK · ${stuckRow.length}` : ""}
+          </span>
+          <span className="stuck__mark" aria-hidden="true">
+            ?
+          </span>
+          <div className="stuck__body">
+            <p className="stuck__title">{album.title || "Untitled"}</p>
+            <p className="stuck__why">
+              {state.kind === "stuck" ? state.sentence : ""}
+            </p>
           </div>
-        ))}
+          <Link to={`/albums/${album.curatorId}`} className="pp-btn">
+            FIX IT
+          </Link>
+        </div>
+      ))}
 
       <RoadieLog status={status} />
     </main>

@@ -64,9 +64,12 @@ describe("ReadyToast", () => {
     show();
     act(() => showReadyToast("abc12345"));
     expect(screen.getByText("Purple Rain is ready")).toBeTruthy();
+    // Names the needs and only the needs — the lights stopped being one in ADR 0069, and a toast
+    // claiming them would be claiming something nobody was asked for.
     expect(
-      screen.getByText(/Lights, visualizer, card and tags — all done/),
+      screen.getByText(/Visualizer, card and tags — all done/),
     ).toBeTruthy();
+    expect(screen.queryByText(/Lights/)).toBeNull();
   });
 
   it("is one button, and opens the room for that record", () => {

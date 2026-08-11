@@ -134,10 +134,15 @@ Two important properties:
 > **The human-driven line is not the whole record of human work (2026-08-08,
 > [ADR 0062](../adrs/0062-the-tag-step-is-recorded-on-the-asset-not-on-the-machine.md); extended the
 > same day by [ADR 0063](../adrs/0063-the-machine-is-settled-from-the-asset-not-driven-by-the-button.md)).**
-> The record page presents four needs done in any order, and **both** human steps are now recorded on
+> The record page presents its needs done in any order, and **both** human steps are now recorded on
 > the asset whatever state the album is in — `tag.*.written` / `verification.physicallyVerifiedAt` for
 > the tag step, `verification.previewApprovedAt` for the lights sign-off. The transitions above are
 > unchanged: no new edges, and nothing skips a state.
+>
+> _Since 2026-08-10 the lights sign-off is no longer one of the record page's needs
+> ([ADR 0069](../adrs/0069-the-lights-are-not-a-need.md)) — but it is still offered in the room and
+> still writes `previewApprovedAt`, so **nothing here changes**: `settleNeeds` reads the same evidence
+> and walks the same line._
 >
 > What changed is that **no control drives an edge of its own**. One settler (`settleNeeds`) walks the
 > line, and each step is gated on the evidence on the asset rather than on which button was pressed:

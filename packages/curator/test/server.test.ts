@@ -175,7 +175,7 @@ describe("Curator HTTP API", () => {
 
   // The collection screen labels each record with the first thing it still needs, derived client-side
   // from these facts (ADR 0052). If the list stops carrying them the grid silently reads every record
-  // as NEEDS A LOOK, which looks like a working screen — so assert the shape, not just the count.
+  // as NEEDS VISUALIZER, which looks like a working screen — so assert the shape, not just the count.
   it("carries the per-asset facts the collection derives a record's need from", async () => {
     const { app, store, roadie } = build();
     const { curatorId } = (

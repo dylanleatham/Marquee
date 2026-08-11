@@ -42,8 +42,9 @@ export function ReadyToast({ albums }: { albums: AlbumSummary[] | null }) {
       )}
       <span className="toast__body">
         <span className="toast__title">{album.title} is ready</span>
+        {/* Names the needs, and only the needs — the lights stopped being one in ADR 0069. */}
         <span className="toast__sub">
-          Lights, visualizer, card and tags — all done. Tap to watch it.
+          Visualizer, card and tags — all done. Tap to watch it.
         </span>
       </span>
     </button>
