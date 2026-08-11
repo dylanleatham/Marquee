@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type AlbumAsset, type Track } from "../api";
+import {
+  api,
+  type AlbumAsset,
+  type SpotifyAlbumMeta,
+  type Track,
+} from "../api";
 import { errorMessage } from "../errors";
 import { AsyncButton } from "./common";
 import type { Run } from "../run";
@@ -54,6 +59,98 @@ function useTracks(curatorId: string) {
   }, [curatorId]);
 
   return state;
+}
+
+/**
+ * The albums this record could be ([#289](https://github.com/dylanleatham/Marquee/issues/289)) —
+ * fetched live, never stored, for the same reason the tracklist is: the list belongs to Spotify's
+ * catalogue, not to this record, and it would go stale the moment an anniversary edition ships.
+ *
+ * The server does the deciding. This asks `/spotify-candidates` and renders what comes back rather
+ * than filtering search results itself, so "which albums are indistinguishable" has exactly one
+ * implementation — the matcher's ([ADR 0067](../../../../../docs/adrs/0067-the-year-may-only-break-a-tie-by-hitting-it.md)).
+ */
+function useSpotifyCandidates(curatorId: string) {
+  const [state, setState] = useState<{
+    candidates: SpotifyAlbumMeta[] | null;
+    reason: string | null;
+  }>({ candidates: null, reason: null });
+
+  useEffect(() => {
+    let live = true;
+    setState({ candidates: null, reason: null });
+    api
+      .spotifyCandidates(curatorId)
+      .then((r) => {
+        if (live)
+          setState({ candidates: r.candidates, reason: r.reason ?? null });
+      })
+      .catch((err: unknown) => {
+        // Same rule as `useTracks`: a transport failure reads as the server's own `reason`, because
+        // this panel has one place to say why there is nothing to choose.
+        if (live) setState({ candidates: [], reason: errorMessage(err) });
+      });
+    return () => {
+      live = false;
+    };
+  }, [curatorId]);
+
+  return state;
+}
+
+function CandidatePicker({
+  curatorId,
+  onPick,
+}: {
+  curatorId: string;
+  onPick: (spotifyUri: string) => Promise<unknown>;
+}) {
+  const { candidates, reason } = useSpotifyCandidates(curatorId);
+
+  if (candidates === null && !reason)
+    return <p className="demo__uri-hint">Asking Spotify…</p>;
+
+  if (!candidates?.length)
+    return (
+      <p className="demo__uri-hint">
+        {reason ?? "Spotify had nothing to offer for this record."}
+      </p>
+    );
+
+  return (
+    <>
+      {/* Points at the sleeve, not the year. The year is what misled the matcher in the first place
+          (ADR 0067: a repress's year dates the vinyl, not the album), so telling someone to settle
+          it that way would hand them the same bad evidence. The cover is the one they can check
+          against the record in their hand. */}
+      <p className="demo__uri-hint">
+        The albums Curator couldn't tell apart — match the sleeve to the one on
+        your shelf:
+      </p>
+      <ul className="demo__candidates">
+        {candidates.map((c) => (
+          <li key={c.spotifyUri} className="demo__candidate">
+            {/* The cover is the fastest way to recognise your own sleeve — far faster than a year,
+                and it is the whole reason six identically-named rows are distinguishable at all. */}
+            {c.artUrl && (
+              <img className="demo__candidate-art" src={c.artUrl} alt="" />
+            )}
+            <span className="demo__candidate-name">
+              {c.name}
+              {c.year ? ` (${c.year})` : ""}
+            </span>
+            <AsyncButton
+              className="pp-action"
+              pendingLabel="SAVING…"
+              onClick={() => onPick(c.spotifyUri)}
+            >
+              THIS ONE
+            </AsyncButton>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
 }
 
 /** One row: its number, its name, its length, and whichever action it currently offers. */
@@ -119,6 +216,9 @@ function SpotifyAlbumControl({
   const [value, setValue] = useState("");
   const linked = Boolean(metadata.spotifyUri);
   const match = metadata.spotifyMatch;
+  /** Refused as un-tellable-apart (#289) — a different state from "never matched", and the only one
+   *  where this panel is the sole fix, since the library sweep declines it on every run. */
+  const ambiguous = !linked ? metadata.spotifyAmbiguous : undefined;
 
   const save = () =>
     run(async () => {
@@ -151,6 +251,13 @@ function SpotifyAlbumControl({
                 : " by hand"}
             </>
           )
+        ) : ambiguous ? (
+          /* Names the situation rather than the absence. "not linked" invites you to go and run the
+             sweep; this says the sweep already looked, found several, and stopped on purpose. */
+          <>
+            <strong>{ambiguous.candidateCount} albums</strong> by this artist
+            share this title, so Curator wouldn't guess which one you own
+          </>
         ) : (
           <>not linked to a Spotify album</>
         )}
@@ -163,7 +270,11 @@ function SpotifyAlbumControl({
             className="pp-action"
             onClick={() => setEditing(true)}
           >
-            {linked ? "USE A DIFFERENT ALBUM" : "PASTE THE ALBUM"}
+            {linked
+              ? "USE A DIFFERENT ALBUM"
+              : ambiguous
+                ? "CHOOSE THE RIGHT ALBUM"
+                : "PASTE THE ALBUM"}
           </button>
           {linked && (
             <AsyncButton
@@ -210,9 +321,34 @@ function SpotifyAlbumControl({
               CANCEL
             </button>
           </div>
+          {/* The picker leads, the paste box stays: for an ambiguous record the answer is almost
+              always one of these, and hunting the share link for an album Curator already has in
+              hand is work nobody should have to do. */}
+          {ambiguous && (
+            <CandidatePicker
+              curatorId={curatorId}
+              onPick={(spotifyUri) =>
+                run(async () => {
+                  await api.setSpotifyUri(curatorId, spotifyUri);
+                  setEditing(false);
+                })
+              }
+            />
+          )}
           <p className="demo__uri-hint">
-            Or match the whole collection at once from{" "}
-            <Link to="/settings">Settings → Library</Link>.
+            {ambiguous ? (
+              /* Deliberately *not* the sweep link here: it is the one action that cannot resolve
+                 this record, and offering it is what #289 was filed about. */
+              <>
+                The library sweep can't settle this one — it will refuse it
+                again every time it runs.
+              </>
+            ) : (
+              <>
+                Or match the whole collection at once from{" "}
+                <Link to="/settings">Settings → Library</Link>.
+              </>
+            )}
           </p>
         </>
       )}

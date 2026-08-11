@@ -19,7 +19,7 @@ import { parseAlbumId } from "../albums/add-spotify.js";
 import {
   bestSpotifyMatch,
   applySpotifyMatch,
-  type SpotifyMatch,
+  type MatchOutcome,
 } from "../albums/spotify-match.js";
 import { draftPrompts } from "./prompts.js";
 import { resolvedArtworkFile } from "../albums/artwork.js";
@@ -153,21 +153,26 @@ const fetchDiscogsMetadata: Step = async (asset, deps) => {
 };
 
 /**
- * Fuzzy-match a Discogs release to a Spotify album, or `null`. Best-effort: no Spotify client, no
- * confident match, or an API error → `null` (keep the Discogs image, and stay unplayable). Never
+ * Fuzzy-match a Discogs release to a Spotify album. Best-effort: no Spotify client, no confident
+ * match, or an API error → `{ kind: "none" }` (keep the Discogs image, and stay unplayable). Never
  * throws — matching must not fail a Discogs add (issue #58).
  *
- * Returns the whole match rather than just the art URL, which is the defect
+ * Returns the whole outcome rather than just the art URL, which is the defect
  * [ADR 0059](../../../../docs/adrs/0059-a-matched-album-plays-only-on-an-exact-match.md) exists to
  * fix: Curator was confidently identifying the Spotify album, borrowing its cover, and discarding
  * which album it was — so every downstream that streams audio saw "not on Spotify" for most of a
  * Discogs-sourced collection.
+ *
+ * An **error** stays `none` rather than becoming `ambiguous` (#289): Spotify being down is a reason
+ * to look again later, which is exactly what `none` already tells the reader. `ambiguous` promises
+ * the opposite — that looking again will never help — so it is only ever the matcher's verdict on a
+ * search that actually came back.
  */
 async function resolveSpotifyMatch(
   deps: StepDeps,
   q: { artist: string; title: string; year?: number },
-): Promise<SpotifyMatch | null> {
-  if (!deps.spotify || !q.artist || !q.title) return null;
+): Promise<MatchOutcome> {
+  if (!deps.spotify || !q.artist || !q.title) return { kind: "none" };
   try {
     const candidates = await deps.spotify.searchAlbums(
       `${q.artist} ${q.title}`.trim(),
@@ -180,7 +185,7 @@ async function resolveSpotifyMatch(
         (err as Error).message
       }`,
     );
-    return null;
+    return { kind: "none" };
   }
 }
 

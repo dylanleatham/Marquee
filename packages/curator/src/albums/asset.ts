@@ -69,6 +69,26 @@ export interface AlbumMetadata {
     year?: number;
     matchedAt: string;
   };
+  /**
+   * Set when the matcher found **several albums it could not tell apart** and refused to guess
+   * ([ADR 0067](../../../../docs/adrs/0067-the-year-may-only-break-a-tie-by-hitting-it.md), issue
+   * [#289](https://github.com/dylanleatham/Marquee/issues/289)). Mutually exclusive with
+   * `spotifyMatch` — one says which album this is, the other says why nothing can.
+   *
+   * Its whole job is to stop "no Spotify identity" reading as "not looked at yet". A record with
+   * this set will be declined by the backfill every time it runs, so telling its owner to run the
+   * backfill is the one instruction guaranteed not to help; the record page says so instead, and
+   * offers the candidates.
+   *
+   * **The count, never the candidates.** The list belongs to Spotify, not to this record — it would
+   * go stale the moment an anniversary edition ships, and the asset store keeps choices rather than
+   * catalogues (same reason `demoTrack` holds one URI and no tracklist).
+   */
+  spotifyAmbiguous?: {
+    /** How many same-titled albums were in the way — enough to say "six albums share this title". */
+    candidateCount: number;
+    detectedAt: string;
+  };
   /** Stable Discogs release id + `discogs:release:<id>` URI (dedupe key, parallel to spotifyUri). */
   discogsReleaseId?: number;
   discogsUri?: string;

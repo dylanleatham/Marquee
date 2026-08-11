@@ -81,6 +81,27 @@ export interface SpotifyMatch {
 }
 
 /**
+ * What the matcher concluded — three answers, not two
+ * ([issue #289](https://github.com/dylanleatham/Marquee/issues/289)).
+ *
+ * ([ADR 0068](../../../../docs/adrs/0068-ambiguous-is-a-third-answer-not-a-missing-one.md).)
+ *
+ * `ambiguous` is the one that had to be added. ADR 0067 taught the matcher to refuse an artist's
+ * several same-titled albums, but the refusal came back as `null`, which every caller already read
+ * as "searched, found nothing". Those are different facts and they want different sentences: one
+ * says *look again later*, the other says *only you can settle this*. Flattening them told the
+ * owner of a Weezer record to run a backfill that will decline it every time it runs, forever.
+ *
+ * The candidates ride along because they are the answer, not debris — the record page can offer the
+ * six albums called `Weezer` and let a human do in one press what no amount of string comparison
+ * will do.
+ */
+export type MatchOutcome =
+  | ({ kind: "matched" } & SpotifyMatch)
+  | { kind: "ambiguous"; candidates: SpotifyAlbumMeta[] }
+  | { kind: "none" };
+
+/**
  * How close two years have to be to count as "the same edition" when *ranking* candidates. It gates
  * nothing (ADR 0060) — a reissue disagreeing by decades is still an exact match — but among several
  * albums of the same name by the same artist, the one nearest your pressing is the one whose
@@ -105,22 +126,22 @@ const identity = (a: { artist: string; name: string }): string =>
   `${norm(stripArtistDisambiguator(a.artist))}|${norm(a.name)}`;
 
 /**
- * The best confident Spotify match for a Discogs release, or `null`. A candidate qualifies only if
- * its artist and (edition-stripped) title both `closeMatch` the query and it actually carries cover
- * art. Among qualifiers, exact artist/title and a matching year score higher; a year off by more than
- * one is a demerit but not disqualifying.
+ * What Spotify album this Discogs release is: `matched`, `ambiguous`, or `none`. A candidate
+ * qualifies only if its artist and (edition-stripped) title both `closeMatch` the query and it
+ * actually carries cover art. Among qualifiers, exact artist/title and a matching year score higher;
+ * a year off by more than one is a demerit but not disqualifying.
  *
- * Returns the match **and its confidence** — callers decide which bar they need. The `artUrl` filter
- * below is inherited from the cover-art purpose and kept deliberately: an album Spotify has no art
- * for is a thin enough record that we'd rather not bet audio on it either.
+ * A match carries **its confidence** — callers decide which bar they need. The `artUrl` filter below
+ * is inherited from the cover-art purpose and kept deliberately: an album Spotify has no art for is
+ * a thin enough record that we'd rather not bet audio on it either.
  */
 export function bestSpotifyMatch(
   query: MatchQuery,
   candidates: SpotifyAlbumMeta[],
-): SpotifyMatch | null {
+): MatchOutcome {
   const qArtist = norm(stripArtistDisambiguator(query.artist));
   const qTitle = norm(stripEditions(query.title));
-  if (!qArtist || !qTitle) return null;
+  if (!qArtist || !qTitle) return { kind: "none" };
 
   const qualifiers: SpotifyAlbumMeta[] = [];
   let best: { album: SpotifyAlbumMeta; score: number; exact: boolean } | null =
@@ -149,7 +170,7 @@ export function bestSpotifyMatch(
     const exact = artistExact && titleExact;
     if (!best || score > best.score) best = { album: c, score, exact };
   }
-  if (!best) return null;
+  if (!best) return { kind: "none" };
 
   /**
    * **The year may only break a tie by hitting it** (issue #288,
@@ -164,32 +185,76 @@ export function bestSpotifyMatch(
    * on exactly this reasoning.
    *
    * So: no exact year, no pick. The caller keeps the Discogs cover, which is the one that came off
-   * the release the user actually owns.
+   * the release the user actually owns — and is told *why*, so it doesn't read as "not found yet"
+   * (#289).
    */
-  const namesakes = qualifiers.filter(
-    (c) => identity(c) === identity(best!.album) && c.year !== best!.album.year,
+  const sameTitle = qualifiers.filter(
+    (c) => identity(c) === identity(best!.album),
   );
+  /**
+   * **Deciding to refuse and deciding what to offer are different questions**, so they use different
+   * sets (#289).
+   *
+   * The refusal turns on `namesakes` — same title, *different* year — because ADR 0067 deliberately
+   * treats a same-year twin as one of Spotify's cross-market duplicates rather than a rival. Refusing
+   * on those would refuse real matches.
+   *
+   * The pick-list is `sameTitle`, which keeps them ([ADR 0068](../../../../docs/adrs/0068-ambiguous-is-a-third-answer-not-a-missing-one.md)). Weezer's Teal and Black albums are both 2019 and
+   * both called `Weezer`; the duplicate assumption is wrong for exactly that pair, and a list that
+   * dropped one would be missing the record on the shelf for anyone who owns it. Over-offering costs
+   * a human one glance. Under-offering costs them the only route this feature exists to provide.
+   */
+  const namesakes = sameTitle.filter((c) => c.year !== best!.album.year);
   const yearLandsExactly =
     query.year !== undefined && best.album.year === query.year;
-  if (namesakes.length > 0 && !yearLandsExactly) return null;
+  if (namesakes.length > 0 && !yearLandsExactly)
+    return {
+      kind: "ambiguous",
+      // Oldest first: a discography reads in release order, and it is the order in which someone
+      // scanning six identically-named sleeves can find the one on their shelf.
+      candidates: [...sameTitle].sort((a, b) => (a.year ?? 0) - (b.year ?? 0)),
+    };
 
-  return { album: best.album, confidence: best.exact ? "exact" : "close" };
+  return {
+    kind: "matched",
+    album: best.album,
+    confidence: best.exact ? "exact" : "close",
+  };
 }
 
 /**
- * Fold a match into an album's metadata. `close` lends its cover and nothing else; `exact` also
+ * Fold an outcome into an album's metadata. `close` lends its cover and nothing else; `exact` also
  * names the album for playback (ADR 0059). Exported so the backfill applies exactly the same rule as
  * the onboarding step — two implementations of "is this good enough to play" is how they drift.
+ *
+ * **`ambiguous` records that it happened and how many albums were in the way — never the albums
+ * themselves.** The asset stores choices, not catalogues; the same rule keeps a twelve-row tracklist
+ * off a git-tracked JSON file (see `DemoTrack` in asset.ts). The list is a live fact about Spotify
+ * rather than a fact about this record, it would be stale the moment an anniversary edition appears,
+ * and the record page can re-ask for it in one request when someone is actually looking.
  */
 export function applySpotifyMatch(
   metadata: AlbumMetadata,
-  match: SpotifyMatch | null,
+  outcome: MatchOutcome,
   now: () => string,
 ): AlbumMetadata {
-  if (!match) return metadata;
-  const { album, confidence } = match;
+  if (outcome.kind === "none") return metadata;
+
+  if (outcome.kind === "ambiguous") {
+    const { spotifyMatch: _drop, ...rest } = metadata;
+    return {
+      ...rest,
+      spotifyAmbiguous: {
+        candidateCount: outcome.candidates.length,
+        detectedAt: now(),
+      },
+    };
+  }
+
+  const { album, confidence } = outcome;
+  const { spotifyAmbiguous: _resolved, ...rest } = metadata;
   return {
-    ...metadata,
+    ...rest,
     ...(album.artUrl ? { spotifyArtUrl: album.artUrl } : {}),
     ...(confidence === "exact" ? { spotifyUri: album.spotifyUri } : {}),
     spotifyMatch: {

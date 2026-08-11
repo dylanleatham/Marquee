@@ -304,6 +304,60 @@ describe("Discogs → Spotify art resolution (issue #58)", () => {
     expect(done.metadata.spotifyMatch!.confidence).toBe("close");
   });
 
+  /**
+   * The **onboarding** path into ambiguity ([ADR 0068](../../../docs/adrs/0068-ambiguous-is-a-third-answer-not-a-missing-one.md),
+   * [#289](https://github.com/dylanleatham/Marquee/issues/289)). The sweep has its own test; this is
+   * the one that proves a plain Discogs add reaches the same state, which is what roadie-spec now
+   * claims. Both go through `applySpotifyMatch`, but "both callers use the shared helper" is exactly
+   * the kind of thing that stays true until someone changes one of them.
+   *
+   * The cover is the assertion that matters: refusing has to leave the **Discogs** image in place,
+   * because that is the one that came off the pressing being added. Weezer's Blue Album wearing the
+   * Teal Album's sleeve (#288) is what happens when this goes wrong.
+   */
+  it("lands on an ambiguity, and keeps the Discogs cover, when a Discogs add has namesakes", async () => {
+    const s = store();
+    const id = seedDiscogs(s);
+    const weezer = (year: number) => ({
+      spotifyId: `sp${year}`,
+      spotifyUri: `spotify:album:sp${year}`,
+      name: "Weezer",
+      artist: "Weezer",
+      year,
+      artUrl: `https://i.scdn.test/${year}`,
+    });
+    const roadie = roadieFor(s, {
+      discogs: fakeDiscogs({
+        getRelease: async (releaseId: number) => ({
+          releaseId,
+          discogsUri: `discogs:release:${releaseId}`,
+          title: "Weezer",
+          artist: "Weezer",
+          year: 2020, // a repress — its year dates the vinyl, not the album
+          genres: ["rock"],
+          artUrl: "https://img.discogs.test/blue.jpg",
+        }),
+      }) as DiscogsClient,
+      spotify: fakeSpotify({
+        searchAlbums: async () => [weezer(1994), weezer(2019)],
+        downloadArt: async () => Buffer.from("spotify-art"),
+      }),
+    });
+    roadie.enqueue(id);
+    await roadie.drain();
+
+    const done = s.read(id)!;
+    expect(done.metadata.spotifyAmbiguous).toMatchObject({ candidateCount: 2 });
+    expect(done.metadata.spotifyAmbiguous!.detectedAt).toBeTruthy();
+    // Nothing borrowed from an album it refused to choose.
+    expect(done.metadata.spotifyUri).toBeUndefined();
+    expect(done.metadata.spotifyArtUrl).toBeUndefined();
+    expect(done.metadata.spotifyMatch).toBeUndefined();
+    // And the sleeve on the shelf is the one that came with the pressing.
+    expect(done.artwork!.source).toBe("discogs");
+    expect(artBytes(s, id)).toBe("discogs-art");
+  });
+
   it("records nothing at all when there is no match, so absence stays honest", async () => {
     const s = store();
     const id = seedDiscogs(s);

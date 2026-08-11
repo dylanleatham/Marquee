@@ -35,6 +35,7 @@ import {
 import { addDiscogsAlbum } from "./albums/add-discogs.js";
 import { discogsSyncRunner } from "./albums/discogs-sync.js";
 import { spotifyBackfillRunner } from "./albums/spotify-backfill.js";
+import { bestSpotifyMatch } from "./albums/spotify-match.js";
 import { DiscogsPoller } from "./discogs/poller.js";
 import { SpotifyClient, SpotifyError } from "./spotify/client.js";
 import { SpotifyAuth, SpotifyAuthError } from "./spotify/auth.js";
@@ -1734,15 +1735,75 @@ export function buildServer(opts: BuildOptions = {}) {
     }
   });
 
+  /**
+   * **The albums this record could be** ([#289](https://github.com/dylanleatham/Marquee/issues/289)).
+   * The same search the matcher ran, put through the same `bestSpotifyMatch`, so what comes back is
+   * literally the set it declined to choose between — not the UI's guess at which search results
+   * looked similar. Re-deriving "which ones are indistinguishable" client-side would be a second
+   * implementation of the rule ADR 0067 defines, and the two would drift.
+   *
+   * **Always `200`,** with a `reason` when the list is empty, for the same purpose the tracklist
+   * route has one: a record with nothing to offer is an ordinary state of this panel.
+   *
+   * Fetched live and never stored — the candidate list is a fact about Spotify's catalogue, not
+   * about this record, and `metadata.spotifyAmbiguous` deliberately keeps only the count.
+   */
+  app.get("/api/albums/:curatorId/spotify-candidates", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const asset = store.read(curatorId);
+    if (!asset) return reply.code(404).send({ error: "not found" });
+    if (!spotify) return { candidates: [], reason: "Spotify isn't configured" };
+
+    const { name, artist, year } = asset.metadata;
+    if (!name || !artist)
+      return {
+        candidates: [],
+        reason: "This record has no artist and title to search on",
+      };
+
+    try {
+      const results = await spotify.searchAlbums(
+        `${artist} ${name}`.trim(),
+        10,
+      );
+      const outcome = bestSpotifyMatch(
+        { artist, title: name, ...(year !== undefined ? { year } : {}) },
+        results,
+      );
+      // A resolved match is offered too: this route answers "what could this be", and seeing the one
+      // it picked is what makes replacing it a considered act rather than a blind overwrite.
+      const candidates =
+        outcome.kind === "ambiguous"
+          ? outcome.candidates
+          : outcome.kind === "matched"
+            ? [outcome.album]
+            : [];
+      return {
+        candidates,
+        ...(candidates.length
+          ? {}
+          : { reason: "Spotify returned nothing that matches this record" }),
+      };
+    } catch (err) {
+      // 200 with the message, not `spotifyErr`'s 502/504. "Always 200" is the contract this route
+      // shares with the tracklist one, and it has to hold for a *live* Spotify failure too — that is
+      // the case where it matters most. A picker that 5xx's when Spotify blips reads as a broken
+      // page; one that says why reads as a temporary problem, which is what it is.
+      return { candidates: [], reason: (err as Error).message };
+    }
+  });
+
   // --- The demo track (ADR 0058) ---
 
   /**
-   * Why this record has no tracklist, said accurately (ADR 0059). Three different situations that a
+   * Why this record has no tracklist, said accurately (ADR 0059, widened by #289). The situations a
    * single "isn't on Spotify" used to flatten into one wrong sentence:
    *
    * - a **manual** album, which genuinely has no streaming identity;
    * - a Discogs album Curator matched only **closely** — it found something and deliberately won't
    *   play from a guess, so the sentence names what it found;
+   * - a Discogs album whose title it found **several times over** and refused to choose between,
+   *   which the backfill can never settle — so the sentence sends you to the picker, not the sweep;
    * - a Discogs album it has never matched, where the honest answer is "not matched yet", plus the
    *   thing to do about it.
    */
@@ -1752,6 +1813,17 @@ export function buildServer(opts: BuildOptions = {}) {
     const match = metadata.spotifyMatch;
     if (match?.confidence === "close")
       return `Curator only found a near match on Spotify (“${match.artist} — ${match.name}”), so it won't play from it. Songs stay unavailable until that is confirmed`;
+    /**
+     * The fifth situation ([#289](https://github.com/dylanleatham/Marquee/issues/289)): found, more
+     * than once, and unresolvable by anything Curator knows. It gets its own sentence because the
+     * "not matched yet" one below sends you to the backfill, and the backfill will decline this
+     * record on every run it ever makes — the one instruction that cannot work. Naming the count
+     * makes the refusal legible: "six albums share this title" reads as a fact about Weezer rather
+     * than a failure of the matcher.
+     */
+    const ambiguous = metadata.spotifyAmbiguous;
+    if (ambiguous)
+      return `${ambiguous.candidateCount} albums by this artist share this title, and Curator won't guess which one you own. Choose it below — the Spotify backfill can't settle this one`;
     return "Curator hasn't matched this to a Spotify album yet — run the Spotify backfill from Settings, or add the album's Spotify URI";
   };
 

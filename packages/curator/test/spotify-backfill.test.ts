@@ -155,7 +155,7 @@ describe("spotifyBackfillRunner", () => {
    * you're looking at the record. Both go through `bestSpotifyMatch`, and this is what proves the
    * sweep inherits its refusal rather than having its own idea.
    */
-  it("leaves an album unmatched when it can't tell its namesakes apart", async () => {
+  it("reports an un-tellable-apart album as ambiguous, not as a miss", async () => {
     seedDiscogs(s, "aaaa1111", {
       name: "Weezer",
       artist: "Weezer",
@@ -175,11 +175,53 @@ describe("spotifyBackfillRunner", () => {
       ),
     );
 
-    expect(r.noMatch).toBe(1);
+    // Counted apart from a miss (#289). A miss may become a hit on the next sweep; this never will,
+    // so lumping them together would tell the reader to re-run the one thing that cannot help.
+    expect(r.ambiguous).toBe(1);
+    expect(r.noMatch).toBe(0);
     expect(r.matched).toBe(0);
+    expect(r.items[0]).toMatchObject({ status: "ambiguous" });
+
     const saved = s.read("aaaa1111")!;
     expect(saved.metadata.spotifyUri).toBeUndefined();
     expect(saved.metadata.spotifyArtUrl).toBeUndefined();
+    // And the record itself now carries why, so the page can say it without re-searching.
+    expect(saved.metadata.spotifyAmbiguous).toMatchObject({
+      candidateCount: 5,
+      detectedAt: NOW,
+    });
+  });
+
+  /**
+   * The sweep must not thrash a record it has already given up on: re-running it re-derives the same
+   * ambiguity, and the count must stay a count rather than accumulating. Cheap to get wrong if the
+   * marker were ever appended to instead of replaced.
+   */
+  it("stays ambiguous, and stays a count, when the sweep runs again", async () => {
+    seedDiscogs(s, "aaaa1111", {
+      name: "Weezer",
+      artist: "Weezer",
+      year: 2020,
+    });
+    const client = spotify(
+      [1994, 2019].map((year) => ({
+        spotifyId: `sp${year}`,
+        spotifyUri: `spotify:album:sp${year}`,
+        name: "Weezer",
+        artist: "Weezer",
+        year,
+        artUrl: `https://art/${year}.jpg`,
+      })),
+    );
+
+    await run(s, client);
+    const { spotifyBackfill: second } = await run(s, client);
+
+    expect(second.ambiguous).toBe(1);
+    expect(s.read("aaaa1111")!.metadata.spotifyAmbiguous).toEqual({
+      candidateCount: 2,
+      detectedAt: NOW,
+    });
   });
 
   it("keeps going after one album fails", async () => {
