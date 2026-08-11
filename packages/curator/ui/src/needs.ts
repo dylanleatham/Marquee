@@ -40,6 +40,21 @@ export const NEED_LABEL: Record<Need, string> = {
   tags: "NEEDS SIGN-OFF",
 };
 
+/**
+ * The same three, as the chip that asks for the records this is **all** that's left of names them
+ * (ADR 0071).
+ *
+ * "JUST" is doing the work: `NEEDS SIGN-OFF` asks what a record owes, so on a collection midway
+ * through its visualizers it is very nearly every record and no use as a worklist. `JUST NEEDS
+ * SIGN-OFF` is the pile you can actually finish in an afternoon. The words follow ADR 0056 as the
+ * needs do — the act, not the artifact.
+ */
+export const ONLY_NEED_LABEL: Record<Need, string> = {
+  visualizer: "JUST NEEDS VISUALIZER",
+  card: "JUST NEEDS CARD",
+  tags: "JUST NEEDS SIGN-OFF",
+};
+
 /** The same three, as the record page's tabs name them. */
 export const NEED_TAB_LABEL: Record<Need, string> = {
   visualizer: "A visualizer",

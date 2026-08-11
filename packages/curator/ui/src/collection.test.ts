@@ -11,13 +11,14 @@ import {
   groupByNeed,
   matchesQuery,
   notCompleteDetail,
+  onlyNeedFilter,
   parseFilter,
   seededShuffle,
   stuckTiles,
   visibleTiles,
   type CollectionFilter,
 } from "./collection";
-import { stateLabel } from "./needs";
+import { NEED_ORDER, stateLabel } from "./needs";
 
 const album = (over: Partial<AlbumSummary> & { curatorId: string }) =>
   ({
@@ -247,19 +248,41 @@ describe("the chips", () => {
       { value: "visualizer", label: "NEEDS VISUALIZER", count: 2 },
       { value: "card", label: "NEEDS CARD", count: 1 },
       { value: "tags", label: "NEEDS SIGN-OFF", count: 1 },
+      { value: "only-visualizer", label: "JUST NEEDS VISUALIZER", count: 1 },
       { value: "ready", label: "READY", count: 1 },
       { value: "roadie", label: "NOT STARTED", count: 1 },
       { value: "stuck", label: "STUCK", count: 1 },
     ]);
   });
 
-  it("offers no STUCK chip to a collection that has nothing stuck", () => {
-    const healthy = LIBRARY.filter((a) => a.curatorId !== "e");
-    const values = filterChips(collectionCounts(healthy)).map((c) => c.value);
+  it("drops the transient chips at zero and keeps the standing ones", () => {
+    // ADR 0071. STUCK, NOT STARTED and each JUST NEEDS … name a passing condition, so at zero they
+    // offer a room with nothing in it. NOT COMPLETE, READY and the plain need chips are the
+    // questions you always ask of a collection and read fine empty — READY · 0 is information.
+    const settled = LIBRARY.filter((a) => !["c", "e"].includes(a.curatorId));
+    const values = filterChips(collectionCounts(settled)).map((c) => c.value);
     expect(values).not.toContain("stuck");
-    // The rest are the standing vocabulary and read fine at zero.
-    expect(values).toContain("ready");
-    expect(values).toContain("roadie");
+    expect(values).not.toContain("roadie");
+    expect(values).not.toContain("only-card");
+    expect(values).not.toContain("only-tags");
+    expect(values).toEqual(
+      expect.arrayContaining(["needs", "ready", "visualizer", "card", "tags"]),
+    );
+  });
+
+  it("brings NOT STARTED back the moment Roadie is holding something", () => {
+    // Dropping it at zero must not be deletion: a record mid-process is matched by no work filter,
+    // so without the chip it would be reachable only through EVERYTHING (the hole ADR 0070 closed).
+    const settled = LIBRARY.filter((a) => !["c", "e"].includes(a.curatorId));
+    const importing = [
+      ...settled,
+      album({ curatorId: "new", state: "fetching_metadata" }),
+    ];
+    expect(filterChips(collectionCounts(importing))).toContainEqual({
+      value: "roadie",
+      label: "NOT STARTED",
+      count: 1,
+    });
   });
 
   it("covers every state a record can be in", () => {
@@ -270,16 +293,148 @@ describe("the chips", () => {
   });
 });
 
+describe("the last-mile chips (ADR 0071)", () => {
+  // The shape that motivated this: a collection midway through its visualizers, where NEEDS
+  // SIGN-OFF is true of nearly everything and so tells you nothing about what you can finish.
+  // Both halves of `tagsDone` have to be undone: a physical verification alone settles the need,
+  // so clearing `tagsWritten` without it leaves a record that silently owes nothing.
+  const owesTag = {
+    tagsWritten: false,
+    physicallyVerifiedAt: null,
+    state: "awaiting_review" as const,
+  };
+  const MIDWAY: AlbumSummary[] = [
+    // Owes a tag and nothing else — the pile you can clear in an afternoon.
+    album({ curatorId: "t1", ...done, ...owesTag }),
+    album({ curatorId: "t2", ...done, ...owesTag }),
+    // Owes a tag too, but is also missing a visualizer — not last-mile.
+    album({ curatorId: "v1", ...done, ...owesTag, hasVideo: false }),
+    album({ curatorId: "v2", ...done, ...owesTag, hasVideo: false }),
+    album({ curatorId: "done", ...done }),
+  ];
+
+  it("shows the records a need is ALL that's left of, not every record that owes it", () => {
+    const owes = visibleTiles(MIDWAY, { filter: "tags", query: "", seed: 1 });
+    const only = visibleTiles(MIDWAY, {
+      filter: "only-tags",
+      query: "",
+      seed: 1,
+    });
+    expect(owes.map((t) => t.album.curatorId).sort()).toEqual([
+      "t1",
+      "t2",
+      "v1",
+      "v2",
+    ]);
+    expect(only.map((t) => t.album.curatorId).sort()).toEqual(["t1", "t2"]);
+  });
+
+  it("never shows a record that is ready, held, or stuck", () => {
+    const ids = visibleTiles(LIBRARY, {
+      filter: "only-visualizer",
+      query: "",
+      seed: 1,
+    }).map((t) => t.album.curatorId);
+    // "b" owes a visualizer and nothing else. "d" is ready, "c" is Roadie's, "e" is stuck.
+    expect(ids).toEqual(["b"]);
+  });
+
+  it("labels the tile as the chip does, without needing to relabel it", () => {
+    // A need that is the only one outstanding is also the first, so `recordState` already agrees —
+    // unlike a plain need chip, which has to overwrite the label to stop the grid looking leaky.
+    const tiles = visibleTiles(MIDWAY, {
+      filter: "only-tags",
+      query: "",
+      seed: 1,
+    });
+    expect(tiles.map((t) => stateLabel(t.state))).toEqual([
+      "NEEDS SIGN-OFF",
+      "NEEDS SIGN-OFF",
+    ]);
+  });
+
+  it("still answers to the search", () => {
+    const named = MIDWAY.map((a, i) =>
+      i === 0 ? { ...a, title: "Rumours" } : a,
+    );
+    expect(
+      visibleTiles(named, {
+        filter: "only-tags",
+        query: "rumours",
+        seed: 1,
+      }).map((t) => t.album.curatorId),
+    ).toEqual(["t1"]);
+  });
+
+  it("counts what the chip opens, for every need", () => {
+    // The same pairing that keeps `byOutstanding` honest, applied to `byOnly`.
+    const counts = collectionCounts(MIDWAY);
+    expect(counts.byOnly).toEqual({ visualizer: 0, card: 0, tags: 2 });
+    for (const need of ["visualizer", "card", "tags"] as const)
+      expect(
+        visibleTiles(MIDWAY, {
+          filter: onlyNeedFilter(need),
+          query: "",
+          seed: 1,
+        }),
+      ).toHaveLength(counts.byOnly[need]);
+  });
+
+  it("never claims more records than NOT COMPLETE", () => {
+    // byOutstanding may exceed notComplete (a record owing two things is in both chips); byOnly
+    // cannot, because a record with one need left is counted exactly once and one with two is
+    // counted nowhere. A byOnly that outran notComplete would mean the predicate had drifted.
+    for (const lib of [LIBRARY, MIDWAY, []]) {
+      const c = collectionCounts(lib);
+      const summed = NEED_ORDER.reduce((n, need) => n + c.byOnly[need], 0);
+      expect(summed).toBeLessThanOrEqual(c.notComplete);
+    }
+  });
+
+  it("coincides with byNeed for the last need in reading order, and only that one", () => {
+    // Nothing can outrank the last need, so being first there is being alone. This is why the
+    // grouped view under NOT COMPLETE already held exactly the JUST NEEDS SIGN-OFF pile.
+    const c = collectionCounts(MIDWAY);
+    const last = NEED_ORDER[NEED_ORDER.length - 1]!;
+    expect(c.byOnly[last]).toBe(c.byNeed[last]);
+    // Not a general law: "v1"/"v2" make visualizer first for two records but alone for none.
+    expect(c.byNeed.visualizer).toBe(2);
+    expect(c.byOnly.visualizer).toBe(0);
+  });
+});
+
 describe("the filter that comes back out of the URL", () => {
   it("accepts every value a chip can set", () => {
     for (const { value } of filterChips(collectionCounts(LIBRARY)))
       expect(parseFilter(value)).toBe(value);
   });
 
+  it("accepts a last-mile filter even when its chip is dropped at zero", () => {
+    // The chip vanishes at zero but the URL is durable — a bookmarked ?filter=only-card must land
+    // on an honest empty grid, not silently widen to the whole collection.
+    const settled = LIBRARY.filter((a) => !["c", "e"].includes(a.curatorId));
+    expect(
+      filterChips(collectionCounts(settled)).map((c) => c.value),
+    ).not.toContain("only-card");
+    expect(parseFilter("only-card")).toBe("only-card");
+    expect(
+      visibleTiles(settled, { filter: "only-card", query: "", seed: 1 }),
+    ).toEqual([]);
+  });
+
   it("falls back to the whole collection rather than to an empty grid", () => {
     // `?filter=banana` is one hand-edited URL away, and a blank wall with no chip pressed reads as
-    // a broken app — the same lesson as `?density=banana`.
-    for (const junk of ["banana", "", "NEEDS", "lights", null])
+    // a broken app — the same lesson as `?density=banana`. `only-banana` is the new near-miss: it
+    // must not slice into a Need-shaped value that nothing validates.
+    for (const junk of [
+      "banana",
+      "",
+      "NEEDS",
+      "lights",
+      "only-",
+      "only-banana",
+      null,
+    ])
       expect(parseFilter(junk)).toBe("all");
   });
 });
