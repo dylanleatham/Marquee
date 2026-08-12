@@ -629,6 +629,13 @@ export interface StylusStatus {
   downstreamHealth?: Record<string, boolean>;
 }
 
+/**
+ * Whether a clip is on Backdrop — three answers, because "can't tell" is not "fine" (issue #296).
+ * Derived server-side in `runtime/system-status.ts`, so the System screen and the record page
+ * cannot answer this differently.
+ */
+export type VideoPresence = "present" | "absent" | "unknown";
+
 /** One album across every host that should hold part of it (GET /api/system/status). */
 export interface AlbumPresence {
   curatorId: string;
@@ -639,6 +646,15 @@ export interface AlbumPresence {
   inBackdropLibrary: boolean;
   /** Entry present **and** Backdrop confirms the bytes. Absent `fileMissing` reads as "can't tell". */
   videoOnBackdrop: boolean;
+  /** The same fact, keeping "can't tell" apart from "no". */
+  videoPresence: VideoPresence;
+}
+
+/** One record's Backdrop presence (GET /api/albums/:curatorId/presence). */
+export interface AlbumPresenceAnswer {
+  curatorId: string;
+  hasVideo: boolean;
+  video: VideoPresence;
 }
 
 /** Everything at once, for the System status page (GET /api/system/status). */
@@ -882,6 +898,13 @@ export const api = {
       backdrop: { ok: boolean; skipped?: boolean; error?: string };
       transferJobId?: string;
     }>(`/api/albums/${curatorId}/push`, { method: "POST" }),
+
+  /**
+   * Ask Backdrop whether it actually holds this record's clip (issue #296). Never inferred from
+   * transfer-job state — that is what let a never-pushed clip read as delivered.
+   */
+  albumPresence: (curatorId: string) =>
+    req<AlbumPresenceAnswer>(`/api/albums/${curatorId}/presence`),
 
   /** Audio leg of a rehearsal (ADR 0028). Amp-unconfigured comes back as `played:false` + a reason. */
   demoAudio: (curatorId: string) =>

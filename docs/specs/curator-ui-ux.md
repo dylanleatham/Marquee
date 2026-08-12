@@ -359,12 +359,31 @@ the only thing this panel is for, and a still frame on paper stock cannot answer
 and resolution sit in the corners. `REPLACE · REMOVE · PICK A FILE`; **no "paste a link"** — a URL is
 not a file, and the one that mattered was always local.
 
-Beneath it, the **Backdrop strip carries all three of its states**: uploading (percent _and_ bytes,
-never the bar alone), a quiet green "on Backdrop", and a failure with its **RETRY right here** rather
-than only on the System screen. A clip attached in Curator that never reached Backdrop plays as a
-black screen in the room, and the old panel said nothing at all once the transfer stopped — success
-and failure looked identical, which is the case
-[ADR 0038](../adrs/0038-curator-pushes-media-over-http.md) exists to prevent.
+Beneath it, the **Backdrop strip carries every state of the leg**, and the resting one is **asked,
+not inferred** (2026-08-11,
+[ADR 0072](../adrs/0072-backdrop-presence-is-checked-not-assumed.md); it used to be the fallback
+branch of the transfer job, so a clip that had never been pushed reported itself delivered —
+issue #296).
+
+Two sources, answering different questions. **The job owns the moving states**, checked first: while
+bytes are in flight a fifteen-second-old presence poll is the staler story.
+
+- _uploading_ — percent **and** bytes, never the bar alone, with `STOP`
+- _failed_ — the reason, and its **RETRY right here** rather than only on the System screen
+
+**Backdrop owns the resting state**, from `GET /api/albums/:curatorId/presence`, in three answers:
+
+- _present_ — a quiet green "on Backdrop"
+- _absent_ — "not on Backdrop … the screen will stay black", with **SEND IT**. Previously the push
+  was reachable only from a failed job, so a never-sent clip had no way out of the UI at all.
+- _unknown_ — "can't tell … it isn't answering". **Never a positive dot.** Backdrop unreachable, or
+  too old to report `fileMissing`.
+
+A clip attached in Curator that never reached Backdrop plays as a black screen in the room, and the
+old panel said nothing at all once the transfer stopped — success and failure looked identical, which
+is the case [ADR 0038](../adrs/0038-curator-pushes-media-over-http.md) exists to prevent. Inferring
+the resting state from job silence recreated that in a worse form: silence invites you to check, a
+green dot tells you not to.
 
 **Both legs of the transfer report, not just the second** (2026-08-09,
 [issue #284](https://github.com/dylanleatham/Marquee/issues/284)). The strip above describes Curator
@@ -898,6 +917,13 @@ The four facts about each album, and what each one being false means:
 The last two stay separate. The entry and the bytes travel on different legs, so "listed but
 unplayable" is a real state — and it is exactly how an album sat in the library with no mp4 for a day,
 looking healthy from every angle.
+
+_Since 2026-08-11_ ([ADR 0072](../adrs/0072-backdrop-presence-is-checked-not-assumed.md)) the row
+also carries **`videoPresence`** — `present` / `absent` / `unknown` — which is the single derivation
+this page and the record page's Backdrop strip both read. `Video on Backdrop` is now `presence ===
+"present"`, so this table is unchanged in behaviour. **This list keeps treating `unknown` as a
+problem**, correctly: an exceptions list exists to surface anything unconfirmed. The record page
+draws the same state differently, because a status claim must not assert what it has not been told.
 
 **An album is an exception when it is missing from somewhere it belongs**, which depends on whether it
 has a visualizer at all: no video means Conductor is the only host that should hold it, so the

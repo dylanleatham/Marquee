@@ -4,6 +4,7 @@ import {
   type GenerationJob,
   type JobKind,
   type UploadOptions,
+  type VideoPresence,
 } from "./api";
 import { errorMessage } from "./errors";
 
@@ -437,4 +438,39 @@ export function useMediaTransferJob(curatorId: string): {
   }, [curatorId]);
 
   return { job, startedAt: startedAt.current };
+}
+
+/** How often the record page re-asks Backdrop whether it holds the clip. */
+export const PRESENCE_POLL_MS = 15000;
+
+/**
+ * Ask Backdrop whether it holds this record's clip (issue #296).
+ *
+ * **Asked, never inferred.** The panel used to read presence off the transfer job, so "no job is in
+ * trouble" rendered as "the file is there" — which is true of every clip that was never pushed.
+ *
+ * Slow-polled rather than folded into the record page's asset poll: this leaves the machine, and it
+ * only changes when a transfer finishes or someone clears Backdrop's library. `usePoll` already
+ * pauses while the tab is hidden and drops a tick that arrives mid-flight, so an unreachable
+ * Backdrop costs one bounded request per interval rather than a pile-up.
+ *
+ * `hasVideo: false` short-circuits without a request — there is nothing for Backdrop to hold, and
+ * the strip renders nothing at all in that case.
+ */
+export function useBackdropPresence(
+  curatorId: string,
+  hasVideo: boolean,
+): { presence: VideoPresence | null; refresh: () => void } {
+  const { data, error, loading, refresh } = usePoll(
+    async () =>
+      hasVideo ? (await api.albumPresence(curatorId)).video : "unknown",
+    PRESENCE_POLL_MS,
+    `${curatorId}:${hasVideo}`,
+  );
+  // `null` until the first answer arrives, so the strip stays quiet rather than flashing "can't
+  // tell" on every page open. Distinct from `unknown`, which is a real answer: we asked and Backdrop
+  // did not say. A failed request is `unknown`, never "fine" — the point of the three-way answer.
+  if (error) return { presence: "unknown", refresh };
+  if (loading && data === null) return { presence: null, refresh };
+  return { presence: data ?? "unknown", refresh };
 }

@@ -1,6 +1,11 @@
 import { useRef, useState } from "react";
 import { api, videoUrl, type AlbumAsset, type PaletteColor } from "../api";
-import { useGenerationJob, useMediaTransferJob, useUpload } from "../hooks";
+import {
+  useBackdropPresence,
+  useGenerationJob,
+  useMediaTransferJob,
+  useUpload,
+} from "../hooks";
 import { etaSeconds, formatBytes, humanEta } from "../transfer";
 import { AsyncButton, pickFile } from "./common";
 import { UploadStrip } from "./UploadStrip";
@@ -31,11 +36,21 @@ export const paletteWash = (colors: PaletteColor[]): string => {
 };
 
 /**
- * The Backdrop leg, in all three of its states.
+ * The Backdrop leg.
  *
  * A visualizer that is attached in Curator but never reached Backdrop plays as a black screen in the
  * room, and the old panel said nothing at all once the transfer stopped — success and failure looked
  * identical, which is the case ADR 0038 exists to prevent.
+ *
+ * **The resting state is asked, not assumed** (issue #296, ADR 0072). Fixing the silence above left
+ * the green dot as the fallback branch — reached whenever no job was running or failed — so a clip
+ * that had never been pushed at all reported itself delivered. ZABA (Glass Animals) was the live
+ * case: this panel said "on Backdrop" while Backdrop's library had no entry for it.
+ *
+ * So there are two sources, and they answer different questions. **The job owns the moving states**
+ * (uploading, failed) because only it knows about bytes in flight. **Backdrop owns the resting
+ * state**, in three answers — present, absent, or can't tell. The job is checked first: while a
+ * transfer runs, a presence poll from fifteen seconds ago is the staler story.
  */
 function BackdropStrip({
   curatorId,
@@ -47,6 +62,7 @@ function BackdropStrip({
   run: Run;
 }) {
   const { job, startedAt } = useMediaTransferJob(curatorId);
+  const { presence, refresh } = useBackdropPresence(curatorId, hasVisualizer);
   if (!hasVisualizer) return null;
 
   if (job?.status === "running") {
@@ -96,6 +112,49 @@ function BackdropStrip({
         >
           RETRY
         </AsyncButton>
+      </p>
+    );
+
+  // Nothing is moving. What Backdrop says is now the whole answer — and it gets to say "I don't
+  // know", which must not draw the positive dot.
+  //
+  // `null` is the window before the first answer, not an answer: stay quiet rather than flash a
+  // verdict we are about to replace. Every branch below is a claim, so none of them may run yet.
+  if (presence === null) return null;
+
+  if (presence === "absent")
+    return (
+      <p className="bdstrip bdstrip--absent" role="status">
+        <span className="pp-dot" aria-hidden="true" />
+        <span className="bdstrip__text">
+          This clip is not on Backdrop — the lights still work, but the screen
+          will stay black. Send it over.
+        </span>
+        {/* The push existed only behind a *failed* job, so a clip that was never sent had no way
+            out of the UI at all. Refresh after, or the strip keeps saying "not on Backdrop" until
+            the poll catches up and the button looks like it missed. */}
+        <AsyncButton
+          className="pp-action"
+          onClick={() =>
+            run(async () => {
+              await api.pushAlbum(curatorId);
+              refresh();
+            })
+          }
+          pendingLabel="SENDING…"
+        >
+          SEND IT
+        </AsyncButton>
+      </p>
+    );
+
+  if (presence === "unknown")
+    return (
+      <p className="bdstrip" role="status">
+        <span className="pp-dot" aria-hidden="true" />
+        <span className="bdstrip__text">
+          Can't tell whether this clip is on Backdrop — it isn't answering.
+        </span>
       </p>
     );
 

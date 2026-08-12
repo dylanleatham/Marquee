@@ -55,13 +55,23 @@ export function serviceLine(s: ServiceHealth): string {
  * **What "should be" means depends on whether it has a visualizer.** A record with no clip belongs on
  * Conductor and nowhere else, so requiring it on Backdrop too would put every unfinished record on
  * this list and drown the real failures — which is what the old page's per-row "Ready" did.
+ *
+ * Reads `videoPresence`, the same field the record page's Backdrop strip renders (issue #296,
+ * ADR 0072). The two screens disagreed about ZABA because they derived this from different facts —
+ * this page from Backdrop's library, the record page from transfer-job state — and neither test
+ * could fail while the other screen was wrong. One field is the fix; `system.test.ts` pins the two
+ * against each other.
+ *
+ * **This list is right to treat "can't tell" as a problem**, unlike the record page, which must not
+ * draw a confirmation it hasn't got. An exceptions list exists to surface anything unconfirmed, so
+ * `unknown` keeps the wording of the negative it already had rather than gaining a fourth row type.
  */
 export function presenceProblem(a: AlbumPresence): string | null {
   if (!a.onConductor) return "NOT ON CONDUCTOR";
   if (!a.hasVideo) return null;
+  if (a.videoPresence === "present") return null;
   if (!a.inBackdropLibrary) return "NOT IN BACKDROP'S LIBRARY";
-  if (!a.videoOnBackdrop) return "NO VISUALIZER ON BACKDROP";
-  return null;
+  return "NO VISUALIZER ON BACKDROP";
 }
 
 export interface Exception {

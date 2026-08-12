@@ -30,12 +30,15 @@ vi.mock("../api", () => ({
 // Only the transfer hook is faked — `AsyncButton` reaches for `usePending` from the same module, so
 // replacing it wholesale would break every button on the panel.
 const transfer = vi.fn();
+const presence = vi.fn();
 vi.mock("../hooks", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../hooks")>()),
   useMediaTransferJob: () => transfer(),
+  useBackdropPresence: () => presence(),
 }));
 
-import { api, type AlbumAsset } from "../api";
+import { api, type AlbumAsset, type AlbumPresence } from "../api";
+import { presenceProblem } from "../system";
 import { VisualizerPanel, paletteWash } from "./VisualizerPanel";
 
 const asset = (over: Partial<AlbumAsset> = {}): AlbumAsset =>
@@ -88,6 +91,9 @@ const show = (a: AlbumAsset = asset(), canGenerate = false) =>
 beforeEach(() => {
   vi.clearAllMocks();
   transfer.mockReturnValue({ job: null, startedAt: null });
+  // Default to Backdrop confirming the clip. Every resting-state assertion sets this explicitly —
+  // the bug in #296 was precisely that the panel had a default of "fine" and never asked.
+  presence.mockReturnValue({ presence: "present", refresh: () => {} });
 });
 afterEach(cleanup);
 
@@ -269,9 +275,63 @@ describe("VisualizerPanel — the clip on its way in", () => {
 });
 
 describe("VisualizerPanel — the Backdrop leg", () => {
-  it("says so, quietly, when the clip is there", () => {
+  it("says so, quietly, when Backdrop confirms the clip is there", () => {
+    presence.mockReturnValue({ presence: "present", refresh: () => {} });
     show();
     expect(screen.getByText("on Backdrop")).toBeTruthy();
+  });
+
+  /**
+   * Issue #296. The green dot used to be the *fallback* branch — reached whenever no transfer job
+   * was running or failed — so a clip that was never pushed read as delivered. ZABA (Glass Animals)
+   * was the live case: the record page said "on Backdrop", Backdrop's library had no entry, and the
+   * room would have played a black screen.
+   */
+  it("does not claim the clip is there when Backdrop has not got it", () => {
+    presence.mockReturnValue({ presence: "absent", refresh: () => {} });
+    show();
+    expect(screen.queryByText("on Backdrop")).toBeNull();
+    expect(screen.getByText(/not on Backdrop/)).toBeTruthy();
+  });
+
+  it("offers the push from the resting state, not only after a failed job", async () => {
+    // The retry was reachable only from `job.status === "failed"`, so a never-pushed clip had no way
+    // out of the UI at all — the fix for ZABA was a curl against the push route.
+    presence.mockReturnValue({ presence: "absent", refresh: () => {} });
+    show();
+    fireEvent.click(screen.getByRole("button", { name: /SEND IT/ }));
+    await waitFor(() => expect(api.pushAlbum).toHaveBeenCalledWith("abc12345"));
+  });
+
+  it("stays quiet until the first answer, rather than flashing a verdict", () => {
+    // `null` is the window before Backdrop has answered — not an answer. Rendering "can't tell" for
+    // the length of one request on every page open would train you to ignore it.
+    presence.mockReturnValue({ presence: null, refresh: () => {} });
+    show();
+    expect(screen.queryByText(/Backdrop/)).toBeNull();
+  });
+
+  it("admits it cannot tell rather than showing a positive dot", () => {
+    // Backdrop unreachable, or too old to report `fileMissing`. The server already keeps "can't
+    // tell" distinct from "fine"; collapsing them here is how this bug returns.
+    presence.mockReturnValue({ presence: "unknown", refresh: () => {} });
+    show();
+    expect(screen.queryByText("on Backdrop")).toBeNull();
+    expect(screen.getByText(/Can't tell/)).toBeTruthy();
+    expect(document.querySelector(".pp-dot--positive")).toBeNull();
+  });
+
+  it("keeps a running or failed transfer ahead of whatever presence says", () => {
+    // Presence is the *resting* answer. While bytes are moving, the job is the truer story, and a
+    // stale "absent" must not overwrite live progress.
+    presence.mockReturnValue({ presence: "absent", refresh: () => {} });
+    transfer.mockReturnValue({
+      job: { status: "running", progress: { done: 1, total: 4 }, id: "j1" },
+      startedAt: null,
+    });
+    show();
+    expect(screen.getByText(/Uploading to Backdrop/)).toBeTruthy();
+    expect(screen.queryByText(/not on Backdrop/)).toBeNull();
   });
 
   it("shows progress in numbers as well as a bar", () => {
@@ -305,6 +365,61 @@ describe("VisualizerPanel — the Backdrop leg", () => {
   it("says nothing at all when there is no clip to send", () => {
     show(asset({ visualizer: undefined }));
     expect(screen.queryByText(/Backdrop/)).toBeNull();
+  });
+
+  /**
+   * The blind spot behind #296, closed.
+   *
+   * The defect was never really the wrong label — it was that two screens derived one fact two
+   * different ways, so `VisualizerPanel.test.tsx` and `system.test.ts` could both pass while the
+   * app contradicted itself. Neither could fail for the other's mistake. This is the assertion that
+   * spans them: **the panel confirms exactly when the System page has no complaint**, over every
+   * shape `videoPresence` can take.
+   */
+  it("confirms exactly when the System page has no complaint", () => {
+    const cases = [
+      { videoPresence: "present", inBackdropLibrary: true, problem: null },
+      {
+        videoPresence: "absent",
+        inBackdropLibrary: false,
+        problem: "NOT IN BACKDROP'S LIBRARY",
+      },
+      {
+        videoPresence: "absent",
+        inBackdropLibrary: true,
+        problem: "NO VISUALIZER ON BACKDROP",
+      },
+      {
+        videoPresence: "unknown",
+        inBackdropLibrary: true,
+        problem: "NO VISUALIZER ON BACKDROP",
+      },
+    ] as const;
+
+    for (const c of cases) {
+      cleanup();
+      const row: AlbumPresence = {
+        curatorId: "abc12345",
+        name: "Aja",
+        artist: "Steely Dan",
+        hasVideo: true,
+        onConductor: true,
+        inBackdropLibrary: c.inBackdropLibrary,
+        videoOnBackdrop: c.videoPresence === "present",
+        videoPresence: c.videoPresence,
+      };
+      expect(presenceProblem(row)).toBe(c.problem);
+
+      transfer.mockReturnValue({ job: null, startedAt: null });
+      presence.mockReturnValue({
+        presence: c.videoPresence,
+        refresh: () => {},
+      });
+      show();
+      expect(screen.queryByText("on Backdrop") !== null).toBe(
+        c.problem === null,
+      );
+    }
   });
 });
 
