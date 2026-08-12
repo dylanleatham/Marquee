@@ -23,16 +23,28 @@ const svc = (over: Partial<ServiceHealth>): ServiceHealth => ({
   ...over,
 });
 
-const presence = (over: Partial<AlbumPresence>): AlbumPresence => ({
-  curatorId: "abc12345",
-  name: "Purple Rain",
-  artist: "Prince",
-  hasVideo: false,
-  onConductor: true,
-  inBackdropLibrary: false,
-  videoOnBackdrop: false,
-  ...over,
-});
+/**
+ * `videoPresence` follows `videoOnBackdrop` unless a case sets it explicitly — the server derives
+ * the boolean from the tri-state, so a fixture that let them disagree would be testing a row the
+ * app cannot produce. Pass `videoPresence: "unknown"` for the case the boolean cannot express.
+ */
+const presence = (over: Partial<AlbumPresence>): AlbumPresence => {
+  const base = {
+    curatorId: "abc12345",
+    name: "Purple Rain",
+    artist: "Prince",
+    hasVideo: false,
+    onConductor: true,
+    inBackdropLibrary: false,
+    videoOnBackdrop: false,
+    ...over,
+  };
+  return {
+    ...base,
+    videoPresence:
+      over.videoPresence ?? (base.videoOnBackdrop ? "present" : "absent"),
+  };
+};
 
 describe("services", () => {
   it("says what each one is for, not just what it is called", () => {
@@ -103,6 +115,30 @@ describe("presenceProblem", () => {
         }),
       ),
     ).toBeNull();
+  });
+
+  it("keeps listing a record Backdrop could not vouch for", () => {
+    // Issue #296. This list is an exceptions list, so "can't tell" belongs on it — the change is
+    // that the *record page* stops rendering the same state as a confirmation. Pinned here so a
+    // later tidy-up doesn't quietly let `unknown` fall through to null and empty the list.
+    expect(
+      presenceProblem(
+        presence({
+          hasVideo: true,
+          inBackdropLibrary: true,
+          videoPresence: "unknown",
+        }),
+      ),
+    ).toBe("NO VISUALIZER ON BACKDROP");
+    expect(
+      presenceProblem(
+        presence({
+          hasVideo: true,
+          inBackdropLibrary: false,
+          videoPresence: "unknown",
+        }),
+      ),
+    ).toBe("NOT IN BACKDROP'S LIBRARY");
   });
 });
 

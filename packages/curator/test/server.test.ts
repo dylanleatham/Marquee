@@ -173,6 +173,37 @@ describe("Curator HTTP API", () => {
     ).toBe(404);
   });
 
+  /**
+   * Issue #296 / ADR 0072. The record page asks this instead of inferring presence from transfer-job
+   * state, which is what let a clip that was never pushed report itself delivered.
+   *
+   * With no Backdrop configured the honest answer is `"unknown"`. Getting `"present"` here would be
+   * the original bug wearing a new endpoint — a confirmation with nothing behind it.
+   */
+  it("answers Backdrop presence honestly when there is no Backdrop to ask", async () => {
+    const { app } = build();
+    const { curatorId } = (
+      await addAlbum(app, "Kind of Blue", "Miles Davis")
+    ).json();
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/albums/${curatorId}/presence`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ curatorId, video: "unknown" });
+    expect(res.json().video).not.toBe("present");
+
+    expect(
+      (
+        await app.inject({
+          method: "GET",
+          url: "/api/albums/zzzzzzzz/presence",
+        })
+      ).statusCode,
+    ).toBe(404);
+  });
+
   // The collection screen labels each record with the first thing it still needs, derived client-side
   // from these facts (ADR 0052). If the list stops carrying them the grid silently reads every record
   // as NEEDS VISUALIZER, which looks like a working screen — so assert the shape, not just the count.

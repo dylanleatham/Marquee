@@ -1370,7 +1370,14 @@ a:hover {
 .bdstrip--full {
   grid-column: 1 / -1;
 }
-.bdstrip--failed {
+/*
+ * Two different situations that want the same warning treatment: a transfer that *failed*, and a
+ * clip that was never sent at all and so has no job to have failed (ADR 0072). They are styled
+ * together deliberately — both mean "the screen will stay black" — but named apart, because the
+ * class is what the next reader uses to work out which state they are looking at.
+ */
+.bdstrip--failed,
+.bdstrip--absent {
   border-color: var(--pp-accent);
   background: var(--pp-accent-wash);
   color: var(--pp-accent-text);

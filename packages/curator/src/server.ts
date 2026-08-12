@@ -119,10 +119,14 @@ import {
   type ConductorSyncLike,
 } from "./conductor/sync.js";
 import { AmpClient } from "./amp/client.js";
-import { probeService } from "./runtime/probe.js";
+import { getJson, probeService } from "./runtime/probe.js";
 import { planMerge } from "./albums/merge.js";
 import { describeFetchFailure } from "./net/fetch-failure.js";
-import { buildSystemStatus } from "./runtime/system-status.js";
+import {
+  buildSystemStatus,
+  videoPresence,
+  type BackdropLibraryResponse,
+} from "./runtime/system-status.js";
 import { createLogger } from "@marquee/observability";
 
 export interface BuildOptions {
@@ -633,6 +637,32 @@ export function buildServer(opts: BuildOptions = {}) {
     const { curatorId } = req.params as { curatorId: string };
     const asset = store.read(curatorId);
     return asset ?? reply.code(404).send({ error: "not found" });
+  });
+
+  /**
+   * Is this record's clip actually on Backdrop? (issue #296)
+   *
+   * Its own route rather than a field on the asset above: this one leaves the machine, and the
+   * record page reads the asset every few seconds. Folding a cross-host call into that would put a
+   * Backdrop round-trip behind every poll of a route that is otherwise pure local disk.
+   *
+   * `getJson` is bounded at `PROBE_TIMEOUT_MS` and turns every failure into `null`, which
+   * `videoPresence` reads as `"unknown"` — so an unplugged Pi answers "can't tell" rather than
+   * hanging the record page or claiming the clip is missing.
+   */
+  app.get("/api/albums/:curatorId/presence", async (req, reply) => {
+    const { curatorId } = req.params as { curatorId: string };
+    const asset = store.read(curatorId);
+    if (!asset) return reply.code(404).send({ error: "not found" });
+    const library = await getJson<BackdropLibraryResponse>(
+      config.backdrop,
+      "/api/library",
+    );
+    return {
+      curatorId,
+      hasVideo: Boolean(asset.visualizer),
+      video: videoPresence(library?.entries ?? null, curatorId),
+    };
   });
 
   // Flipper Zero tag authoring (issue #67, "Route A"): download a ready-to-write `.nfc` for an album,

@@ -18,11 +18,42 @@ import {
 } from "./probe.js";
 
 /** What Backdrop's `GET /api/library` returns, including the derived playability flag. */
-interface BackdropLibraryResponse {
+export interface BackdropLibraryResponse {
   entries: Record<
     string,
     { filePath: string; durationSec?: number; fileMissing?: boolean }
   >;
+}
+
+/** How Backdrop's library is keyed — the scan URI, not the bare curatorId. */
+export const backdropLibraryKey = (curatorId: string): string =>
+  `curator:album:${curatorId}`;
+
+/**
+ * Whether a record's clip is on Backdrop — **three answers, not two** (issue #296).
+ *
+ * "Can't tell" is not "fine". Backdrop may be unreachable, or old enough not to report
+ * `fileMissing`; in both cases the honest answer is that we do not know, and anything that renders
+ * this must not draw a confirmation. Collapsing `unknown` into `present` is the bug this exists to
+ * prevent — the record page used to do it by never asking at all, so a clip that had never been
+ * pushed read as delivered and played a black screen in the room.
+ *
+ * This is the **only** derivation of the fact. `AlbumPresence` (the System screen) and
+ * `GET /api/albums/:curatorId/presence` (the record page) both read it, so the two screens cannot
+ * drift into disagreeing the way they did for ZABA.
+ */
+export type VideoPresence = "present" | "absent" | "unknown";
+
+export function videoPresence(
+  entries: BackdropLibraryResponse["entries"] | null,
+  curatorId: string,
+): VideoPresence {
+  if (!entries) return "unknown";
+  const entry = entries[backdropLibraryKey(curatorId)];
+  if (!entry) return "absent";
+  // A Backdrop that doesn't report the flag can't vouch for the bytes; that is not a confirmation.
+  if (entry.fileMissing === undefined) return "unknown";
+  return entry.fileMissing ? "absent" : "present";
 }
 
 interface BackdropStatus {
@@ -65,6 +96,12 @@ export interface AlbumPresence {
   inBackdropLibrary: boolean;
   /** …and the bytes are actually there. An entry without them plays nothing (ADR 0038). */
   videoOnBackdrop: boolean;
+  /**
+   * The same question as `videoOnBackdrop`, but keeping "can't tell" apart from "no" (issue #296).
+   * The exceptions list treats both as a problem — correctly, it exists to surface anything not
+   * confirmed — while the record page must not draw a confirmation it hasn't got.
+   */
+  videoPresence: VideoPresence;
 }
 
 export interface SystemStatus {
@@ -142,7 +179,14 @@ export async function buildSystemStatus(
   const entries = backdropLibrary?.entries ?? {};
 
   const albums: AlbumPresence[] = deps.albums.map((a) => {
-    const entry = entries[`curator:album:${a.curatorId}`];
+    const entry = entries[backdropLibraryKey(a.curatorId)];
+    // One derivation, shared with the record page's presence route (issue #296). `videoOnBackdrop`
+    // stays a boolean for the exceptions list, which is right to treat "can't tell" as a problem —
+    // it is `videoPresence` that carries the distinction on to callers that must not guess.
+    const presence = videoPresence(
+      backdropLibrary?.entries ?? null,
+      a.curatorId,
+    );
     return {
       curatorId: a.curatorId,
       name: a.metadata.name,
@@ -150,9 +194,8 @@ export async function buildSystemStatus(
       hasVideo: Boolean(a.visualizer),
       onConductor: onConductor.has(a.curatorId),
       inBackdropLibrary: Boolean(entry),
-      // `fileMissing` is only reported by a Backdrop carrying that change; treat its absence as
-      // "can't tell" rather than "fine", so an older runtime never claims a file it hasn't got.
-      videoOnBackdrop: Boolean(entry) && entry?.fileMissing === false,
+      videoOnBackdrop: presence === "present",
+      videoPresence: presence,
     };
   });
 

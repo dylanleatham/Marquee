@@ -210,6 +210,62 @@ describe("buildSystemStatus", () => {
       });
     });
 
+    /**
+     * Issue #296 / ADR 0072. `videoOnBackdrop` is a boolean and so cannot tell "Backdrop says no"
+     * from "Backdrop didn't say" — the record page needs that difference to avoid drawing a
+     * confirmation it hasn't got, and it is the only derivation both screens now read.
+     */
+    it("keeps 'Backdrop says no' apart from 'Backdrop didn't answer'", async () => {
+      const confirmed = await buildSystemStatus(
+        deps({
+          albums: [withVideo("aaaa1111")],
+          fetchImpl: fakeFetch(fullRuntime(["aaaa1111"])),
+        }),
+      );
+      expect(confirmed.albums[0]!.videoPresence).toBe("present");
+
+      const gone = await buildSystemStatus(
+        deps({
+          albums: [withVideo("aaaa1111")],
+          fetchImpl: fakeFetch(
+            fullRuntime(["aaaa1111"], { fileMissing: true }),
+          ),
+        }),
+      );
+      expect(gone.albums[0]!.videoPresence).toBe("absent");
+
+      // Never pushed: no entry at all.
+      const never = await buildSystemStatus(
+        deps({
+          albums: [withVideo("bbbb2222")],
+          fetchImpl: fakeFetch(fullRuntime([])),
+        }),
+      );
+      expect(never.albums[0]!.videoPresence).toBe("absent");
+
+      // Too old to report the flag — an entry, but no evidence of bytes.
+      const silent = fullRuntime(["aaaa1111"]);
+      silent["http://b:4740/api/library"] = {
+        entries: { "curator:album:aaaa1111": { filePath: "/m/aaaa1111.mp4" } },
+      };
+      const cantTell = await buildSystemStatus(
+        deps({ albums: [withVideo("aaaa1111")], fetchImpl: fakeFetch(silent) }),
+      );
+      expect(cantTell.albums[0]!.videoPresence).toBe("unknown");
+    });
+
+    it("says 'can't tell' when Backdrop cannot be reached at all", async () => {
+      // Distinct from every album being absent: an unplugged Pi is not evidence that 478 clips
+      // vanished, and the record page must not offer to re-send them all on that basis.
+      const down = fullRuntime(["aaaa1111"]);
+      delete down["http://b:4740/api/library"];
+      const s = await buildSystemStatus(
+        deps({ albums: [withVideo("aaaa1111")], fetchImpl: fakeFetch(down) }),
+      );
+      expect(s.albums[0]!.videoPresence).toBe("unknown");
+      expect(s.albums[0]!.videoOnBackdrop).toBe(false);
+    });
+
     it("reports an album with no visualizer attached as such", async () => {
       const s = await buildSystemStatus(
         deps({

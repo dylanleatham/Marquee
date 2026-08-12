@@ -290,6 +290,7 @@ describe("System — the exceptions", () => {
             onConductor: true,
             inBackdropLibrary: false,
             videoOnBackdrop: false,
+            videoPresence: "absent" as const,
           },
           {
             curatorId: "bad",
@@ -299,6 +300,7 @@ describe("System — the exceptions", () => {
             onConductor: false,
             inBackdropLibrary: false,
             videoOnBackdrop: false,
+            videoPresence: "absent" as const,
           },
         ],
       }),

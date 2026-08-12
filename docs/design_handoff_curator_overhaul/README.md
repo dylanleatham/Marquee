@@ -392,6 +392,12 @@ override upload, the source badge, the genre tags, and the raw
   Backdrop — 68%", and an 80×5 progress bar. It settles into a quiet green
   "on Backdrop" line when complete, and into an accent failure row with a RETRY
   button on error. **Retry lives here as well as on System.**
+  _(Changed 2026-08-11,
+  [ADR 0072](../adrs/0072-backdrop-presence-is-checked-not-assumed.md): the settled
+  line is what **Backdrop** says, not what the job's silence implied. Three resting
+  states — the green "on Backdrop"; an accent row "not on Backdrop … the screen will
+  stay black" with **SEND IT**; and "can't tell … it isn't answering", which is
+  never a positive dot.)_
 - REPLACE · REMOVE · PICK A FILE. There is deliberately **no "paste a link"**.
 - A 280px side panel, "ROADIE'S FOUR DRAFTS" — **four** numbered prompts
   (`01`–`04`), each with its own COPY button, then LET ROADIE MAKE IT and the cost
