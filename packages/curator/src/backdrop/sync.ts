@@ -139,12 +139,15 @@ export class BackdropSync {
 
   /**
    * Reconcile one album with Backdrop. Video attached → copy the file (if in-process transfer is on)
-   * and upsert the entry; no video → remove any stale entry. Records the outcome as the album's
-   * syncIssues so a failure surfaces in the UI without blocking the human action that triggered it.
+   * and upsert the entry; no video → upsert a `usesDefault` entry so the record still plays
+   * something (ADR 0073). Records the outcome as the album's syncIssues so a failure surfaces in the
+   * UI without blocking the human action that triggered it.
+   *
+   * A detach therefore *rewrites* the entry rather than removing it. Removal is reserved for the
+   * album ceasing to exist (delete, merge) — see `removeAlbum`.
    */
   async syncAlbum(asset: AlbumAsset): Promise<SyncResult> {
     const baseEntry = buildLibraryEntry(asset, this.backdropMediaDir);
-    if (!baseEntry) return this.removeAlbum(asset.curatorId);
     try {
       // Hash first: it decides both whether the upload can be skipped and what the entry advertises,
       // so the value Backdrop stores is always the one that was actually sent.
@@ -189,16 +192,18 @@ export class BackdropSync {
     asset: AlbumAsset,
   ): Promise<SyncResult & { transferNeeded: boolean }> {
     const entry = buildLibraryEntry(asset, this.backdropMediaDir);
-    if (!entry)
-      return {
-        ...(await this.removeAlbum(asset.curatorId)),
-        transferNeeded: false,
-      };
     try {
       await this.client.updateEntry(entry);
       this.recordSyncIssues(asset.curatorId, []);
-      this.log.info(`Backdrop: entry synced ${entry.uri} → ${entry.filePath}`);
-      return { ok: true, transferNeeded: Boolean(this.mediaTransfer) };
+      this.log.info(
+        `Backdrop: entry synced ${entry.uri} → ${entry.filePath ?? "the default visualizer"}`,
+      );
+      // Nothing to transfer for a record with no visualizer of its own — the default clip is
+      // Backdrop's own file, not this album's, and is put there once by the operator.
+      return {
+        ok: true,
+        transferNeeded: Boolean(this.mediaTransfer && asset.visualizer),
+      };
     } catch (err) {
       const message = (err as Error).message;
       this.log.warn(`Backdrop sync failed for ${asset.curatorId}: ${message}`);
@@ -220,7 +225,7 @@ export class BackdropSync {
     } = {},
   ): Promise<SyncResult> {
     const entry = buildLibraryEntry(asset, this.backdropMediaDir);
-    if (!entry || !this.mediaTransfer || !asset.visualizer)
+    if (!this.mediaTransfer || !asset.visualizer)
       return { ok: true, skipped: true };
 
     try {
@@ -329,7 +334,12 @@ export class BackdropSync {
       // in flight, which `putMedia`'s own signal handles.
       if (ctx.signal?.aborted) break;
       const baseEntry = buildLibraryEntry(asset, this.backdropMediaDir);
-      if (!baseEntry) {
+      // A record with no visualizer of its own still goes in the library, as `usesDefault`
+      // (ADR 0073) — it just has no bytes to move, so it counts as neither transferred nor
+      // unchanged. It used to be dropped from the reconcile entirely, which is why a `sync` could
+      // report success and still leave the record unknown to Backdrop.
+      if (!asset.visualizer) {
+        entries.push(baseEntry);
         ctx.onProgress?.(i + 1, assets.length);
         continue;
       }
@@ -404,13 +414,24 @@ export class BackdropSync {
     const discrepancies: string[] = [];
     for (const asset of assets) {
       const entry = buildLibraryEntry(asset, this.backdropMediaDir);
-      if (!entry) continue;
       const have = live.entries[entry.uri];
-      if (!have) discrepancies.push(`${entry.uri} not in the library`);
-      else if (have.filePath !== entry.filePath)
+      if (!have) {
+        discrepancies.push(`${entry.uri} not in the library`);
+        continue;
+      }
+      // A record with no visualizer is in drift if Backdrop still holds a file for it — that is a
+      // stale entry from before the detach, and Backdrop would keep playing the removed video
+      // rather than the default (ADR 0073).
+      if (entry.usesDefault) {
+        if (have.filePath)
+          discrepancies.push(
+            `${entry.uri} has no visualizer, but the runtime still holds ${have.filePath}`,
+          );
+      } else if (have.filePath !== entry.filePath) {
         discrepancies.push(
-          `${entry.uri} filePath drift: runtime has ${have.filePath}, expected ${entry.filePath}`,
+          `${entry.uri} filePath drift: runtime has ${have.filePath ?? "the default visualizer"}, expected ${entry.filePath}`,
         );
+      }
     }
     return { ok: discrepancies.length === 0, discrepancies };
   }
@@ -430,7 +451,7 @@ export class BackdropSync {
 
   private async transferMedia(
     asset: AlbumAsset,
-    _filePath: string,
+    _filePath: string | undefined,
     ctx: {
       signal?: AbortSignal;
       /**

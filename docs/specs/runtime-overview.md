@@ -119,7 +119,7 @@ Plus one internal agent, two libraries, and two data stores:
 - **Primary location**: `~/marquee/media/` on your workstation (Curator manages)
 - **Synced location**: same path on the Pi 5, where Backdrop reads from at playback time
 - **Structure**: subdirectories for `visualizers/`, `artwork/`, `artwork-overrides/`, `thumbnails/`, and `incoming/`
-- **Shape**: `.mp4` files named by fileId (usually the same as curatorId); `.jpg` files for art and thumbnails
+- **Shape**: `.mp4` files named by fileId (usually the same as curatorId); `.jpg` files for art and thumbnails. One reserved name: `visualizers/default.mp4`, the clip Backdrop plays for a record with no visualizer of its own ([ADR 0073](../adrs/0073-a-record-with-no-visualizer-plays-the-default.md)). It belongs to Backdrop rather than to any album, so Curator never generates or attaches it — it is put there once, by `PUT /api/media/default` or by hand.
 - **Writer**: Curator's video-upload and Roadie's art-download flows write to the workstation copy; a periodic `rsync` (or syncthing) syncs to the Pi 5
 - **Reader**: Backdrop
 - **In git**: no. Too big, binary, out-of-band sync is more appropriate.
@@ -173,7 +173,7 @@ Fired to both Conductor (`/api/scan`) and Backdrop (`/api/scan`) in parallel. Bo
 2. Stylus polls, detects the tag, reads the URI, debounces (400ms).
 3. Stylus fires `{ event: "start", uri, tagUid, readerId, at }` to Conductor and Backdrop in parallel.
 4. Conductor: looks up the album in its local view of the assets store, finds palette + pattern, snapshots current light state, applies the palette across the room using the pattern's rules.
-5. Backdrop: looks up the URI in library.json, finds the filePath, sends a `play` command to the browser over WebSocket. Browser crossfades from idle overlay to the new video, loops.
+5. Backdrop: looks up the URI in library.json, finds the filePath — or the default clip, if this record has no visualizer of its own yet ([ADR 0073](../adrs/0073-a-record-with-no-visualizer-plays-the-default.md)) — and sends a `play` command to the browser over WebSocket. Browser crossfades from idle overlay to the new video, loops.
 6. You drop the needle. The room is now the record.
 7. Side ends. You lift the sleeve.
 8. Stylus sees no tag for ~2s, fires `{ event: "stop", at, readerId }`.
@@ -184,7 +184,8 @@ Fired to both Conductor (`/api/scan`) and Backdrop (`/api/scan`) in parallel. Bo
 
 - If either Conductor or Backdrop misses the `stop` event (WiFi drop, service restart, whatever), an idle timeout after 90 minutes of no events fires an internal stop. Purple Rain doesn't play until morning.
 - If the Stylus can't reach a downstream service, it retries 3× over ~2.5s and gives up, logging.
-- If Backdrop is asked to play a URI that's not in its library, or whose file is missing on disk, it stays in its current state and shows a small corner indicator — `video not in library` or `video file missing` ([backdrop-spec §10](backdrop-spec.md#10-frontend-spa-structure) owns the wording). No crash, no black screen.
+- If Backdrop is asked to play a URI that's **not in its library**, it stays in its current state and shows a small corner indicator — `video not in library` ([backdrop-spec §10](backdrop-spec.md#10-frontend-spa-structure) owns the wording). No crash, no black screen.
+- If the URI **is** in the library but the record has no visualizer of its own, or its file is missing on disk, Backdrop plays its **default clip** ([ADR 0073](../adrs/0073-a-record-with-no-visualizer-plays-the-default.md)) and reports `usingDefault: true` on `/api/status`. Nothing requires a visualizer before a record is tagged and shelved, so this is the ordinary state of a collection midway through its visualizers, not an error. With no default clip on the Pi it degrades to the stay-put behaviour above, with `no visualizer yet` or `video file missing` respectively.
 
 ## 7. Deployment topology
 
@@ -249,7 +250,15 @@ shell, deliberately not a CI check
 
 ### Sync strategies
 
-- **Curator → Backdrop metadata**: HTTP push after each save **that changes what Backdrop plays** — a video attach (upsert), detach, or album delete (remove) — via `POST /api/library/update` / `DELETE /api/library/:uri`, plus a full-reconcile `POST /api/library/sync`. Small, atomic, fast. (Not a literal every-save hook: an album still in Roadie's pipeline has no video to project — [ADR 0015](../adrs/0015-backdrop-sync-triggered-at-projection-changes.md), build step 9.)
+- **Curator → Backdrop metadata**: HTTP push after each save **that changes what Backdrop plays** — a video attach or detach (both upserts) and an album delete or merge (remove) — via `POST /api/library/update` / `DELETE /api/library/:uri`, plus a full-reconcile `POST /api/library/sync`. Small, atomic, fast. ([ADR 0015](../adrs/0015-backdrop-sync-triggered-at-projection-changes.md), build step 9.)
+
+> **Amended 2026-08-12 ([ADR 0073](../adrs/0073-a-record-with-no-visualizer-plays-the-default.md)).**
+> This line used to read "a video attach (upsert), detach, or album delete (remove)", with the aside
+> that "an album still in Roadie's pipeline has no video to project". Both halves are now wrong:
+> **every** album Curator holds is projected, one with no visualizer as `usesDefault`, so a detach
+> _rewrites_ the entry instead of deleting it and removal is reserved for the album ceasing to exist.
+> The old shape left Backdrop unable to tell an unfinished record from a tag nothing knows.
+
 - **Curator → Backdrop videos**: streamed by Curator over HTTP (`PUT /api/media/:fileId`, `media_transfer = "push"` — [ADR 0038](../adrs/0038-curator-pushes-media-over-http.md)), skipping files whose `contentHash` Backdrop already reports; or `rsync`/`syncthing` out of band (`media_transfer = "none"`, the default). Big files, tolerant of long-running transfer.
 - **Curator → Conductor asset store**: HTTP push, `PUT /api/album-assets/:curatorId` ([ADR 0045](../adrs/0045-curator-pushes-album-assets-to-conductor.md)). Fires on a video change, on **verify**, on the per-album `POST /api/albums/:curatorId/push`, and for the whole library from `POST /api/runtime/sync` (a background job). **Amp reads the same directory** and is served by the same push. `rsync` still works for a bulk first load, but is no longer required.
 
@@ -279,8 +288,9 @@ prove the failure reaches that logic on real hardware. Change a row here and cha
 | Failure                             | Detected by                                         | User-visible effect                                    | Recovery                                                                            |
 | ----------------------------------- | --------------------------------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------- |
 | Hue bridge unreachable              | Conductor                                           | Scan → 502 → lights don't change                       | Auto: retry next scan. Manual: check bridge power/network.                          |
-| Video file missing on Backdrop's SD | Backdrop                                            | Small `video file missing` indicator                   | Manual: run sync from Curator.                                                      |
-| Album not in library                | Backdrop                                            | Small `video not in library` indicator                 | Manual: Curator to generate/attach video.                                           |
+| Video file missing on Backdrop's SD | Backdrop                                            | Default clip plays; `video file missing` if none       | Manual: run sync from Curator.                                                      |
+| Record has no visualizer yet        | Backdrop                                            | Default clip plays; `no visualizer yet` if none        | Manual: attach a visualizer in Curator. Not urgent — the record still plays.        |
+| Album not in library                | Backdrop                                            | Small `video not in library` indicator                 | Manual: the tag names nothing Curator holds — check the sticker's URI.              |
 | Stylus can't reach Conductor        | Stylus                                              | Fast-blink LED, no lights change                       | Auto: retry 3×, then log. Manual: check WiFi.                                       |
 | Lost `stop` event                   | Conductor + Backdrop                                | Effect continues after sleeve removed                  | Auto: idle timeout (90 min). Manual: see [failure-drills D1](../failure-drills.md). |
 | Curator down                        | Everything downstream                               | Runtime works with last synced state; can't add albums | Manual: restart Curator, resync.                                                    |

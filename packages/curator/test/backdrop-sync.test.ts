@@ -28,9 +28,17 @@ const SECRET = "s3cr3t";
 function stubBackdrop(secret: string | null = SECRET) {
   // `contentHash` is part of Backdrop's real library shape (backdrop-spec §9) and is what lets a
   // resync skip an upload. The stub used to drop it, so the skip path was untestable (issue #187).
+  // `usesDefault` is the shape a record with no visualizer of its own projects as (ADR 0073), and
+  // the stub mirrors the real route's *replace* semantics for it — merging would keep the filePath a
+  // detach just removed, which is the bug this stub would otherwise hide.
   const entries: Record<
     string,
-    { filePath: string; durationSec?: number; contentHash?: string }
+    {
+      filePath?: string;
+      usesDefault?: boolean;
+      durationSec?: number;
+      contentHash?: string;
+    }
   > = {};
   const received: Array<{ method: string; path: string; body: unknown }> = [];
   const app = Fastify();
@@ -41,29 +49,39 @@ function stubBackdrop(secret: string | null = SECRET) {
   app.post("/api/library/update", async (req) => {
     const b = req.body as {
       uri: string;
-      filePath: string;
+      filePath?: string;
+      usesDefault?: boolean;
       durationSec?: number;
       contentHash?: string;
     };
     received.push({ method: "POST", path: "/api/library/update", body: b });
-    entries[b.uri] = {
-      filePath: b.filePath,
-      durationSec: b.durationSec,
-      ...(b.contentHash ? { contentHash: b.contentHash } : {}),
-    };
+    entries[b.uri] = b.usesDefault
+      ? { usesDefault: true }
+      : {
+          filePath: b.filePath,
+          durationSec: b.durationSec,
+          ...(b.contentHash ? { contentHash: b.contentHash } : {}),
+        };
     return { updated: b.uri };
   });
   app.post("/api/library/sync", async (req) => {
     const b = req.body as {
-      entries: Array<{ uri: string; filePath: string; contentHash?: string }>;
+      entries: Array<{
+        uri: string;
+        filePath?: string;
+        usesDefault?: boolean;
+        contentHash?: string;
+      }>;
     };
     received.push({ method: "POST", path: "/api/library/sync", body: b });
     for (const k of Object.keys(entries)) delete entries[k];
     for (const e of b.entries)
-      entries[e.uri] = {
-        filePath: e.filePath,
-        ...(e.contentHash ? { contentHash: e.contentHash } : {}),
-      };
+      entries[e.uri] = e.usesDefault
+        ? { usesDefault: true }
+        : {
+            filePath: e.filePath,
+            ...(e.contentHash ? { contentHash: e.contentHash } : {}),
+          };
     return { synced: b.entries.length };
   });
   app.delete("/api/library/:uri", async (req) => {
@@ -133,12 +151,91 @@ describe("BackdropSync → Backdrop (real HTTP)", () => {
     });
   });
 
-  it("removes the entry when an album has no video", async () => {
+  /**
+   * ADR 0073. A detach used to DELETE the entry, which left Backdrop unable to tell an unfinished
+   * record from a tag nothing knows — both answered `video not in library`. It now rewrites the
+   * entry to `usesDefault`, so the record still plays something and the not-in-library indicator
+   * goes on meaning what it says.
+   */
+  it("rewrites the entry to usesDefault when an album has no video, instead of removing it", async () => {
     backdrop.entries["curator:album:novid123"] = { filePath: "/stale.mp4" };
     const res = await sync().syncAlbum(makeAsset("novid123"));
     expect(res.ok).toBe(true);
-    expect(backdrop.entries["curator:album:novid123"]).toBeUndefined();
-    expect(backdrop.received.at(-1)!.method).toBe("DELETE");
+    expect(backdrop.entries["curator:album:novid123"]).toEqual({
+      usesDefault: true,
+    });
+    expect(backdrop.received.at(-1)!.method).toBe("POST");
+  });
+
+  // The stale filePath is the whole risk of a detach: left behind, Backdrop keeps playing the video
+  // the user deliberately took away.
+  it("a detach clears the filePath Backdrop was holding", async () => {
+    store.save(withVideo("detachx1"));
+    await sync().syncAlbum(store.read("detachx1")!);
+    expect(backdrop.entries["curator:album:detachx1"]!.filePath).toBeTruthy();
+
+    const detached = store.read("detachx1")!;
+    delete detached.visualizer;
+    await sync().syncAlbum(detached);
+
+    expect(backdrop.entries["curator:album:detachx1"]).toEqual({
+      usesDefault: true,
+    });
+  });
+
+  /**
+   * The drift ADR 0073 makes possible: Backdrop still holds a `filePath` for a record Curator has
+   * since detached. Left there, the runtime keeps playing the video the user took away — and the
+   * old check couldn't see it, because it only ever compared entries for albums that *had* a video.
+   */
+  it("verify flags a detached record Backdrop still holds a file for", async () => {
+    backdrop.entries["curator:album:drift001"] = { filePath: "/stale.mp4" };
+    const check = await sync().verify([makeAsset("drift001")]);
+    expect(check.ok).toBe(false);
+    expect(check.discrepancies[0]).toContain("has no visualizer");
+    expect(check.discrepancies[0]).toContain("/stale.mp4");
+  });
+
+  it("verify accepts a detached record Backdrop holds as usesDefault", async () => {
+    backdrop.entries["curator:album:drift002"] = { usesDefault: true };
+    const check = await sync().verify([makeAsset("drift002")]);
+    expect(check).toEqual({ ok: true, discrepancies: [] });
+  });
+
+  // The mirror image: Backdrop is still on the fallback for a record that now has a visualizer.
+  it("verify flags a videoed record Backdrop still holds as usesDefault", async () => {
+    store.save(withVideo("drift003"));
+    backdrop.entries["curator:album:drift003"] = { usesDefault: true };
+    const check = await sync().verify([store.read("drift003")!]);
+    expect(check.ok).toBe(false);
+    expect(check.discrepancies[0]).toContain("filePath drift");
+    expect(check.discrepancies[0]).toContain("the default visualizer");
+  });
+
+  // A record with no visualizer that Backdrop has never heard of is still a real discrepancy —
+  // projecting every album is only useful if `verify` notices when the projection didn't land.
+  it("verify flags a record with no visualizer that never reached Backdrop", async () => {
+    const check = await sync().verify([makeAsset("drift004")]);
+    expect(check.ok).toBe(false);
+    expect(check.discrepancies[0]).toContain("not in the library");
+  });
+
+  it("verifyAlbum records the stale-filePath drift as a syncIssue on the record", async () => {
+    store.save(makeAsset("drift005"));
+    backdrop.entries["curator:album:drift005"] = { filePath: "/stale.mp4" };
+    await sync().verifyAlbum(store.read("drift005")!);
+    expect(store.read("drift005")!.roadie.syncIssues[0]).toContain(
+      "has no visualizer",
+    );
+  });
+
+  it("syncMetadata owes no file transfer for a record with no visualizer", async () => {
+    const res = await sync({ local: true }).syncMetadata(makeAsset("nofile01"));
+    expect(res.ok).toBe(true);
+    expect(res.transferNeeded).toBe(false);
+    expect(backdrop.entries["curator:album:nofile01"]).toEqual({
+      usesDefault: true,
+    });
   });
 
   it("copies the visualizer file into Backdrop's media dir when local sync is on", async () => {
@@ -179,13 +276,34 @@ describe("BackdropSync → Backdrop (real HTTP)", () => {
     expect(store.read("recover1")!.roadie.syncIssues).toEqual([]);
   });
 
-  it("resyncAll replaces the whole library with the videoed albums", async () => {
+  // ADR 0073: a record with no visualizer of its own is still a record Backdrop should know about,
+  // so it goes in the reconcile as `usesDefault`. It used to be dropped, which is how a `sync` could
+  // report success and still leave half the collection unknown to the runtime.
+  it("resyncAll replaces the whole library with every album, videoed or not", async () => {
     store.save(withVideo("has0vid1"));
-    store.save(makeAsset("no0video")); // no visualizer → skipped
+    store.save(makeAsset("no0video"));
     backdrop.entries["curator:album:stale999"] = { filePath: "/gone.mp4" };
     const result = await sync().resyncAll(store.list());
-    expect(result.pushed).toBe(1);
-    expect(Object.keys(backdrop.entries)).toEqual(["curator:album:has0vid1"]);
+    expect(result.pushed).toBe(2);
+    expect(Object.keys(backdrop.entries).sort()).toEqual([
+      "curator:album:has0vid1",
+      "curator:album:no0video",
+    ]);
+    expect(backdrop.entries["curator:album:no0video"]).toEqual({
+      usesDefault: true,
+    });
+  });
+
+  // Counted as neither transferred nor unchanged: there are no bytes to move. Conflating the two
+  // is what made `{"pushed":12}` mean both "uploaded everything" and "moved nothing" (issue #187).
+  it("resyncAll moves no bytes for a record with no visualizer", async () => {
+    store.save(makeAsset("nobytes1"));
+    const result = await sync({ local: true }).resyncAll(store.list());
+    expect(result.media).toEqual({
+      transferred: 0,
+      unchanged: 0,
+      skipped: 0,
+    });
   });
 
   // ADR 0045: a full resync in `push` mode streams every visualizer — hours on a poor link — so it
@@ -570,9 +688,12 @@ describe("server routes trigger Backdrop sync", () => {
     });
     expect(detach.statusCode).toBe(200);
 
-    // Let anything still running settle, then the entry must stay gone.
+    // Let anything still running settle. The entry must stay on the default (ADR 0073) — a
+    // resurrected filePath is exactly the video the user took away.
     await awaitTransfers(app, "detach99");
-    expect(backdrop.entries["curator:album:detach99"]).toBeUndefined();
+    expect(backdrop.entries["curator:album:detach99"]).toEqual({
+      usesDefault: true,
+    });
   });
 
   it("claiming an /incoming/ video via attach-video pushes it to Backdrop", async () => {
@@ -611,7 +732,7 @@ describe("server routes trigger Backdrop sync", () => {
     expect(existsSync(join(mediaDir, "claim001.mp4"))).toBe(true);
   });
 
-  it("detaching the video removes it from Backdrop", async () => {
+  it("detaching the video drops Backdrop's filePath and leaves the record on the default", async () => {
     const a = withVideo("detach01");
     a.roadie.state = "awaiting_preview";
     store.save(a);
@@ -623,7 +744,10 @@ describe("server routes trigger Backdrop sync", () => {
       url: "/api/albums/detach01/detach-video",
     });
     expect(res.statusCode).toBe(200);
-    expect(backdrop.entries["curator:album:detach01"]).toBeUndefined();
+    // Not removed (ADR 0073): the record is still ours, it just has no visualizer again.
+    expect(backdrop.entries["curator:album:detach01"]).toEqual({
+      usesDefault: true,
+    });
   });
 
   it("deleting an album removes it from Backdrop", async () => {

@@ -4,7 +4,12 @@
 // of its own beyond resolving the library + checking a file exists.
 import { existsSync } from "node:fs";
 import { relative, isAbsolute } from "node:path";
-import { parseCuratorUri, type ScanEvent } from "@marquee/contracts";
+import {
+  entryHasOwnVideo,
+  parseCuratorUri,
+  type LibraryEntry,
+  type ScanEvent,
+} from "@marquee/contracts";
 import type { Broadcaster } from "./hub.js";
 import type { Command, PlaybackState } from "./types.js";
 
@@ -32,6 +37,12 @@ export interface ControllerOptions {
   idleTimeoutMs?: number;
   /** Root the resolved video file must sit under (defense-in-depth against a poisoned library). */
   mediaDir: string;
+  /**
+   * The clip played for a record Curator knows about that has no visualizer of its own, and for one
+   * whose file never landed (ADR 0073). Omitted → no fallback, and both cases keep their old
+   * stay-put behaviour, which is what a Backdrop with no default clip on disk does anyway.
+   */
+  defaultVisualizerPath?: string;
   /** Where unresolvable/missing-file scans get logged server-side (backdrop-spec §8/§9). */
   logger?: Logger;
   now?: () => number;
@@ -39,13 +50,19 @@ export interface ControllerOptions {
 
 /** What the controller needs from the library — just URI resolution. */
 export interface LibraryLookup {
-  resolve(uri: string): { filePath: string } | undefined;
+  resolve(uri: string): LibraryEntry | undefined;
 }
 
 export interface Status {
   state: PlaybackState;
   uri: string | null;
   filePath: string | null;
+  /**
+   * Whether what is on screen is the default clip rather than this record's own visualizer
+   * (ADR 0073). The room never goes dead, so this field is the only way to tell from off-site that a
+   * record is playing a stand-in — without it the fallback would hide the very gap it papers over.
+   */
+  usingDefault: boolean;
   since: string;
 }
 
@@ -70,12 +87,14 @@ export class PlaybackController {
   private state: PlaybackState = "idle";
   private uri: string | null = null;
   private filePath: string | null = null;
+  private usingDefault = false;
   private since: number;
   private idleTimer: unknown | null = null;
 
   private readonly timers: Timers;
   private readonly idleTimeoutMs: number;
   private readonly mediaDir: string;
+  private readonly defaultVisualizerPath: string | null;
   private readonly log: Logger;
   private readonly now: () => number;
 
@@ -87,6 +106,7 @@ export class PlaybackController {
     this.timers = opts.timers ?? realTimers;
     this.idleTimeoutMs = opts.idleTimeoutMs ?? DEFAULT_IDLE_MS;
     this.mediaDir = opts.mediaDir;
+    this.defaultVisualizerPath = opts.defaultVisualizerPath ?? null;
     this.log = opts.logger ?? noopLogger;
     this.now = opts.now ?? Date.now;
     this.since = this.now();
@@ -97,6 +117,7 @@ export class PlaybackController {
       state: this.state,
       uri: this.uri,
       filePath: this.filePath,
+      usingDefault: this.usingDefault,
       since: new Date(this.since).toISOString(),
     };
   }
@@ -111,9 +132,14 @@ export class PlaybackController {
   }
 
   /**
-   * Start (or crossfade to) an album's visualizer. Unknown URI or missing file: stay in the current
-   * state and flash a corner hint — a scan for something we can't play must not blackscreen
-   * (backdrop-spec §9, §13 "not-in-library happens more than you think").
+   * Start (or crossfade to) an album's visualizer. Unknown URI: stay in the current state and flash
+   * a corner hint — a scan for something we can't play must not blackscreen (backdrop-spec §9, §13
+   * "not-in-library happens more than you think").
+   *
+   * A record Curator *does* know about, which has no visualizer of its own or whose file never
+   * landed, plays the default clip instead of nothing (ADR 0073). The two are kept apart on purpose:
+   * an absent entry still means "nothing here knows this tag", which is what catches a mis-written
+   * sticker, and covering it with the default would throw that indicator away.
    */
   play(uri: string): void {
     // A card and a sleeve for the same album share one visualizer, and Curator keys the library by
@@ -135,26 +161,69 @@ export class PlaybackController {
       });
       return;
     }
-    if (!fileIsPlayable(this.mediaDir, entry.filePath)) {
-      this.log.warn(
-        { uri, filePath: entry.filePath },
-        "video file missing or outside media dir — staying put",
-      );
-      this.hub.broadcast({
-        type: "show-message",
-        text: "video file missing",
-        durationMs: 4000,
-      });
+
+    const own =
+      entryHasOwnVideo(entry) && fileIsPlayable(this.mediaDir, entry.filePath)
+        ? entry.filePath
+        : null;
+    if (own) {
+      this.start(uri, own, false);
       return;
     }
 
+    // The record is in the library but has nothing of its own to play. Two different reasons, and
+    // they get different hints when there is no default to fall back on, because they call for
+    // different actions: attach a visualizer, versus re-run the sync that was supposed to move one.
+    const fallback = this.playableDefault();
+    const noVisualizer = !entryHasOwnVideo(entry);
+    if (fallback) {
+      this.log.warn(
+        { uri, filePath: entry.filePath ?? null, defaultVisualizer: fallback },
+        noVisualizer
+          ? "record has no visualizer of its own — playing the default"
+          : "video file missing or outside media dir — playing the default",
+      );
+      this.start(uri, fallback, true);
+      return;
+    }
+
+    this.log.warn(
+      {
+        uri,
+        filePath: entry.filePath ?? null,
+        defaultVisualizer: this.defaultVisualizerPath,
+      },
+      noVisualizer
+        ? "record has no visualizer and no default clip is playable — staying put"
+        : "video file missing or outside media dir, and no default clip is playable — staying put",
+    );
+    this.hub.broadcast({
+      type: "show-message",
+      // `video not in library` stays reserved for an *absent* entry (backdrop-spec §10) — this
+      // record is in the library, so saying otherwise would send you looking in the wrong place.
+      text: noVisualizer ? "no visualizer yet" : "video file missing",
+      durationMs: 4000,
+    });
+  }
+
+  /** The default clip, if one is configured and actually playable right now. */
+  private playableDefault(): string | null {
+    if (!this.defaultVisualizerPath) return null;
+    return fileIsPlayable(this.mediaDir, this.defaultVisualizerPath)
+      ? this.defaultVisualizerPath
+      : null;
+  }
+
+  /** Put a clip on screen. Commits state before the browser finishes fading (spec §7). */
+  private start(uri: string, filePath: string, usingDefault: boolean): void {
     // Commit to the new URI before the browser finishes fading, so a rapid third scan wins cleanly
     // (spec §7 "backend commits to the new URI before the fade completes").
     this.state = "playing";
     this.uri = uri;
-    this.filePath = entry.filePath;
+    this.filePath = filePath;
+    this.usingDefault = usingDefault;
     this.since = this.now();
-    this.hub.broadcast({ type: "play", filePath: entry.filePath });
+    this.hub.broadcast({ type: "play", filePath });
     this.armIdleTimeout();
   }
 
@@ -164,6 +233,7 @@ export class PlaybackController {
     this.state = "idle";
     this.uri = null;
     this.filePath = null;
+    this.usingDefault = false;
     this.since = this.now();
     this.hub.broadcast({ type: "stop" });
   }

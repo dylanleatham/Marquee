@@ -213,15 +213,24 @@ Runs on `http://localhost:4740` (bound to all interfaces so the NFC service can 
 
 Response is 202 (accepted) — Backdrop doesn't block the trigger while it does work. If the URI has no matching video, Backdrop logs a warning and stays idle (with a subtle "not in library" indicator in the corner; see §10).
 
+> **Amended 2026-08-12 ([ADR 0073](../adrs/0073-a-record-with-no-visualizer-plays-the-default.md)).**
+> "No matching video" is now two cases, not one. A URI the library has **never heard of** behaves
+> exactly as above. A URI the library **does** carry, which names no visualizer of its own
+> (`usesDefault`, §9) or whose file is absent, plays the **default clip** instead of staying put —
+> nothing requires a visualizer before a record is tagged and shelved, so "lights, no picture" was
+> the normal state of a collection midway through its visualizers. The distinction is kept because
+> `video not in library` is what catches a stray or mis-written NTAG (§13), and a fallback that
+> covered every unresolvable scan would have thrown that indicator away.
+
 ### From Curator (for library sync)
 
-| Method | Path                  | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| ------ | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| POST   | `/api/library/sync`   | Body: `{ entries: [{ uri, filePath, durationSec, contentHash }] }`. Full replace of the library map.                                                                                                                                                                                                                                                                                                                                                                       |
-| POST   | `/api/library/update` | Body: `{ uri, filePath?, durationSec?, contentHash? }`. Single-entry upsert.                                                                                                                                                                                                                                                                                                                                                                                               |
-| DELETE | `/api/library/:uri`   | Remove one entry. Does not delete the video file.                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| GET    | `/api/library`        | Read current library map. Each entry carries a derived **`fileMissing: boolean`** alongside its stored fields — whether the `filePath` would actually be playable right now (present on disk **and** under `media_dir`, the same judgement `play()` enforces). The entry and the bytes move on separate legs ([ADR 0038](../adrs/0038-curator-pushes-media-over-http.md)), so listed-but-unplayable is a real intermediate state, and was previously invisible to Curator. |
-| PUT    | `/api/media/:fileId`  | Upload a visualizer. Body streams to `{media_dir}/{fileId}.mp4`. `201 { fileId, bytes }`.                                                                                                                                                                                                                                                                                                                                                                                  |
+| Method | Path                  | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ------ | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/api/library/sync`   | Body: `{ entries: [{ uri, filePath?, usesDefault?, durationSec, contentHash }] }`. Full replace of the library map. Each entry needs a `filePath` **or** `usesDefault: true` — neither is a `400` (§9).                                                                                                                                                                                                                                                                                                  |
+| POST   | `/api/library/update` | Body: `{ uri, filePath?, usesDefault?, durationSec?, contentHash? }`. Single-entry upsert; omitted fields are merged from the existing entry. **`usesDefault: true` replaces instead of merging** — it is the shape a video _detach_ pushes, so carrying the old `filePath`/`contentHash` forward would leave Backdrop playing the video that was just taken away, and make the next sync skip re-uploading its replacement ([ADR 0073](../adrs/0073-a-record-with-no-visualizer-plays-the-default.md)). |
+| DELETE | `/api/library/:uri`   | Remove one entry. Does not delete the video file.                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| GET    | `/api/library`        | Read current library map. Each entry carries a derived **`fileMissing: boolean`** alongside its stored fields — whether the `filePath` would actually be playable right now (present on disk **and** under `media_dir`, the same judgement `play()` enforces). The entry and the bytes move on separate legs ([ADR 0038](../adrs/0038-curator-pushes-media-over-http.md)), so listed-but-unplayable is a real intermediate state, and was previously invisible to Curator.                               |
+| PUT    | `/api/media/:fileId`  | Upload a visualizer. Body streams to `{media_dir}/{fileId}.mp4`. `201 { fileId, bytes }`. `fileId` is a curatorId **or** the literal `default` — the fallback clip ([ADR 0073](../adrs/0073-a-record-with-no-visualizer-plays-the-default.md)).                                                                                                                                                                                                                                                          |
 
 Curator can fire off metadata and media in either order; Backdrop is tolerant of library entries
 pointing at files not yet present (§10 covers the UX).
@@ -234,8 +243,13 @@ pointing at files not yet present (§10 covers the UX).
 >
 > `PUT /api/media/:fileId` is the only route that writes to Backdrop's disk from the network, so:
 >
-> - **`fileId` must match `^[a-z0-9]{8}$`** — it becomes a filename in the directory Backdrop serves
->   videos from, so it is rejected outright, never sanitised.
+> - **`fileId` must match `^([a-z0-9]{8}|default)$`** — it becomes a filename in the directory
+>   Backdrop serves videos from, so it is rejected outright, never sanitised. `default` (added
+>   2026-08-12, [ADR 0073](../adrs/0073-a-record-with-no-visualizer-plays-the-default.md)) is a
+>   literal alternative, not a widened character class: it lands the fallback clip at
+>   `{media_dir}/default.mp4` and adds no traversal surface. Without it the only way onto a Pi is an
+>   out-of-band rsync — the silent gap this route exists to close, and worse for this file, since one
+>   missing clip takes out every unfinished record at once.
 > - **The body streams and is capped** by `[storage].max_upload_mb` (default 2048, env
 >   `BACKDROP_MAX_UPLOAD_MB`) → `413`.
 > - **The upload is bounded by inactivity**, not a deadline: `[runtime].upload_stall_ms` (default
@@ -253,12 +267,19 @@ pointing at files not yet present (§10 covers the UX).
 
 | Method | Path                       | Purpose                                                                                                                         |
 | ------ | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/status`              | Current state, currently-playing URI, uptime, browser connection status, and `playbackQuality` (below).                         |
+| GET    | `/api/status`              | Current state, currently-playing URI, uptime, browser connection status, `usingDefault` (below), and `playbackQuality` (below). |
 | GET    | `/healthz`                 | 200 if backend is up and browser is connected.                                                                                  |
 | POST   | `/api/admin/play`          | Body: `{ uri }`. Manual override, useful during dev.                                                                            |
 | POST   | `/api/admin/stop`          | Force to idle.                                                                                                                  |
 | POST   | `/api/admin/simulate-scan` | Body: same as `/api/scan`. Exists for parity with the trigger service's simulate endpoint — makes end-to-end testing symmetric. |
 
+> **`usingDefault` — whether the picture is a stand-in** (2026-08-12,
+> [ADR 0073](../adrs/0073-a-record-with-no-visualizer-plays-the-default.md)). `true` when what is on
+> screen is the default clip rather than this record's own visualizer. The fallback means the room
+> never goes dead, and a display that never goes dead is a display that stops reporting; this field
+> is what keeps "that record is playing a stand-in" answerable without standing in front of the TV.
+> `false` while idle.
+>
 > **`playbackQuality` — how the board actually decoded** (2026-08-02,
 > [ADR 0046](../adrs/0046-layer-roles-swap-on-screen-and-the-pi-reports-its-own-decode.md), amended
 > the same day by [ADR 0048](../adrs/0048-the-playback-verdict-describes-the-last-interval.md)).
@@ -316,12 +337,42 @@ pointing at files not yet present (§10 covers the UX).
 }
 ```
 
+An entry may instead declare that the record has **no visualizer of its own** yet
+([ADR 0073](../adrs/0073-a-record-with-no-visualizer-plays-the-default.md)):
+
+```json
+"curator:album:6byejted": { "usesDefault": true }
+```
+
 Notes:
 
 - Absolute file paths. Backdrop doesn't need to guess.
 - `contentHash` lets Curator's sync logic know when a video has been updated and needs re-pushing.
 - `durationSec` is currently just informational, but useful later if you want to align pattern transitions to loop boundaries or show a progress indicator during dev.
-- If the file at `filePath` is missing when a scan comes in, Backdrop logs "video missing," stays in current state, and displays the small center-bottom error indicator (§10 is the canonical wording — don't restate it here). Doesn't crash, doesn't blackscreen.
+- **An entry carries `filePath` or `usesDefault`, never neither.** The sync API rejects an entry that
+  says neither with a 400: "no filePath" has to be something Curator meant, or a malformed push would
+  quietly park the whole library on the fallback and look like it worked.
+- **`usesDefault` is a different thing from an absent entry**, and the difference is the whole point.
+  Absent means "nothing here knows this tag" — a stray NTAG, a sticker written with the wrong id.
+  `usesDefault` means "this record is ours, it just isn't finished". The first stays put and says
+  `video not in library`; the second plays the default clip.
+- Curator projects **every** album it holds, videoed or not, so a detach rewrites the entry to
+  `usesDefault` rather than deleting it. Deletion is reserved for the album ceasing to exist.
+- If the file at `filePath` is missing when a scan comes in, Backdrop plays the default clip if it
+  has one; failing that it logs "video missing," stays in current state, and displays the small
+  center-bottom error indicator (§10 is the canonical wording — don't restate it here). Doesn't
+  crash, doesn't blackscreen.
+
+### The default clip
+
+`[storage].default_visualizer` (env `BACKDROP_DEFAULT_VISUALIZER`, default `default.mp4`) names one
+file, resolved against `media_dir` when relative. It is subject to the same rules as any other
+visualizer: it must sit under `media_dir`, and it must be inside the decode budget
+([ADR 0040](../adrs/0040-visualizers-carry-a-decode-budget.md)) — nothing encodes it on ingest, so
+that is on whoever puts it there.
+
+Get it onto the Pi with `PUT /api/media/default` (§8) or by dropping it in `media_dir` out of band.
+A Backdrop with no default clip on disk degrades to the pre-ADR-0073 behaviour and says so; see §10.
 
 ## 10. Frontend SPA structure
 
@@ -348,12 +399,20 @@ and every command the hardware sends arrives inside that window — see the §7 
 - Bottom-right corner: WebSocket connection indicator — a labelled pill (`ws online` / `ws
 connecting…` / `ws offline`), colour-coded as a redundant cue so it's readable without colour vision
 - Bottom-left corner: current URI (small text, low opacity)
-- Center-bottom (only on error): **`video not in library`** (the URI resolves to nothing) or **`video
-file missing`** (it resolves, but the bytes aren't on the SD card, or `filePath` escapes
-  `media_dir`) when a scan comes in for something Backdrop can't play. These two strings are the
-  canonical wording; `controller.test.ts` asserts them verbatim, and every other doc points here
-  rather than repeating them — §11 and runtime-overview §6/§9 each carried a third spelling ("video
-  not synced yet") until 2026-08-02
+- Center-bottom (only on error): **`video not in library`** (the URI resolves to nothing), **`video
+file missing`** (it resolves to a file, but the bytes aren't on the SD card, or `filePath` escapes
+  `media_dir`) or **`no visualizer yet`** (the record is in the library as `usesDefault` but no
+  default clip is playable either). These three strings are the canonical wording;
+  `controller.test.ts` asserts them verbatim, and every other doc points here rather than repeating
+  them — §11 and runtime-overview §6/§9 each carried a third spelling ("video not synced yet") until
+  2026-08-02.
+
+  Since 2026-08-12 ([ADR 0073](../adrs/0073-a-record-with-no-visualizer-plays-the-default.md)) the
+  last two are **only** reached when there is no playable default clip; with one configured and
+  present, both of those cases play it instead of showing a hint. `no visualizer yet` is a distinct
+  string rather than a reuse of `video not in library` precisely because the two call for different
+  jobs — attach a visualizer to that record, versus find out why a tag resolves to nothing — and from
+  the sofa the wording is all there is to tell them apart.
 
 Show or hide the indicators via a `?debug=1` URL param. Off in the demo mode.
 
@@ -425,7 +484,7 @@ Ship the gradient as the default. The SPA is structured so the idle overlay is i
 - **Screen sleep / DPMS.** Raspberry Pi OS may put the display to sleep after idle. Disable via `xset s off -dpms` in the session, or set it in the display config. Otherwise the TV goes black after 10 minutes and it looks like Backdrop crashed.
 - **HDMI handshake weirdness.** Some TVs renegotiate HDMI on wake from sleep and Chromium sometimes doesn't reposition its window correctly. If you see this, `--start-fullscreen` combined with `--window-position=0,0` on the Chromium launcher is the fix.
 - **Font rendering in kiosk.** If you go with the ambient clock or album title on the idle screen, install a system font that matches your aesthetic. Default fonts on Pi OS are fine but generic.
-- **The "video not in library" scan is going to happen more than you think.** You'll write tags before you generate videos, or you'll test with a random NTAG lying around. The graceful-degradation path (stay in current state, quiet indicator) matters more than it seems.
+- **The "video not in library" scan is going to happen more than you think.** You'll write tags before you generate videos, or you'll test with a random NTAG lying around. The graceful-degradation path (stay in current state, quiet indicator) matters more than it seems. **Half of that traffic moved to the default clip on 2026-08-12** ([ADR 0073](../adrs/0073-a-record-with-no-visualizer-plays-the-default.md)): tags written before the video exists are records Curator knows about, so they now play a stand-in and the indicator is left to mean what it says — a tag that resolves to nothing at all. If you are diagnosing a "wrong record played" report, `GET /api/status.usingDefault` tells you which of the two you are looking at.
 - **Time sync.** Idle timeout is time-based; if the Pi's clock is way off, timeout doesn't behave. `systemd-timesyncd` is on by default in Pi OS — verify it's working.
 - **Chromium updates changing kiosk behavior.** Rare but happens. Pin the Chromium package version; if kiosk mode breaks after an unattended apt-upgrade, that's the likely cause.
 

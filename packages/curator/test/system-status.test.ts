@@ -254,6 +254,43 @@ describe("buildSystemStatus", () => {
       expect(cantTell.albums[0]!.videoPresence).toBe("unknown");
     });
 
+    /**
+     * ADR 0073. Every album now gets a library entry, and a `usesDefault` one's `fileMissing` is
+     * judged against `default.mp4` — so reading that flag straight through would report `present`
+     * for every unfinished record the moment a default clip lands on the Pi. That is the same
+     * collapse-into-`present` ADR 0072 exists to prevent, arriving by a new route.
+     */
+    it("a usesDefault entry is 'absent' — the fallback is not this record's clip", async () => {
+      const routes = fullRuntime([]);
+      routes["http://b:4740/api/library"] = {
+        entries: {
+          // What Backdrop reports once default.mp4 is on the Pi: an entry, and nothing missing.
+          "curator:album:aaaa1111": { usesDefault: true, fileMissing: false },
+        },
+      };
+      const s = await buildSystemStatus(
+        deps({ albums: [withVideo("aaaa1111")], fetchImpl: fakeFetch(routes) }),
+      );
+      expect(s.albums[0]!.videoPresence).toBe("absent");
+      expect(s.albums[0]!.videoOnBackdrop).toBe(false);
+      // Backdrop *has* heard of it, which is a different question and stays true.
+      expect(s.albums[0]!.inBackdropLibrary).toBe(true);
+    });
+
+    // The stale-entry case: Backdrop is still on the fallback for a record Curator has since given a
+    // visualizer. The exceptions list must name the real problem, not "not in the library".
+    it("flags a videoed record Backdrop still holds as usesDefault", async () => {
+      const routes = fullRuntime([]);
+      routes["http://b:4740/api/library"] = {
+        entries: { "curator:album:aaaa1111": { usesDefault: true } },
+      };
+      const s = await buildSystemStatus(
+        deps({ albums: [withVideo("aaaa1111")], fetchImpl: fakeFetch(routes) }),
+      );
+      expect(s.albums[0]!.videoPresence).toBe("absent");
+      expect(s.albums[0]!.inBackdropLibrary).toBe(true);
+    });
+
     it("says 'can't tell' when Backdrop cannot be reached at all", async () => {
       // Distinct from every album being absent: an unplugged Pi is not evidence that 478 clips
       // vanished, and the record page must not offer to re-send them all on that basis.
