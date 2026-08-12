@@ -643,8 +643,9 @@ export interface AlbumPresence {
   artist: string;
   hasVideo: boolean;
   onConductor: boolean;
+  /** Backdrop has heard of this record — not that it can play the record's own clip (ADR 0073). */
   inBackdropLibrary: boolean;
-  /** Entry present **and** Backdrop confirms the bytes. Absent `fileMissing` reads as "can't tell". */
+  /** Entry names the record's **own** file **and** Backdrop confirms the bytes. Absent `fileMissing` reads as "can't tell". */
   videoOnBackdrop: boolean;
   /** The same fact, keeping "can't tell" apart from "no". */
   videoPresence: VideoPresence;

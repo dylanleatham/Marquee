@@ -8,12 +8,16 @@ kiosk browser connects over WebSocket and shows the video.
 
 ## What's built (the workstation-testable core — spec milestones 2–9)
 
-- **`config.ts`** — port/host/secret/dataDir/mediaDir/idleTimeout from `config.toml` + env + defaults
-  (same loader shape as Conductor).
+- **`config.ts`** — port/host/secret/dataDir/mediaDir/defaultVisualizerPath/idleTimeout from
+  `config.toml` + env + defaults (same loader shape as Conductor).
 - **`library.ts`** — the URI→video-file map (`library.json`), atomic writes, tolerant of a corrupt file.
 - **`controller.ts`** — the `IDLE ⇄ PLAYING` state machine (spec §7): scan → resolve → broadcast a
   `play`/`stop` command, idle-timeout safety net (injectable timers), and graceful handling of an
   unknown URI or a missing/out-of-tree file (stay put, flash a corner hint — never blackscreen).
+  A record the library **does** carry but which has no visualizer of its own (`usesDefault`), or
+  whose file never arrived, plays the **default clip** instead of staying put
+  ([ADR 0073](../../docs/adrs/0073-a-record-with-no-visualizer-plays-the-default.md)) — an _absent_
+  entry keeps the old behaviour, because that is what catches a mis-written NTAG.
 - **`hub.ts`** — WebSocket fan-out to the connected browser(s).
 - **`deploy/`** — the kiosk launcher (`kiosk.sh`) and the compositor override (`xcompmgr.desktop`),
   checked in rather than pasted out of DEPLOY.md so the Pi and the repo can't silently disagree.
@@ -58,6 +62,19 @@ curl -XPOST localhost:4740/api/scan -H content-type:application/json \
 ```
 
 `filePath`s must sit under `mediaDir` (defense-in-depth against a poisoned library).
+
+To see the default-visualizer path, get any mp4 to `data/media/visualizers/default.mp4` and register
+a record with no video of its own:
+
+```bash
+curl -XPUT --data-binary @clip.mp4 -H content-type:application/octet-stream \
+  localhost:4740/api/media/default          # or just copy the file there yourself
+curl -XPOST localhost:4740/api/library/update -H content-type:application/json \
+  -d '{"uri":"curator:album:unfinishd","usesDefault":true}'
+curl -XPOST localhost:4740/api/scan -H content-type:application/json \
+  -d '{"event":"start","uri":"curator:album:unfinishd","tagUid":"04:A1","at":"now"}'
+curl -s localhost:4740/api/status   # → "usingDefault": true
+```
 
 ## Deploy on the Pi
 

@@ -7,7 +7,11 @@ import type { Readable } from "node:stream";
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
-import type { ScanEvent, LibraryEntry } from "@marquee/contracts";
+import {
+  entryHasOwnVideo,
+  type ScanEvent,
+  type LibraryEntry,
+} from "@marquee/contracts";
 import { loadConfig, type Config } from "./config.js";
 import { Library } from "./library.js";
 import { SocketHub, type Socket } from "./hub.js";
@@ -112,6 +116,7 @@ export function buildServer(opts: BuildOptions = {}) {
     timers: opts.timers,
     idleTimeoutMs: config.idleTimeoutMinutes * 60_000,
     mediaDir: config.mediaDir,
+    defaultVisualizerPath: config.defaultVisualizerPath, // ADR 0073
     logger: app.log, // unresolvable / missing-file scans get a server-side warn (spec §8/§9)
   });
   const startedAt = Date.now();
@@ -197,17 +202,24 @@ export function buildServer(opts: BuildOptions = {}) {
 
   /**
    * A `fileId` becomes a filename inside the directory Backdrop serves videos from. Only the
-   * curatorId shape is accepted — rejected outright rather than sanitised, because sanitising
-   * invites the next bypass and Curator has no reason to send anything else.
+   * curatorId shape and the literal `default` are accepted — rejected outright rather than
+   * sanitised, because sanitising invites the next bypass and Curator has no reason to send
+   * anything else.
+   *
+   * `default` is the fallback clip (ADR 0073), landing at `{media_dir}/default.mp4`, which is where
+   * `[storage].default_visualizer` looks by default. A literal alternative, not a widened character
+   * class: it adds one reachable filename and no traversal surface. Without it the only way to get
+   * the fallback onto a Pi is an out-of-band rsync — the exact silent gap ADR 0038 removed for real
+   * visualizers, and worse here, because one missing file takes out every unfinished record at once.
    */
-  const MEDIA_FILE_ID = /^[a-z0-9]{8}$/;
+  const MEDIA_FILE_ID = /^([a-z0-9]{8}|default)$/;
 
   app.put("/api/media/:fileId", async (req, reply) => {
     const { fileId } = req.params as { fileId: string };
     if (!MEDIA_FILE_ID.test(fileId)) {
       return reply
         .code(400)
-        .send({ error: "fileId must match /^[a-z0-9]{8}$/" });
+        .send({ error: "fileId must match /^([a-z0-9]{8}|default)$/" });
     }
 
     mkdirSync(config.mediaDir, { recursive: true });
@@ -320,13 +332,32 @@ export function buildServer(opts: BuildOptions = {}) {
     }
     const map: Record<string, LibraryEntry> = {};
     for (const e of body.entries) {
-      if (!e?.uri || typeof e.filePath !== "string") {
-        return reply
-          .code(400)
-          .send({ error: "each entry needs a uri and filePath" });
+      // An entry names a file *or* declares it has none yet (ADR 0073). Still a 400 when it does
+      // neither: "no filePath" has to mean something Curator said on purpose, not something a
+      // malformed push fell into — otherwise a sync bug would quietly park the whole library on the
+      // default clip and look like it worked.
+      //
+      // `namesAFile`, not `typeof … === "string"`: an empty `filePath` is not a file, and reading it
+      // as one would land an entry that `entryHasOwnVideo` then classifies as *no* video — i.e. the
+      // malformed push silently becoming a fallback, by the back door this check exists to shut.
+      // Matches `library-entry.schema.json`'s `minLength: 1` and `/api/library/update`, which
+      // already rejected it.
+      //
+      // **Exactly one**, never both: they are contradictory claims about the same record, and an
+      // entry carrying both leaves every reader to pick whichever it happens to check first — which
+      // they already do differently (`entryHasOwnVideo` prefers the file, `/api/library/update`
+      // prefers the marker). Same reasoning as `spotifyMatch`/`spotifyAmbiguous` on the album asset
+      // (ADR 0068); `library-entry.schema.json` carries the matching `not`.
+      const namesAFile = typeof e?.filePath === "string" && e.filePath !== "";
+      if (!e?.uri || namesAFile === Boolean(e.usesDefault)) {
+        return reply.code(400).send({
+          error:
+            "each entry needs a uri and exactly one of a non-empty filePath or usesDefault",
+        });
       }
       map[e.uri] = {
-        filePath: e.filePath,
+        ...(namesAFile ? { filePath: e.filePath! } : {}),
+        ...(e.usesDefault ? { usesDefault: true as const } : {}),
         durationSec: e.durationSec,
         contentHash: e.contentHash,
       };
@@ -339,11 +370,29 @@ export function buildServer(opts: BuildOptions = {}) {
     const b = (req.body ?? {}) as { uri?: string } & Partial<LibraryEntry>;
     if (!b.uri) return reply.code(400).send({ error: "uri is required" });
     const existing = library.resolve(b.uri);
+
+    // Contradictory claims about the same record — see the `/api/library/sync` note above.
+    if (b.usesDefault && typeof b.filePath === "string") {
+      return reply
+        .code(400)
+        .send({ error: "an entry sets filePath or usesDefault, never both" });
+    }
+
+    // `usesDefault` **replaces** the entry rather than merging into it (ADR 0073). This is the shape
+    // a detach pushes, and the whole point of a detach is that the old file is no longer this
+    // record's visualizer — carrying `filePath` (or its `contentHash`, or its `durationSec`) forward
+    // out of `existing` would leave Backdrop playing the video that was just taken away, and the
+    // next sync skipping the upload because the hash still matched.
+    if (b.usesDefault) {
+      library.upsert(b.uri, { usesDefault: true });
+      return { updated: b.uri };
+    }
+
     const filePath = b.filePath ?? existing?.filePath;
     if (!filePath) {
       return reply
         .code(400)
-        .send({ error: "filePath is required for a new entry" });
+        .send({ error: "a new entry needs a filePath or usesDefault" });
     }
     library.upsert(b.uri, {
       filePath,
@@ -365,6 +414,13 @@ export function buildServer(opts: BuildOptions = {}) {
   // visible. `existsSync` per entry is a stat over a library of tens; not worth caching.
   app.get("/api/library", async () => {
     const { entries, ...rest } = library.all();
+    // A `usesDefault` entry is judged against the default clip, not against a filePath it doesn't
+    // have (ADR 0073) — the question `fileMissing` answers is "would a scan of this play anything",
+    // and for these records the answer turns on whether default.mp4 reached the Pi.
+    const defaultMissing = !fileIsPlayable(
+      config.mediaDir,
+      config.defaultVisualizerPath,
+    );
     return {
       ...rest,
       entries: Object.fromEntries(
@@ -372,7 +428,9 @@ export function buildServer(opts: BuildOptions = {}) {
           uri,
           {
             ...entry,
-            fileMissing: !fileIsPlayable(config.mediaDir, entry.filePath),
+            fileMissing: entryHasOwnVideo(entry)
+              ? !fileIsPlayable(config.mediaDir, entry.filePath)
+              : defaultMissing,
           },
         ]),
       ),

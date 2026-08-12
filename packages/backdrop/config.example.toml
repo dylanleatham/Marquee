@@ -16,5 +16,12 @@ data_dir = "data"                       # holds library.json (the URI → video-
 media_dir = "data/media/visualizers"    # where synced visualizer .mp4 files land; scan filePaths must sit under this
 # max_upload_mb = 2048                  # ceiling for PUT /api/media/:fileId (ADR 0038). Env: BACKDROP_MAX_UPLOAD_MB
 
+# The clip played for a record Curator knows about that has no visualizer of its own yet, and for one
+# whose file never arrived (ADR 0073). Relative names resolve inside media_dir. Env:
+# BACKDROP_DEFAULT_VISUALIZER. Put the file there with `PUT /api/media/default` or by hand; it is
+# held to the same decode budget as any visualizer (≤1080p30, ≤10 Mbps, H.264, no audio), and nothing
+# encodes it for you. With no file present, those scans fall back to the old stay-put behaviour.
+# default_visualizer = "default.mp4"
+
 [runtime]
 idle_timeout_minutes = 90               # auto-fade to idle after this long with no scan (lost-stop safety net)

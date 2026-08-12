@@ -39,8 +39,22 @@ describe("backdrop projection", () => {
     });
   });
 
-  it("returns null when no video is attached (nothing for Backdrop to play)", () => {
-    expect(buildLibraryEntry(makeAsset("noVideo1"), "/srv/m")).toBeNull();
+  /**
+   * ADR 0073. This used to return `null`, which meant Backdrop was never told the record existed —
+   * so a scan of an unfinished record and a scan of a stray NTAG were indistinguishable: both
+   * answered `video not in library` and left the display on whatever was there before. Naming the
+   * record is what lets Backdrop play a default clip for one that is genuinely ours.
+   */
+  it("projects an album with no video as a usesDefault entry, not as nothing", () => {
+    expect(buildLibraryEntry(makeAsset("novideo1"), "/srv/m")).toEqual({
+      uri: "curator:album:novideo1",
+      usesDefault: true,
+    });
+  });
+
+  it("never names a filePath for an album with no video", () => {
+    const entry = buildLibraryEntry(makeAsset("novideo2"), "/srv/m");
+    expect("filePath" in entry).toBe(false);
   });
 
   it("emits a POSIX filePath even from a Windows-style media dir", () => {

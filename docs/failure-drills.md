@@ -124,10 +124,11 @@ still errors (a latched failure — a cached dead connection that nothing invali
 
 ---
 
-## D3 — Video file missing on Backdrop's SD → indicator, never a black screen
+## D3 — Video file missing on Backdrop's SD → the default clip, never a black screen
 
 **§9 row:** Video file missing. **Covered by:** `backdrop/test/controller.test.ts`. **What the drill
-adds:** the indicator on the actual TV, at actual size, from actual couch distance.
+adds:** whether the stand-in actually reads as intentional on the real TV, and whether the fallback
+indicator is legible from actual couch distance.
 
 Pick an album whose video is on the Pi and move it aside:
 
@@ -138,15 +139,50 @@ curl -s http://$PI5:4740/api/library | grep -o '"fileMissing":true' | head
 
 Then scan that album (`POST /api/scan`, or place the sleeve).
 
+**Observable:** the **default clip** plays ([ADR 0073](adrs/0073-a-record-with-no-visualizer-plays-the-default.md)),
+and `GET /api/status` reports `"usingDefault": true` with the record's own URI. No black screen, no
+crash.
+
+Then run it again with the default clip itself moved aside — this is the pre-ADR-0073 path, and it
+is the one nobody will exercise by accident:
+
+```sh
+ssh $PI5 'cd /home/pi/marquee-data/media/visualizers && mv default.mp4 default.mp4.hidden'
+```
+
 **Observable:** the display **stays on whatever it was showing** — idle overlay or the previous clip
-— and flashes `video file missing` center-bottom for ~4s. No black screen, no crash. `GET
-/api/status` still reports the previous state.
+— and flashes `video file missing` center-bottom for ~4s. `GET /api/status` still reports the
+previous state, and `GET /api/library` reports `fileMissing` on every `usesDefault` entry.
 
 **Fails if:** the screen goes black, the browser reloads, or the indicator never appears (check the
 kiosk URL has `?debug=1` if indicators are hidden — see
 [backdrop-spec §10](specs/backdrop-spec.md#10-frontend-spa-structure)).
 
-Restore the file afterwards, or re-push it from Curator.
+Restore both files afterwards, or re-push them from Curator.
+
+---
+
+## D3b — Record with no visualizer yet → the default clip, and Curator still says it's owed
+
+**§9 row:** Record has no visualizer yet. **Covered by:** `backdrop/test/controller.test.ts`,
+`curator/test/backdrop-projection.test.ts`. **What the drill adds:** the judgement that only exists
+in front of the TV — whether a stand-in on a real record reads as "this one isn't finished" or as
+"something is broken". If it reads as broken, the clip is wrong, not the mechanism.
+
+Take a record that genuinely has no visualizer, push it, and scan it:
+
+```sh
+curl -s -XPOST http://localhost:4730/api/albums/<curatorId>/push
+curl -s http://$PI5:4740/api/library | python3 -m json.tool | grep -A2 '<curatorId>'
+```
+
+**Observable:** the entry reads `"usesDefault": true` with no `filePath`; the scan plays the default
+clip; `/api/status` reports `usingDefault: true`. In Curator, that record still reads
+`NEEDS VISUALIZER` — playing a stand-in is not progress, and nothing should have marked it as such.
+
+**Fails if:** Curator's collection no longer asks for the visualizer (the fallback has started
+counting as a need being met), or the entry carries a `filePath` (a stale one from a detach — see
+[ADR 0073](adrs/0073-a-record-with-no-visualizer-plays-the-default.md)).
 
 ---
 
@@ -163,9 +199,15 @@ curl -s -XPOST http://$PI5:4740/api/admin/simulate-scan -H "X-Trigger-Secret: $S
 **Observable:** `202`, the display stays put, and `video not in library` flashes center-bottom. The
 Backdrop log carries the URI it couldn't resolve.
 
-**Fails if:** the two indicators are indistinguishable from each other in practice — they point at
-different fixes (D3 = re-sync the file, D4 = attach a video in Curator), so if you can't tell them
-apart from the couch, that's a real finding.
+**This must still happen with a default clip installed.** Since
+[ADR 0073](adrs/0073-a-record-with-no-visualizer-plays-the-default.md) an unfinished record plays the
+default (D3b), and it would have been easy — and wrong — to cover this case with it too. A URI
+nothing knows is how a mis-written sticker announces itself; if the default clip plays here, the
+fallback has swallowed the one indicator that catches it, and that is a bug, not a nicety.
+
+**Fails if:** the default clip plays; or the indicators are indistinguishable from each other in
+practice — they point at different fixes (D3 = re-sync the file, D4 = check what the sticker
+actually says), so if you can't tell them apart from the couch, that's a real finding.
 
 ---
 
@@ -345,6 +387,7 @@ unrecorded "looked fine to me" is how ADR 0011's open question stays open for an
 | D1 idle timeout restores     |        | ☐      |                     |
 | D2 bridge unreachable        |        | ☐      |                     |
 | D3 video file missing        |        | ☐      |                     |
+| D3b no visualizer yet        |        | ☐      |                     |
 | D4 album not in library      |        | ☐      |                     |
 | D5 downstream unreachable    |        | ☐      |                     |
 | D6 bad JSON asset            |        | ☐      |                     |

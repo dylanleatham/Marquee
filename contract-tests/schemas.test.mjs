@@ -150,3 +150,65 @@ test("an album may not claim a match and an ambiguity at once", () => {
   });
   assert.equal(validate(contradictory), false);
 });
+
+// --- library-entry: what Curator is allowed to tell Backdrop about a record ---------------------
+// An entry either names a file of its own or declares it has none yet and should play Backdrop's
+// default clip ([ADR 0073](../docs/adrs/0073-a-record-with-no-visualizer-plays-the-default.md)).
+// The schema has to allow the second shape *and* keep rejecting an entry that says neither —
+// "no filePath" must be something Curator meant, not something a malformed push fell into, or a
+// sync bug would park the whole library on the fallback and look like it worked.
+
+const LIBRARY_ID = "marquee/schemas/library-entry-v1.json";
+
+test("a library entry naming a visualizer file validates", () => {
+  const validate = ajv.getSchema(LIBRARY_ID);
+  const ok = {
+    uri: "curator:album:2k7bxq9m",
+    filePath: "/home/pi/backdrop/media/visualizers/2k7bxq9m.mp4",
+    durationSec: 187,
+    contentHash: "sha256:abc123",
+  };
+  assert.ok(validate(ok), JSON.stringify(validate.errors, null, 2));
+});
+
+test("a library entry may declare it has no visualizer and plays the default", () => {
+  const validate = ajv.getSchema(LIBRARY_ID);
+  const ok = { uri: "curator:album:2k7bxq9m", usesDefault: true };
+  assert.ok(validate(ok), JSON.stringify(validate.errors, null, 2));
+});
+
+test("a library entry that names neither a file nor the default is rejected", () => {
+  const validate = ajv.getSchema(LIBRARY_ID);
+  assert.equal(validate({ uri: "curator:album:2k7bxq9m" }), false);
+});
+
+test("usesDefault: false is not a way to omit filePath", () => {
+  const validate = ajv.getSchema(LIBRARY_ID);
+  assert.equal(
+    validate({ uri: "curator:album:2k7bxq9m", usesDefault: false }),
+    false,
+  );
+});
+
+test("an empty filePath is rejected rather than read as 'no file'", () => {
+  const validate = ajv.getSchema(LIBRARY_ID);
+  assert.equal(
+    validate({ uri: "curator:album:2k7bxq9m", filePath: "" }),
+    false,
+  );
+});
+
+test("a library entry may not name a file and claim the default at once", () => {
+  const validate = ajv.getSchema(LIBRARY_ID);
+  // Contradictory: readers already resolve it two different ways (Backdrop's `entryHasOwnVideo`
+  // prefers the file, `/api/library/update` prefers the marker), so neither answer is the entry's.
+  // Same rule, and the same reasoning, as spotifyMatch/spotifyAmbiguous above (ADR 0068).
+  assert.equal(
+    validate({
+      uri: "curator:album:2k7bxq9m",
+      filePath: "/media/2k7bxq9m.mp4",
+      usesDefault: true,
+    }),
+    false,
+  );
+});

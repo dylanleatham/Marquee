@@ -2,19 +2,32 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "marquee/schemas/library-entry-v1.json",
   "title": "LibraryEntry",
-  "description": "One entry in Backdrop's library.json (URI -> video file). Pushed by Curator.",
+  "description": "One entry in Backdrop's library.json (URI -> video file). Pushed by Curator. An entry names a filePath of its own or sets usesDefault, in which case Backdrop plays its configured default clip (ADR 0073) — exactly one of the two, never both and never neither.",
   "type": "object",
-  "required": ["uri", "filePath"],
+  "required": ["uri"],
   "properties": {
     "uri": { "type": "string", "pattern": "^curator:album:[a-z0-9]{8}$" },
     "filePath": {
       "type": "string",
+      "minLength": 1,
       "description": "Absolute path on Backdrop's SD card."
+    },
+    "usesDefault": {
+      "type": "boolean",
+      "description": "This record has no visualizer of its own — play Backdrop's default clip. Distinct from the entry being absent, which still means 'this tag is in nothing Curator knows'."
     },
     "durationSec": { "type": "number", "minimum": 0 },
     "contentHash": {
       "type": "string",
       "description": "e.g. sha256:... — lets sync detect updates."
     }
-  }
+  },
+  "anyOf": [
+    { "required": ["filePath"] },
+    {
+      "properties": { "usesDefault": { "const": true } },
+      "required": ["usesDefault"]
+    }
+  ],
+  "not": { "required": ["filePath", "usesDefault"] }
 }

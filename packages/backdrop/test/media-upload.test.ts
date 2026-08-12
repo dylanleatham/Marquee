@@ -81,9 +81,27 @@ describe("PUT /api/media/:fileId", () => {
   });
 
   /**
+   * The fallback clip (ADR 0073) lands at `{mediaDir}/default.mp4`, where `[storage]
+   * .default_visualizer` looks by default. A literal alternative in the pattern, not a widened
+   * character class — one extra reachable filename, no traversal surface. Without it the only way
+   * onto a Pi is an out-of-band rsync, which is the silent gap ADR 0038 removed for real
+   * visualizers, and worse here: one missing file takes out every unfinished record at once.
+   */
+  it("accepts the literal fileId `default`, landing the fallback clip beside the visualizers", async () => {
+    const { app, mediaDir } = build();
+    const body = Buffer.from("fake default clip");
+
+    const res = await put(app, "default", body);
+
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject({ fileId: "default", bytes: body.length });
+    expect(readFileSync(join(mediaDir, "default.mp4"))).toEqual(body);
+  });
+
+  /**
    * The fileId becomes a filename inside a directory Backdrop serves to a browser. Anything that
-   * isn't the curatorId shape is rejected outright rather than sanitised — sanitising invites the
-   * next bypass, and Curator has no reason to send anything else.
+   * isn't the curatorId shape or the literal `default` is rejected outright rather than sanitised —
+   * sanitising invites the next bypass, and Curator has no reason to send anything else.
    */
   it.each([
     ["..%2f..%2fetc", "encoded traversal"],
@@ -92,6 +110,8 @@ describe("PUT /api/media/:fileId", () => {
     ["ABC12345", "uppercase"],
     ["abc-1234", "punctuation"],
     ["abc 1234", "space"],
+    ["DEFAULT", "the literal in the wrong case"],
+    ["default.mp4", "the literal with its extension"],
   ])("rejects %s (%s) with a 400 and writes nothing", async (fileId) => {
     const { app, mediaDir } = build();
     const res = await put(app, fileId, Buffer.from("payload"));

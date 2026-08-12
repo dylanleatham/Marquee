@@ -241,6 +241,15 @@ awaiting_verify → verified` needs `physicallyVerifiedAt`. `preview/approve`, `
 > being made ("I put the sleeve on the stand and it worked") is the same one, so the trigger must be
 > too. `verify-physical` is unchanged and remains the per-step route. See curator-spec §Tag writing.
 >
+> **Update (2026-08-12, [ADR 0073](../adrs/0073-a-record-with-no-visualizer-plays-the-default.md)):
+> a video **detach** is now an upsert, not a remove, and "an album with no video has nothing to
+> project" above is no longer true.** Every album Curator holds projects an entry; one with no
+> visualizer projects as `{ uri, usesDefault: true }`, and Backdrop plays its default clip for it.
+> Removal is reserved for the album ceasing to exist (delete, merge). The trigger points themselves
+> are unchanged. What changed is why: while a video-less album projected `null`, Backdrop could not
+> tell a record that simply wasn't finished from a tag it had never heard of, and answered both with
+> `video not in library` and a dead screen.
+>
 > **Update (2026-08-01, [ADR 0045](../adrs/0045-curator-pushes-album-assets-to-conductor.md)): ★ now
 > covers the whole runtime, not just Backdrop.** The **album-assets store** Conductor reads at scan
 > time — and Amp reads from the same directory — is pushed over HTTP too

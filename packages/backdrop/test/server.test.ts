@@ -255,6 +255,193 @@ describe("backdrop HTTP API", () => {
     });
   });
 
+  // The default visualizer (ADR 0073) — an unfinished record is a first-class library entry that
+  // names no file of its own, so the sync API has to carry that shape and `GET /api/library` has to
+  // judge it against the clip it will actually play.
+  describe("usesDefault entries", () => {
+    /** A server with a default clip on disk and one unfinished record in the library. */
+    function buildWithDefault() {
+      const { dir, paths } = tempMedia(["x.mp4", "default.mp4"]);
+      const library = new Library(tempDataDir());
+      library.upsert(URI, { filePath: paths["x.mp4"]!, durationSec: 187 });
+      library.upsert("curator:album:unfinishd", { usesDefault: true });
+      const built = buildServer({
+        config: {
+          sharedSecret: SECRET,
+          mediaDir: dir,
+          defaultVisualizerPath: paths["default.mp4"]!,
+        },
+        library,
+        timers: new FakeTimers(),
+      });
+      return { ...built, mediaDir: dir, defaultPath: paths["default.mp4"]! };
+    }
+
+    it("POST /api/library/sync accepts an entry with usesDefault and no filePath", async () => {
+      const { app } = build();
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/library/sync",
+        headers: AUTH,
+        payload: {
+          entries: [
+            { uri: "curator:album:a", filePath: "/media/a.mp4" },
+            { uri: "curator:album:b", usesDefault: true },
+          ],
+        },
+      });
+      expect(res.json()).toEqual({ synced: 2 });
+      const entries = (
+        await app.inject({ method: "GET", url: "/api/library", headers: AUTH })
+      ).json().entries;
+      expect(entries["curator:album:b"].usesDefault).toBe(true);
+      expect(entries["curator:album:b"].filePath).toBeUndefined();
+    });
+
+    // "No filePath" has to be something Curator said on purpose. A malformed push that fell into
+    // the fallback would park records on the default clip and look like it worked. The empty string
+    // is the sharp edge: it passes a `typeof === "string"` check and then reads as *no* video
+    // downstream, which is the malformed push becoming a fallback by the back door.
+    it.each([
+      ["neither field", { uri: "curator:album:a" }],
+      ["an empty filePath", { uri: "curator:album:a", filePath: "" }],
+      // Contradictory: two readers already resolve it differently, so neither answer is the entry's.
+      [
+        "both fields",
+        { uri: "curator:album:a", filePath: "/m/a.mp4", usesDefault: true },
+      ],
+    ])("POST /api/library/sync 400s on an entry with %s", async (_, entry) => {
+      const { app } = build();
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/library/sync",
+        headers: AUTH,
+        payload: { entries: [entry] },
+      });
+      expect(res.statusCode).toBe(400);
+      // Nothing landed — a rejected sync must not half-replace the map.
+      const entries = (
+        await app.inject({ method: "GET", url: "/api/library", headers: AUTH })
+      ).json().entries;
+      expect(entries["curator:album:a"]).toBeUndefined();
+    });
+
+    it("POST /api/library/update 400s on an empty filePath for a new entry", async () => {
+      const { app } = build();
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/library/update",
+        headers: AUTH,
+        payload: { uri: "curator:album:empty123", filePath: "" },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it("POST /api/library/update 400s when a body sets both, and changes nothing", async () => {
+      const { app } = build(); // seed: URI → { filePath, durationSec: 187 }
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/library/update",
+        headers: AUTH,
+        payload: { uri: URI, filePath: "/m/x.mp4", usesDefault: true },
+      });
+      expect(res.statusCode).toBe(400);
+      const entry = (
+        await app.inject({ method: "GET", url: "/api/library", headers: AUTH })
+      ).json().entries[URI];
+      expect(entry.durationSec).toBe(187); // the seed is untouched
+      expect(entry.usesDefault).toBeUndefined();
+    });
+
+    // The detach path. Merging would leave Backdrop pointing at the video that was just removed —
+    // and its contentHash would make the next sync skip re-uploading the replacement.
+    it("POST /api/library/update with usesDefault replaces the entry, dropping the old file", async () => {
+      const { app } = build(); // seed: URI → { filePath, durationSec: 187 }
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/library/update",
+        headers: AUTH,
+        payload: { uri: URI, usesDefault: true },
+      });
+      expect(res.json()).toEqual({ updated: URI });
+
+      const entry = (
+        await app.inject({ method: "GET", url: "/api/library", headers: AUTH })
+      ).json().entries[URI];
+      expect(entry.usesDefault).toBe(true);
+      expect(entry.filePath).toBeUndefined();
+      expect(entry.durationSec).toBeUndefined();
+      expect(entry.contentHash).toBeUndefined();
+    });
+
+    it("a scan of an unfinished record plays the default and says so on /api/status", async () => {
+      const { app, defaultPath } = buildWithDefault();
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/scan",
+        headers: AUTH,
+        payload: {
+          event: "start",
+          uri: "curator:album:unfinishd",
+          tagUid: "04:A1",
+          at: "t",
+        },
+      });
+      expect(res.statusCode).toBe(202);
+
+      const body = (
+        await app.inject({ method: "GET", url: "/api/status", headers: AUTH })
+      ).json();
+      expect(body.state).toBe("playing");
+      expect(body.uri).toBe("curator:album:unfinishd");
+      expect(body.filePath).toBe(defaultPath);
+      expect(body.usingDefault).toBe(true);
+    });
+
+    it("/api/status reports usingDefault:false for a record playing its own visualizer", async () => {
+      const { app } = buildWithDefault();
+      await app.inject({
+        method: "POST",
+        url: "/api/admin/play",
+        headers: AUTH,
+        payload: { uri: URI },
+      });
+      const body = (
+        await app.inject({ method: "GET", url: "/api/status", headers: AUTH })
+      ).json();
+      expect(body.usingDefault).toBe(false);
+    });
+
+    // `fileMissing` answers "would a scan of this play anything". For these records that turns on
+    // the default clip, not on a filePath they don't have.
+    it("GET /api/library judges a usesDefault entry against the default clip", async () => {
+      const { app } = buildWithDefault();
+      const entries = (
+        await app.inject({ method: "GET", url: "/api/library", headers: AUTH })
+      ).json().entries;
+      expect(entries["curator:album:unfinishd"].fileMissing).toBe(false);
+    });
+
+    it("GET /api/library marks every usesDefault entry missing when the default clip isn't there", async () => {
+      const { dir } = tempMedia([]); // no default.mp4 ever synced
+      const library = new Library(tempDataDir());
+      library.upsert("curator:album:unfinishd", { usesDefault: true });
+      const { app } = buildServer({
+        config: {
+          sharedSecret: SECRET,
+          mediaDir: dir,
+          defaultVisualizerPath: `${dir}/default.mp4`,
+        },
+        library,
+        timers: new FakeTimers(),
+      });
+      const entries = (
+        await app.inject({ method: "GET", url: "/api/library", headers: AUTH })
+      ).json().entries;
+      expect(entries["curator:album:unfinishd"].fileMissing).toBe(true);
+    });
+  });
+
   it("admin play / stop / simulate-scan drive the controller", async () => {
     const { app, controller } = build();
 

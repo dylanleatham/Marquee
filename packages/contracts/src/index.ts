@@ -501,12 +501,41 @@ export function curatorUri(kind: CuratorUriKind, curatorId: string): string {
 // Curator pushes these; the video files themselves are synced out-of-band (rsync).
 
 export interface LibraryEntry {
-  /** Absolute path to the visualizer file on the Backdrop Pi. */
-  filePath: string;
+  /**
+   * Absolute path to the visualizer file on the Backdrop Pi. Absent exactly when `usesDefault` is
+   * set — a record Curator knows about that has no visualizer of its own yet.
+   */
+  filePath?: string;
+  /**
+   * This record has no visualizer of its own; play Backdrop's default clip
+   * ([ADR 0073](../../../docs/adrs/0073-a-record-with-no-visualizer-plays-the-default.md)).
+   *
+   * The marker is what separates the two silences Backdrop used to answer identically. An entry that
+   * is *absent* still means "nothing here knows this tag" and still shows `video not in library`; an
+   * entry carrying this flag means "Curator knows this record, it just isn't finished", and the room
+   * gets the default rather than nothing. Without the flag Backdrop would have to treat every
+   * unresolvable scan as a video-less album, which throws away the one indicator that catches a
+   * mis-written sticker.
+   */
+  usesDefault?: boolean;
   /** Video duration in seconds. Informational today. */
   durationSec?: number;
   /** Content hash so Curator's sync knows when a video changed and needs re-pushing. */
   contentHash?: string;
+}
+
+/**
+ * Whether a library entry names a video of its own, narrowing `filePath` for callers.
+ *
+ * `filePath` is optional on the type but *required* on any entry that is not `usesDefault`, and the
+ * two producers (Curator's projection, Backdrop's sync routes) both enforce that. This is the reader
+ * side of the same invariant, in one place, so the runtime and the sync agree on what "has a video"
+ * means.
+ */
+export function entryHasOwnVideo(
+  entry: LibraryEntry,
+): entry is LibraryEntry & { filePath: string } {
+  return typeof entry.filePath === "string" && entry.filePath.length > 0;
 }
 
 // TODO(build order): also export AlbumAsset (hand-written or generated) once that boundary is

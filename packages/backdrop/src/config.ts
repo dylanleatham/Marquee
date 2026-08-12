@@ -18,6 +18,17 @@ export interface Config {
    * can point it at a temp dir.
    */
   mediaDir: string;
+  /**
+   * The clip played for a record Curator knows about that has no visualizer of its own yet
+   * (ADR 0073). Resolved against `mediaDir` when relative, so the operator only has to drop one file
+   * beside the visualizers.
+   *
+   * Always a path, never null: an absent file is a *runtime* condition the controller reports on the
+   * screen, not a boot-time one. Making it configurably-off would add a second way to express "no
+   * default" that behaves identically to the first (the file isn't there), and the wrong one would
+   * be silent.
+   */
+  defaultVisualizerPath: string;
   /** Auto-fade to idle after this many minutes with no scan event (safety net for a lost `stop`). */
   idleTimeoutMinutes: number;
   /**
@@ -40,6 +51,12 @@ export interface Config {
 
 /** Default upload ceiling, in MB. Comfortably above a real visualizer, well under the Pi's card. */
 const DEFAULT_MAX_UPLOAD_MB = 2048;
+
+/** Where visualizers live when config.toml doesn't say. */
+const DEFAULT_MEDIA_DIR = "data/media/visualizers";
+
+/** Filename of the fallback clip inside the media dir when config.toml doesn't say (ADR 0073). */
+const DEFAULT_VISUALIZER_FILE = "default.mp4";
 
 /**
  * Load config from config.toml (next to the package, or $BACKDROP_CONFIG) with env fallbacks and
@@ -68,10 +85,10 @@ export function loadConfig(override: Partial<Config> = {}): Config {
       process.env.TRIGGER_SHARED_SECRET ??
       null,
     dataDir: resolve(pkgDir, String(storage.data_dir ?? "data")),
-    mediaDir: resolve(
-      pkgDir,
-      String(storage.media_dir ?? "data/media/visualizers"),
-    ),
+    mediaDir: resolve(pkgDir, String(storage.media_dir ?? DEFAULT_MEDIA_DIR)),
+    // Placeholder: the real value is resolved below, against the *effective* media dir. Declared
+    // here only so `base` is a complete Config.
+    defaultVisualizerPath: "",
     idleTimeoutMinutes: Number(runtime.idle_timeout_minutes ?? 90),
     // A malformed value falls back to the default rather than silently wedging every upload behind
     // a nonsense ceiling (same reasoning as Curator's own upload cap).
@@ -92,5 +109,23 @@ export function loadConfig(override: Partial<Config> = {}): Config {
     })(),
   };
   // `override` (tests, and buildServer opts) wins over file/env/defaults.
-  return { ...base, ...override };
+  const merged = { ...base, ...override };
+
+  // Resolved last, and against `merged.mediaDir` rather than the file's — a caller that overrides
+  // only the media dir (every test, and the desktop shell) must get a default clip that still sits
+  // inside it. Resolved against the *file's* dir it would land outside, and `play()` refuses to load
+  // anything outside `mediaDir`: the default would be configured, present on disk, and never play.
+  return {
+    ...merged,
+    defaultVisualizerPath:
+      override.defaultVisualizerPath ??
+      resolve(
+        merged.mediaDir,
+        String(
+          storage.default_visualizer ??
+            process.env.BACKDROP_DEFAULT_VISUALIZER ??
+            DEFAULT_VISUALIZER_FILE,
+        ),
+      ),
+  };
 }

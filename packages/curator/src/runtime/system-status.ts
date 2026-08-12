@@ -21,7 +21,13 @@ import {
 export interface BackdropLibraryResponse {
   entries: Record<
     string,
-    { filePath: string; durationSec?: number; fileMissing?: boolean }
+    {
+      filePath?: string;
+      /** No visualizer of its own — Backdrop plays its default clip (ADR 0073). */
+      usesDefault?: boolean;
+      durationSec?: number;
+      fileMissing?: boolean;
+    }
   >;
 }
 
@@ -51,6 +57,12 @@ export function videoPresence(
   if (!entries) return "unknown";
   const entry = entries[backdropLibraryKey(curatorId)];
   if (!entry) return "absent";
+  // A `usesDefault` entry is Backdrop saying it will play the *fallback* clip for this record
+  // (ADR 0073) — the record's own clip is not there, so the answer is `absent`. Its `fileMissing`
+  // is judged against `default.mp4`, so reading that flag straight through would report `present`
+  // for every unfinished record the moment a default clip lands on the Pi: the same
+  // collapse-into-`present` this function exists to prevent, arriving by a new route.
+  if (entry.usesDefault || !entry.filePath) return "absent";
   // A Backdrop that doesn't report the flag can't vouch for the bytes; that is not a confirmation.
   if (entry.fileMissing === undefined) return "unknown";
   return entry.fileMissing ? "absent" : "present";
@@ -92,9 +104,16 @@ export interface AlbumPresence {
   hasVideo: boolean;
   /** Conductor (and Amp, same directory) has the asset, so a scan can drive the lights. */
   onConductor: boolean;
-  /** Backdrop has a library entry mapping the scan URI to a file. */
+  /**
+   * Backdrop has a library entry for the scan URI — i.e. it knows this record exists.
+   *
+   * Since [ADR 0073](../../../../docs/adrs/0073-a-record-with-no-visualizer-plays-the-default.md)
+   * that entry may name no file at all (`usesDefault`), so this is "Backdrop has heard of it", not
+   * "Backdrop can play its clip" — `videoOnBackdrop` / `videoPresence` answer the second question.
+   * Still worth reporting on its own: an album *missing* from the library is a sync that never ran.
+   */
   inBackdropLibrary: boolean;
-  /** …and the bytes are actually there. An entry without them plays nothing (ADR 0038). */
+  /** …and the record's **own** clip is actually there. An entry without it plays nothing (ADR 0038). */
   videoOnBackdrop: boolean;
   /**
    * The same question as `videoOnBackdrop`, but keeping "can't tell" apart from "no" (issue #296).
