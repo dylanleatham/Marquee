@@ -16,6 +16,7 @@ from .led import create_led
 from .publisher import Publisher
 from .reader import SimulatedReader, TagReader, create_pn532_reader
 from .status_server import StatusService, serve
+from .watchdog import create_watchdog
 
 
 def main() -> None:  # pragma: no cover - entrypoint glue
@@ -53,7 +54,16 @@ def main() -> None:  # pragma: no cover - entrypoint glue
         )
 
     led = create_led(config.led.enabled, config.led.gpio_pin)
-    app = StylusApp(config, reader, Publisher(config.downstreams), led)
+    # One watchdog, fed from both the poll loop and the publisher's retry loop — the second is what
+    # keeps a downstream outage from reading as a Stylus hang (#308, and see stylus/watchdog.py).
+    watchdog = create_watchdog()
+    app = StylusApp(
+        config,
+        reader,
+        Publisher(config.downstreams, heartbeat=watchdog.ping),
+        led,
+        heartbeat=watchdog.ping,
+    )
 
     server = serve(StatusService(app, sim), config.status_listen_port)
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -62,6 +72,11 @@ def main() -> None:  # pragma: no cover - entrypoint glue
         config.status_listen_port,
         ", ".join(d.name for d in config.downstreams) or "(no downstreams configured)",
     )
+
+    # Last, deliberately: under Type=notify this is the promise that startup finished, so it must
+    # come after the reader is up and the status port is actually listening. Outside systemd there
+    # is no socket and this is a no-op.
+    watchdog.ready()
 
     try:
         app.run()

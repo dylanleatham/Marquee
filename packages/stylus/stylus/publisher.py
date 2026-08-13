@@ -51,11 +51,13 @@ class Publisher:
         transport: Transport = urllib_transport,
         sleep: Sleep | None = None,
         retry_delays: Sequence[float] = DEFAULT_RETRY_DELAYS,
+        heartbeat: Callable[[], None] = lambda: None,
     ) -> None:
         self._downstreams = tuple(downstreams)
         self._transport = transport
         self._sleep: Sleep = sleep or time.sleep
         self._retry_delays = tuple(retry_delays)
+        self._heartbeat = heartbeat
 
     def publish(self, event: dict[str, Any]) -> dict[str, bool]:
         """Send ``event`` to every downstream. Returns ``{name: delivered?}``; never raises.
@@ -78,6 +80,11 @@ class Publisher:
         for delay in self._retry_delays:
             if delay:
                 self._sleep(delay)
+            # This runs inside the poll tick, and a dead downstream keeps us here for the whole
+            # retry window. Without a beat per attempt the watchdog would read a *Conductor* outage
+            # as a Stylus hang and kill us for it (#308, #173). The gap it leaves is one transport
+            # timeout, which is the number `WatchdogSec=` has to clear.
+            self._heartbeat()
             try:
                 status = self._transport(d.url, body, headers, timeout_s)
             except Exception as e:  # noqa: BLE001 — a wedged network is exactly what we retry past

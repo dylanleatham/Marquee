@@ -31,6 +31,7 @@ class StylusApp:
         *,
         now: Callable[[], str] = now_iso,
         sleep: Callable[[float], None] = time.sleep,
+        heartbeat: Callable[[], None] = lambda: None,
     ) -> None:
         self._cfg = config
         self._reader = reader
@@ -38,6 +39,7 @@ class StylusApp:
         self._led = led
         self._now = now
         self._sleep = sleep
+        self._heartbeat = heartbeat
         self._machine = DetectionMachine(config.reader)
         self._reader_id = config.reader.id
         self._running = False
@@ -56,6 +58,10 @@ class StylusApp:
 
     # --- one poll cycle ---------------------------------------------------------------------------
     def tick(self):
+        # Announce the pass *before* doing anything that can block, so a tick that never returns has
+        # already spent as little of the watchdog deadline as possible (§12, #308). It lives here
+        # rather than in `run()` because this is the unit the tests drive — `run()` is a bare loop.
+        self._heartbeat()
         tag = self._reader.poll()
         # Recorded before the machine runs, and regardless of what it decides: a tag the machine
         # ignores is exactly the one worth reporting.

@@ -169,3 +169,53 @@ def test_a_successful_scan_still_reports_the_observation():
         "uri": URI_A,
         "at": "2026-07-21T00:00:00Z",
     }
+
+
+# --- poll-loop liveness (issue #308, ADR 0077) --------------------------------------------------
+
+
+def test_every_tick_heartbeats():
+    """The signal that separates a live loop from a wedged one — see stylus/watchdog.py."""
+    beats = []
+    cfg = Config(reader=ReaderConfig(insertion_debounce_polls=2, removal_debounce_polls=2))
+    app = StylusApp(
+        cfg, SimulatedReader(), FakePublisher(), RecordingLed(), heartbeat=lambda: beats.append(1)
+    )
+    for _ in range(3):
+        app.tick()
+    assert len(beats) == 3
+
+
+def test_an_idle_tick_still_heartbeats():
+    # An empty stand is the normal state. A heartbeat that only fired on activity would let a
+    # perfectly healthy idle reader look dead to systemd.
+    beats = []
+    app = StylusApp(
+        Config(), SimulatedReader(), FakePublisher(), RecordingLed(), heartbeat=lambda: beats.append(1)
+    )
+    app.tick()
+    assert beats == [1]
+
+
+def test_the_heartbeat_fires_before_the_reader_is_polled():
+    """A tick that never returns must still have announced it *started*, or the gap between the
+    previous beat and the hang eats into the deadline for no reason."""
+    order = []
+
+    class SlowReader:
+        def poll(self):
+            order.append("poll")
+            return None
+
+    app = StylusApp(
+        Config(), SlowReader(), FakePublisher(), RecordingLed(), heartbeat=lambda: order.append("beat")
+    )
+    app.tick()
+    assert order == ["beat", "poll"]
+
+
+def test_heartbeat_defaults_to_a_no_op():
+    # Every existing construction site (and every test above) omits it.
+    app, reader, _, _ = build()
+    reader.set_tag("A", URI_A)
+    app.tick()  # must not raise

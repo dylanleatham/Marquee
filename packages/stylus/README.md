@@ -52,10 +52,16 @@ Deploy runbook: **[DEPLOY.md](DEPLOY.md)** (wiring, I²C, venv install, systemd,
   [ADR 0076](../../docs/adrs/0076-a-hung-pn532-init-becomes-a-restart.md)).
 - `create_led(enabled, gpio_pin)` drives a real LED through Blinka — PWM where available (so IDLE
   actually breathes), degrading to on/off, and to logging when the hardware libs are absent.
-- `marquee-stylus.service` — the systemd unit (`Wants=network-online.target`, `Restart=always`, §12).
-  It recovers a process that **exits**; turning a hang into an exit is the service's own job, which
-  is what the init bound above does. A poll-loop hang is still uncovered
-  ([#308](https://github.com/dylanleatham/Marquee/issues/308)).
+- `stylus/watchdog.py` — `sd_notify` in about forty lines: `READY=1` at startup, `WATCHDOG=1` while
+  the loop runs. A poll loop wedged in a driver call stops pinging and systemd kills it (§12,
+  [ADR 0077](../../docs/adrs/0077-the-poll-loop-proves-it-is-alive.md)). The heartbeat is threaded
+  through the **publisher** too, so a downstream outage — which legitimately stalls a tick for tens
+  of seconds ([#173](https://github.com/dylanleatham/Marquee/issues/173)) — isn't mistaken for a
+  hang. No dependency; it's a datagram, and a no-op off systemd.
+- `marquee-stylus.service` — the systemd unit (`Wants=network-online.target`, `Type=notify`,
+  `WatchdogSec=30`, `Restart=always`, §12). It recovers a process that **exits**; turning a hang
+  into an exit is the service's own job — the init bound above does it for startup, the watchdog
+  does it for the loop.
 - Install the hardware seams with `pip install '.[hardware]'` (adafruit-pn532 + Blinka). They're
   imported **lazily**, so none of this is needed off-Pi.
 
