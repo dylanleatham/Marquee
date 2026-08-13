@@ -6,6 +6,12 @@ insertion_debounce_polls = 2
 removal_debounce_polls = 10
 swap_debounce_polls = 1
 
+# How long the one-time PN532 bring-up gets before Stylus gives up and exits so systemd restarts it
+# (spec §12, ADR 0076). A healthy init is well under a second; this is generous on purpose. Raise it
+# before suspecting it — too tight a bound turns a slow-but-working module into a boot loop, which
+# is worse than the hang it guards.
+init_timeout_ms = 10000
+
 # Conductor and Backdrop both run on the Pi 5 (runbook §Topology) — same host, different ports.
 # Prefer its IP over a `.local` name: mDNS resolves inconsistently across clients, and a name that
 # works from one machine and not another is harder to debug than one that never works.

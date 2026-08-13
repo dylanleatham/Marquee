@@ -126,3 +126,23 @@ def test_example_config_parses():
     assert isinstance(c, Config)
     # Amp included: an example that ships without it is how a stand ends up silent (ADR 0034).
     assert {d.name for d in c.downstreams} == {"conductor", "backdrop", "amp"}
+
+
+# --- PN532 init bound (issue #307, ADR 0076) ----------------------------------------------------
+
+
+def test_init_timeout_defaults_to_a_bound_well_above_a_healthy_init():
+    # A healthy init is well under a second; the default is generous on purpose. Too *tight* a
+    # bound turns a slow-but-working module into a boot loop, which is worse than the hang.
+    assert config_from_dict({}).reader.init_timeout_ms == 10_000
+
+
+def test_init_timeout_is_configurable():
+    cfg = config_from_dict({"reader": {"init_timeout_ms": 30_000}})
+    assert cfg.reader.init_timeout_ms == 30_000
+
+
+def test_init_timeout_rejects_a_bound_of_zero():
+    # 0 would fail every init instantly and crash-loop the service forever.
+    with pytest.raises(ValueError):
+        config_from_dict({"reader": {"init_timeout_ms": 0}})

@@ -46,10 +46,16 @@ pytest -q && ruff check stylus tests && mypy stylus   # the three gates CI runs
 Deploy runbook: **[DEPLOY.md](DEPLOY.md)** (wiring, I²C, venv install, systemd, mount tuning).
 
 - `create_pn532_reader` drives the real reader over I²C, caching the decoded URI per UID so the slow
-  NDEF read happens once per sleeve rather than every poll.
+  NDEF read happens once per sleeve rather than every poll. Its bring-up runs under a time bound
+  (`stylus/bounded.py`, `[reader] init_timeout_ms`): a module that wedges mid-init would otherwise
+  block forever at `active (running)`, which `Restart=` cannot see (§12,
+  [ADR 0076](../../docs/adrs/0076-a-hung-pn532-init-becomes-a-restart.md)).
 - `create_led(enabled, gpio_pin)` drives a real LED through Blinka — PWM where available (so IDLE
   actually breathes), degrading to on/off, and to logging when the hardware libs are absent.
-- `marquee-stylus.service` — the systemd unit (`Wants=network-online.target`, restart-on-hang, §12).
+- `marquee-stylus.service` — the systemd unit (`Wants=network-online.target`, `Restart=always`, §12).
+  It recovers a process that **exits**; turning a hang into an exit is the service's own job, which
+  is what the init bound above does. A poll-loop hang is still uncovered
+  ([#308](https://github.com/dylanleatham/Marquee/issues/308)).
 - Install the hardware seams with `pip install '.[hardware]'` (adafruit-pn532 + Blinka). They're
   imported **lazily**, so none of this is needed off-Pi.
 
