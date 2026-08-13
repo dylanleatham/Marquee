@@ -83,7 +83,13 @@ export interface ActionDeps {
   prober: VideoProber;
   /** Gemini client for on-demand AI actions (prompt regenerate, card-art/video generate); absent → 400. */
   gemini?: GeminiClient;
-  /** Palette generator (real Palette Press in prod; a fake in tests) for re-extraction; absent → 400. */
+  /**
+   * Palette generator for re-extraction. Optional on the type because callers may assemble
+   * `ActionDeps` themselves, and `regeneratePalette` still refuses with a 400 when it is missing —
+   * but no longer optional in practice: `buildServer` defaults it to real Palette Press
+   * ([#319](https://github.com/dylanleatham/Marquee/issues/319)). Anything reached through the HTTP
+   * API has one.
+   */
   generate?: PaletteGenerator;
   /** Opt-in artifact generation (default off). Prompt drafting/regeneration is never gated by these. */
   generateCardArt?: boolean;

@@ -345,10 +345,21 @@ describe("batch routes", () => {
     );
   });
 
-  it("503s when no palette generator is configured", async () => {
+  /**
+   * This assertion used to read `expect(503)`, on a server built without `generate` — and it was
+   * pinning a bug. `buildServer` gave `actionDeps.generate` no fallback while `Roadie` next to it
+   * did, so "built without `generate`" was not an exotic test arrangement: it was **production**
+   * ([#319](https://github.com/dylanleatham/Marquee/issues/319)). The 503 this test protected was
+   * the answer the shipped app gave every time anyone asked for a sweep.
+   *
+   * A test can only ever say the code does what it does. What made this one actively harmful is the
+   * comment it carried — "the precheck must refuse up front" — which read as a decision someone had
+   * made, so the 503 looked intended rather than reported. See `server-wiring.test.ts` for the gate
+   * that now covers the whole family.
+   */
+  it("accepts the sweep on the server production builds", async () => {
     const s = store();
-    // Built without `generate` at all — the precheck must refuse up front rather than start a sweep
-    // that fails on every album.
+    // Deliberately no `generate`, exactly as the entry point builds it — that is the point.
     const { app } = buildServer({
       store: s,
       roadie: fakeRoadie(s),
@@ -359,7 +370,7 @@ describe("batch routes", () => {
       method: "POST",
       url: "/api/batch/regenerate-palettes",
     });
-    expect(res.statusCode).toBe(503);
+    expect(res.statusCode).toBe(202);
   });
 });
 
