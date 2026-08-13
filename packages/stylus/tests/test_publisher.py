@@ -84,3 +84,41 @@ def test_fans_out_to_all_downstreams():
     result = pub.publish(EVENT)
     assert result == {"conductor": True, "backdrop": False}
     assert [c["url"] for c in transport.calls][0] == "http://c/api/scan"
+
+
+# --- poll-loop liveness during a slow publish (issue #308, ADR 0077) ----------------------------
+
+
+def test_heartbeats_before_every_attempt():
+    """The regression this exists to prevent: `publish` runs *inside* the poll tick, and a total
+    downstream outage stalls it for tens of seconds (#173). A watchdog fed only once per tick would
+    read that as a hang and kill Stylus — which does nothing for a downed Conductor. Beating between
+    attempts is what makes a tight WatchdogSec safe."""
+    beats = []
+    transport = FakeTransport(OSError("refused"), OSError("refused"), OSError("refused"))
+    pub = Publisher(
+        [Downstream("conductor", "http://c/api/scan")],
+        transport=transport,
+        sleep=lambda _: None,
+        heartbeat=lambda: beats.append(1),
+    )
+    assert pub.publish(EVENT) == {"conductor": False}
+    assert len(transport.calls) == 3
+    assert len(beats) == 3, "one before each attempt, so the gap is a single transport timeout"
+
+
+def test_heartbeats_for_every_downstream_not_just_the_first():
+    beats = []
+    pub = Publisher(
+        [Downstream("conductor", "http://c/"), Downstream("backdrop", "http://b/")],
+        transport=FakeTransport(200, 200),
+        sleep=lambda _: None,
+        heartbeat=lambda: beats.append(1),
+    )
+    pub.publish(EVENT)
+    assert len(beats) == 2
+
+
+def test_heartbeat_defaults_to_a_no_op():
+    pub, _, _ = make(200)
+    assert pub.publish(EVENT) == {"conductor": True}  # must not raise
