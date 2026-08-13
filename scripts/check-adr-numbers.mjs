@@ -200,30 +200,54 @@ function git(args, cwd) {
     cwd,
     encoding: "utf8",
     timeout: GIT_TIMEOUT_MS,
+    // Matches scripts/check-conflict-markers.mjs. `git ls-files -z` over the whole tree is ~30KB
+    // today, but Node's default is 1MB and a repo only grows.
+    maxBuffer: 32 * 1024 * 1024,
     stdio: ["ignore", "pipe", "pipe"],
   });
 }
 
 /**
- * ADR filenames allocated on `origin/main`, fetching it first so a stale ref can't pass a branch
- * that has been open while main moved — the window #316 landed in.
+ * Bare ADR filenames out of `git ls-tree -z --name-only <ref> docs/adrs/`.
+ *
+ * Split out so it can be tested without a git repo: NUL-separated, path-prefixed, and with a
+ * trailing separator git always emits. Anything that isn't a numbered ADR is dropped, which also
+ * disposes of the quoted form git falls back to for exotic filenames.
+ */
+export function adrFilesFromLsTree(output) {
+  return output
+    .split("\0")
+    .map((p) => p.trim().replace(/^docs\/adrs\//, ""))
+    .filter((f) => /^\d{4}-.*\.md$/.test(f));
+}
+
+/**
+ * ADR filenames allocated on `ref`, fetching it first so a stale ref can't pass a branch that has
+ * been open while main moved — the window #316 landed in.
  *
  * Throws rather than returning `[]` if the ref can't be resolved. A gate that quietly downgrades to
  * "nothing to compare against" is the failure mode this repo keeps having; `--local` is the way to
  * say you meant it.
+ *
+ * `ref` is a parameter so the tests can point it at a local branch in a throwaway repo; only a
+ * remote-tracking ref is worth a fetch.
  */
-export function baseAdrFiles(repoRoot) {
-  try {
-    git(["fetch", "--quiet", "origin", "main"], repoRoot);
-  } catch {
-    // Offline, or no `origin`. The ref may still resolve from the last fetch — try it, and let the
-    // rev-parse below be what fails if it doesn't.
+export function baseAdrFiles(repoRoot, ref = "origin/main") {
+  if (ref.startsWith("origin/")) {
+    try {
+      git(
+        ["fetch", "--quiet", "origin", ref.slice("origin/".length)],
+        repoRoot,
+      );
+    } catch {
+      // Offline, or no `origin`. The ref may still resolve from the last fetch — try it, and let
+      // the rev-parse below be what fails if it doesn't.
+    }
   }
-  git(["rev-parse", "--verify", "--quiet", "origin/main^{commit}"], repoRoot);
-  return git(["ls-tree", "--name-only", "origin/main", "docs/adrs/"], repoRoot)
-    .split("\n")
-    .map((p) => p.trim().replace(/^docs\/adrs\//, ""))
-    .filter((f) => /^\d{4}-.*\.md$/.test(f));
+  git(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], repoRoot);
+  return adrFilesFromLsTree(
+    git(["ls-tree", "-z", "--name-only", ref, "docs/adrs/"], repoRoot),
+  );
 }
 
 function main(argv) {

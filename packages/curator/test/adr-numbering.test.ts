@@ -1,9 +1,12 @@
 import { describe, it, expect, afterAll } from "vitest";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
+  adrFilesFromLsTree,
+  baseAdrFiles,
   brokenAdrLinksIn,
   citingSources,
   collectAdrs,
@@ -319,6 +322,63 @@ describe("ADR numbering — a number that means something else on origin/main", 
     ).toEqual([]);
     // …and the escape hatch can't hide a tree that's still broken: this is what still has to pass.
     expect(collisionsIn(local)).toEqual([]);
+  });
+
+  it("parses git ls-tree output: NUL-separated, path-prefixed, trailing separator, non-ADRs", () => {
+    // The shape `git ls-tree -z --name-only <ref> docs/adrs/` actually emits. Every fixture above
+    // hands `driftFromBaseIn` a pre-parsed array, so without this the prefix-stripping and the
+    // filter are the one part of the base check nothing exercises.
+    expect(
+      adrFilesFromLsTree(
+        "docs/adrs/0077-the-poll-loop-proves-it-is-alive.md\0" +
+          "docs/adrs/0078-a-demo-cut-plays-as-a-position-in-the-album.md\0" +
+          "docs/adrs/README.md\0" +
+          "docs/adrs/notes.txt\0",
+      ),
+    ).toEqual([
+      "0077-the-poll-loop-proves-it-is-alive.md",
+      "0078-a-demo-cut-plays-as-a-position-in-the-album.md",
+    ]);
+    expect(adrFilesFromLsTree("")).toEqual([]);
+  });
+
+  it("reads the numbers off a real git ref, not a hand-built string", () => {
+    // A parser test can agree with a wrong idea of git's output. This runs the real command against
+    // a real tree, which is the only thing that says the two halves fit together.
+    const repo = fixture({
+      "docs/adrs/0001-first.md": "# ADR 0001 — First\n",
+      "docs/adrs/0002-second.md": "# ADR 0002 — Second\n",
+      "docs/adrs/README.md": "# Not an ADR\n",
+      "docs/specs/elsewhere.md": "# Not in adrs/\n",
+    });
+    const run = (...args: string[]) =>
+      execFileSync("git", args, { cwd: repo, encoding: "utf8" });
+    run("init", "--quiet", "--initial-branch=base");
+    run("config", "core.autocrlf", "false"); // else git warns on every LF file, on Windows
+    run("-c", "user.email=t@t", "-c", "user.name=t", "add", "-A");
+    run(
+      "-c",
+      "user.email=t@t",
+      "-c",
+      "user.name=t",
+      "commit",
+      "--quiet",
+      "-m",
+      "adrs",
+    );
+    // A local ref, so nothing here touches the network.
+    expect(baseAdrFiles(repo, "base")).toEqual([
+      "0001-first.md",
+      "0002-second.md",
+    ]);
+  });
+
+  it("refuses to guess when the base ref doesn't resolve", () => {
+    // The alternative — returning [] — would make every branch pass the base check silently, which
+    // is the shape of the failure this whole file exists to stop.
+    const repo = fixture({ "docs/adrs/0001-first.md": "# ADR 0001 — First\n" });
+    execFileSync("git", ["init", "--quiet"], { cwd: repo });
+    expect(() => baseAdrFiles(repo, "no-such-ref")).toThrow();
   });
 
   it("names the next free number across both trees, not just this one", () => {
