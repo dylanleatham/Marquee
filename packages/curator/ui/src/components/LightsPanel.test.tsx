@@ -514,6 +514,66 @@ describe("LightsPanel — your own cover", () => {
     expect(api.editPalette).toHaveBeenCalledTimes(1);
   });
 
+  /**
+   * regression: the review pass's second blocking finding. The button was gated on
+   * `cover.inFlight`, which only spans the transfer — but a cover change starts earlier, with the
+   * autosave flush, and that is a real round-trip with no dialog on screen yet to take the clicks.
+   *
+   * The §12 dialog's own scrim (`position:fixed; inset:0`) already covered the window after it
+   * mounts, so the flush was the only genuinely open one. Narrow, and still a window: two flows
+   * from two clicks, racing to set the same album's cover.
+   */
+  it("cannot be started twice while the flush before the dialog is in flight", async () => {
+    let landFlush!: () => void;
+    vi.mocked(api.editPalette).mockReturnValueOnce(
+      new Promise((resolve) => {
+        landFlush = () => resolve({} as never);
+      }),
+    );
+    show(handEdited());
+    fireEvent.change(hexField(1), { target: { value: "#112233" } });
+
+    const button = () =>
+      screen.getByRole("button", { name: "UPLOAD A DIFFERENT COVER" });
+    choose(cover(), () => fireEvent.click(button()));
+
+    // The flush is out and unanswered — no dialog yet, so nothing else is intercepting clicks.
+    await waitFor(() => expect(api.editPalette).toHaveBeenCalled());
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect((button() as HTMLButtonElement).disabled).toBe(true);
+
+    // A second press in that window must not open a second file chooser.
+    let reopened = false;
+    choose(cover(), () => {
+      reopened = true;
+      fireEvent.click(button());
+    });
+    expect(reopened).toBe(true); // the helper ran; the disabled button is what refuses
+    expect(api.uploadArtworkOverride).not.toHaveBeenCalled();
+
+    landFlush();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "KEEP MY COLOURS" }),
+    );
+    await waitFor(() =>
+      expect(api.uploadArtworkOverride).toHaveBeenCalledTimes(1),
+    );
+  });
+
+  it("frees the button again once the cover change finishes", async () => {
+    upload();
+    await waitFor(() => expect(api.uploadArtworkOverride).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(
+        (
+          screen.getByRole("button", {
+            name: "UPLOAD A DIFFERENT COVER",
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(false),
+    );
+  });
+
   it("asks even when only the unsaved edit makes it a hand-edit", async () => {
     // `handEdited` is the server's view and it is one poll behind. Asking on that flag alone skips
     // the dialog for the one person with something to lose: whoever is mid-edit right now.

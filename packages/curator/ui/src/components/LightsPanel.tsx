@@ -15,7 +15,7 @@ import {
   validHex,
 } from "../lights";
 import { relativeTime } from "../format";
-import { useUpload } from "../hooks";
+import { usePending, useUpload } from "../hooks";
 import { AsyncButton, pickFile } from "./common";
 import { useConfirm } from "./Confirm";
 import { UploadStrip } from "./UploadStrip";
@@ -84,6 +84,16 @@ export function LightsPanel({
   const [save, setSave] = useState<SaveState>({ kind: "clean" });
   const cover = useUpload();
   const confirm = useConfirm();
+  /**
+   * Whether a cover change is anywhere in its run — **not** just while bytes are moving.
+   *
+   * `cover.inFlight` only covers the transfer, and a cover change starts well before that: it
+   * flushes the autosave first, which is a real round-trip with no dialog on screen yet to catch a
+   * second click. Gating the button on `inFlight` left exactly that gap open. Once the §12 dialog
+   * mounts, its scrim (`position:fixed; inset:0`) takes the clicks instead, so the flush is the only
+   * unguarded window — but it is a network call, which is long enough to double-click through.
+   */
+  const [changing, whileChanging] = usePending();
   // The signature this component last sent or adopted. Anything else arriving from the poll is a
   // change from elsewhere (a palette swap, a sweep, Roadie) and is adopted.
   const syncedSig = useRef(serverSig);
@@ -229,20 +239,24 @@ export function LightsPanel({
 
   /** Your own cover, when the one Roadie found is a bad scan. Roadie extracts from this instead. */
   const uploadCover = (file: File) =>
-    run(async () => {
-      const regenerate = await settleThenAsk("The new cover goes on");
-      await cover.send(file, (opts) =>
-        api.uploadArtworkOverride(curatorId, file, regenerate, opts),
-      );
-      setSave({ kind: "clean" });
-    });
+    whileChanging(() =>
+      run(async () => {
+        const regenerate = await settleThenAsk("The new cover goes on");
+        await cover.send(file, (opts) =>
+          api.uploadArtworkOverride(curatorId, file, regenerate, opts),
+        );
+        setSave({ kind: "clean" });
+      }),
+    );
 
   const dropCover = () =>
-    run(async () => {
-      const regenerate = await settleThenAsk("Roadie's cover comes back");
-      await api.removeArtworkOverride(curatorId, regenerate);
-      setSave({ kind: "clean" });
-    });
+    whileChanging(() =>
+      run(async () => {
+        const regenerate = await settleThenAsk("Roadie's cover comes back");
+        await api.removeArtworkOverride(curatorId, regenerate);
+        setSave({ kind: "clean" });
+      }),
+    );
 
   if (!asset.palette)
     return (
@@ -375,13 +389,16 @@ export function LightsPanel({
           >
             BACK TO ROADIE&apos;S ORIGINAL
           </AsyncButton>
-          {/* The palette's *input*, next to the two controls that re-derive from it. A plain button
-              rather than an AsyncButton: the work starts when the OS file chooser comes back, which
-              is long after this click settles, so the strip below is what reports it. */}
+          {/* The palette's *input*, next to the two controls that re-derive from it.
+              Deliberately not an `AsyncButton`, though its neighbour is: this click's own promise
+              settles the moment the OS file chooser opens, so a spinner bound to it would flash and
+              vanish before any work started, and the label would lie. `changing` is what the two
+              share instead — it spans the whole run, including the autosave flush that happens
+              before the dialog is up to intercept anything. */}
           <button
             type="button"
             className="pp-action"
-            disabled={Boolean(cover.inFlight)}
+            disabled={changing}
             onClick={() => pickFile("image/png,image/jpeg", uploadCover)}
             title="Roadie pulls the colours from this instead of the sleeve it found"
           >
@@ -390,6 +407,7 @@ export function LightsPanel({
           {ownCover && (
             <AsyncButton
               className="pp-action"
+              disabled={changing}
               onClick={dropCover}
               pendingLabel="PUTTING IT BACK…"
               title="Drop your cover and go back to the one Roadie found"
