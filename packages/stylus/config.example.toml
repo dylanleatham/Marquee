@@ -44,6 +44,23 @@ shared_secret = "change-me-lan-only-secret"
 # the §8 retry window, a scan stalls polling for ~36s. Fine while the services are up — a success
 # costs one round trip each — but it is why these timeouts are tight rather than generous.
 
+# PN532 transmit drive (ADR 0075). These are NOT the chip's power-on values, and the difference is
+# not a nicety: at the chip's default drive (gsn_on = 0xF4, cw_gsp = 0x3F) a tag **overcouples** —
+# it detunes the reader's resonant circuit and swamps its receiver, and the reader reports an empty
+# field. Measured on the real stand, the chip default read 0/6 at *every* distance from contact out
+# to 3cm; the values below read 6/6 across that whole span (issue #303).
+#
+# It presents as dead hardware, and the cheap checks all say the hardware is fine — the PN532's own
+# antenna self-test passes, because it measures the antenna with no tag in the field.
+#
+# This is the mount/range tuning knob (spec §10). Lower = weaker field = shorter maximum range:
+# move DOWN if tags fail when close in (overcoupling), UP if they fail only when far away. The
+# settings are volatile, so Stylus reapplies them on every boot; `GET /status` reports what is in
+# force under `rf`.
+[rf]
+gsn_on = 0x84   # N-driver conductance, field on (high nibble CWGsN, low nibble ModGsN)
+cw_gsp = 0x18   # P-driver conductance for the continuous wave
+
 [status]
 listen_port = 4741
 

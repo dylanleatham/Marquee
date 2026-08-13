@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .rf import one_byte
+
 
 @dataclass(frozen=True)
 class ReaderConfig:
@@ -57,11 +59,36 @@ class LedConfig:
 
 
 @dataclass(frozen=True)
+class RfConfig:
+    """PN532 transmit drive (stylus-spec §10, [ADR 0075]).
+
+    The defaults are **not** the chip's. Measured on the real stand, the chip's power-on drive
+    (``0xF4``/``0x3F``) reads 0/6 at every distance from contact to 3cm — it overcouples — while
+    these read 6/6 across that whole span ([#303]). Range tuning for a different mount is a config
+    edit, not a code change: lower values mean a weaker field and a shorter maximum range, which is
+    the direction to move if tags fail *close in*.
+
+    [#303]: https://github.com/dylanleatham/Marquee/issues/303
+    """
+
+    gsn_on: int = 0x84
+    cw_gsp: int = 0x18
+
+    def __post_init__(self) -> None:
+        # These go on the wire as single bytes; an overflowing hand-edit would otherwise be
+        # truncated silently into some other drive setting. `one_byte` is the wire layer's own
+        # guard, borrowed rather than restated so the two can't drift apart.
+        for name in ("gsn_on", "cw_gsp"):
+            one_byte(name, getattr(self, name))
+
+
+@dataclass(frozen=True)
 class Config:
     reader: ReaderConfig = field(default_factory=ReaderConfig)
     downstreams: tuple[Downstream, ...] = ()
     status_listen_port: int = 4741
     led: LedConfig = field(default_factory=LedConfig)
+    rf: RfConfig = field(default_factory=RfConfig)
 
 
 # The downstreams, in fan-out order: lights, then video, then audio. `player` is accepted as a
@@ -120,12 +147,18 @@ def config_from_dict(raw: dict[str, Any]) -> Config:
         gpio_pin=int(led_raw.get("gpio_pin", 17)),
         enabled=bool(led_raw.get("enabled", True)),
     )
+    rf_raw = raw.get("rf", {})
+    rf = RfConfig(
+        gsn_on=int(rf_raw.get("gsn_on", RfConfig.gsn_on)),
+        cw_gsp=int(rf_raw.get("cw_gsp", RfConfig.cw_gsp)),
+    )
     status_raw = raw.get("status", {})
     return Config(
         reader=reader,
         downstreams=_downstreams_from(raw.get("downstream", {})),
         status_listen_port=int(status_raw.get("listen_port", 4741)),
         led=led,
+        rf=rf,
     )
 
 

@@ -14,7 +14,7 @@ from .app import StylusApp
 from .config import load_config
 from .led import create_led
 from .publisher import Publisher
-from .reader import SimulatedReader, create_pn532_reader
+from .reader import SimulatedReader, TagReader, create_pn532_reader
 from .status_server import StatusService, serve
 
 
@@ -36,12 +36,18 @@ def main() -> None:  # pragma: no cover - entrypoint glue
     config = load_config(args.config)
 
     sim: SimulatedReader | None = None
+    reader: TagReader
     if args.simulate:
         sim = SimulatedReader()
         reader = sim
         log.info("running with the SIMULATED reader — POST /simulate to inject tags")
     else:
-        reader = create_pn532_reader()
+        reader = create_pn532_reader(config.rf)
+        log.info(
+            "PN532 transmit drive: GsNOn=0x%02X CWGsP=0x%02X (chip defaults overcouple — #303)",
+            config.rf.gsn_on,
+            config.rf.cw_gsp,
+        )
 
     led = create_led(config.led.enabled, config.led.gpio_pin)
     app = StylusApp(config, reader, Publisher(config.downstreams), led)

@@ -292,14 +292,23 @@ generated `.nfc`), stick it on the sleeve, and hold it to the reader.
 **Then tune the mount.** Find where on the stand the sleeve reads reliably, and check the two
 debounce failure modes:
 
-| It feels wrong because…                                          | Turn this knob                           |
-| ---------------------------------------------------------------- | ---------------------------------------- |
-| A sleeve carried _past_ the stand triggers a scan ("ghost read") | `insertion_debounce_polls` 2 → 4 (800ms) |
-| A settled sleeve flickers start/stop at the edge of range        | `removal_debounce_polls` up from 10      |
-| Lifting a sleeve takes too long to fade out                      | `removal_debounce_polls` down from 10    |
+| It feels wrong because…                                          | Turn this knob                                            |
+| ---------------------------------------------------------------- | --------------------------------------------------------- |
+| A sleeve carried _past_ the stand triggers a scan ("ghost read") | `insertion_debounce_polls` 2 → 4 (800ms)                  |
+| A settled sleeve flickers start/stop at the edge of range        | `removal_debounce_polls` up from 10                       |
+| Lifting a sleeve takes too long to fade out                      | `removal_debounce_polls` down from 10                     |
+| A tag **on** the reader is unseen, but works held ~1cm off       | `[rf] gsn_on` / `cw_gsp` **down** — overcoupling, see §12 |
 
-Edit `config.toml`, then `sudo systemctl restart marquee-stylus`. Move the reader closer to where the
-tag actually sits before you reach for the debounce numbers — range beats tuning.
+Edit `config.toml`, then `sudo systemctl restart marquee-stylus`. Get the geometry right before you
+reach for the debounce numbers — range beats tuning.
+
+**But closer is not automatically better.** Past some coupling the tag detunes the reader's resonant
+circuit and swamps its receiver: the reader transmits fine, can't hear the reply, and reports an
+empty field. So the failure curve has a wall at _both_ ends, and the near one is the surprising one —
+the chip's factory transmit drive overcoupled the built stand so badly it read 0/6 at every distance,
+contact included ([#303](https://github.com/dylanleatham/Marquee/issues/303) /
+[ADR 0075](../../docs/adrs/0075-stylus-drives-the-pn532-below-its-default-power.md)). If tags fail
+when close in, lower `[rf] gsn_on` / `cw_gsp`; if they fail only far away, raise them.
 
 That's issue #52 done.
 
@@ -315,7 +324,8 @@ That's issue #52 done.
 | Tag reads (UID in the logs) but nothing happens downstream                                                               | `curl localhost:4741/status` answers this directly. `observed` is what the reader sees right now: `null` = nothing on the stand (range/mount); `observed.uri: null` = a tag is there but its NDEF won't decode; a non-null `observed.uri` that never reaches `lastUri` = it decoded but isn't a `curator:` URI — re-read it with a phone/Flipper and compare to the album's `curatorId`. `lastBadTag` keeps the last refusal after you lift the sleeve. If the URI is right, check `downstreamHealth`. |
 | Any scan → **401** in the logs                                                                                           | `X-Trigger-Secret` mismatch. The secret in `config.toml` must equal Conductor's `[auth].shared_secret` **and** Backdrop's — all four services share one value.                                                                                                                                                                                                                                                                                                                                         |
 | `/simulate` returns **409**                                                                                              | Working as intended: you're running the real reader. It only works under `python -m stylus --simulate` (step 9).                                                                                                                                                                                                                                                                                                                                                                                       |
-| Sleeve does nothing, but GATE 5 and 6b both passed                                                                       | Isolated to the antenna or the mount. Range first (move the reader to the tag), then `insertion_debounce_polls`. Confirm the tag is readable at all by reading it with your phone.                                                                                                                                                                                                                                                                                                                     |
+| Sleeve does nothing, but GATE 5 and 6b both passed                                                                       | Isolated to the antenna or the mount. Check `/status` `observed` first: `null` with a tag physically on the reader means the chip sees nothing, so this is coupling, not decoding. Try the tag **held ~1cm off** the reader before moving it closer — if that works and contact doesn't, it's overcoupling (next row). Otherwise geometry, then `insertion_debounce_polls`. Confirm the tag is readable at all by reading it with your phone.                                                          |
+| A tag **on** the reader is never seen, but the same tag works held ~1cm away                                             | **Overcoupling** ([#303](https://github.com/dylanleatham/Marquee/issues/303)). The tag detunes the reader's resonant circuit and swamps its receiver. Lower the transmit drive: `[rf] gsn_on` / `cw_gsp` in `config.toml`, restart, re-test at contact. Do **not** trust the PN532 antenna self-test here — Diagnose `0x07` measures the antenna with no tag in the field and passes cleanly through this fault, as do `i2cdetect`, the firmware read, and the communication-line test.                |
 | Works, then stops after hours; `journalctl` shows repeated read failures                                                 | stylus-spec §12 "PN532 hangs" — the module locked up. The unit's `Restart=always` recovers it; if it recurs often, shorten the poll rate or check the module's power.                                                                                                                                                                                                                                                                                                                                  |
 | Service is `active (running)` but the log is silent and no tag ever reads                                                | A hang inside the one-time PN532 init (`busio.I2C` / `SAM_configuration`) doesn't exit, so `Restart=` can't catch it. `sudo systemctl restart marquee-stylus`; if it recurs, power-cycle the module.                                                                                                                                                                                                                                                                                                   |
 | Nothing after a reboot until you SSH in                                                                                  | Wi-Fi came up after Stylus. The unit has `Wants=network-online.target`, but confirm `systemctl is-enabled systemd-networkd-wait-online` (or NetworkManager's equivalent) is on.                                                                                                                                                                                                                                                                                                                        |
