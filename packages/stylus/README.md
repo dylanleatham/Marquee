@@ -56,6 +56,13 @@ Deploy runbook: **[DEPLOY.md](DEPLOY.md)** (wiring, I²C, venv install, systemd,
 Still open until the stand exists: the **mount + range tuning** (spec §11 milestone #6) — that's
 bench-untestable by definition, and DEPLOY.md §11 covers the knobs.
 
+The first knob to reach for is `[rf] gsn_on` / `cw_gsp` — the PN532 transmit drive, applied on every
+boot and reported by `GET /status`. Note the direction: **too much power reads nothing**. Above some
+coupling a tag detunes the reader and swamps its receiver, so a tag lying _on_ the antenna goes
+unseen while one held further away works. The chip's own default overcoupled the built stand badly
+enough to read 0/6 at every distance ([#303](https://github.com/dylanleatham/Marquee/issues/303) /
+[ADR 0075](../../docs/adrs/0075-stylus-drives-the-pn532-below-its-default-power.md)).
+
 ## Known dependency: Conductor `/api/scan`
 
 Stylus fans out to both Conductor and Backdrop. **Backdrop's `/api/scan` exists**; **Conductor's does

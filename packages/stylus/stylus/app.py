@@ -143,4 +143,8 @@ class StylusApp:
             "observed": self._observed,
             # The last tag the machine refused, remembered across removal.
             "lastBadTag": self._last_bad_tag,
+            # The transmit drive actually in force. Diagnosing #303 meant stopping the service to
+            # read the chip, because nothing reported what it had been configured with — and the
+            # settings are volatile, so "what the config file says" is not the same question.
+            "rf": {"gsnOn": self._cfg.rf.gsn_on, "cwGsp": self._cfg.rf.cw_gsp},
         }

@@ -259,12 +259,13 @@ Small local HTTP server on port 4741:
 
 - `GET /status` → two views, deliberately separate:
 
-  | Field                                      | View        | Meaning                                                                                                                                               |
-  | ------------------------------------------ | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-  | `state`, `lastUid`, `lastUri`, `lastEvent` | the machine | What is **playing**. Null until a scan actually fired.                                                                                                |
-  | `observed: { uid, uri, at } \| null`       | the reader  | What is **on the stand right now**, decoded or not. `uri` is null when the NDEF wouldn't read; the whole object is null when the reader sees nothing. |
-  | `lastBadTag: { uid, uri, at } \| null`     | the reader  | The last tag the machine refused, **kept after the sleeve is lifted**.                                                                                |
-  | `downstreamHealth`                         | publishing  | Per-downstream result of the last publish.                                                                                                            |
+  | Field                                      | View        | Meaning                                                                                                                                                                                                |
+  | ------------------------------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+  | `state`, `lastUid`, `lastUri`, `lastEvent` | the machine | What is **playing**. Null until a scan actually fired.                                                                                                                                                 |
+  | `observed: { uid, uri, at } \| null`       | the reader  | What is **on the stand right now**, decoded or not. `uri` is null when the NDEF wouldn't read; the whole object is null when the reader sees nothing.                                                  |
+  | `lastBadTag: { uid, uri, at } \| null`     | the reader  | The last tag the machine refused, **kept after the sleeve is lifted**.                                                                                                                                 |
+  | `downstreamHealth`                         | publishing  | Per-downstream result of the last publish.                                                                                                                                                             |
+  | `rf: { gsnOn, cwGsp }`                     | the chip    | The PN532 transmit drive in force (§10, [ADR 0075](../adrs/0075-stylus-drives-the-pn532-below-its-default-power.md)). Volatile settings, so this is a different question from what `config.toml` says. |
 
   > **Why both.** Until 2026-08-01 only the machine's view existed, so a sleeve sitting on the reader
   > being rejected — an unwritten tag, a garbled NDEF, a URI for another scheme — made `/status`
@@ -308,6 +309,12 @@ url = "http://192.168.1.50:4741/api/scan"
 timeout_ms = 5000                    # resolves the album and drives Sonos over UPnP before replying
 shared_secret = "..."
 
+# PN532 transmit drive — NOT the chip's power-on values. See §10 and ADR 0075: the chip default
+# overcouples and reads nothing at all. Lower = weaker field = shorter maximum range.
+[rf]
+gsn_on = 0x84
+cw_gsp = 0x18
+
 [status]
 listen_port = 4741
 
@@ -322,7 +329,9 @@ Shared secret is sent as `X-Trigger-Secret` header; downstream services reject r
 
 Not a stand design, but the constraints your stand design needs to accommodate:
 
-- **Read range**: ~4cm max, ~2cm reliably. The sticker on the sleeve and the antenna in the stand must come within that range in the sleeve's normal resting position.
+- **Read range**: ~4cm max, ~2cm reliably — **at a transmit drive that has been tuned for the mount**. Measured on the built stand (2026-08-12, [ADR 0075](../adrs/0075-stylus-drives-the-pn532-below-its-default-power.md)), the range at the chip's _default_ drive is **zero at every distance**, contact included. The sticker and the antenna must come within range in the sleeve's normal resting position, and the drive must be set — see the next bullet.
+- **Transmit drive is a tuning parameter, and too much of it is a failure mode.** Above some coupling, a tag detunes the reader's resonant circuit and swamps its receiver: the reader transmits fine and cannot hear the reply, so it reports an empty field. Symptom: a tag lying **on** the reader is invisible while one held further away works. Fix: lower `[rf] gsn_on` / `cw_gsp` in `config.toml`. Stylus defaults to `0x84`/`0x18`, which read 6/6 from contact to 3cm on the built stand, versus 0/6 everywhere for the chip's `0xF4`/`0x3F`. `GET /status` reports the drive in force.
+- **A passing PN532 antenna self-test does not mean the reader can read.** Diagnose `0x07` measures antenna current with **no tag in the field**, so it is blind to coupling faults — as are the I²C probe, the firmware read, and the communication-line test. The check that distinguishes them is `observed` on `GET /status` with a tag physically on the reader: `null` means the chip sees nothing at all.
 - **Antenna orientation**: PN532's antenna is a flat coil. Read range is maximized when the sticker's coil is parallel to the antenna's coil. Sticker facing the reader flat-on = best; sticker perpendicular = worst.
 - **Metal is the enemy**: don't put metal between the antenna and the sticker. Metal shelving, metal brackets, aluminum stand parts near the antenna will kill range. Wood, plastic, cardboard are transparent to 13.56 MHz NFC — fine.
 - **Sticker placement on sleeves**: pick one spot and stick to it (literally). Back cover, upper-right corner is a common convention. Consistency matters more than exact location — your stand's reader can be positioned once and works for the whole collection.
@@ -345,6 +354,14 @@ If you find range is insufficient with a chosen stand geometry, PN532 modules wi
 > landed ([ADR 0019](../adrs/0019-conductor-scan-reads-asset-store.md)). **#6 (mount + range tuning)
 > is the only milestone left**, and it is bench-untestable by construction. Deploy procedure and the
 > debounce knobs: [`packages/stylus/DEPLOY.md`](../../packages/stylus/DEPLOY.md).
+>
+> **Update (2026-08-12, [#303](https://github.com/dylanleatham/Marquee/issues/303)):** #6 bit, in
+> the direction nobody watches for — **too much** RF power, not too little. In the built mount the
+> chip's default transmit drive overcoupled and the stand read nothing at all, at any distance
+> (§10, [ADR 0075](../adrs/0075-stylus-drives-the-pn532-below-its-default-power.md)). Drive is now
+> configured on every boot and exposed as `[rf]` in `config.toml`, so #6 is a config edit rather
+> than a code change — but it is still the open milestone: the values that work are the ones
+> measured on _your_ mount.
 
 1. **Basic PN532 read.** Wire it up, get the CircuitPython example to print tag UIDs when you tap a random NTAG. Success: any tag prints its UID.
 2. **NDEF read.** Write a Spotify URI to a test NTAG using your phone. Success: your script reads the URI back out.

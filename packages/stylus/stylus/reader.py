@@ -15,7 +15,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Protocol
 
+from .config import RfConfig
 from .ndef import parse_uri
+from .rf import configure_tx_drive
 from .state_machine import TagRead
 
 
@@ -171,11 +173,41 @@ def decode_poll(
     return TagRead(uid=uid, uri=cache.get_or_read(uid, read_ndef))
 
 
-def create_pn532_reader(uid_cache_size: int = 8):  # pragma: no cover - hardware path (step 11)
+def build_pn532_reader(pn532, rf: RfConfig, uid_cache_size: int = 8) -> TagReader:
+    """Configure an already-constructed PN532 and wrap it as a :class:`TagReader`.
+
+    Split out of :func:`create_pn532_reader` so the *setup sequence* is testable with a fake chip.
+    That split is the durable half of [#303]: the reader inherited the chip's power-on transmit
+    drive, which overcouples badly enough that a tag on the antenna is never seen at all, and no
+    test could reach the factory to notice the configuration step was missing. Applying the drive
+    before the first poll is now an assertion, not a convention.
+
+    [#303]: https://github.com/dylanleatham/Marquee/issues/303
+    """
+    pn532.SAM_configuration()
+    configure_tx_drive(pn532.call_function, rf.gsn_on, rf.cw_gsp)
+
+    cache = UriCache(uid_cache_size)
+
+    class _Pn532Reader:
+        def poll(self) -> TagRead | None:
+            raw = pn532.read_passive_target(timeout=0.05)
+            uid = None if raw is None else ":".join(f"{b:02X}" for b in raw)
+            return decode_poll(
+                cache, uid, lambda: assemble_ntag_ndef(lambda p: pn532.ntag2xx_read_block(p))
+            )
+
+    return _Pn532Reader()
+
+
+def create_pn532_reader(  # pragma: no cover - hardware imports only; see build_pn532_reader
+    rf: RfConfig | None = None, uid_cache_size: int = 8
+) -> TagReader:
     """Build the real PN532 reader. Raises a clear error off-Pi (no ``adafruit_pn532``).
 
-    Decoding and caching live in :class:`UriCache` and :func:`assemble_ntag_ndef`, both pure and
-    tested — this factory is only the hardware wiring. Mount/range tuning is step 11.
+    Nothing but imports and construction lives here — decoding and caching are in
+    :class:`UriCache` / :func:`assemble_ntag_ndef`, and the setup sequence is in
+    :func:`build_pn532_reader`, all of them pure or injectable and tested.
     """
     try:
         import board  # type: ignore
@@ -189,16 +221,4 @@ def create_pn532_reader(uid_cache_size: int = 8):  # pragma: no cover - hardware
 
     i2c = busio.I2C(board.SCL, board.SDA)
     pn532 = PN532_I2C(i2c, debug=False)
-    pn532.SAM_configuration()
-
-    cache = UriCache(uid_cache_size)
-
-    class _Pn532Reader:
-        def poll(self) -> TagRead | None:
-            raw = pn532.read_passive_target(timeout=0.05)
-            uid = None if raw is None else ":".join(f"{b:02X}" for b in raw)
-            return decode_poll(
-                cache, uid, lambda: assemble_ntag_ndef(lambda p: pn532.ntag2xx_read_block(p))
-            )
-
-    return _Pn532Reader()
+    return build_pn532_reader(pn532, rf or RfConfig(), uid_cache_size)
