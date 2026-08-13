@@ -94,11 +94,26 @@ card panel already made this call for the same reason: one answer for "a file is
 - **The Lights panel now has four actions and the row wraps.** `.lights__actions` gains
   `flex-wrap` and a tighter row gap. Four labels this long overflow the panel's 820px on a narrow
   window, and a control pushed off the edge is a control that is not there.
-- **A cover swap cancels the debounced autosave.** This is the one genuine race the change
-  introduces: an edit still inside the 700ms window would otherwise `PUT` the old colours on top of
-  the palette the server has just derived from the new cover — an edit that looks saved and a cover
-  swap that looks ignored, from one timer. `uploadCover` and `dropCover` clear it exactly as `choose`
-  does, and a test holds it.
+- **A cover swap settles the debounced autosave first — flushing it, not dropping it.** This is the
+  one genuine race the change introduces, and it took two passes to get right. An edit still inside
+  the 700ms window would otherwise `PUT` the old colours on top of the palette the server has just
+  derived from the new cover: an edit that looks saved and a cover swap that looks ignored, from one
+  timer. Three rules, in order, in `settleThenAsk`:
+  1. **Disarm synchronously, before the dialog.** The first version cleared the timer _after_
+     awaiting the confirm — and a confirm waits on a human, so the window closes long before the
+     answer does. Clearing afterwards tidies up once the damage is already possible.
+  2. **Flush the queued edit rather than dropping it.** Those are the user's latest keystrokes, and
+     "keep my colours" has to mean the ones on screen. This is the unmount flush's argument applied
+     to a second exit from the panel's edit state.
+  3. **A queued edit counts as a hand-edit.** `palette.handEdited` is the server's view and it is one
+     poll behind, so asking on that flag alone skips the dialog for the one person with something to
+     lose: whoever is mid-edit right now.
+
+  Worth recording because the first version passed its own test. A palette with no hand-edit resolves
+  the confirm in a microtask, so the test never opened the dialog and never saw the window it was
+  supposed to be testing — the review's runtime specialist caught it. The tests now assert what
+  happens _while the dialog is open_, which is the only place the bug lived.
+
 - **The "not to be reinstated" list is now three items, and stays a list.** The other three were
   correctly cut and this ADR does not reopen them. What it retires is the reasoning that put a
   palette input in a bin labelled "palette chrome" — worth stating, because the same slip is

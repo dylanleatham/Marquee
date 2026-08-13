@@ -187,17 +187,38 @@ export function LightsPanel({
     });
 
   /**
-   * Ask before a cover change re-derives a palette a human edited by hand — curator-spec §12, the
-   * dialog it has specified since the override was first built ("You have a hand-edited palette.
-   * Regenerate with new art?").
+   * Settle the autosave, then ask curator-spec §12's question — the dialog it has specified since
+   * the override was first built ("You have a hand-edited palette. Regenerate with new art?").
+   *
+   * Three things happen here and **the order is the point**, because a cover change is the one
+   * action on this panel that can overlap an autosave still in flight:
+   *
+   * 1. **Disarm the debounce first, synchronously.** The dialog waits on a human, so it is open for
+   *    an unbounded time — far longer than the 700ms window. A timer left armed across it fires
+   *    mid-dialog, and its `PUT` can land *after* the server has re-extracted, putting the old
+   *    colours straight back on top of the new cover. Clearing after the `await` does not prevent
+   *    that; it only tidies up once the damage is possible. `choose` clears synchronously and this
+   *    has to match it.
+   * 2. **Flush what was queued rather than dropping it.** Those are the user's most recent
+   *    keystrokes. The unmount flush exists because losing them is worse than having no autosave at
+   *    all, and uploading a cover is not a licence to lose them — least of all when the answer below
+   *    is "keep my colours". `commit` never rejects, so a failed flush surfaces on the saved line
+   *    instead of taking the upload down with it.
+   * 3. **Count a queued edit as a hand-edit.** `asset.palette.handEdited` is the *server's* view and
+   *    it is one poll behind — an edit made three seconds ago has not reached it. Asking on that
+   *    flag alone would skip the dialog for exactly the person who is mid-edit, which is the one
+   *    person with something to lose.
    *
    * Both answers go through with the cover change; the question is only what happens to the colours.
-   * So the dismissals — Escape, clicking the scrim — land on `false`, which is the side that loses
-   * nothing. A palette nobody has touched skips the dialog entirely: there is no edit to protect,
-   * and re-deriving is the whole reason you uploaded a cover.
+   * So the dismissals — Escape, clicking the scrim — land on `false`, the side that loses nothing. A
+   * palette nobody has touched skips the dialog entirely: there is no edit to protect, and
+   * re-deriving is the whole reason you uploaded a cover.
    */
-  const wantsNewColours = (coverEither: string): Promise<boolean> => {
-    if (asset.palette?.handEdited !== true) return Promise.resolve(true);
+  const settleThenAsk = async (coverEither: string): Promise<boolean> => {
+    if (timer.current) clearTimeout(timer.current);
+    const queued = pending.current;
+    if (queued) await commit(queued);
+    if (!queued && asset.palette?.handEdited !== true) return true;
     return confirm({
       title: "Pull new colours from it?",
       body: `You have edited these lights by hand. ${coverEither} either way — this is only about the colours.`,
@@ -209,12 +230,7 @@ export function LightsPanel({
   /** Your own cover, when the one Roadie found is a bad scan. Roadie extracts from this instead. */
   const uploadCover = (file: File) =>
     run(async () => {
-      const regenerate = await wantsNewColours("The new cover goes on");
-      // A cover swap invalidates a hand-edit's *input*, not the edit itself. Clearing the debounce
-      // matters for the same reason `choose` clears it: a queued write landing after the server has
-      // re-extracted would put the old colours straight back.
-      pending.current = null;
-      if (timer.current) clearTimeout(timer.current);
+      const regenerate = await settleThenAsk("The new cover goes on");
       await cover.send(file, (opts) =>
         api.uploadArtworkOverride(curatorId, file, regenerate, opts),
       );
@@ -223,9 +239,7 @@ export function LightsPanel({
 
   const dropCover = () =>
     run(async () => {
-      const regenerate = await wantsNewColours("Roadie's cover comes back");
-      pending.current = null;
-      if (timer.current) clearTimeout(timer.current);
+      const regenerate = await settleThenAsk("Roadie's cover comes back");
       await api.removeArtworkOverride(curatorId, regenerate);
       setSave({ kind: "clean" });
     });

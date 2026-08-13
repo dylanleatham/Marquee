@@ -376,6 +376,12 @@ then predictable rather than dependent on state you can't see from the tile.
     `KEEP MY COLOURS`. No Cancel: the cover changes either way, so the question is only about the
     colours. Escape and the scrim resolve to **keep**, the side that loses nothing. A palette nobody
     has touched skips the dialog — re-deriving is the point of the upload.
+  - **The autosave is settled before the dialog opens, not after it closes.** The debounce is
+    disarmed synchronously and anything queued is **flushed**, so (a) no timer can fire while the
+    dialog waits on a human and land its `PUT` after the server has re-extracted, and (b) "keep my
+    colours" means the ones on screen, including keystrokes that had not reached the server yet. An
+    unsaved edit **counts as a hand-edit** for the question above: `palette.handEdited` is the
+    server's view and it is one poll behind.
   - **USE THE COVER ROADIE FOUND** sits beside it while — and only while — an override is in force.
     The fetched cover is never deleted, so the way back ships with the way in. It asks the same §12
     question, and passes the answer explicitly, because `DELETE`'s server-side default re-derives

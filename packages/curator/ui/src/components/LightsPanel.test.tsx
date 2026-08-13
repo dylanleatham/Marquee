@@ -476,20 +476,55 @@ describe("LightsPanel — your own cover", () => {
     expect(sentRegenerate()).toBe(false);
   });
 
-  it("drops a debounced edit rather than writing it over the new extraction", async () => {
-    // The autosave timer is still armed when the upload starts. Letting it fire would PUT the old
-    // colours back on top of the palette the server has just derived from the new cover — an edit
-    // that looks saved and a cover swap that looks ignored, from one race.
-    show();
+  /**
+   * regression: the review pass's one blocking finding. The debounce was disarmed *after* awaiting
+   * the dialog — and the dialog waits on a human, so the 700ms window closes long before the answer
+   * does. The timer fired mid-dialog, and its PUT could land after the server had re-extracted.
+   *
+   * The test above could not see it: with no hand-edit, the confirm resolves in a microtask and the
+   * dialog path never runs. Every assertion here is about what happens *while the dialog is open*.
+   */
+  it("does not let the autosave fire while the §12 dialog is open", async () => {
+    show(handEdited());
     fireEvent.change(hexField(1), { target: { value: "#112233" } });
     choose(cover(), () =>
       fireEvent.click(
         screen.getByRole("button", { name: "UPLOAD A DIFFERENT COVER" }),
       ),
     );
-    await waitFor(() => expect(api.uploadArtworkOverride).toHaveBeenCalled());
+    await screen.findByRole("alertdialog");
+    // Already written, *before* the question was asked — not sitting on a timer behind it.
+    expect(api.editPalette).toHaveBeenCalledTimes(1);
+
     await settle();
-    expect(api.editPalette).not.toHaveBeenCalled();
+    expect(api.editPalette).toHaveBeenCalledTimes(1);
+    expect(api.uploadArtworkOverride).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "KEEP MY COLOURS" }));
+    await waitFor(() => expect(api.uploadArtworkOverride).toHaveBeenCalled());
+    expect(sentRegenerate()).toBe(false);
+    // The flush is the whole point of settling rather than dropping: "keep my colours" has to mean
+    // the ones on screen, including the keystrokes that had not reached the server yet.
+    expect(api.editPalette).toHaveBeenCalledWith("abc12345", [
+      { hex: "#112233" },
+    ]);
+
+    // And nothing is left armed behind the finished upload, which is the far end of the same race.
+    await settle();
+    expect(api.editPalette).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks even when only the unsaved edit makes it a hand-edit", async () => {
+    // `handEdited` is the server's view and it is one poll behind. Asking on that flag alone skips
+    // the dialog for the one person with something to lose: whoever is mid-edit right now.
+    show();
+    fireEvent.change(hexField(1), { target: { value: "#ABCDEF" } });
+    choose(cover(), () =>
+      fireEvent.click(
+        screen.getByRole("button", { name: "UPLOAD A DIFFERENT COVER" }),
+      ),
+    );
+    expect(await screen.findByRole("alertdialog")).toBeTruthy();
   });
 
   it("offers the way back only once a cover of your own is in force", () => {
