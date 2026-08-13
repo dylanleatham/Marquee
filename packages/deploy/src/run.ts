@@ -815,40 +815,68 @@ async function verifyHost(
       await reportCurator(host, opts.repoRoot, svc.port, exec, report);
       continue;
     }
-    const status = await waitFor(
-      `${host.name}: ${id} /healthz never answered`,
-      12,
-      2500,
-      opts.sleep,
-      async () => {
-        const res = await run({
-          argv: [
-            "curl",
-            "-s",
-            "-o",
-            "/dev/null",
-            "-w",
-            "%{http_code}",
-            "--max-time",
-            "5",
-            `http://127.0.0.1:${svc.port}/healthz`,
-          ],
-          timeoutMs: TIMEOUTS.probe,
-          label: `health check ${id}`,
-          allowFailure: true,
-        });
-        const code = res.stdout.trim();
-        return code === "000" || code === "" ? null : code;
-      },
-    );
+    // Backdrop's 503 is "backend up, no browser attached" — which is the *normal* state for up to a
+    // minute after a reboot, while Chromium starts and opens its WebSocket back. Treat it as
+    // not-ready and keep polling rather than as a verdict.
+    //
+    // Reported as a verdict on the first probe, this warning fired on every kiosk reboot with the
+    // TV coming up perfectly seconds later. A warning that is usually wrong trains you to ignore
+    // the one time it isn't — and this is the one signal that can see a crashed Chromium at all,
+    // since `systemctl status` cannot.
+    const kioskStarting = id === "backdrop" && outcome.rebooted;
+    let lastCode = "";
+
+    const probe = async (): Promise<string | null> => {
+      const res = await run({
+        argv: [
+          "curl",
+          "-s",
+          "-o",
+          "/dev/null",
+          "-w",
+          "%{http_code}",
+          "--max-time",
+          "5",
+          `http://127.0.0.1:${svc.port}/healthz`,
+        ],
+        timeoutMs: TIMEOUTS.probe,
+        label: `health check ${id}`,
+        allowFailure: true,
+      });
+      const code = res.stdout.trim();
+      if (code === "000" || code === "") return null;
+      lastCode = code;
+      if (id === "backdrop" && code === "503") return null;
+      return code;
+    };
+
+    // A rebooted kiosk gets a longer budget than a plain restart: Chromium has to come up, load the
+    // SPA and connect, which is comfortably longer than a service bind.
+    const attempts = kioskStarting ? 48 : 12;
+    let status: string;
+    try {
+      status = await waitFor(
+        `${host.name}: ${id} /healthz never answered`,
+        attempts,
+        2500,
+        opts.sleep,
+        probe,
+      );
+    } catch (err) {
+      // Exhausting the budget having *only* ever seen Backdrop's 503 is the real "the kiosk did not
+      // come back" case, and is the warning below rather than a failure. Anything else — nothing
+      // answered at all — is a genuine failure.
+      if (lastCode === "") throw err;
+      status = lastCode;
+    }
 
     if (status === "200") {
       report.ok(host.name, `${id} healthy (200)`);
       continue;
     }
-    // Backdrop's 503 is a specific, documented, non-fatal state: the backend is fine and no browser
-    // is attached. It is the most useful signal after a Backdrop deploy precisely because a stale or
-    // crashed Chromium is invisible from `systemctl status`.
+    // Still 503 after the full budget: the backend is fine and the browser genuinely never attached.
+    // Non-fatal, because nothing on the Pi is broken — but the TV is showing nothing, and that is
+    // invisible from `systemctl status`.
     if (id === "backdrop" && status === "503") {
       const message =
         "Backdrop is up but no browser is attached (/healthz 503) — the TV is showing nothing. " +
