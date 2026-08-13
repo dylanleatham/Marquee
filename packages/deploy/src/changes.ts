@@ -42,14 +42,34 @@ export function noEffects(): Effects {
   };
 }
 
-/** Everything, for every host — the escalation target and what `--full` produces. */
+/**
+ * Everything, including a kiosk reboot — what `--full` produces, and what an un-diffable host gets.
+ *
+ * The reboot belongs here and *not* in `escalatedEffects` because both callers are cases where the
+ * operator either asked for everything explicitly, or the deployer genuinely cannot tell what
+ * changed (an unrelated history, a first deploy). Rebooting on a guess is right there.
+ */
 export function fullEffects(): Effects {
+  return { ...escalatedEffects(), kioskReload: true, unrecognized: [] };
+}
+
+/**
+ * Everything a dependency or unknown-path change needs — **except** the kiosk reboot.
+ *
+ * Escalation means "a dependency moved, or something matched no rule, so rebuild and restart
+ * everything." It does not mean the Chromium kiosk needs restarting: the SPA is loaded from
+ * `packages/backdrop/public/**`, and if that changed its own rule contributes `kioskReload`
+ * alongside this. Including the reboot here dropped the TV and the lights for a minute every time
+ * the root `package.json` moved — a real cost, paid for nothing, on the most visible part of the
+ * system.
+ */
+export function escalatedEffects(): Effects {
   return {
     pnpmInstall: true,
     build: new Set<ServiceId>([...NODE_PI_SERVICES, "curator"]),
     restart: new Set<ServiceId>([...NODE_PI_SERVICES, "curator", "stylus"]),
     pipInstall: true,
-    kioskReload: true,
+    kioskReload: false,
     assets: true,
     unrecognized: [],
   };
@@ -92,8 +112,12 @@ export const RULES: readonly Rule[] = [
     outcome: "ignore",
   },
   {
-    test: /^(docs|\.github|review-agents|spikes|flipper|fixtures|e2e|contract-tests)\//,
-    why: "docs, CI config, and tooling that never runs on a device",
+    // `scripts/` and `.husky/` are workstation-side repo tooling — schema generation, the setup
+    // check, the ADR guard, the git hooks. None of it is installed on a device or executed by a
+    // service. Without them here, a pre-push hook landing on main escalated the whole fleet to a
+    // full rebuild, which for the Pi 5 also meant rebooting the TV.
+    test: /^(docs|\.github|\.husky|scripts|review-agents|spikes|flipper|fixtures|e2e|contract-tests)\//,
+    why: "docs, CI config, git hooks, and workstation tooling that never runs on a device",
     outcome: "ignore",
   },
   {
@@ -264,20 +288,33 @@ function merge(into: Effects, from: Partial<Effects>): void {
 export function effectsFor(paths: readonly string[]): Effects {
   const effects = noEffects();
   const unrecognized: string[] = [];
+  let escalate = false;
 
+  // Every path is evaluated, even once something has already forced an escalation. Returning early
+  // on the first `full` rule looked like a harmless shortcut and cost two things: a kiosk change
+  // sitting later in the same diff had its `kioskReload` discarded, and unrecognized paths went
+  // unreported — so the "add a rule for these" prompt never fired whenever a lockfile happened to
+  // change in the same commit.
   for (const path of paths) {
     const rule = ruleFor(path);
     if (!rule) {
       unrecognized.push(path);
+      escalate = true;
       continue;
     }
     if (rule.outcome === "ignore") continue;
-    if (rule.outcome === "full") return { ...fullEffects(), unrecognized: [] };
+    if (rule.outcome === "full") {
+      escalate = true;
+      continue;
+    }
     merge(effects, rule.outcome);
   }
 
-  if (unrecognized.length > 0) return { ...fullEffects(), unrecognized };
-  return effects;
+  // Merged, not substituted: escalation adds the full rebuild on top of whatever the specific rules
+  // already asked for, so a genuine `public/**` change still carries its reboot.
+  if (escalate) merge(effects, escalatedEffects());
+
+  return { ...effects, unrecognized };
 }
 
 /**

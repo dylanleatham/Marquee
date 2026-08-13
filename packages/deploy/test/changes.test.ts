@@ -132,6 +132,9 @@ describe("changes that must do nothing", () => {
     ["packages/amp/test/store.test.ts", "tests"],
     ["packages/stylus/tests/test_state_machine.py", "Python tests"],
     [".github/workflows/ci.yml", "CI config"],
+    [".husky/pre-push", "a git hook"],
+    ["scripts/check-adr-numbers.mjs", "workstation repo tooling"],
+    ["scripts/setup.mjs", "the setup check"],
     ["review-agents/orchestrator.mjs", "the review harness"],
     ["packages/fakes/fake-spotify/src/index.ts", "a test double"],
     ["packages/deploy/src/run.ts", "the deployer itself"],
@@ -153,6 +156,49 @@ describe("changes that must do nothing", () => {
   });
 });
 
+describe("escalation rebuilds everything, but does not reboot the TV", () => {
+  // Found on a real deploy: the root package.json moved, the whole fleet escalated to a full
+  // rebuild — correct — and the Pi 5 plan also said "reboot for the kiosk", dropping the display
+  // and the lights for a minute. No kiosk asset had changed. Escalation means "a dependency moved,
+  // rebuild everything"; it does not mean the browser needs restarting.
+  it("does not reboot when a dependency change forces a full rebuild", () => {
+    const e = effectsFor(["package.json"]);
+    expect(ids(e.build)).toEqual(["amp", "backdrop", "conductor", "curator"]);
+    expect(e.pipInstall).toBe(true);
+    expect(e.kioskReload).toBe(false);
+  });
+
+  it("does not reboot for an unrecognized path either", () => {
+    expect(effectsFor(["something/nobody/anticipated.bin"]).kioskReload).toBe(
+      false,
+    );
+  });
+
+  it("still reboots when the escalating change also touches the kiosk", () => {
+    // The bug the old early-return hid: `full` matched first and returned immediately, throwing
+    // away the kioskReload that public/** had legitimately contributed.
+    const e = effectsFor([
+      "package.json",
+      "packages/backdrop/public/index.html",
+    ]);
+    expect(e.kioskReload).toBe(true);
+    expect(ids(e.build)).toEqual(["amp", "backdrop", "conductor", "curator"]);
+  });
+
+  it("still reports unrecognized paths when a full rule matched too", () => {
+    // Same early return also swallowed these, so the "add a rule" prompt never fired whenever a
+    // lockfile happened to change in the same commit.
+    const e = effectsFor(["pnpm-lock.yaml", "who/knows/what.bin"]);
+    expect(e.unrecognized).toEqual(["who/knows/what.bin"]);
+  });
+
+  it("keeps the reboot for an explicit --full and for an un-diffable host", () => {
+    // Both are cases where the operator asked for everything, or the deployer cannot tell what
+    // changed. Rebooting on a guess is right there.
+    expect(fullEffects().kioskReload).toBe(true);
+  });
+});
+
 describe("an unrecognized path escalates rather than being skipped", () => {
   // The property that makes it safe to skip work at all. Adding a package, renaming a directory or
   // introducing a file nobody anticipated must over-build, never silently leave a service stale.
@@ -162,7 +208,8 @@ describe("an unrecognized path escalates rather than being skipped", () => {
     expect(ids(e.build)).toEqual(["amp", "backdrop", "conductor", "curator"]);
     expect(e.pipInstall).toBe(true);
     expect(e.assets).toBe(true);
-    expect(e.kioskReload).toBe(true);
+    // Not the kiosk: see "escalation rebuilds everything, but does not reboot the TV" above.
+    expect(e.kioskReload).toBe(false);
   });
 
   it("escalates even when every other path in the set was recognised", () => {
