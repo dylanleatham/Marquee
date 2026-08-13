@@ -2805,6 +2805,43 @@ a:hover {
   font: 400 11.5px/1.4 var(--pp-body);
   color: var(--pp-accent-text);
 }
+/* The default visualizer's preview (ADR 0074).
+   It needs its *own* frame rather than the record page's `.viz__stage`/`.viz__video` pair. Those are
+   built for a full-width stage: the video is `position: absolute; inset: 6%`, which only behaves
+   inside `.viz__stage`'s `position: relative`. Dropped into a Settings `<section>` — which
+   establishes no containing block — it positioned against the page and covered the whole screen at
+   88% of the viewport. Sharing a class across two layouts is what made that possible, so this frame
+   is deliberately separate and static. */
+.dviz__stage {
+  /* Explicit, and load-bearing: `aspect-ratio`, `max-height` and `overflow` are all ignored on an
+     inline box, so an inline frame silently fell back to the `<video>`'s intrinsic 150px default
+     and the ratio never applied. Stated here rather than relying on the element being a `<div>`. */
+  display: block;
+  position: relative;
+  aspect-ratio: 16 / 9;
+  /* Bounded, because the column is up to ~520px wide and a full 16:9 of that pushes everything
+     below it off the fold — the panel is a setting, not a cinema. */
+  max-height: 220px;
+  outline: 1px solid var(--pp-rule);
+  background: #000;
+  margin-top: 12px;
+  overflow: hidden;
+}
+.dviz__video {
+  /* Static, and sized to its own frame. The two rules that matter: it cannot escape the box, and it
+     letterboxes rather than crops — a default clip judged on a cropped preview is judged wrong. */
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.dviz__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
 .settings__note,
 .settings__aside {
   font: 400 11.5px/1.6 var(--pp-body);
