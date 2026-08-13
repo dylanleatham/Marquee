@@ -1,0 +1,36 @@
+{
+  "generatedAt": "2026-08-13T22:29:38.552Z",
+  "repeats": 5,
+  "specialists": {
+    "consistency": {
+      "mustFind": {
+        "hit": 0,
+        "total": 0
+      },
+      "mustNotFind": {
+        "fp": 0,
+        "total": 1
+      }
+    },
+    "runtime": {
+      "mustFind": {
+        "hit": 1,
+        "total": 4
+      },
+      "mustNotFind": {
+        "fp": 0,
+        "total": 2
+      }
+    },
+    "test-auditor": {
+      "mustFind": {
+        "hit": 0,
+        "total": 1
+      },
+      "mustNotFind": {
+        "fp": 0,
+        "total": 0
+      }
+    }
+  }
+}
