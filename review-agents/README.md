@@ -5,12 +5,13 @@ run them **on demand** with `pnpm run review` — typically right before opening
 deliberately NOT in the pre-push hook (6 real Claude sessions add 1–2 min to every push, and on
 the free plan nothing enforces a report anyway). Design: `docs/specs/dev-harness.md §6`.
 
-> **Changing a specialist's prompt, examples or config is still a change with no test behind it.**
-> The [ledger](#the-ledger--what-this-harness-remembers) now records whether past findings were
-> right, but there is no frozen case set to regress a prompt edit against — so an improvement and a
-> regression still look identical from here. That gate is
-> [harness-self-improvement.md](../docs/specs/harness-self-improvement.md) §4.2, and it is not built.
-> Read it before editing a reviewer.
+> **Editing a specialist's prompt, examples or config is a change under test.** Run
+> `pnpm run review:eval` before you merge it — it scores every reviewer against
+> [frozen cases](eval/README.md) and fails if recall drops or false positives rise
+> ([ADR 0085](../docs/adrs/0085-a-harness-edit-is-validated-against-a-frozen-case-set.md)). Nothing
+> enforces this: the eval needs a real `claude` session, so it cannot run on a CI runner. It is a
+> discipline, and the [ledger](#the-ledger--what-this-harness-remembers) is what tells you whether
+> the discipline is working.
 
 ## The roster
 
@@ -61,6 +62,7 @@ pnpm run review --explain           # also print the context sent to each specia
 pnpm run review --ci                # hook mode: write report, exit 1 on blocking findings
 pnpm run review --triage            # judge the last report's findings into the ledger
 pnpm run review:stats               # what the ledger adds up to
+pnpm run review:eval                # score the reviewers against the frozen case set
 ```
 
 ## The ledger — what this harness remembers

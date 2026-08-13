@@ -1,0 +1,248 @@
+diff --git b/packages/stylus/stylus/__main__.py a/packages/stylus/stylus/__main__.py
+index 92e2efa..e0eac5f 100644
+--- b/packages/stylus/stylus/__main__.py
++++ a/packages/stylus/stylus/__main__.py
+@@ -42,10 +42,7 @@ def main() -> None:  # pragma: no cover - entrypoint glue
+         reader = sim
+         log.info("running with the SIMULATED reader — POST /simulate to inject tags")
+     else:
+-        # Logged *before* the call, not after: this is the one step that can hang, and a line that
+-        # only prints on success tells you nothing about a boot that never got past it (#307).
+-        log.info("bringing up the PN532 (bound: %dms)", config.reader.init_timeout_ms)
+-        reader = create_pn532_reader(config.rf, init_timeout_ms=config.reader.init_timeout_ms)
++        reader = create_pn532_reader(config.rf)
+         log.info(
+             "PN532 transmit drive: GsNOn=0x%02X CWGsP=0x%02X (chip defaults overcouple — #303)",
+             config.rf.gsn_on,
+diff --git b/packages/stylus/stylus/bounded.py a/packages/stylus/stylus/bounded.py
+deleted file mode 100644
+index bb10bab..0000000
+--- b/packages/stylus/stylus/bounded.py
++++ /dev/null
+@@ -1,106 +0,0 @@
+-"""Bounding a call that can hang (stylus-spec §12, [ADR 0076]).
+-
+-A hang is a worse failure than a crash, because systemd can't see it. ``Restart=always`` recovers a
+-process that *dies*; a process blocked forever inside a C extension stays ``active (running)`` with
+-a silent journal, and the health signal reports the opposite of the truth. That is exactly what a
+-wedged PN532 does to Stylus' one-time init
+-([#307](https://github.com/dylanleatham/Marquee/issues/307)).
+-
+-This module converts the one into the other: run the risky call on a thread, and if it doesn't
+-finish in time, exit so the unit's existing restart policy takes over.
+-
+-**The worker thread is never killed, because it can't be.** It's blocked in a C-level I²C ioctl,
+-where Python's interpreter never regains control — there is no interrupt, no cancel, no timeout to
+-pass down. The thread is a daemon and the process leaves without it. That is also why the exit is
+-``os._exit`` rather than :func:`sys.exit`: a normal shutdown runs finalizers and flushes buffers
+-while holding a wedged file descriptor, so the process trying to die of a hang can hang on its way
+-out. See :func:`run_or_die`.
+-
+-[#307]: https://github.com/dylanleatham/Marquee/issues/307
+-"""
+-
+-from __future__ import annotations
+-
+-import logging
+-import os
+-import threading
+-from collections.abc import Callable
+-from typing import TypeVar
+-
+-T = TypeVar("T")
+-
+-log = logging.getLogger("stylus.bounded")
+-
+-
+-class Hung(TimeoutError):
+-    """A bounded call didn't finish in time.
+-
+-    Carries ``stage`` rather than only a message so a caller can say *which* step wedged. The
+-    journal line it produces is the whole diagnostic for a restart that would otherwise be silent.
+-    """
+-
+-    def __init__(self, stage: str, timeout_s: float) -> None:
+-        super().__init__(f"{stage} did not complete within {timeout_s:g}s")
+-        self.stage = stage
+-        self.timeout_s = timeout_s
+-
+-
+-def call_with_timeout(work: Callable[[], T], timeout_s: float, *, stage: str) -> T:
+-    """Run ``work`` on a daemon thread; raise :class:`Hung` if it outlasts ``timeout_s``.
+-
+-    Returns whatever ``work`` returns, and re-raises whatever it raises — an init that *fails* is
+-    already handled (the exception ends the process and systemd restarts it), so only the hang gets
+-    special treatment.
+-
+-    The bound is on *our* patience, not on the call: a hung ``work`` is still running when this
+-    returns, and nothing here can stop it.
+-    """
+-    box: dict[str, object] = {}
+-
+-    def run() -> None:
+-        try:
+-            box["value"] = work()
+-        except BaseException as e:  # noqa: BLE001 — re-raised on the calling thread below
+-            box["error"] = e
+-
+-    thread = threading.Thread(target=run, name=f"bounded:{stage}", daemon=True)
+-    thread.start()
+-    thread.join(timeout_s)
+-    if thread.is_alive():
+-        raise Hung(stage, timeout_s)
+-    if "error" in box:
+-        raise box["error"]  # type: ignore[misc]
+-    return box["value"]  # type: ignore[return-value]
+-
+-
+-def run_or_die(
+-    work: Callable[[], T],
+-    timeout_s: float,
+-    *,
+-    stage: str,
+-    exit_: Callable[[int], None] = os._exit,
+-) -> T:
+-    """:func:`call_with_timeout`, but a hang ends the process instead of raising into a caller.
+-
+-    A hang has no recovery inside this process — the bus is held by a thread that will never come
+-    back — so the honest response is to leave and let ``Restart=always`` bring up a fresh one
+-    against a module that gets a fresh chance to answer.
+-
+-    The reason is logged **before** exiting: ``os._exit`` skips atexit hooks and buffered output, so
+-    anything said afterwards would never reach journald, and the operator would see a restart with
+-    no explanation — the same blindness one level up.
+-
+-    ``exit_`` is injected only so tests can assert the exit happens without taking the suite down
+-    with it. It really is ``os._exit`` in production, and the ``raise`` after it is unreachable
+-    there; it keeps the function honest for a hook that returns.
+-    """
+-    try:
+-        return call_with_timeout(work, timeout_s, stage=stage)
+-    except Hung as e:
+-        log.critical(
+-            "%s — exiting so systemd restarts us. The call is blocked in the driver and cannot be "
+-            "interrupted; if this recurs, power-cycle the module.",
+-            e,
+-        )
+-        exit_(1)
+-        raise
+diff --git b/packages/stylus/stylus/config.py a/packages/stylus/stylus/config.py
+index 3fc96e9..fb4e942 100644
+--- b/packages/stylus/stylus/config.py
++++ a/packages/stylus/stylus/config.py
+@@ -24,23 +24,15 @@ class ReaderConfig:
+     insertion_debounce_polls: int = 2
+     removal_debounce_polls: int = 10
+     swap_debounce_polls: int = 1
+-    # How long the one-time PN532 bring-up gets before Stylus gives up and exits so systemd can
+-    # restart it (stylus-spec §12, [ADR 0076], #307). A healthy init is well under a second, so
+-    # 10s is deliberately generous: too *tight* a bound turns a slow-but-working module into a
+-    # boot loop, which is a worse failure than the hang it's guarding. Raise it before suspecting
+-    # it. This is the single definition — `reader.py` reads its fallback off this field.
+-    init_timeout_ms: int = 10_000
+ 
+     def __post_init__(self) -> None:
+         # A zero/negative interval would busy-spin; a debounce < 1 would fire on the first stray
+-        # read; a zero init bound would fail every boot instantly. Guard here so a hand-edited
+-        # config can't wedge the loop into nonsense.
++        # read. Guard here so a hand-edited config can't wedge the loop into nonsense.
+         for name in (
+             "poll_interval_ms",
+             "insertion_debounce_polls",
+             "removal_debounce_polls",
+             "swap_debounce_polls",
+-            "init_timeout_ms",
+         ):
+             if getattr(self, name) < 1:
+                 raise ValueError(f"reader.{name} must be >= 1")
+@@ -149,7 +141,6 @@ def config_from_dict(raw: dict[str, Any]) -> Config:
+         insertion_debounce_polls=int(reader_raw.get("insertion_debounce_polls", 2)),
+         removal_debounce_polls=int(reader_raw.get("removal_debounce_polls", 10)),
+         swap_debounce_polls=int(reader_raw.get("swap_debounce_polls", 1)),
+-        init_timeout_ms=int(reader_raw.get("init_timeout_ms", ReaderConfig.init_timeout_ms)),
+     )
+     led_raw = raw.get("led", {})
+     led = LedConfig(
+diff --git b/packages/stylus/stylus/reader.py a/packages/stylus/stylus/reader.py
+index e435e48..ba0bda1 100644
+--- b/packages/stylus/stylus/reader.py
++++ a/packages/stylus/stylus/reader.py
+@@ -12,12 +12,10 @@ The state machine consumes one :class:`TagRead` (uid + decoded URI) per poll. Tw
+ 
+ from __future__ import annotations
+ 
+-import os
+ from collections.abc import Callable
+ from typing import Protocol
+ 
+-from .bounded import run_or_die
+-from .config import ReaderConfig, RfConfig
++from .config import RfConfig
+ from .ndef import parse_uri
+ from .rf import configure_tx_drive
+ from .state_machine import TagRead
+@@ -202,45 +200,14 @@ def build_pn532_reader(pn532, rf: RfConfig, uid_cache_size: int = 8) -> TagReade
+     return _Pn532Reader()
+ 
+ 
+-def open_pn532_reader(
+-    connect: Callable[[], object],
+-    rf: RfConfig,
+-    uid_cache_size: int = 8,
+-    *,
+-    init_timeout_s: float = ReaderConfig.init_timeout_ms / 1000,
+-    exit_: Callable[[int], None] = os._exit,
+-) -> TagReader:
+-    """Bring up a PN532 under a time bound: ``connect()`` builds the chip, then it's configured.
+-
+-    ``connect`` is injected so the bound covers *construction* too. That is the point of this
+-    function existing rather than the bound living inside :func:`build_pn532_reader`: two of the
+-    four calls that can wedge — ``busio.I2C`` and ``PN532_I2C`` — happen before there is a chip
+-    object to configure, and they are the two DEPLOY.md §12 names. Bounding only the setup sequence
+-    would look like protection while leaving the documented hang sites open
+-    ([#307](https://github.com/dylanleatham/Marquee/issues/307)).
+-
+-    A hang exits the process; the unit's ``Restart=always`` brings it back against a module that
+-    gets a fresh chance to answer. See :mod:`stylus.bounded` for why it can't be recovered in-place.
+-    """
+-    return run_or_die(
+-        lambda: build_pn532_reader(connect(), rf, uid_cache_size),
+-        init_timeout_s,
+-        stage="PN532 init",
+-        exit_=exit_,
+-    )
+-
+-
+-def create_pn532_reader(  # pragma: no cover - hardware imports only; see open_pn532_reader
+-    rf: RfConfig | None = None,
+-    uid_cache_size: int = 8,
+-    init_timeout_ms: int = ReaderConfig.init_timeout_ms,
++def create_pn532_reader(  # pragma: no cover - hardware imports only; see build_pn532_reader
++    rf: RfConfig | None = None, uid_cache_size: int = 8
+ ) -> TagReader:
+     """Build the real PN532 reader. Raises a clear error off-Pi (no ``adafruit_pn532``).
+ 
+-    Nothing but imports lives here — decoding and caching are in :class:`UriCache` /
+-    :func:`assemble_ntag_ndef`, the setup sequence is in :func:`build_pn532_reader`, and the
+-    construction is a closure handed to :func:`open_pn532_reader` so the time bound covers it. All
+-    of them pure or injectable and tested.
++    Nothing but imports and construction lives here — decoding and caching are in
++    :class:`UriCache` / :func:`assemble_ntag_ndef`, and the setup sequence is in
++    :func:`build_pn532_reader`, all of them pure or injectable and tested.
+     """
+     try:
+         import board  # type: ignore
+@@ -252,10 +219,6 @@ def create_pn532_reader(  # pragma: no cover - hardware imports only; see open_p
+             "Use SimulatedReader on the bench."
+         ) from e
+ 
+-    def connect():
+-        # Inside the bound, not before it: opening the bus is the first thing that can wedge.
+-        return PN532_I2C(busio.I2C(board.SCL, board.SDA), debug=False)
+-
+-    return open_pn532_reader(
+-        connect, rf or RfConfig(), uid_cache_size, init_timeout_s=init_timeout_ms / 1000
+-    )
++    i2c = busio.I2C(board.SCL, board.SDA)
++    pn532 = PN532_I2C(i2c, debug=False)
++    return build_pn532_reader(pn532, rf or RfConfig(), uid_cache_size)

@@ -1,0 +1,280 @@
+diff --git b/packages/stylus/stylus/__main__.py a/packages/stylus/stylus/__main__.py
+index 693eb0a..92e2efa 100644
+--- b/packages/stylus/stylus/__main__.py
++++ a/packages/stylus/stylus/__main__.py
+@@ -16,7 +16,6 @@ from .led import create_led
+ from .publisher import Publisher
+ from .reader import SimulatedReader, TagReader, create_pn532_reader
+ from .status_server import StatusService, serve
+-from .watchdog import create_watchdog
+ 
+ 
+ def main() -> None:  # pragma: no cover - entrypoint glue
+@@ -54,16 +53,7 @@ def main() -> None:  # pragma: no cover - entrypoint glue
+         )
+ 
+     led = create_led(config.led.enabled, config.led.gpio_pin)
+-    # One watchdog, fed from both the poll loop and the publisher's retry loop — the second is what
+-    # keeps a downstream outage from reading as a Stylus hang (#308, and see stylus/watchdog.py).
+-    watchdog = create_watchdog()
+-    app = StylusApp(
+-        config,
+-        reader,
+-        Publisher(config.downstreams, heartbeat=watchdog.ping),
+-        led,
+-        heartbeat=watchdog.ping,
+-    )
++    app = StylusApp(config, reader, Publisher(config.downstreams), led)
+ 
+     server = serve(StatusService(app, sim), config.status_listen_port)
+     threading.Thread(target=server.serve_forever, daemon=True).start()
+@@ -73,11 +63,6 @@ def main() -> None:  # pragma: no cover - entrypoint glue
+         ", ".join(d.name for d in config.downstreams) or "(no downstreams configured)",
+     )
+ 
+-    # Last, deliberately: under Type=notify this is the promise that startup finished, so it must
+-    # come after the reader is up and the status port is actually listening. Outside systemd there
+-    # is no socket and this is a no-op.
+-    watchdog.ready()
+-
+     try:
+         app.run()
+     except KeyboardInterrupt:
+diff --git b/packages/stylus/stylus/app.py a/packages/stylus/stylus/app.py
+index c716b18..c4ce04b 100644
+--- b/packages/stylus/stylus/app.py
++++ a/packages/stylus/stylus/app.py
+@@ -31,7 +31,6 @@ class StylusApp:
+         *,
+         now: Callable[[], str] = now_iso,
+         sleep: Callable[[float], None] = time.sleep,
+-        heartbeat: Callable[[], None] = lambda: None,
+     ) -> None:
+         self._cfg = config
+         self._reader = reader
+@@ -39,7 +38,6 @@ class StylusApp:
+         self._led = led
+         self._now = now
+         self._sleep = sleep
+-        self._heartbeat = heartbeat
+         self._machine = DetectionMachine(config.reader)
+         self._reader_id = config.reader.id
+         self._running = False
+@@ -58,10 +56,6 @@ class StylusApp:
+ 
+     # --- one poll cycle ---------------------------------------------------------------------------
+     def tick(self):
+-        # Announce the pass *before* doing anything that can block, so a tick that never returns has
+-        # already spent as little of the watchdog deadline as possible (§12, #308). It lives here
+-        # rather than in `run()` because this is the unit the tests drive — `run()` is a bare loop.
+-        self._heartbeat()
+         tag = self._reader.poll()
+         # Recorded before the machine runs, and regardless of what it decides: a tag the machine
+         # ignores is exactly the one worth reporting.
+diff --git b/packages/stylus/stylus/publisher.py a/packages/stylus/stylus/publisher.py
+index 7e011f0..b6fc8b9 100644
+--- b/packages/stylus/stylus/publisher.py
++++ a/packages/stylus/stylus/publisher.py
+@@ -51,13 +51,11 @@ class Publisher:
+         transport: Transport = urllib_transport,
+         sleep: Sleep | None = None,
+         retry_delays: Sequence[float] = DEFAULT_RETRY_DELAYS,
+-        heartbeat: Callable[[], None] = lambda: None,
+     ) -> None:
+         self._downstreams = tuple(downstreams)
+         self._transport = transport
+         self._sleep: Sleep = sleep or time.sleep
+         self._retry_delays = tuple(retry_delays)
+-        self._heartbeat = heartbeat
+ 
+     def publish(self, event: dict[str, Any]) -> dict[str, bool]:
+         """Send ``event`` to every downstream. Returns ``{name: delivered?}``; never raises.
+@@ -80,11 +78,6 @@ class Publisher:
+         for delay in self._retry_delays:
+             if delay:
+                 self._sleep(delay)
+-            # This runs inside the poll tick, and a dead downstream keeps us here for the whole
+-            # retry window. Without a beat per attempt the watchdog would read a *Conductor* outage
+-            # as a Stylus hang and kill us for it (#308, #173). The gap it leaves is one transport
+-            # timeout, which is the number `WatchdogSec=` has to clear.
+-            self._heartbeat()
+             try:
+                 status = self._transport(d.url, body, headers, timeout_s)
+             except Exception as e:  # noqa: BLE001 — a wedged network is exactly what we retry past
+diff --git b/packages/stylus/stylus/watchdog.py a/packages/stylus/stylus/watchdog.py
+deleted file mode 100644
+index 1e6402e..0000000
+--- b/packages/stylus/stylus/watchdog.py
++++ /dev/null
+@@ -1,171 +0,0 @@
+-"""systemd liveness notification — `sd_notify` in about forty lines (stylus-spec §12, [ADR 0077]).
+-
+-[#307](https://github.com/dylanleatham/Marquee/issues/307) bounded the one-time init, so a hang
+-*there* becomes a restart. This module covers the other half: a hang in the **poll loop**, which has
+-the identical outward symptom — `active (running)`, silent journal, nothing read, and
+-``Restart=always`` never firing because a blocked process is not a dead one.
+-
+-A one-shot bound is the wrong shape for a loop. What a loop can offer instead is a signal that keeps
+-arriving, and systemd already knows how to kill a service whose signal stops: ``WatchdogSec=`` in the
+-unit, ``WATCHDOG=1`` on the socket in ``$NOTIFY_SOCKET``. No dependency — it's a datagram.
+-
+-**The risk here is the false positive, not the false negative.** ``publish`` runs inside the poll
+-tick and legitimately blocks for tens of seconds when a downstream is down (§8's retry window,
+-[#173](https://github.com/dylanleatham/Marquee/issues/173)). A heartbeat sent only once per tick
+-would read a *Conductor* outage as a Stylus hang and kill Stylus, which does nothing to fix
+-Conductor and drops the state machine on the floor. So :meth:`Watchdog.ping` is threaded down into
+-the publisher's retry loop as well: the question it answers is "is this process still executing?",
+-not "is the network fast?".
+-
+-Everything that touches the outside — the environment, the socket — is injected, so the protocol is
+-tested on machines with no systemd at all.
+-"""
+-
+-from __future__ import annotations
+-
+-import logging
+-import os
+-import socket
+-import time
+-from collections.abc import Callable, Mapping
+-
+-log = logging.getLogger("stylus.watchdog")
+-
+-#: Sends one already-encoded datagram to systemd. Injected so tests need no socket.
+-Send = Callable[[bytes], None]
+-
+-
+-def notify_address(raw: str | None) -> str | None:
+-    """``$NOTIFY_SOCKET`` as an address :mod:`socket` will accept, or ``None`` if nobody's listening.
+-
+-    ``None`` is the ordinary bench case — no systemd, no socket, nothing owed.
+-
+-    A leading ``@`` means Linux's *abstract* socket namespace, where the real first byte is a NUL;
+-    systemd writes it as ``@`` because the variable has to survive being a C string. Sending to a
+-    literal ``"@…"`` path fails silently, which here means a watchdog that never pings and a service
+-    killed on a schedule — so the translation matters more than its one line suggests.
+-    """
+-    if not raw:
+-        return None
+-    return "\0" + raw[1:] if raw.startswith("@") else raw
+-
+-
+-def watchdog_interval_s(env: Mapping[str, str]) -> float | None:
+-    """Seconds between pings — half of ``WATCHDOG_USEC`` — or ``None`` if no watchdog is armed.
+-
+-    Half the deadline, per the ``sd_notify`` convention: pinging *at* it races the kill, and one
+-    scheduling hiccup then reads as a hang.
+-
+-    ``WATCHDOG_PID`` is systemd naming which process it expects to hear from. When it names someone
+-    else we stay quiet rather than pinging on their behalf — a forked child claiming the parent is
+-    alive is exactly the lie a watchdog exists to catch.
+-
+-    An unusable value disables pings instead of raising: no watchdog is a degradation, but a service
+-    that won't boot because of its own health-check is an outage.
+-    """
+-    raw = env.get("WATCHDOG_USEC")
+-    if not raw:
+-        return None
+-    expected_pid = env.get("WATCHDOG_PID")
+-    if expected_pid and expected_pid.strip() != str(os.getpid()):
+-        return None
+-    try:
+-        usec = int(raw)
+-    except ValueError:
+-        log.warning("WATCHDOG_USEC=%r isn't a number — running without watchdog pings", raw)
+-        return None
+-    if usec <= 0:
+-        return None
+-    return usec / 2_000_000  # µs → s, halved
+-
+-
+-def _discard(_msg: bytes) -> None:
+-    """The no-systemd sender. Not an error — it's how the bench and ``--simulate`` run."""
+-
+-
+-def socket_sender(address: str | None) -> Send:
+-    """A sender that datagrams to ``address``, or :func:`_discard` when there is no socket."""
+-    if address is None:
+-        return _discard
+-    try:
+-        # getattr, not socket.AF_UNIX: the constant doesn't exist on Windows, where a type checker
+-        # run locally would flag the attribute the `except AttributeError` below already expects.
+-        af_unix = getattr(socket, "AF_UNIX")  # noqa: B009 — see above; the attribute may be absent
+-        sock = socket.socket(af_unix, socket.SOCK_DGRAM)  # pragma: no cover - needs systemd
+-        # Non-blocking, because this send sits *inside* the poll tick and the publisher's retry
+-        # loop. A full receive buffer would otherwise block the loop this watchdog exists to prove
+-        # is running — the health check becoming the outage. Non-blocking turns that into
+-        # BlockingIOError, which `Watchdog._emit` logs and drops. Losing a ping is safe: we send at
+-        # half the deadline, so one has to be missed twice in a row to matter.
+-        sock.setblocking(False)  # pragma: no cover - needs systemd
+-    except (AttributeError, OSError) as e:  # pragma: no cover - AF_UNIX absent (e.g. Windows)
+-        log.warning("no AF_UNIX datagram socket (%s) — running without systemd notifications", e)
+-        return _discard
+-
+-    def send(msg: bytes) -> None:  # pragma: no cover - exercised only with a real systemd socket
+-        sock.sendto(msg, address)
+-
+-    return send
+-
+-
+-class Watchdog:
+-    """Tells systemd this process is alive. A no-op when nothing is listening.
+-
+-    Two independent signals, because ``Type=notify`` and ``WatchdogSec=`` are independent unit
+-    settings: :meth:`ready` is owed once at startup either way, :meth:`ping` only when a watchdog is
+-    actually armed.
+-    """
+-
+-    def __init__(
+-        self,
+-        send: Send,
+-        interval_s: float | None,
+-        *,
+-        monotonic: Callable[[], float] = time.monotonic,
+-    ) -> None:
+-        self._send = send
+-        self._interval_s = interval_s
+-        self._monotonic = monotonic
+-        self._last_ping: float | None = None
+-
+-    def ready(self) -> None:
+-        """``READY=1`` — startup is finished.
+-
+-        Under ``Type=notify`` the unit stays in *activating* until this lands and is then killed at
+-        ``TimeoutStartSec``. Omitting it turns a working service into a failed one.
+-        """
+-        self._emit(b"READY=1")
+-
+-    def ping(self) -> None:
+-        """``WATCHDOG=1`` — still executing. Rate-limited to the interval.
+-
+-        Called from the poll loop (5Hz) *and* from the publisher's retry loop, so it is called far
+-        more often than systemd wants to hear from us. Throttling here rather than at each call site
+-        keeps the callers free to say "still alive" as often as they like.
+-        """
+-        if self._interval_s is None:
+-            return
+-        now = self._monotonic()
+-        if self._last_ping is not None and now - self._last_ping < self._interval_s:
+-            return
+-        self._last_ping = now
+-        self._emit(b"WATCHDOG=1")
+-
+-    def _emit(self, msg: bytes) -> None:
+-        try:
+-            self._send(msg)
+-        except OSError as e:
+-            # The watchdog is a health signal, not the product. A failure to *report* health must
+-            # never become the outage it was reporting on — log it and keep reading sleeves.
+-            #
+-            # This also catches the BlockingIOError a full receive buffer raises on the non-blocking
+-            # socket (see `socket_sender`). Dropping a ping is the deliberate cost of not letting
+-            # the send stall the loop: we ping at half the deadline, so one has to be missed twice
+-            # running before systemd acts on it.
+-            log.warning("systemd notification %r failed: %s", msg, e)
+-
+-
+-def create_watchdog(env: Mapping[str, str] | None = None) -> Watchdog:
+-    """The real one, wired from the environment systemd hands us (or nothing, on the bench)."""
+-    env = os.environ if env is None else env
+-    return Watchdog(socket_sender(notify_address(env.get("NOTIFY_SOCKET"))), watchdog_interval_s(env))

@@ -1,0 +1,7 @@
+{
+  "id": "clean-collection-filters",
+  "source": "commit:5150793 (forward)",
+  "kind": "must-not-find",
+  "specialist": "consistency",
+  "notes": "The same feature as the test-auditor case, but complete and with its tests \u2014 so consistency has nothing to gate on. Pairs with that case: the only difference is whether the tests are present."
+}

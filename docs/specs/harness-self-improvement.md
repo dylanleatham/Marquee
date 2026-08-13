@@ -252,13 +252,28 @@ specialist's recall or increase its false-positive count relative to the baselin
 improves things, the new baseline is committed in the same PR — which makes the improvement a
 reviewable diff rather than an assertion in a commit message.
 
-**Cost and placement.** These are real Claude sessions, so eval runs in `nightly.yml`'s slow lane
-and on demand — never in the four-job PR pipeline (a new CI job costs a real billable minute; see
-dev-harness §5). Results are cached on
-`sha256(case files + specialist system-prompt + examples + config + model)`, so a specialist nobody
-touched does not re-run its cases.
+**Cost and placement.** These are real Claude sessions, so the eval runs **locally, on demand** —
+never in CI. _(Corrected 2026-08-13, during Phase 2. This section originally put an eval job in
+`nightly.yml`. That could not have worked: `nightly.yml` runs on `windows-latest`, a GitHub runner
+with no `claude` binary and no auth — which is exactly the property dev-harness §6 chose local
+execution to get, "no self-hosted runner to maintain, no runner-inherited auth to manage". An eval
+job there would have been a check that can never measure anything, which §11 forbids more strongly
+than it forbids skipping the check. CI covers `lib/eval.test.mjs` and nothing more.)_
 
-Target for v1: **12 must-find, 8 must-not-find**, drawn from the classes in §1.1.
+The consequence is that **the gate is a human discipline, not an enforced one** — nothing stops a
+`review-agents/` change landing unevaluated. That is a genuine weakness, accepted because the
+alternative is a self-hosted runner holding a Claude credential. See
+[ADR 0085](../adrs/0085-a-harness-edit-is-validated-against-a-frozen-case-set.md).
+
+Results are cached on `sha256(case + diff + that specialist's prompt, examples, config, model)`, so
+a specialist nobody touched does not re-run its cases. A **mock** run neither reads nor writes that
+cache — mock-ness lives in the environment, not in the cache key, so a `REVIEW_MOCK=1` pipeline
+check would otherwise seed it with canned empty findings that the next real run reads back as a
+measurement. That happened, once, on the first day.
+
+Target for v1: **12 must-find, 8 must-not-find**, drawn from the classes in §1.1. _Shipped with 8
+(five must-find, three must-not-find); `security`, `spec-adherence` and `contract-guardian` have no
+cases at all and read `0/0`._
 
 ### 4.3 Two new specialists, chosen by the escape history
 
@@ -404,9 +419,24 @@ Built as planned, with three decisions the plan left open:
 
 No ADR — this adds an instrument, it does not deviate from a spec.
 
-### Phase 2 — the eval harness and its baseline
+### Phase 2 — the eval harness and its baseline — **shipped 2026-08-13**
 
 **Goal:** a harness edit can be shown not to have regressed.
+
+Built, with four departures from the plan above:
+
+- **It runs locally, not in `nightly.yml`.** The plan's CI job was impossible; see §4.2. This is the
+  single biggest change, because it turns an enforced gate into a discipline.
+- **`buildContext` and `loadSpecialists` moved to `lib/specialists.mjs`.** The eval is only a
+  measurement of the _real_ reviewer if it hands that reviewer byte-for-byte the context a real
+  review would. A second copy in the eval would drift, and the eval would then keep reporting green
+  about a reviewer that no longer exists.
+- **Four outcomes, not two.** `not-triggered` and `not-installed` are reported separately from
+  `miss`, so a routing bug is never mistaken for a prompt problem (issue #192) and a case can be
+  committed ahead of its reviewer — which is what Phase 3 needs.
+- **No baseline is committed yet.** Recording one costs `cases × repeats` real sessions, and a
+  baseline written from a run nobody inspected would be a number pretending to be a measurement.
+  `run.mjs` exits non-zero until `--write-baseline` is used deliberately.
 
 |               |                                                                                                                                                                                                                                                                                                                                             |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -14,13 +14,7 @@
 //        REVIEW_TIMEOUT_MS (per-specialist spawn budget in ms, default 90000),
 //        REVIEW_TIMEOUT_RETRIES (extra attempts on a timeout, default 1)
 
-import {
-  readFileSync,
-  readdirSync,
-  existsSync,
-  mkdirSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -44,7 +38,11 @@ import {
   normalizeFindings,
   dedupe,
 } from "./lib/findings.mjs";
-import { matchesAny, filesMatching, readTruncated } from "./lib/util.mjs";
+import {
+  loadSpecialists,
+  isTriggered,
+  buildContext,
+} from "./lib/specialists.mjs";
 import {
   loadLedger,
   appendRecords,
@@ -75,87 +73,6 @@ const opts = {
 
 const REPORT_DIR = join(ROOT, ".review-agents");
 const LEDGER_PATH = join(HERE, "ledger.jsonl");
-
-// Which specs to hand a specialist when a given package changes (dev-harness §6).
-const PACKAGE_SPECS = {
-  curator: [
-    "curator-spec.md",
-    "roadie-spec.md",
-    "album-onboarding-workflow.md",
-  ],
-  "palette-press": ["palette-press-spec.md", "integration-contract.md"],
-  "hue-conductor": ["hue-conductor-spec.md", "integration-contract.md"],
-  backdrop: ["backdrop-spec.md"],
-  stylus: ["stylus-spec.md"],
-  contracts: ["integration-contract.md"],
-};
-
-function loadSpecialists() {
-  const out = [];
-  for (const dir of readdirSync(HERE)) {
-    const cfgPath = join(HERE, dir, "config.json");
-    if (!existsSync(cfgPath)) continue;
-    const config = JSON.parse(readFileSync(cfgPath, "utf8"));
-    config.systemPrompt =
-      readTruncated(join(HERE, dir, "system-prompt.md"), 40_000) ?? "";
-    config.examples =
-      readTruncated(join(HERE, dir, "examples.md"), 20_000) ?? "";
-    out.push(config);
-  }
-  return out;
-}
-
-function isTriggered(config, files) {
-  if (!files.length) return false;
-  if (config.triggerAll) return true;
-  if (
-    config.triggerGlobs &&
-    files.some((f) => matchesAny(f, config.triggerGlobs))
-  )
-    return true;
-  if (config.triggerImports?.length) {
-    // Only scan real source files — not lockfiles, docs, or generated output.
-    const sourceFiles = files.filter((f) =>
-      /\.(ts|tsx|mjs|cjs|js|py)$/.test(f),
-    );
-    for (const f of sourceFiles) {
-      const src = readTruncated(join(ROOT, f), 40_000);
-      if (src && config.triggerImports.some((imp) => src.includes(imp)))
-        return true;
-    }
-  }
-  return false;
-}
-
-function changedPackages(files) {
-  const pkgs = new Set();
-  for (const f of files) {
-    const m = f.match(/^packages\/([^/]+)\//);
-    if (m) pkgs.add(m[1]);
-  }
-  return pkgs;
-}
-
-function buildContext(config, { files, diff }) {
-  const parts = [
-    `# Changed files\n${files.map((f) => `- ${f}`).join("\n")}`,
-    `# Diff\n\`\`\`diff\n${diff}\n\`\`\``,
-  ];
-
-  const ctxFiles = new Set(filesMatching(ROOT, config.contextGlobs ?? []));
-  if (config.includePackageSpecs) {
-    for (const pkg of changedPackages(files)) {
-      for (const spec of PACKAGE_SPECS[pkg] ?? [])
-        ctxFiles.add(`docs/specs/${spec}`);
-    }
-    ctxFiles.add("docs/specs/runtime-overview.md");
-  }
-  for (const rel of ctxFiles) {
-    const body = readTruncated(join(ROOT, rel));
-    if (body) parts.push(`# Context: ${rel}\n\`\`\`\n${body}\n\`\`\``);
-  }
-  return parts.join("\n\n");
-}
 
 /** `--stats`: what the ledger knows. Read-only; never runs a specialist. */
 function printStats() {
