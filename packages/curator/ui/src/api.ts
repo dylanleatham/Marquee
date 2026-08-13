@@ -197,13 +197,32 @@ export type JobKind =
   /** Sweeping the Discogs collection into the library (issue #234). Progress is collection rows. */
   | "discogsSync"
   /** Re-matching Discogs albums to Spotify so they can play (ADR 0059). Library-scoped. */
-  | "spotifyBackfill";
+  | "spotifyBackfill"
+  /**
+   * Sending the default visualizer to Backdrop (ADR 0074). Library-scoped — the clip belongs to the
+   * collection, not to an album. Progress is bytes, like `mediaTransfer`: one file, but over a link
+   * to a Pi that has been measured at ~44 KB/s.
+   */
+  | "defaultVisualizerPush";
 /**
  * The kinds that sweep the whole library rather than one album — the ones `GET /api/jobs` will
  * return and that the app-wide progress panels track.
+ *
+ * Written as an `Extract` rather than a second hand-written union, so the subset relationship is
+ * enforced by the compiler instead of by everyone remembering. `GenerationJob.kind` is a `JobKind`,
+ * so a library kind that isn't one would produce a store polling for a job that cannot typecheck —
+ * which is exactly the drift that happened when `defaultVisualizerPush` was added to one list and
+ * not the other. A typo here now fails to compile as `never`.
  */
-export type LibraryJobKind =
-  "paletteBatch" | "runtimeSync" | "discogsSync" | "spotifyBackfill";
+export type LibraryJobKind = Extract<
+  JobKind,
+  | "paletteBatch"
+  | "runtimeSync"
+  | "discogsSync"
+  | "spotifyBackfill"
+  /** Sending the default visualizer to Backdrop (ADR 0074) — one file, but over the LAN. */
+  | "defaultVisualizerPush"
+>;
 
 export type JobStatus = "running" | "done" | "failed" | "cancelled";
 
@@ -726,6 +745,32 @@ export interface GeminiSettingsPatch {
   generateVideo?: boolean;
 }
 
+/** What ingest recorded about the accepted default clip (ADR 0073). */
+export interface DefaultVisualizerMeta {
+  originalFilename: string;
+  durationSec: number;
+  resolution: string;
+  uploadedAt: string;
+  /** Ingest re-encoded it to fit the decode budget (ADR 0040) — worth saying, not worth alarming. */
+  normalized: boolean;
+}
+
+/** GET /api/settings/default-visualizer. */
+export interface DefaultVisualizerStatus {
+  /** The bytes are on **this** machine — i.e. there is something to preview and to push. */
+  present: boolean;
+  bytes: number | null;
+  /** `null` when nothing was ever uploaded here, or the clip was dropped in by hand. */
+  meta: DefaultVisualizerMeta | null;
+  /** ADR 0038's transfer mode — `none` means Curator will not move the file for you. */
+  mediaTransfer: "none" | "local" | "push";
+  /**
+   * Whether the **Pi** has it. Three answers, never two (ADR 0072): an unreachable Backdrop, or a
+   * library where no record uses the default, are both `"unknown"` — not `"absent"`.
+   */
+  onBackdrop: VideoPresence;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -1209,6 +1254,27 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(patch),
     }),
+
+  // --- The default visualizer (ADR 0073) ---
+  defaultVisualizer: () =>
+    req<DefaultVisualizerStatus>("/api/settings/default-visualizer"),
+  /** Upload + ingest + start the push. Reports bytes sent, like every other upload (issue #284). */
+  uploadDefaultVisualizer: (form: FormData, opts?: UploadOptions) =>
+    postForm<DefaultVisualizerMeta & { transferJobId?: string }>(
+      "/api/settings/default-visualizer",
+      form,
+      opts,
+    ),
+  /** Returns the started job, so the library-job store can poll it like every other sweep. */
+  pushDefaultVisualizer: () =>
+    req<GenerationJob>("/api/settings/default-visualizer/push", {
+      method: "POST",
+    }),
+  removeDefaultVisualizer: () =>
+    req<{ removed: boolean; stillOnBackdrop: VideoPresence }>(
+      "/api/settings/default-visualizer",
+      { method: "DELETE" },
+    ),
 
   /**
    * The albums this record could be (#289) — the matcher's own list of what it declined to choose

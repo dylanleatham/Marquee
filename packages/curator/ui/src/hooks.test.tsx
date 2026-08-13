@@ -1,10 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { renderHook, act, waitFor } from "@testing-library/react";
+import {
+  renderHook,
+  act,
+  waitFor,
+  render,
+  screen,
+  cleanup,
+} from "@testing-library/react";
 import {
   usePoll,
   useGenerationJob,
   usePending,
   useVisibleCycle,
+  useOnScreen,
   useUpload,
 } from "./hooks";
 import { api, type GenerationJob, type JobKind } from "./api";
@@ -525,5 +533,94 @@ describe("useUpload", () => {
       ).rejects.toThrow("nope");
     });
     expect(result.current.inFlight).toBeNull();
+  });
+});
+
+/**
+ * The gate a looping `<video>` preview needs (ADR 0074). Idle cost is a product requirement here and
+ * is measured rather than assumed ([ADR 0049](../../../../docs/adrs/0049-idle-cost-is-a-measured-baseline-not-a-ci-gate.md)),
+ * so a preview that decodes frames on a hidden tab is a real regression, not a nicety.
+ */
+describe("useOnScreen", () => {
+  class FakeIO {
+    static last: FakeIO | undefined;
+    disconnected = false;
+    constructor(private readonly cb: IntersectionObserverCallback) {
+      FakeIO.last = this;
+    }
+    observe() {}
+    disconnect() {
+      this.disconnected = true;
+    }
+    unobserve() {}
+    takeRecords(): IntersectionObserverEntry[] {
+      return [];
+    }
+    emit(isIntersecting: boolean) {
+      this.cb(
+        [{ isIntersecting } as IntersectionObserverEntry],
+        this as unknown as IntersectionObserver,
+      );
+    }
+  }
+
+  const setHidden = (value: boolean) =>
+    Object.defineProperty(document, "hidden", { value, configurable: true });
+
+  beforeEach(() => {
+    FakeIO.last = undefined;
+    vi.stubGlobal("IntersectionObserver", FakeIO);
+  });
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    setHidden(false);
+  });
+
+  function Probe() {
+    const { ref, visible } = useOnScreen();
+    return (
+      <div ref={ref} data-testid="probe">
+        {visible ? "visible" : "hidden"}
+      </div>
+    );
+  }
+
+  it("starts visible, so nothing sits frozen waiting for an observer", () => {
+    render(<Probe />);
+    expect(screen.getByTestId("probe").textContent).toBe("visible");
+  });
+
+  it("goes hidden when scrolled off screen, and back when returned", () => {
+    render(<Probe />);
+    act(() => FakeIO.last!.emit(false));
+    expect(screen.getByTestId("probe").textContent).toBe("hidden");
+    act(() => FakeIO.last!.emit(true));
+    expect(screen.getByTestId("probe").textContent).toBe("visible");
+  });
+
+  it("goes hidden when the tab is, even while on screen", () => {
+    render(<Probe />);
+    act(() => {
+      setHidden(true);
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(screen.getByTestId("probe").textContent).toBe("hidden");
+  });
+
+  // Degrading to "always playing" beats degrading to a frozen box: the gate is an optimisation, and
+  // an environment without an observer should still show a working preview.
+  it("stays visible where IntersectionObserver does not exist", () => {
+    vi.unstubAllGlobals();
+    vi.stubGlobal("IntersectionObserver", undefined);
+    render(<Probe />);
+    expect(screen.getByTestId("probe").textContent).toBe("visible");
+  });
+
+  it("disconnects its observer on unmount", () => {
+    const { unmount } = render(<Probe />);
+    const io = FakeIO.last!;
+    unmount();
+    expect(io.disconnected).toBe(true);
   });
 });

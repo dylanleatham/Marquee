@@ -47,6 +47,7 @@ import {
   writeSpotifyCreds,
   writeDiscogsSettings,
   updateGeminiSettings,
+  writeDefaultVisualizer,
   readSettings,
 } from "./settings.js";
 import { Roadie } from "./roadie/worker.js";
@@ -94,9 +95,18 @@ import {
 import {
   ffmpegProber,
   ffmpegAvailable,
+  ingestVideo,
+  needsNormalize,
   VideoError,
   type VideoProber,
 } from "./media/video.js";
+import {
+  DEFAULT_VISUALIZER_FILE_ID,
+  defaultVisualizerFile,
+  defaultVisualizerThumbnail,
+  describeDefaultVisualizer,
+  removeDefaultVisualizer,
+} from "./media/default-visualizer.js";
 import { ImageError } from "./media/images.js";
 import { PrintError, renderCardArtPrint } from "./media/print.js";
 import * as artwork from "./albums/artwork.js";
@@ -126,6 +136,7 @@ import {
   buildSystemStatus,
   videoPresence,
   type BackdropLibraryResponse,
+  type VideoPresence,
 } from "./runtime/system-status.js";
 import { createLogger } from "@marquee/observability";
 
@@ -1680,11 +1691,13 @@ export function buildServer(opts: BuildOptions = {}) {
   // are deliberately not returned here; `kind` is required so this can never become "all jobs".
   app.get("/api/jobs", async (req, reply) => {
     const kind = (req.query as { kind?: string }).kind;
+    // Every library-scoped kind must be listed, or the UI cannot watch the job it just started.
     const LIBRARY_JOB_KINDS: JobKind[] = [
       "paletteBatch",
       "runtimeSync",
       "discogsSync",
       "spotifyBackfill",
+      "defaultVisualizerPush",
     ];
     if (!kind || !LIBRARY_JOB_KINDS.includes(kind as JobKind))
       return reply.code(400).send({
@@ -2634,6 +2647,191 @@ export function buildServer(opts: BuildOptions = {}) {
         .send({ error: "provide apiKey and/or generateCardArt/generateVideo" });
     updateGeminiSettings(config.dataDir, patch);
     return { ok: true, restartRequired: true };
+  });
+
+  // --- Settings: the default visualizer (ADR 0073) --------------------------------------------
+  // The one clip Backdrop plays for every record with no visualizer of its own. ADR 0073 shipped the
+  // runtime half and left the file to `scp` plus a hand-run `ffmpeg`, which made the clip that plays
+  // *most often* the only one nobody encodes for the hardware. These routes are the Curator half:
+  // the same ingest every visualizer goes through, aimed at a reserved fileId.
+  //
+  // It is deliberately **not** an album. There is no asset to hang it on, so its description lives
+  // in `settings.json` and its bytes at `visualizers/default.mp4` — see media/default-visualizer.ts
+  // for why sharing that directory is safe.
+
+  /**
+   * Does the **Pi** have the default clip? Three answers, never two (ADR 0072's rule, applied here).
+   *
+   * Inferred from the library rather than from a route of its own, and the inference is exact: a
+   * `usesDefault` entry's `fileMissing` is Backdrop's own judgement of whether its default clip is
+   * playable right now (ADR 0073) — it is the field's whole meaning for those entries. So one such
+   * entry answers for all of them.
+   *
+   * `"unknown"` covers the two cases where nothing can be concluded: Backdrop unreachable (`getJson`
+   * is bounded and returns `null`), and a library with no `usesDefault` entries at all — every
+   * record has its own visualizer, so nothing on the Pi is in a position to report on the default.
+   */
+  const defaultVisualizerOnBackdrop = async (): Promise<VideoPresence> => {
+    const library = await getJson<BackdropLibraryResponse>(
+      config.backdrop,
+      "/api/library",
+    );
+    if (!library) return "unknown";
+    const fallbackEntry = Object.values(library.entries ?? {}).find(
+      (e) => e.usesDefault,
+    );
+    if (!fallbackEntry || fallbackEntry.fileMissing === undefined)
+      return "unknown";
+    return fallbackEntry.fileMissing ? "absent" : "present";
+  };
+
+  /**
+   * Start the background transfer of the default clip, or `undefined` when nothing would move —
+   * no Backdrop configured, or `media_transfer = "none"` (the file is someone else's job, ADR 0038).
+   *
+   * Library-scoped, like `runtimeSync`: the clip belongs to the collection, not to an album. Passing
+   * a fake curatorId to reuse the album-scoped machinery would leak a non-existent album into every
+   * job filter.
+   */
+  const startDefaultVisualizerPush = () => {
+    if (backdrop.mediaTransferMode === "none") return undefined;
+    return jobs.start("defaultVisualizerPush", undefined, async (ctx) => {
+      // Bytes go to `onTransfer`, never to `onProgress` — the two carry different units, and
+      // conflating them is what made a running sync report `24248819/998`
+      // ([#268](https://github.com/dylanleatham/Marquee/issues/268)). There is exactly one file
+      // here, so `onProgress` has nothing to count and is left alone.
+      const label =
+        readSettings(config.dataDir).defaultVisualizer?.originalFilename ??
+        "the default visualizer";
+      try {
+        const out = await backdrop.pushDefaultVisualizer(
+          defaultVisualizerFile(store.paths),
+          {
+            ...(ctx.signal ? { signal: ctx.signal } : {}),
+            onProgress: (sent, total) => ctx.onTransfer({ label, sent, total }),
+          },
+        );
+        if (!out.ok)
+          throw new Error(out.error ?? "default visualizer push failed");
+        return {};
+      } finally {
+        // Cleared however it ended. A failed transfer that left its last byte count on screen would
+        // read as still running, which is the one thing it must never say.
+        ctx.onTransfer(null);
+      }
+    });
+  };
+
+  /** Status + whether Backdrop actually holds it, so "why is nothing playing" is answerable here. */
+  app.get("/api/settings/default-visualizer", async () => {
+    const local = describeDefaultVisualizer(
+      store.paths,
+      readSettings(config.dataDir),
+    );
+    // Ask Backdrop rather than assume, for the reason ADR 0072 gives for the record page: the entry
+    // and the bytes move on separate legs, so "Curator has it" is not evidence the Pi does. Three
+    // answers, never two — an unreachable Backdrop is `unknown`, not `absent`.
+    const onBackdrop = await defaultVisualizerOnBackdrop();
+    return {
+      ...local,
+      mediaTransfer: backdrop.mediaTransferMode,
+      onBackdrop,
+    };
+  });
+
+  /** Stream the clip for the Settings preview — the same `sendFile` every visualizer uses. */
+  app.get("/api/settings/default-visualizer/video", async (_req, reply) =>
+    sendFile(reply, defaultVisualizerFile(store.paths), "video/mp4"),
+  );
+
+  app.get("/api/settings/default-visualizer/thumbnail", async (_req, reply) =>
+    sendFile(reply, defaultVisualizerThumbnail(store.paths), "image/jpeg"),
+  );
+
+  /**
+   * Accept a clip: ingest it exactly as an album's visualizer (probe → validate → normalize to the
+   * decode budget → thumbnail), record its description, then push it to Backdrop in the background.
+   *
+   * The push is a job, not part of the response, for the reason album media is (issue #177): a few
+   * hundred MB over a poor link to a Pi is tens of minutes, and holding the request open reads as a
+   * frozen app. The ingest itself *is* synchronous — it is the part that can reject your file, and
+   * an answer of "accepted" that later turns out to mean "wrong codec" is worse than waiting.
+   */
+  app.post("/api/settings/default-visualizer", async (req, reply) => {
+    if (!req.isMultipart())
+      return reply.code(400).send({ error: "expected multipart/form-data" });
+    try {
+      const { file } = await readUpload(req, store);
+      try {
+        if (!file || file.size === 0)
+          return reply.code(400).send({ error: "a video file is required" });
+
+        const before = await prober.probe(file.path);
+        const visualizer = await ingestVideo(
+          { prober, paths: store.paths },
+          {
+            srcPath: file.path,
+            fileId: DEFAULT_VISUALIZER_FILE_ID,
+            originalFilename: file.filename,
+          },
+        );
+        const meta = {
+          originalFilename: visualizer.originalFilename,
+          // `0` rather than omitted when ffprobe couldn't read a duration: the field is only ever
+          // displayed, and "0:00" reads as "we don't know" far better than a gap in the panel.
+          durationSec: visualizer.durationSec ?? 0,
+          resolution: visualizer.resolution ?? "",
+          uploadedAt: visualizer.attachedAt,
+          // Recorded from the *input*, before ingest rewrote it — afterwards the stored file is in
+          // budget by construction, so asking then would always answer "no".
+          normalized: needsNormalize(before),
+        };
+        writeDefaultVisualizer(config.dataDir, meta);
+
+        const job = startDefaultVisualizerPush();
+        return reply.code(201).send({
+          ...meta,
+          ...(job ? { transferJobId: job.id } : {}),
+        });
+      } finally {
+        // The temp file is ours whatever happened — ingest copies rather than consumes it.
+        if (file) rmSync(file.path, { force: true });
+      }
+    } catch (err) {
+      return actionError(err, reply, req, config.maxUploadBytes);
+    }
+  });
+
+  /** Re-send the clip Curator already holds — the "it didn't reach the Pi" button. */
+  app.post("/api/settings/default-visualizer/push", async (_req, reply) => {
+    if (!existsSync(defaultVisualizerFile(store.paths)))
+      return reply
+        .code(409)
+        .send({ error: "no default visualizer has been uploaded" });
+    const job = startDefaultVisualizerPush();
+    if (!job)
+      return reply.code(409).send({
+        error:
+          "no Backdrop is configured to push to, or media transfer is off — copy the file to the Pi yourself",
+      });
+    // The job itself, not just its id — the UI's library-job store polls it from here, the same way
+    // every other library-scoped sweep is started and watched.
+    return reply.code(202).send(job);
+  });
+
+  /**
+   * Forget the default clip. Removes it here; **does not** reach into Backdrop's media dir to delete
+   * the Pi's copy, because Curator has no route that deletes remote media and inventing one to
+   * un-choose a clip is the wrong place to gain that power. Says so in the response instead, so the
+   * UI can tell you the Pi is still playing it.
+   */
+  app.delete("/api/settings/default-visualizer", async () => {
+    removeDefaultVisualizer(store.paths);
+    writeDefaultVisualizer(config.dataDir, null);
+    return {
+      removed: true,
+      stillOnBackdrop: await defaultVisualizerOnBackdrop(),
+    };
   });
 
   app.put("/api/settings/spotify", async (req, reply) => {

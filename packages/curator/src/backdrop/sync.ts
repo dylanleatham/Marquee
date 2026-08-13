@@ -15,6 +15,7 @@ import type { AssetStore } from "../store/asset-store.js";
 import type { AlbumAsset } from "../albums/asset.js";
 import { deriveStatus } from "../albums/asset.js";
 import { replaceIssuesFrom } from "../sync-issues.js";
+import { DEFAULT_VISUALIZER_FILE_ID } from "../media/default-visualizer.js";
 import { BackdropClient } from "./client.js";
 import {
   albumUri,
@@ -270,6 +271,49 @@ export class BackdropSync {
       this.recordSyncIssues(asset.curatorId, [
         `media transfer failed: ${message}`,
       ]);
+      return { ok: false, error: message };
+    }
+  }
+
+  /**
+   * Send the **default visualizer** to Backdrop — the one clip it plays for every record with no
+   * visualizer of its own ([ADR 0073](../../../../docs/adrs/0073-a-record-with-no-visualizer-plays-the-default.md)).
+   *
+   * Routed through `MediaTransfer` rather than straight at the client, so it obeys the configured
+   * mode exactly as an album's visualizer does: `push` streams it over HTTP, `local` copies it into
+   * `backdropMediaDir`, and `none` moves nothing and says so. A direct `putMedia` would have worked
+   * on the split deployment and silently done nothing useful on a single-machine one.
+   *
+   * There is no `contentHash` skip here and deliberately so. This is one file that the human just
+   * chose, pushed at the moment they chose it; the skip exists to avoid re-uploading hundreds of
+   * megabytes across 478 albums, and re-sending one clip on request is the behaviour you want when
+   * you are standing in front of the display wondering why it didn't change.
+   *
+   * Unlike an album sync, a failure has nowhere to be recorded — there is no asset to hang a
+   * `syncIssue` on — so this one **returns** its error for the route to surface directly.
+   */
+  async pushDefaultVisualizer(
+    srcPath: string,
+    ctx: {
+      onProgress?: (sent: number, total: number) => void;
+      signal?: AbortSignal;
+    } = {},
+  ): Promise<SyncResult> {
+    if (!this.mediaTransfer)
+      return { ok: true, skipped: true, error: "media transfer is off" };
+    if (!existsSync(srcPath))
+      return { ok: false, error: `no default visualizer at ${srcPath}` };
+    try {
+      await this.mediaTransfer.copyVisualizer(
+        srcPath,
+        DEFAULT_VISUALIZER_FILE_ID,
+        ctx,
+      );
+      this.log.info("Backdrop: default visualizer transferred");
+      return { ok: true };
+    } catch (err) {
+      const message = (err as Error).message;
+      this.log.warn(`Backdrop default-visualizer push failed: ${message}`);
       return { ok: false, error: message };
     }
   }
@@ -557,6 +601,12 @@ export const disabledBackdropSync = {
   async removeAlbum(): Promise<SyncResult> {
     return { ok: true, skipped: true };
   },
+  // Bare, like its siblings. Unreachable through the route anyway — `mediaTransferMode` is `none`
+  // here, and the route refuses on that before it ever asks — so a bespoke error string would be a
+  // second way of saying "not configured" that nothing reads.
+  async pushDefaultVisualizer(): Promise<SyncResult> {
+    return { ok: true, skipped: true };
+  },
   async resyncAll() {
     return {
       mediaTransfer: "none" as const,
@@ -580,6 +630,7 @@ export type BackdropSyncLike = Pick<
   | "syncMetadata"
   | "transferMediaInBackground"
   | "removeAlbum"
+  | "pushDefaultVisualizer"
   | "resyncAll"
   | "verify"
   | "verifyAlbum"
