@@ -40,6 +40,11 @@ export class ConductorClient {
   private readonly timeoutMs: number;
   private readonly fetchImpl: FetchImpl;
 
+  /** Which host this client pushes to — for a syncIssue that has to say *which* runtime failed. */
+  get target(): string {
+    return this.url;
+  }
+
   constructor(opts: ConductorClientOptions) {
     this.url = opts.url.replace(/\/+$/, ""); // no trailing slash so path joins are clean
     this.sharedSecret = opts.sharedSecret;

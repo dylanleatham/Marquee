@@ -261,7 +261,7 @@ awaiting_verify → verified` needs `physicallyVerifiedAt`. `preview/approve`, `
 > `roadie.syncIssues`, each entry is namespaced by the service that raised it so they cannot erase
 > each other's findings.
 >
-> **Update (2026-08-12, [ADR 0075](../adrs/0075-an-edit-that-changes-what-the-room-plays-pushes-it.md)): ★ also fires on an edit, not only on a
+> **Update (2026-08-12, [ADR 0077](../adrs/0077-an-edit-that-changes-what-the-room-plays-pushes-it.md)): ★ also fires on an edit, not only on a
 > milestone.** Every route that changes a field the runtime reads at scan time — the demo cut, the
 > hand-named Spotify URI, the palette, the motion override, the chosen or re-derived palette, the
 > cover override — pushes the asset to Conductor before it answers. The triggers above are all

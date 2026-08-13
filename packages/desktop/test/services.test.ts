@@ -118,10 +118,16 @@ describe("serviceSpecs / devEntries", () => {
     expect(conductor.healthUrl).toBe(
       `http://localhost:${CONDUCTOR_PORT}/healthz`,
     );
-    // Curator is pinned at the local Conductor so the repo `.env`'s Pi hostname doesn't win.
-    expect(curator.env.CONDUCTOR_URL).toBe(
+    /**
+     * Curator is told about the local Conductor under its own name (ADR 0079). It used to be handed
+     * as `CONDUCTOR_URL`, which pinned the Demo Room correctly (#164) and silently took the asset
+     * push with it — leaving a real runtime with no writer while the sync reported success (#306).
+     * Setting `CONDUCTOR_URL` here again would restore exactly that bug, so the absence is asserted.
+     */
+    expect(curator.env.MARQUEE_COLOCATED_CONDUCTOR_URL).toBe(
       `http://localhost:${CONDUCTOR_PORT}`,
     );
+    expect(curator.env.CONDUCTOR_URL).toBeUndefined();
     // No ffmpeg paths given → Curator falls back to a system ffmpeg on PATH.
     expect(curator.env.FFMPEG_PATH).toBeUndefined();
     expect(curator.env.FFPROBE_PATH).toBeUndefined();

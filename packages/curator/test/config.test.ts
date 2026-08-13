@@ -442,6 +442,111 @@ describe("loadConfig", () => {
     });
   });
 
+  /**
+   * **Where the album-assets store has to land is a list, not a URL**
+   * ([ADR 0079](../../../docs/adrs/0079-the-asset-push-has-more-than-one-target.md) / [#306](https://github.com/dylanleatham/Marquee/issues/306)).
+   *
+   * `conductor.url` answers "which Conductor do I talk to" — the Demo Room proxy, a simulated scan,
+   * the settings. On the desktop app that is the **co-located** Conductor, and pinning it there was
+   * right (issue #164). The bug was that pinning it there also silently re-pointed the *push*, whose
+   * job is to reach every host that reads the store — including the Pi, where Amp lives. The two
+   * questions had one answer, and the wrong one won.
+   */
+  describe("conductor.assetTargets", () => {
+    const clearConductorEnv = () => {
+      delete process.env.CONDUCTOR_URL;
+      delete process.env.CURATOR_CONDUCTOR_PUSH_ASSETS;
+      delete process.env.MARQUEE_COLOCATED_CONDUCTOR_URL;
+      delete process.env.CONDUCTOR_ASSET_TARGETS;
+    };
+
+    it("is just the configured Conductor when nothing else is set", () => {
+      noFile();
+      clearConductorEnv();
+      process.env.CONDUCTOR_URL = "http://runtime-pi:4737";
+      expect(loadConfig().conductor.assetTargets.map((t) => t.url)).toEqual([
+        "http://runtime-pi:4737",
+      ]);
+    });
+
+    /** The shape that was broken: a desktop shell *and* a real runtime. Both read the store. */
+    it("carries the co-located Conductor and the configured one, in that order", () => {
+      noFile();
+      clearConductorEnv();
+      process.env.MARQUEE_COLOCATED_CONDUCTOR_URL = "http://localhost:4737";
+      process.env.CONDUCTOR_URL = "http://runtime-pi:4737";
+      const c = loadConfig();
+
+      // The co-located one is what Curator *talks to* — issue #164's fix, unchanged.
+      expect(c.conductor.url).toBe("http://localhost:4737");
+      // …and both get the store. Local first: it is instant, and it is what the Demo Room reads.
+      expect(c.conductor.assetTargets.map((t) => t.url)).toEqual([
+        "http://localhost:4737",
+        "http://runtime-pi:4737",
+      ]);
+      expect(c.conductor.pushAssets).toBe(true);
+    });
+
+    it("does not push the same store twice when both name one host", () => {
+      noFile();
+      clearConductorEnv();
+      process.env.MARQUEE_COLOCATED_CONDUCTOR_URL = "http://localhost:4737";
+      process.env.CONDUCTOR_URL = "http://localhost:4737/";
+      expect(loadConfig().conductor.assetTargets.map((t) => t.url)).toEqual([
+        "http://localhost:4737",
+      ]);
+    });
+
+    it("takes an explicit list, which wins over both", () => {
+      noFile();
+      clearConductorEnv();
+      process.env.MARQUEE_COLOCATED_CONDUCTOR_URL = "http://localhost:4737";
+      process.env.CONDUCTOR_URL = "http://runtime-pi:4737";
+      process.env.CONDUCTOR_ASSET_TARGETS = "http://a:4737, http://b:4737";
+      expect(loadConfig().conductor.assetTargets.map((t) => t.url)).toEqual([
+        "http://a:4737",
+        "http://b:4737",
+      ]);
+    });
+
+    it("reads the list from config.toml", () => {
+      clearConductorEnv();
+      withFile(
+        '[conductor]\nurl = "http://runtime-pi:4737"\nasset_targets = ["http://a:4737", "http://b:4737"]\n',
+      );
+      expect(loadConfig().conductor.assetTargets.map((t) => t.url)).toEqual([
+        "http://a:4737",
+        "http://b:4737",
+      ]);
+    });
+
+    it("hands every target the shared secret, since one LAN secret covers the runtime", () => {
+      noFile();
+      clearConductorEnv();
+      process.env.TRIGGER_SHARED_SECRET = "s3cr3t";
+      process.env.MARQUEE_COLOCATED_CONDUCTOR_URL = "http://localhost:4737";
+      process.env.CONDUCTOR_URL = "http://runtime-pi:4737";
+      const targets = loadConfig().conductor.assetTargets;
+      expect(targets.map((t) => t.sharedSecret)).toEqual(["s3cr3t", "s3cr3t"]);
+    });
+
+    /**
+     * The desktop app with no runtime configured at all: one target, the bundled Conductor, and the
+     * push is on — otherwise the shell's own Conductor would go unfed the moment it stopped
+     * masquerading as `CONDUCTOR_URL`.
+     */
+    it("pushes to the co-located Conductor even when nothing else is configured", () => {
+      noFile();
+      clearConductorEnv();
+      process.env.MARQUEE_COLOCATED_CONDUCTOR_URL = "http://localhost:4737";
+      const c = loadConfig();
+      expect(c.conductor.pushAssets).toBe(true);
+      expect(c.conductor.assetTargets.map((t) => t.url)).toEqual([
+        "http://localhost:4737",
+      ]);
+    });
+  });
+
   it("derives the Spotify OAuth redirect URI from host + port by default", () => {
     noFile();
     process.env.SPOTIFY_CLIENT_ID = "id";

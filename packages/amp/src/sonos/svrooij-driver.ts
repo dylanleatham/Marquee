@@ -70,7 +70,7 @@ export class SvrooijSonosDriver implements SonosDriver {
           });
           await coordinator.SwitchToQueue();
           /**
-           * The seek is what makes a demo cut audible ([ADR 0076](../../../../docs/adrs/0076-a-demo-cut-plays-as-a-position-in-the-album.md)). It comes **after**
+           * The seek is what makes a demo cut audible ([ADR 0078](../../../../docs/adrs/0078-a-demo-cut-plays-as-a-position-in-the-album.md)). It comes **after**
            * `SwitchToQueue` — the queue has to be the transport's source before a position in it
            * means anything — and **before** `Play`, so the first sound is the chosen song rather
            * than a second of track 1.

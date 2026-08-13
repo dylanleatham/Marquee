@@ -24,7 +24,12 @@ const noopLogger: Logger = { info: () => {}, warn: () => {} };
 
 export interface ConductorSyncOptions {
   store: AssetStore;
-  client: ConductorClient;
+  /**
+   * Every host that reads the album-assets store, in push order (ADR 0079). More than one is the
+   * normal case on a mixed deployment — a desktop shell's own Conductor plus the runtime Pi, where
+   * Amp reads the directory Conductor writes.
+   */
+  clients: ConductorClient[];
   logger?: Logger;
 }
 
@@ -32,6 +37,24 @@ export interface SyncResult {
   ok: boolean;
   /** Set when sync was skipped (no Conductor push configured) — the caller can ignore it. */
   skipped?: boolean;
+  error?: string;
+  /** Which target took it and which did not, in push order (ADR 0079). Absent when skipped. */
+  targets?: Array<{ url: string; ok: boolean }>;
+}
+
+/** One target's share of a whole-library resync — what makes `pushed` checkable rather than reassuring. */
+export interface TargetSyncResult {
+  url: string;
+  pushed: number;
+  failed: number;
+}
+
+/** One target's share of a drift check. `error` means we could not ask, which is not the same as drift. */
+export interface TargetVerifyResult {
+  url: string;
+  ok: boolean;
+  missing: string[];
+  extra: string[];
   error?: string;
 }
 
@@ -45,32 +68,57 @@ export interface SyncResult {
  */
 export class ConductorSync {
   private readonly store: AssetStore;
-  private readonly client: ConductorClient;
+  private readonly clients: ConductorClient[];
   private readonly log: Logger;
 
   constructor(opts: ConductorSyncOptions) {
     this.store = opts.store;
-    this.client = opts.client;
+    this.clients = opts.clients;
     this.log = opts.logger ?? noopLogger;
   }
 
   get enabled(): boolean {
-    return true;
+    return this.clients.length > 0;
   }
 
-  /** Push one album's asset. Records the outcome as syncIssues; never throws. */
+  /** The hosts this pushes to, in order — the routes use the count for their progress arithmetic. */
+  get targets(): string[] {
+    return this.clients.map((c) => c.target);
+  }
+
+  /**
+   * Push one album's asset to **every** target. Records the outcome as syncIssues; never throws.
+   *
+   * Every target is attempted even after one fails: the Pi being off must not cost the workstation
+   * its copy, and one host's silence must not be mistaken for the whole runtime's
+   * ([ADR 0079](../../../../docs/adrs/0079-the-asset-push-has-more-than-one-target.md)). Each issue names the host that failed — with two targets,
+   * "push failed" alone sends you to the wrong machine as often as the right one.
+   */
   async syncAlbum(asset: AlbumAsset): Promise<SyncResult> {
-    try {
-      await this.client.putAsset(asset);
-      this.recordSyncIssues(asset.curatorId, []);
-      this.log.info(`Conductor: pushed asset ${asset.curatorId}`);
-      return { ok: true };
-    } catch (err) {
-      const message = (err as Error).message;
-      this.log.warn(`Conductor push failed for ${asset.curatorId}: ${message}`);
-      this.recordSyncIssues(asset.curatorId, [`push failed: ${message}`]);
-      return { ok: false, error: message };
+    const perTarget: Array<{ url: string; ok: boolean }> = [];
+    const failures: string[] = [];
+    for (const client of this.clients) {
+      try {
+        await client.putAsset(asset);
+        perTarget.push({ url: client.target, ok: true });
+        this.log.info(
+          `Conductor: pushed asset ${asset.curatorId} to ${client.target}`,
+        );
+      } catch (err) {
+        const message = (err as Error).message;
+        perTarget.push({ url: client.target, ok: false });
+        this.log.warn(
+          `Conductor push failed for ${asset.curatorId} to ${client.target}: ${message}`,
+        );
+        failures.push(`push failed to ${client.target}: ${message}`);
+      }
     }
+    this.recordSyncIssues(asset.curatorId, failures);
+    return {
+      ok: failures.length === 0,
+      targets: perTarget,
+      ...(failures.length ? { error: failures.join("; ") } : {}),
+    };
   }
 
   /**
@@ -90,19 +138,33 @@ export class ConductorSync {
   ): Promise<{
     pushed: number;
     failures: Array<{ curatorId: string; error: string }>;
+    targets: TargetSyncResult[];
   }> {
     const failures: Array<{ curatorId: string; error: string }> = [];
+    /**
+     * `pushed` counts albums that reached **every** target, so the number can never claim reach it
+     * does not have — the whole of [#306](https://github.com/dylanleatham/Marquee/issues/306) was a
+     * run answering `pushed: 478, failures: []` while a runtime got nothing. `targets` breaks the
+     * same run down per host, which is what makes the total checkable.
+     */
     let pushed = 0;
+    const perTarget = new Map<string, TargetSyncResult>(
+      this.targets.map((url) => [url, { url, pushed: 0, failed: 0 }]),
+    );
     ctx.onProgress?.(0, assets.length);
     for (const [i, asset] of assets.entries()) {
       if (ctx.signal?.aborted) break;
       const res = await this.syncAlbum(asset);
+      for (const t of res.targets ?? []) {
+        const row = perTarget.get(t.url);
+        if (row) t.ok ? (row.pushed += 1) : (row.failed += 1);
+      }
       if (res.ok) pushed += 1;
       else
         failures.push({ curatorId: asset.curatorId, error: res.error ?? "" });
       ctx.onProgress?.(i + 1, assets.length);
     }
-    return { pushed, failures };
+    return { pushed, failures, targets: [...perTarget.values()] };
   }
 
   /**
@@ -117,12 +179,52 @@ export class ConductorSync {
     ok: boolean;
     missing: string[];
     extra: string[];
+    targets: TargetVerifyResult[];
+    /** Set when a target could not be asked at all — the "runtime unreachable" case, named. */
+    error?: string;
   }> {
-    const remote = new Set(await this.client.listAssets());
     const local = new Set(assets.map((a) => a.curatorId));
-    const missing = [...local].filter((id) => !remote.has(id)).sort();
-    const extra = [...remote].filter((id) => !local.has(id)).sort();
-    return { ok: missing.length === 0, missing, extra };
+    const targets: TargetVerifyResult[] = [];
+    for (const client of this.clients) {
+      try {
+        const remote = new Set(await client.listAssets());
+        targets.push({
+          url: client.target,
+          ok: [...local].every((id) => remote.has(id)),
+          missing: [...local].filter((id) => !remote.has(id)).sort(),
+          extra: [...remote].filter((id) => !local.has(id)).sort(),
+        });
+      } catch (err) {
+        /**
+         * A host we could not ask is **not** a host that is missing albums. Folding the two together
+         * would list the whole library as `missing` the moment the Pi is asleep, and send someone to
+         * re-push a store that may be perfectly current.
+         */
+        targets.push({
+          url: client.target,
+          ok: false,
+          missing: [],
+          extra: [],
+          error: (err as Error).message,
+        });
+      }
+    }
+    // The union across targets, because the claim the status page makes is "every record is
+    // everywhere it should be" — an album on one runtime and not the other is not there yet.
+    const union = (pick: (t: TargetVerifyResult) => string[]) =>
+      [...new Set(targets.flatMap(pick))].sort();
+    // Summarised at the top level too, naming the host: this is what the status page reads, and
+    // "the runtime is unreachable" is only actionable when it says *which* one.
+    const unreachable = targets.filter((t) => t.error);
+    return {
+      ok: targets.every((t) => t.ok),
+      missing: union((t) => t.missing),
+      extra: union((t) => t.extra),
+      targets,
+      ...(unreachable.length
+        ? { error: unreachable.map((t) => `${t.url}: ${t.error}`).join("; ") }
+        : {}),
+    };
   }
 
   /**
@@ -144,6 +246,7 @@ export class ConductorSync {
 /** A no-op sync used when no Conductor push is configured, so routes call it unconditionally. */
 export const disabledConductorSync = {
   enabled: false as const,
+  targets: [] as string[],
   async syncAlbum(): Promise<SyncResult> {
     return { ok: true, skipped: true };
   },
@@ -151,10 +254,16 @@ export const disabledConductorSync = {
     return {
       pushed: 0,
       failures: [] as Array<{ curatorId: string; error: string }>,
+      targets: [] as TargetSyncResult[],
     };
   },
   async verify() {
-    return { ok: true, missing: [] as string[], extra: [] as string[] };
+    return {
+      ok: true,
+      missing: [] as string[],
+      extra: [] as string[],
+      targets: [] as TargetVerifyResult[],
+    };
   },
 };
 
@@ -162,4 +271,4 @@ export const disabledConductorSync = {
 export type ConductorSyncLike = Pick<
   ConductorSync,
   "syncAlbum" | "resyncAll" | "verify"
-> & { enabled: boolean };
+> & { enabled: boolean; targets: string[] };

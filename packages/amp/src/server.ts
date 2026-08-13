@@ -177,7 +177,7 @@ export function buildServer(opts: BuildOptions = {}) {
 
     /**
      * **A cut plays as a position in its album, not as a track handed over on its own**
-     * ([ADR 0076](../../../docs/adrs/0076-a-demo-cut-plays-as-a-position-in-the-album.md)).
+     * ([ADR 0078](../../../docs/adrs/0078-a-demo-cut-plays-as-a-position-in-the-album.md)).
      *
      * Sonos accepts a bare `spotify:track:`, resolves it, reports its duration, queues it — and never
      * leaves `STOPPED`. Nothing errors, so the only symptom is a silent room, which is the one
@@ -214,7 +214,7 @@ export function buildServer(opts: BuildOptions = {}) {
     // between the cut and silence, and the fix is to re-pick the cut so its position gets recorded.
     else if (kind === "demo" && !demoTrackNumber)
       req.log.warn(
-        `demo scan ${scan.uri}: the chosen cut has no track number — handing Sonos the track itself, which some households accept and others play silently (ADR 0076)`,
+        `demo scan ${scan.uri}: the chosen cut has no track number — handing Sonos the track itself, which some households accept and others play silently (ADR 0078)`,
       );
 
     try {

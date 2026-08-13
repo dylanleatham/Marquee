@@ -46,7 +46,7 @@ streaming-only records.
   `curator:demo:<id>` → the album's chosen `demoTrack.spotifyUri`
   ([ADR 0058](../adrs/0058-a-demo-tag-plays-one-chosen-track.md)), both via the synced album-assets store
 
-> **What Amp plays is only as fresh as that store** ([ADR 0075](../adrs/0075-an-edit-that-changes-what-the-room-plays-pushes-it.md), 2026-08-12). Amp has no ingest
+> **What Amp plays is only as fresh as that store** ([ADR 0077](../adrs/0077-an-edit-that-changes-what-the-room-plays-pushes-it.md), 2026-08-12). Amp has no ingest
 > route of its own: it reads the directory Curator pushes to Conductor (ADR 0045), so a choice made
 > in Curator is inert here until that push happens. Curator now pushes on the edit itself — choosing
 > the demo cut, naming the Spotify album — rather than only at a milestone. This is [#304](https://github.com/dylanleatham/Marquee/issues/304): every demo
@@ -187,7 +187,7 @@ Mirrors Conductor's `/api/scan` (ADR 0019), with the kind gate added:
      - no target configured → `202 { action:"ignored", reason:"no target" }`.
      - `assets.read(curatorId)` is `null` (not synced) → `202 { reason:"album not synced" }`.
      - **what plays**: `card` → `metadata.spotifyUri`. `demo` → **the album plus the cut's
-       `trackNumber`** ([ADR 0076](../adrs/0076-a-demo-cut-plays-as-a-position-in-the-album.md)) when
+       `trackNumber`** ([ADR 0078](../adrs/0078-a-demo-cut-plays-as-a-position-in-the-album.md)) when
        the album has a chosen track and that track has a position; the bare `demoTrack.spotifyUri`
        when it has a choice but no position (logged at `warn`); **else `metadata.spotifyUri`** — a
        demo tag with no choice plays the whole album exactly as a card does, and logs that it fell
@@ -199,7 +199,7 @@ Mirrors Conductor's `/api/scan` (ADR 0019), with the kind gate added:
        and for a demo scan also `demoTrack: <uri> | null` so a caller can tell a real choice from the
        fallback, plus `trackNumber` when the cut played as a position.
 
-> **`spotifyUri` names what Sonos was handed** (2026-08-12, [ADR 0076](../adrs/0076-a-demo-cut-plays-as-a-position-in-the-album.md)). For a cut that is
+> **`spotifyUri` names what Sonos was handed** (2026-08-12, [ADR 0078](../adrs/0078-a-demo-cut-plays-as-a-position-in-the-album.md)). For a cut that is
 > now the **album**, with `trackNumber` saying where inside it; `demoTrack` still names the chosen
 > track. It used to be the track URI, because Amp used to hand Sonos the track — which Sonos accepts,
 > resolves, queues, and then refuses to start, leaving the room silent with nothing in any log. A
@@ -238,7 +238,7 @@ Distilled from the working spike (`spikes/sonos-spotify/play-album.js`):
   Amp play tracks ([ADR 0058](../adrs/0058-a-demo-tag-plays-one-chosen-track.md)). Sequence: `RemoveAllTracksFromQueue` → `AddURIToQueue` → `SwitchToQueue` →
   **`Seek(TRACK_NR)` for a demo cut** → `Play`. (Hand-rolled metadata tripped UPnP 402 in the spike —
   use the library's.)
-- **A cut is a position, never a lone track** ([ADR 0076](../adrs/0076-a-demo-cut-plays-as-a-position-in-the-album.md), 2026-08-12). What gets enqueued is
+- **A cut is a position, never a lone track** ([ADR 0078](../adrs/0078-a-demo-cut-plays-as-a-position-in-the-album.md), 2026-08-12). What gets enqueued is
   always the **album container**; the chosen song is reached with `Seek({ Unit: "TRACK_NR" })` placed
   **after `SwitchToQueue`** (before it, the position addresses a queue that is not yet the
   transport's source) and **before `Play`** (after it, a second of track 1 is audible first). Handing

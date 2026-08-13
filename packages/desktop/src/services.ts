@@ -66,16 +66,27 @@ export function serviceSpecs(
   dataDir: string = resolveDataDir(),
   instanceId: string = newInstanceId(),
 ): ServiceSpec[] {
-  // Pin Curator at the co-located Conductor. The repo `.env` points CONDUCTOR_URL at the Pi
-  // (`conductor.local`) for real deployment; on one box that host doesn't resolve, so the Demo Room
-  // would read "offline". Setting it here wins — Node's loadEnvFile won't override an already-set
-  // var, so the `.env` Spotify creds still load.
-  //
-  // MARQUEE_DATA_DIR is pinned to the same resolved value that roots Conductor's ALBUM_ASSETS_DIR
-  // below, so the pair agree by construction instead of by both happening to compute the same
-  // default.
+  /**
+   * Tell Curator about the Conductor started beside it — **without** claiming to be the only one
+   * ([ADR 0079](../../../docs/adrs/0079-the-asset-push-has-more-than-one-target.md)).
+   *
+   * This used to set `CONDUCTOR_URL` itself. That pinned the Demo Room at the local Conductor, which
+   * was the point (issue #164: the repo `.env` names the Pi, which on a one-box install does not
+   * resolve, and Preview would read "offline") — but `CONDUCTOR_URL` is *also* where the asset push
+   * gets its target, and Node's `loadEnvFile` won't override an already-set var, so the `.env`'s
+   * real runtime became invisible to Curator entirely. The Pi's Conductor — and Amp, which reads the
+   * directory Conductor writes — then had no writer at all, while `POST /api/runtime/sync` went on
+   * reporting success ([#306](https://github.com/dylanleatham/Marquee/issues/306)).
+   *
+   * The co-located URL now travels under its own name. Curator aims the Demo Room at it exactly as
+   * before, and pushes the store to it **and** to whatever `.env`/`config.toml` names.
+   *
+   * MARQUEE_DATA_DIR is pinned to the same resolved value that roots Conductor's ALBUM_ASSETS_DIR
+   * below, so the pair agree by construction instead of by both happening to compute the same
+   * default.
+   */
   const curatorEnv: Record<string, string> = {
-    CONDUCTOR_URL: `http://localhost:${CONDUCTOR_PORT}`,
+    MARQUEE_COLOCATED_CONDUCTOR_URL: `http://localhost:${CONDUCTOR_PORT}`,
     MARQUEE_DATA_DIR: dataDir,
     MARQUEE_INSTANCE_ID: instanceId,
   };

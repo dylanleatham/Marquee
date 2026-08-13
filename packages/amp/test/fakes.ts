@@ -41,7 +41,7 @@ export class FakeTimers implements Timers {
 export interface PlayCall {
   target: string;
   spotifyUri: string;
-  /** 1-based position within `spotifyUri`'s container, when one was asked for (ADR 0076). */
+  /** 1-based position within `spotifyUri`'s container, when one was asked for (ADR 0078). */
   trackNumber?: number;
 }
 

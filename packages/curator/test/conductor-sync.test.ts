@@ -52,17 +52,19 @@ describe("ConductorSync → Conductor (real HTTP)", () => {
   const sync = (base = url) =>
     new ConductorSync({
       store,
-      client: new ConductorClient({ url: base, sharedSecret: SECRET }),
+      clients: [new ConductorClient({ url: base, sharedSecret: SECRET })],
     });
 
   const dead = () =>
     new ConductorSync({
       store,
-      client: new ConductorClient({
-        url: "http://127.0.0.1:1",
-        sharedSecret: SECRET,
-        timeoutMs: 500,
-      }),
+      clients: [
+        new ConductorClient({
+          url: "http://127.0.0.1:1",
+          sharedSecret: SECRET,
+          timeoutMs: 500,
+        }),
+      ],
     });
 
   it("pushes the whole asset with the shared secret", async () => {
@@ -79,7 +81,7 @@ describe("ConductorSync → Conductor (real HTTP)", () => {
     store.save(makeAsset("noauth01"));
     const noSecret = new ConductorSync({
       store,
-      client: new ConductorClient({ url }),
+      clients: [new ConductorClient({ url })],
     });
     const res = await noSecret.syncAlbum(store.read("noauth01")!);
     expect(res.ok).toBe(false);
@@ -162,14 +164,16 @@ describe("ConductorSync → Conductor (real HTTP)", () => {
       // Reject exactly one album, leaving the others pushable.
       const s = new ConductorSync({
         store,
-        client: new ConductorClient({
-          url,
-          sharedSecret: SECRET,
-          fetchImpl: ((input: string | URL | Request, init?: RequestInit) =>
-            String(input).endsWith("/aaaa1111")
-              ? Promise.resolve(new Response("nope", { status: 500 }))
-              : fetch(input as string, init)) as typeof fetch,
-        }),
+        clients: [
+          new ConductorClient({
+            url,
+            sharedSecret: SECRET,
+            fetchImpl: ((input: string | URL | Request, init?: RequestInit) =>
+              String(input).endsWith("/aaaa1111")
+                ? Promise.resolve(new Response("nope", { status: 500 }))
+                : fetch(input as string, init)) as typeof fetch,
+          }),
+        ],
       });
       const res = await s.resyncAll(store.list());
       expect(res.pushed).toBe(1);
@@ -217,11 +221,137 @@ describe("ConductorSync → Conductor (real HTTP)", () => {
     it("is ok when both stores agree", async () => {
       store.save(makeAsset("here0001"));
       await sync().syncAlbum(store.read("here0001")!);
-      expect(await sync().verify(store.list())).toEqual({
+      expect(await sync().verify(store.list())).toMatchObject({
         ok: true,
         missing: [],
         extra: [],
       });
+    });
+  });
+
+  /**
+   * **More than one host reads the album-assets store, so the push has more than one target**
+   * ([ADR 0079](../../../docs/adrs/0079-the-asset-push-has-more-than-one-target.md) / [#306](https://github.com/dylanleatham/Marquee/issues/306)).
+   *
+   * The deployment that broke: a desktop shell running its own Conductor over Curator's data dir,
+   * *and* a Pi running Conductor + Amp over a copy of it. One `conductor.url` could name only one of
+   * them, the shell pinned it at itself, and the Pi went four days without a write while
+   * `POST /api/runtime/sync` answered `pushed: 478, failures: []` every time.
+   *
+   * So the properties here are about reach and about honesty: every target gets the asset, one
+   * unreachable target cannot swallow the others, and nothing counts as pushed until all of them
+   * have it.
+   */
+  describe("more than one target", () => {
+    let second: ReturnType<typeof stubConductor>;
+    let secondUrl: string;
+
+    beforeEach(async () => {
+      second = stubConductor();
+      await second.app.listen({ port: 0, host: "127.0.0.1" });
+      const { port } = second.app.server.address() as AddressInfo;
+      secondUrl = `http://127.0.0.1:${port}`;
+    });
+    afterEach(async () => {
+      await second.app.close();
+    });
+
+    const both = (...urls: string[]) =>
+      new ConductorSync({
+        store,
+        clients: urls.map(
+          (u) =>
+            new ConductorClient({
+              url: u,
+              sharedSecret: SECRET,
+              timeoutMs: 500,
+            }),
+        ),
+      });
+
+    it("puts the asset on every target", async () => {
+      store.save(makeAsset("multi001"));
+      const res = await both(url, secondUrl).syncAlbum(store.read("multi001")!);
+
+      expect(res.ok).toBe(true);
+      expect(conductor.assets["multi001"]).toMatchObject({
+        curatorId: "multi001",
+      });
+      expect(second.assets["multi001"]).toMatchObject({
+        curatorId: "multi001",
+      });
+    });
+
+    /**
+     * The Pi being off must not cost the workstation its copy, and — the actual #306 failure — a
+     * reachable target must not make an unreachable one look fine. The issue names the host, because
+     * "push failed" without one is unactionable when there are two.
+     */
+    it("still reaches the live target when another is down, and names the one that failed", async () => {
+      store.save(makeAsset("halfup01"));
+      const res = await both(url, "http://127.0.0.1:1").syncAlbum(
+        store.read("halfup01")!,
+      );
+
+      expect(res.ok).toBe(false);
+      expect(conductor.assets["halfup01"]).toBeDefined();
+      const issues = store.read("halfup01")!.roadie.syncIssues;
+      expect(issues).toHaveLength(1);
+      expect(issues[0]).toMatch(/^Conductor: push failed/);
+      expect(issues[0]).toContain("http://127.0.0.1:1");
+      // …and not the one that worked, or the message sends you to the wrong machine.
+      expect(issues[0]).not.toContain(url);
+    });
+
+    it("counts an album as pushed only once every target holds it", async () => {
+      for (const id of ["reach001", "reach002"]) store.save(makeAsset(id));
+      const res = await both(url, "http://127.0.0.1:1").resyncAll(store.list());
+
+      expect(res.pushed).toBe(0);
+      expect(res.failures).toHaveLength(2);
+      // The per-target breakdown is what makes "pushed: 478" checkable rather than reassuring.
+      expect(res.targets).toEqual([
+        { url, pushed: 2, failed: 0 },
+        { url: "http://127.0.0.1:1", pushed: 0, failed: 2 },
+      ]);
+    });
+
+    it("counts a target's own progress when every target is up", async () => {
+      store.save(makeAsset("allup001"));
+      const res = await both(url, secondUrl).resyncAll(store.list());
+
+      expect(res.pushed).toBe(1);
+      expect(res.failures).toEqual([]);
+      expect(res.targets).toEqual([
+        { url, pushed: 1, failed: 0 },
+        { url: secondUrl, pushed: 1, failed: 0 },
+      ]);
+    });
+
+    /** An album on one runtime and not the other is missing — "everywhere it should be" is the claim. */
+    it("verifies against every target and reports which one is short", async () => {
+      store.save(makeAsset("onlyon01"));
+      await both(url).syncAlbum(store.read("onlyon01")!);
+
+      const res = await both(url, secondUrl).verify(store.list());
+      expect(res.ok).toBe(false);
+      expect(res.missing).toEqual(["onlyon01"]);
+      expect(res.targets).toEqual([
+        { url, ok: true, missing: [], extra: [] },
+        { url: secondUrl, ok: false, missing: ["onlyon01"], extra: [] },
+      ]);
+    });
+
+    it("reports an unreachable target as its own failure rather than as drift", async () => {
+      store.save(makeAsset("noverif1"));
+      await both(url).syncAlbum(store.read("noverif1")!);
+
+      const res = await both(url, "http://127.0.0.1:1").verify(store.list());
+      expect(res.ok).toBe(false);
+      // Not listed as `missing`: we do not know what that host holds, and saying "missing" would
+      // send someone to re-push a store that may already be complete.
+      expect(res.missing).toEqual([]);
+      expect(res.targets[1]!.error).toBeTruthy();
     });
   });
 });
