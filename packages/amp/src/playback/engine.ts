@@ -35,6 +35,8 @@ export interface NowPlaying {
   spotifyUri: string;
   target: string;
   startedAt: string;
+  /** The 1-based position within `spotifyUri` that was started, when one was asked for (ADR 0076). */
+  trackNumber?: number;
 }
 
 const DEFAULT_IDLE_MS = 90 * 60 * 1000;
@@ -72,14 +74,16 @@ export class PlaybackEngine {
     target: string,
     spotifyUri: string,
     curatorId: string,
+    trackNumber?: number,
   ): Promise<void> {
-    await this.driver.play(target, spotifyUri);
+    await this.driver.play(target, spotifyUri, trackNumber);
     this.state = "playing";
     this.playing = {
       curatorId,
       spotifyUri,
       target,
       startedAt: new Date(this.now()).toISOString(),
+      ...(trackNumber === undefined ? {} : { trackNumber }),
     };
     this.armIdleTimeout(target);
   }

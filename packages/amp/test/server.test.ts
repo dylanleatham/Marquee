@@ -132,7 +132,11 @@ describe("Amp /api/scan", () => {
     const withTrack = {
       [ID]: {
         metadata: { name: "X", artist: "Y", spotifyUri: SPOTIFY },
-        demoTrack: { spotifyUri: TRACK, name: "Let's Go Crazy" },
+        demoTrack: {
+          spotifyUri: TRACK,
+          name: "Let's Go Crazy",
+          trackNumber: 4,
+        },
       },
     };
 
@@ -148,16 +152,55 @@ describe("Amp /api/scan", () => {
         .then((res) => ({ res, driver: built.driver }));
     };
 
-    it("plays the album's chosen track, not the album", async () => {
+    /**
+     * **The chosen cut is played as a position in the album, not as a track handed over on its own**
+     * ([ADR 0076](../../../docs/adrs/0076-a-demo-cut-plays-as-a-position-in-the-album.md)).
+     *
+     * Sonos accepts a bare `x-sonos-spotify:` track, resolves it, reports the right duration, puts it
+     * in the queue — and will not start it. `Play()` answers `true` and the transport stays `STOPPED`,
+     * so nothing in Amp had anything to report: the room simply went quiet. Enqueuing the album
+     * container and seeking to the track plays the byte-identical track URI. Measured on the
+     * maintainer's household, 2026-08-12, both ways round.
+     *
+     * So the driver is handed **the album and a 1-based position**, which is why `spotifyUri` in the
+     * response is now the album: it names what Sonos was given, and `demoTrack` names the cut.
+     */
+    it("plays the chosen cut as a position within the album", async () => {
       const { res, driver } = await scan(withTrack);
 
       expect(res.statusCode).toBe(202);
       expect(res.json()).toMatchObject({
         action: "playing",
         curatorId: ID,
+        spotifyUri: SPOTIFY,
+        demoTrack: TRACK,
+        trackNumber: 4,
+      });
+      expect(driver.playCalls).toEqual([
+        { target: "Living Room", spotifyUri: SPOTIFY, trackNumber: 4 },
+      ]);
+    });
+
+    /**
+     * A cut chosen before Curator recorded track numbers, or on an album whose position we never
+     * learned. The container trick needs a position, so this falls back to handing Sonos the track
+     * itself — the pre-ADR 0076 behaviour, which works on some households and is silent on others.
+     * Better than refusing to play a cut we can name, and logged so the silence has a reason.
+     */
+    it("hands over the bare track when the cut has no track number", async () => {
+      const { res, driver } = await scan({
+        [ID]: {
+          metadata: { name: "X", artist: "Y", spotifyUri: SPOTIFY },
+          demoTrack: { spotifyUri: TRACK, name: "Let's Go Crazy" },
+        },
+      });
+
+      expect(res.json()).toMatchObject({
+        action: "playing",
         spotifyUri: TRACK,
         demoTrack: TRACK,
       });
+      expect(res.json().trackNumber).toBeUndefined();
       expect(driver.playCalls).toEqual([
         { target: "Living Room", spotifyUri: TRACK },
       ]);

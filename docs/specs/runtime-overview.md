@@ -140,11 +140,11 @@ Everything at runtime is driven by one event shape, published by the Stylus:
 
 The `uri` is Curator's internal identifier scheme, `curator:<kind>:<curatorId>`, not a Spotify URI. This keeps the identifier stable regardless of whether an album is on Spotify — Curator can host records that don't exist on streaming services at all. **Conductor and Backdrop treat every kind identically** (lights + video — it is the same record); only Amp acts on the difference:
 
-| `kind`  | Physical object            | What Amp does                                                    |
-| ------- | -------------------------- | ---------------------------------------------------------------- |
-| `album` | the record **sleeve**      | nothing — you drop the needle on the vinyl                       |
-| `card`  | the printed **shelf card** | streams the whole album over Sonos                               |
-| `demo`  | a **demo tag**             | streams the one track chosen for the album, else the whole album |
+| `kind`  | Physical object            | What Amp does                                                                                                                                                         |
+| ------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `album` | the record **sleeve**      | nothing — you drop the needle on the vinyl                                                                                                                            |
+| `card`  | the printed **shelf card** | streams the whole album over Sonos                                                                                                                                    |
+| `demo`  | a **demo tag**             | streams the one track chosen for the album — as a position inside it ([ADR 0076](../adrs/0076-a-demo-cut-plays-as-a-position-in-the-album.md)) — else the whole album |
 
 `album`/`card` are [ADR 0034](../adrs/0034-amp-sonos-playback-and-card-uri.md); `demo` is [ADR 0058](../adrs/0058-a-demo-tag-plays-one-chosen-track.md), where the chosen track lives on the album asset (`demoTrack`) rather than in the tag, so changing your mind doesn't mean re-writing a sticker. A demo tag with no track chosen plays the album — deliberately, since a silent tag is indistinguishable from a mis-written one. (Before ADR 0034 the only kind was `album`.) The kinds are enumerated as `CURATOR_URI_KINDS` in `@marquee/contracts`, which is what the contract tests iterate.
 
@@ -260,7 +260,13 @@ shell, deliberately not a CI check
 > The old shape left Backdrop unable to tell an unfinished record from a tag nothing knows.
 
 - **Curator → Backdrop videos**: streamed by Curator over HTTP (`PUT /api/media/:fileId`, `media_transfer = "push"` — [ADR 0038](../adrs/0038-curator-pushes-media-over-http.md)), skipping files whose `contentHash` Backdrop already reports; or `rsync`/`syncthing` out of band (`media_transfer = "none"`, the default). Big files, tolerant of long-running transfer.
-- **Curator → Conductor asset store**: HTTP push, `PUT /api/album-assets/:curatorId` ([ADR 0045](../adrs/0045-curator-pushes-album-assets-to-conductor.md)). Fires on a video change, on **verify**, on the per-album `POST /api/albums/:curatorId/push`, and for the whole library from `POST /api/runtime/sync` (a background job). **Amp reads the same directory** and is served by the same push. `rsync` still works for a bulk first load, but is no longer required.
+- **Curator → Conductor asset store**: HTTP push, `PUT /api/album-assets/:curatorId` ([ADR 0045](../adrs/0045-curator-pushes-album-assets-to-conductor.md)). Fires on a video change, on **verify**, on the per-album `POST /api/albums/:curatorId/push`, for the whole library from `POST /api/runtime/sync` (a background job), and — since 2026-08-12, [ADR 0075](../adrs/0075-an-edit-that-changes-what-the-room-plays-pushes-it.md) — on **every edit that changes what the room plays**: the demo cut, the album's Spotify URI, the palette, the motion override, and the cover. **Amp reads the same directory** and is served by the same push. `rsync` still works for a bulk first load, but is no longer required.
+
+> **Why the edits had to be added ([ADR 0075](../adrs/0075-an-edit-that-changes-what-the-room-plays-pushes-it.md), fixes [#304](https://github.com/dylanleatham/Marquee/issues/304)).** The four original triggers are milestones in
+> getting a record onto the shelf, and `verified` is terminal — so everything you change about a
+> finished record reached the runtime only if you remembered to press **Sync everything**. Every demo
+> tag played its album from track 1 for exactly this reason. Library **sweeps** still do not push per
+> album: they end in their own report, and the sync button is what follows them.
 
 > **Corrected 2026-08-01 ([ADR 0045](../adrs/0045-curator-pushes-album-assets-to-conductor.md)).** This
 > line previously read _"`rsync` push … Curator handles this as an automatic post-save action so it

@@ -45,6 +45,15 @@ streaming-only records.
 - Resolving a card's `curator:card:<id>` → the album's `metadata.spotifyUri`, and a demo tag's
   `curator:demo:<id>` → the album's chosen `demoTrack.spotifyUri`
   ([ADR 0058](../adrs/0058-a-demo-tag-plays-one-chosen-track.md)), both via the synced album-assets store
+
+> **What Amp plays is only as fresh as that store** ([ADR 0075](../adrs/0075-an-edit-that-changes-what-the-room-plays-pushes-it.md), 2026-08-12). Amp has no ingest
+> route of its own: it reads the directory Curator pushes to Conductor (ADR 0045), so a choice made
+> in Curator is inert here until that push happens. Curator now pushes on the edit itself — choosing
+> the demo cut, naming the Spotify album — rather than only at a milestone. This is [#304](https://github.com/dylanleatham/Marquee/issues/304): every demo
+> tag played its album from track 1 because the cut never left the workstation, and Amp's fallback
+> (§9, ADR 0058 §3) is indistinguishable from that failure. **Amp being served only by whoever shares
+> its disk is itself unfinished** — see [#306](https://github.com/dylanleatham/Marquee/issues/306).
+
 - Playing / stopping a `spotify:album:<id>` **or `spotify:track:<id>`** on a configured Sonos target
   via local UPnP
 - Deriving the household's Spotify binding (`sid`/`sn`/`cdudn` token) from a Sonos favorite
@@ -177,15 +186,25 @@ Mirrors Conductor's `/api/scan` (ADR 0019), with the kind gate added:
    - `kind === "card"` or `"demo"` — identical but for _what_ is handed to Sonos:
      - no target configured → `202 { action:"ignored", reason:"no target" }`.
      - `assets.read(curatorId)` is `null` (not synced) → `202 { reason:"album not synced" }`.
-     - **what plays**: `card` → `metadata.spotifyUri`. `demo` → `demoTrack.spotifyUri` if the album
-       has a chosen track, **else `metadata.spotifyUri`** — a demo tag with no choice plays the whole
-       album exactly as a card does, and logs that it fell back
-       ([ADR 0058](../adrs/0058-a-demo-tag-plays-one-chosen-track.md) §3: a silent tag is
+     - **what plays**: `card` → `metadata.spotifyUri`. `demo` → **the album plus the cut's
+       `trackNumber`** ([ADR 0076](../adrs/0076-a-demo-cut-plays-as-a-position-in-the-album.md)) when
+       the album has a chosen track and that track has a position; the bare `demoTrack.spotifyUri`
+       when it has a choice but no position (logged at `warn`); **else `metadata.spotifyUri`** — a
+       demo tag with no choice plays the whole album exactly as a card does, and logs that it fell
+       back ([ADR 0058](../adrs/0058-a-demo-tag-plays-one-chosen-track.md) §3: a silent tag is
        indistinguishable from a mis-written one).
      - neither present → `202 { reason:"album not on spotify" }`.
      - Spotify binding not derivable (no favorite / Sonos unreachable) → `202 { reason:"no sonos binding" }`.
-     - else `driver.play(target, uri)` → `202 { action:"playing", curatorId, spotifyUri }`, and for a
-       demo scan also `demoTrack: <uri> | null` so a caller can tell a real choice from the fallback.
+     - else `driver.play(target, uri, trackNumber?)` → `202 { action:"playing", curatorId, spotifyUri }`,
+       and for a demo scan also `demoTrack: <uri> | null` so a caller can tell a real choice from the
+       fallback, plus `trackNumber` when the cut played as a position.
+
+> **`spotifyUri` names what Sonos was handed** (2026-08-12, [ADR 0076](../adrs/0076-a-demo-cut-plays-as-a-position-in-the-album.md)). For a cut that is
+> now the **album**, with `trackNumber` saying where inside it; `demoTrack` still names the chosen
+> track. It used to be the track URI, because Amp used to hand Sonos the track — which Sonos accepts,
+> resolves, queues, and then refuses to start, leaving the room silent with nothing in any log. A
+> demo response carrying `demoTrack` but no `trackNumber` is the fallback hand-off, and is the shape
+> to look for when a cut plays on one household and not another.
 
 > **What "album not on spotify" meant in practice (2026-08-08, [ADR 0059](../adrs/0059-a-matched-album-plays-only-on-an-exact-match.md)).** Amp was
 > correct and still silent for most of a real library: Curator matched Discogs albums to Spotify for
@@ -217,7 +236,15 @@ Distilled from the working spike (`spikes/sonos-spotify/play-album.js`):
   (`x-sonos-spotify:…?sid=9&amp;flags=8224&amp;sn=7`). Matching only `[?&]` left the hardcoded `sn=7`
   in place on exactly that shape — a UPnP 800 on a live account, and unreachable until demo tags made
   Amp play tracks ([ADR 0058](../adrs/0058-a-demo-tag-plays-one-chosen-track.md)). Sequence: `RemoveAllTracksFromQueue` → `AddURIToQueue` → `SwitchToQueue` →
-  `Play`. (Hand-rolled metadata tripped UPnP 402 in the spike — use the library's.)
+  **`Seek(TRACK_NR)` for a demo cut** → `Play`. (Hand-rolled metadata tripped UPnP 402 in the spike —
+  use the library's.)
+- **A cut is a position, never a lone track** ([ADR 0076](../adrs/0076-a-demo-cut-plays-as-a-position-in-the-album.md), 2026-08-12). What gets enqueued is
+  always the **album container**; the chosen song is reached with `Seek({ Unit: "TRACK_NR" })` placed
+  **after `SwitchToQueue`** (before it, the position addresses a queue that is not yet the
+  transport's source) and **before `Play`** (after it, a second of track 1 is audible first). Handing
+  Sonos the track on its own is what the demo tag used to do: it is accepted, resolved, queued with
+  the right duration, and then never started — `Play()` answers `true` and the transport sits at
+  `STOPPED`, with no fault anywhere to notice. The measurements are in ADR 0076.
 - **Bounded everything.** Discovery and each SOAP call get a timeout — Amp is always-on and a hung
   Sonos call must not wedge the event loop (CLAUDE.md "bound your fetch/spawn/loops").
 

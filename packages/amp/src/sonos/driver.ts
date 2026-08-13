@@ -9,8 +9,17 @@
  * account's Spotify binding internally (see the svrooij driver).
  */
 export interface SonosDriver {
-  /** Start `spotify:album:<id>` on the target room/group. Resolves once playback has been requested. */
-  play(target: string, spotifyUri: string): Promise<void>;
+  /**
+   * Start `spotify:album:<id>` on the target room/group. Resolves once playback has been requested.
+   *
+   * `trackNumber` (1-based) starts that position **within** the album instead of at track 1 — how a
+   * demo cut plays ([ADR 0076](../../../../docs/adrs/0076-a-demo-cut-plays-as-a-position-in-the-album.md)). It belongs here rather than in the URI because
+   * Sonos will not start a track handed over on its own: it accepts the queue item, resolves it,
+   * reports its duration and then sits at `STOPPED`. The same track plays when it arrives as a
+   * position in the album container. A `spotify:track:` URI with no `trackNumber` is still accepted
+   * (the pre-ADR 0076 path, for a cut whose position we never learned).
+   */
+  play(target: string, spotifyUri: string, trackNumber?: number): Promise<void>;
   /** Stop playback on the target room/group. */
   stop(target: string): Promise<void>;
   /** Discoverable room/group names (for Curator's target picker). */

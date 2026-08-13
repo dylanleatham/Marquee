@@ -37,7 +37,11 @@ export class SvrooijSonosDriver implements SonosDriver {
   /** `seedHost` (a speaker IP) uses topology-from-device; otherwise SSDP discovery. */
   constructor(private readonly seedHost?: string) {}
 
-  async play(target: string, spotifyUri: string): Promise<void> {
+  async play(
+    target: string,
+    spotifyUri: string,
+    trackNumber?: number,
+  ): Promise<void> {
     try {
       const coordinator = await this.resolveCoordinator(target);
       const binding = await this.deriveBinding(coordinator);
@@ -65,6 +69,18 @@ export class SvrooijSonosDriver implements SonosDriver {
             EnqueueAsNext: true,
           });
           await coordinator.SwitchToQueue();
+          /**
+           * The seek is what makes a demo cut audible ([ADR 0076](../../../../docs/adrs/0076-a-demo-cut-plays-as-a-position-in-the-album.md)). It comes **after**
+           * `SwitchToQueue` — the queue has to be the transport's source before a position in it
+           * means anything — and **before** `Play`, so the first sound is the chosen song rather
+           * than a second of track 1.
+           */
+          if (trackNumber !== undefined)
+            await coordinator.AVTransportService.Seek({
+              InstanceID: 0,
+              Unit: "TRACK_NR",
+              Target: String(trackNumber),
+            });
           await coordinator.Play();
         })(),
         OP_TIMEOUT_MS,
