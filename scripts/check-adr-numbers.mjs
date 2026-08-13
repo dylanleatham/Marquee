@@ -179,11 +179,21 @@ const MAX_BYTES = 2 * 1024 * 1024; // a 9MB logo has no ADR citations in it
  * `.gitignore` for free (no `node_modules`, no `dist`, no `.turbo`), and an untracked scratch file
  * can't fail someone else's push. A **denylist** of binary extensions rather than an allowlist of
  * text ones, so the next file type to cite an ADR is covered without anyone remembering to add it.
+ *
+ * One exclusion, and it is narrow on purpose: the frozen `.patch` fixtures under
+ * `review-agents/eval/cases/`. Those are copies of a historical diff, held byte-for-byte because
+ * they are what an eval run feeds a reviewer — change one and you change what is being measured.
+ * The ADR links inside them are not citations *this repo makes*; they are a record of what some
+ * file said at some commit, and they were correct relative to where that file lived. A renumber
+ * sweep must therefore **not** rewrite them, which is the same reason the guard must not demand
+ * that they resolve. Everything else under `eval/` — `case.json`, the READMEs — is checked normally.
  */
+const FROZEN_FIXTURE = /(^|\/)review-agents\/eval\/cases\/[^/]+\/[^/]+\.patch$/;
+
 export function citingSources(repoRoot) {
   return git(["ls-files", "-z"], repoRoot)
     .split("\0")
-    .filter((p) => p && !BINARY.test(p))
+    .filter((p) => p && !BINARY.test(p) && !FROZEN_FIXTURE.test(p))
     .map((p) => join(repoRoot, p))
     .filter((p) => {
       // Tracked-but-deleted (mid-rename) would otherwise throw in the readers above.
