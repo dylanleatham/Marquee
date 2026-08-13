@@ -19,6 +19,20 @@ import {
 } from "./claude.mjs";
 import { summarizeRun, silentWarning } from "./outcome.mjs";
 import { composePrompt, repairPrompt } from "./prompt.mjs";
+import {
+  normalizeMessage,
+  fingerprint,
+  readLedger,
+  serializeRecords,
+  pendingFindings,
+  findingRecord,
+  runRecord,
+  computeStats,
+  formatStats,
+  MIN_SAMPLE,
+  VERDICTS,
+} from "./ledger.mjs";
+import { runTriage, renderFinding, CHOICES } from "./triage.mjs";
 
 test("globToRegExp: ** spans directories, * does not", () => {
   assert.match(
@@ -577,4 +591,344 @@ test("resolveRepairTimeoutMs: its own knob, following the same idiom as the revi
     resolveRepairTimeoutMs({ REVIEW_TIMEOUT_MS: "300000" }),
     DEFAULT,
   );
+});
+
+// --- ledger (docs/specs/harness-self-improvement.md §4.1) ---------------------------------------
+
+test("fingerprint: the same finding class in a different file, line and package is one class", () => {
+  // The point of the bar CLAUDE.md sets ("no _repeat_ class") is that the *second* occurrence is
+  // the signal, and the second occurrence is almost never in the same file at the same line.
+  const a = fingerprint(
+    "runtime",
+    "`packages/curator/src/roomArm.ts` line 88 spawns ffmpeg with no timeout.",
+  );
+  const b = fingerprint(
+    "runtime",
+    '"packages/amp/src/player.ts" line 214 spawns ffmpeg with no timeout.',
+  );
+  assert.equal(a, b);
+
+  // Backticked and bare spellings of the same path must not fork the class either.
+  assert.equal(
+    fingerprint("runtime", "`scripts/idle-audit.mjs` has an unbounded loop."),
+    fingerprint("runtime", "scripts/idle-audit.mjs has an unbounded loop."),
+  );
+});
+
+test("fingerprint: genuinely different findings stay different classes", () => {
+  const timeout = fingerprint("runtime", "The upload handler has no timeout.");
+  const leak = fingerprint("runtime", "The watcher is never unsubscribed.");
+  assert.notEqual(timeout, leak);
+  // Same sentence, different reviewer, is a different class — the reviewer is what gets retired.
+  assert.notEqual(
+    fingerprint("runtime", "The upload handler has no timeout."),
+    fingerprint("security", "The upload handler has no timeout."),
+  );
+});
+
+test("normalizeMessage: strips paths and numbers, keeps the identifiers that carry meaning", () => {
+  assert.equal(
+    normalizeMessage(
+      "`addAlbumsBatch` in packages/curator/ui/src/api.ts:42 retries 3 times.",
+    ),
+    "addalbumsbatch in <path>:<n> retries <n> times.",
+  );
+});
+
+test("readLedger: a half-written final line is reported, never silently dropped", () => {
+  // What a crash or a kill mid-append leaves behind. Dropping it quietly would mean the ledger
+  // could lose history while still printing a confident table — the silent-green class
+  // dev-harness §11 exists to forbid.
+  const text =
+    '{"kind":"run","sha":"a"}\n' +
+    '{"kind":"finding","sha":"a","verdict":"accepted"}\n' +
+    '{"kind":"finding","sha":"a","verd';
+  const { records, skipped } = readLedger(text);
+  assert.equal(records.length, 2);
+  assert.equal(skipped, 1);
+});
+
+test("readLedger: blank lines and a missing trailing newline are not corruption", () => {
+  // merge=union can leave blank lines behind; a hand-edited file may lack a final newline.
+  const { records, skipped } = readLedger(
+    '{"kind":"run","sha":"a"}\n\n\n{"kind":"run","sha":"b"}',
+  );
+  assert.equal(records.length, 2);
+  assert.equal(skipped, 0);
+  assert.deepEqual(readLedger("").records, []);
+  assert.deepEqual(readLedger(undefined).records, []);
+});
+
+test("serializeRecords: every line is newline-terminated so appends cannot fuse two records", () => {
+  const out = serializeRecords([{ a: 1 }, { b: 2 }]);
+  assert.ok(out.endsWith("\n"));
+  assert.equal(
+    readLedger(out + serializeRecords([{ c: 3 }])).records.length,
+    3,
+  );
+  assert.equal(serializeRecords([]), ""); // an empty append must not write a stray newline
+});
+
+const finding = (over = {}) => ({
+  specialist: "runtime",
+  severity: "blocking",
+  file: "packages/curator/src/a.ts",
+  line: 10,
+  message: "No timeout.",
+  ...over,
+});
+
+const ledgerOf = (verdicts, specialist = "runtime") =>
+  verdicts.map((verdict, i) =>
+    findingRecord({
+      sha: "abc",
+      finding: finding({ specialist, line: i, message: `Finding ${i}.` }),
+      verdict,
+      ts: "2026-08-13T00:00:00Z",
+    }),
+  );
+
+test("computeStats: wont-fix is excluded from both sides of precision", () => {
+  // The distinction is the whole reason the ledger types its dismissals: a real finding you chose
+  // not to act on says nothing about whether the reviewer is calibrated. Counting it as a miss
+  // would punish a correct reviewer; counting it as a hit would flatter a wrong one.
+  const verdicts = [
+    ...Array(6).fill("accepted"),
+    ...Array(2).fill("wrong"),
+    ...Array(9).fill("wont-fix"),
+  ];
+  const { specialists } = computeStats(ledgerOf(verdicts));
+  const runtime = specialists.find((s) => s.id === "runtime");
+  assert.equal(runtime.triaged, 17);
+  assert.equal(runtime.judged, 8); // 6 + 2, not 17
+  assert.equal(runtime.wontFix, 9);
+  assert.equal(runtime.precision, 6 / 8);
+});
+
+test("computeStats: below the sample threshold there is no ratio, only null", () => {
+  // dev-harness §11 applied to this instrument: "100% precision (n=1)" is a confident nothing.
+  const thin = computeStats(ledgerOf(["accepted"]));
+  assert.equal(thin.specialists[0].precision, null);
+  assert.equal(thin.specialists[0].judged, 1);
+
+  const enough = computeStats(ledgerOf(Array(MIN_SAMPLE).fill("accepted")));
+  assert.equal(enough.specialists[0].precision, 1);
+
+  // A ledger of nothing but wont-fix has no judged findings at all — still null, never 0/0 = NaN.
+  const abstained = computeStats(ledgerOf(Array(20).fill("wont-fix")));
+  assert.equal(abstained.specialists[0].precision, null);
+});
+
+test("formatStats: an unmeasured specialist reads as 'insufficient data', never as a percentage", () => {
+  const text = formatStats(computeStats(ledgerOf(["accepted", "wrong"])));
+  assert.match(text, /insufficient data \(n=2\)/);
+  assert.ok(!/\d+%/.test(text.split("PRECISION is")[0]));
+});
+
+test("formatStats: an empty ledger says so and says what to run, rather than printing zeroes", () => {
+  const text = formatStats(computeStats([]));
+  assert.match(text, /no triaged findings yet/);
+  assert.match(text, /--triage/);
+});
+
+test("formatStats: unparseable lines are surfaced above the numbers they undermine", () => {
+  const text = formatStats(computeStats(ledgerOf(["accepted"])), {
+    skipped: 3,
+  });
+  assert.match(text, /\[WARN \] 3 unparseable ledger line\(s\)/);
+});
+
+test("computeStats: repeat classes are counted across files, with their verdicts", () => {
+  const records = ["accepted", "accepted", "wrong"].map((verdict, i) =>
+    findingRecord({
+      sha: "abc",
+      finding: finding({
+        file: `packages/curator/src/file${i}.ts`,
+        line: i,
+        message: `Line ${i} spawns ffmpeg with no timeout.`,
+      }),
+      verdict,
+      ts: "2026-08-13T00:00:00Z",
+    }),
+  );
+  const { repeats } = computeStats(records);
+  assert.equal(repeats.length, 1); // three files, one class
+  assert.equal(repeats[0].count, 3);
+  assert.equal(repeats[0].accepted, 2);
+  assert.equal(repeats[0].wrong, 1);
+});
+
+test("computeStats: run records supply the denominator, including specialists that found nothing", () => {
+  // A reviewer that never fires is as interesting as one that fires wrongly — §12 retires both.
+  const emptyRun = {
+    sha: "abc",
+    specialists: [
+      { id: "runtime", status: "ran", durationMs: 80_000 },
+      { id: "security", status: "no-findings", durationMs: 10_000 },
+    ],
+    findings: [finding()],
+  };
+  const { specialists } = computeStats([
+    runRecord({ report: emptyRun, ts: "2026-08-13T00:00:00Z" }),
+  ]);
+  const security = specialists.find((s) => s.id === "security");
+  assert.equal(security.runs, 1);
+  assert.equal(security.fired, 0);
+  assert.equal(security.triaged, 0);
+  assert.equal(security.precision, null);
+  assert.equal(specialists.find((s) => s.id === "runtime").fired, 1);
+});
+
+// --- triage --------------------------------------------------------------------------------------
+
+const triageReport = {
+  sha: "abc",
+  base: "def",
+  specialists: [{ id: "runtime", status: "ran", durationMs: 1000 }],
+  findings: [finding({ line: 1 }), finding({ line: 2 }), finding({ line: 3 })],
+};
+
+/** Drive runTriage with a scripted set of keystrokes, collecting what it appends. */
+async function triageWith(keys, { records = [] } = {}) {
+  const appended = [];
+  const queue = [...keys];
+  const result = await runTriage({
+    report: triageReport,
+    records,
+    ask: async () => queue.shift() ?? "q",
+    append: (recs) => appended.push(...recs),
+    now: () => "2026-08-13T00:00:00Z",
+    log: () => {},
+  });
+  return { result, appended, leftover: queue };
+}
+
+test("runTriage: appends after every verdict, so an interrupted pass keeps what it judged", async () => {
+  // The failure this guards against is a triage that batches to the end: quit halfway through a
+  // twelve-finding run and the harness remembers nothing, which is the state we started in.
+  const { result, appended } = await triageWith(["a", "q"]);
+  assert.equal(result.judged, 1);
+  assert.ok(result.quit);
+  const findings = appended.filter((r) => r.kind === "finding");
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].verdict, "accepted");
+});
+
+test("runTriage: the run record is written once, before any verdict", async () => {
+  const { appended } = await triageWith(["q"]);
+  const runs = appended.filter((r) => r.kind === "run");
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].sha, "abc");
+  // It carries the fire count per specialist, which findings alone cannot supply.
+  assert.equal(runs[0].specialists[0].findings, 3);
+
+  // A second triage of the same report must not double-count the run.
+  const { appended: again } = await triageWith(["q"], { records: appended });
+  assert.equal(again.filter((r) => r.kind === "run").length, 0);
+});
+
+test("runTriage: resumes, asking only about findings not already in the ledger", async () => {
+  const { appended } = await triageWith(["a", "q"]);
+  const { result, leftover } = await triageWith(
+    ["w", "because it is guarded upstream", "q"],
+    { records: appended },
+  );
+  assert.equal(result.alreadyDone, 1);
+  assert.equal(result.judged, 1);
+  assert.equal(leftover.length, 0); // the note prompt was consumed — 'wrong' asks why
+});
+
+test("runTriage: only 'wrong' is asked for a reason", async () => {
+  // The reason is what a prompt fix gets argued from; asking on every verdict would slow the
+  // common case, and a triage nobody runs measures nothing.
+  const { appended } = await triageWith([
+    "w",
+    "the helper already bounds this",
+    "q",
+  ]);
+  const rec = appended.find((r) => r.kind === "finding");
+  assert.equal(rec.verdict, "wrong");
+  assert.equal(rec.note, "the helper already bounds this");
+
+  const { appended: acc } = await triageWith(["a", "q"]);
+  assert.equal(acc.find((r) => r.kind === "finding").note, "");
+});
+
+test("runTriage: an unrecognised key skips instead of guessing a verdict", async () => {
+  // A mistyped verdict in an append-only log is worse than being asked again next time.
+  const { result, appended } = await triageWith(["z", "s", "x"]);
+  assert.equal(result.skipped, 2);
+  assert.equal(result.judged, 1);
+  assert.equal(
+    appended.filter((r) => r.kind === "finding")[0].verdict,
+    "wont-fix",
+  );
+});
+
+test("runTriage: a report with no findings still records that the run happened", async () => {
+  const appended = [];
+  const result = await runTriage({
+    report: { ...triageReport, findings: [] },
+    records: [],
+    ask: async () => "q",
+    append: (recs) => appended.push(...recs),
+    now: () => "2026-08-13T00:00:00Z",
+    log: () => {},
+  });
+  assert.equal(result.judged, 0);
+  assert.equal(appended.length, 1);
+  assert.equal(appended[0].kind, "run");
+});
+
+test("pendingFindings: identity spans specialist, file, line and message", () => {
+  const records = [
+    findingRecord({
+      sha: "abc",
+      finding: finding({ line: 2 }),
+      verdict: "accepted",
+      ts: "t",
+    }),
+  ];
+  const pending = pendingFindings(triageReport, records);
+  assert.deepEqual(
+    pending.map((f) => f.line),
+    [1, 3],
+  );
+  // The same message at the same line of a *different* sha is a fresh finding, not a duplicate.
+  assert.equal(
+    pendingFindings({ ...triageReport, sha: "zzz" }, records).length,
+    3,
+  );
+});
+
+test("renderFinding: severity is spelled out, and a null line degrades to the file alone", () => {
+  const text = renderFinding(finding({ line: null }), 0, 2);
+  assert.match(text, /\[blocking\]/);
+  assert.match(text, /packages\/curator\/src\/a\.ts/);
+  assert.ok(!text.includes("a.ts:null"));
+  assert.match(text, /1\/2/);
+});
+
+test("every verdict the ledger defines is reachable from a triage keystroke", () => {
+  // A verdict with no key can never be recorded, so its category would read as empty in the stats
+  // rather than as unreachable — a check that measures nothing, in miniature (dev-harness §11).
+  assert.deepEqual([...CHOICES.values()].sort(), [...VERDICTS].sort());
+});
+
+test("runTriage: end of input quits instead of throwing on a half-finished pass", async () => {
+  // Ctrl+D closes stdin and readline answers with nothing. Everything judged so far is already on
+  // disk by then; losing the session to a stack trace would be the worst moment for one.
+  const appended = [];
+  const answers = ["a", undefined];
+  const result = await runTriage({
+    report: triageReport,
+    records: [],
+    ask: async () => answers.shift(),
+    append: (recs) => appended.push(...recs),
+    now: () => "2026-08-13T00:00:00Z",
+    log: () => {},
+  });
+  assert.equal(result.judged, 1);
+  assert.ok(result.quit);
+  assert.equal(appended.filter((r) => r.kind === "finding").length, 1);
 });

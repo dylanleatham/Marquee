@@ -54,6 +54,15 @@ the same session, not a gate that bounces the PR. Only genuinely-debatable calls
 review. The bar is **no blocking findings and no _repeat_ class**, not zero findings (chasing zero is
 gold-plating).
 
+"Repeat class" stopped being something you have to remember on 2026-08-13. After a review, judge what
+it said — `pnpm run review --triage` — and `pnpm run review:stats` prints the repeat-class table
+along with each reviewer's precision. Commit `review-agents/ledger.jsonl` with your PR; it is the
+only evidence the harness keeps about its own reviewers, and the only input to
+[dev-harness §12](docs/specs/dev-harness.md)'s "delete checks when they generate more noise than
+signal." A class that keeps being **accepted** is a missing gate — close it. A class that keeps being
+**wrong** is a prompt to fix. See
+[harness-self-improvement.md](docs/specs/harness-self-improvement.md) §4.1.
+
 Three checks close most of what otherwise slips through — each is the durable fix for a finding that
 has recurred:
 
@@ -82,8 +91,9 @@ doc-reconcile pass), don't just fix the instance.
   `main` isn't hard-protected (free plan) — the git hooks are the gate; don't commit product code
   straight to `main`.
 - **Review agents** run on demand: `pnpm run review` — run it early and iteratively, not just before
-  the PR (see "Definition of done" above); not in pre-push. See
-  [review-agents/README.md](review-agents/README.md) and `review-agents/KNOWN-ISSUES.md`.
+  the PR (see "Definition of done" above); not in pre-push. Then `--triage` what it found, and commit
+  the ledger. See [review-agents/README.md](review-agents/README.md) and
+  `review-agents/KNOWN-ISSUES.md`.
 - **Bugs** are tracked as GitHub issues; the fixing PR `Closes #<n>`. See the bug-fix workflow above.
 - `gh` CLI is installed at `C:\Program Files\GitHub CLI\gh.exe` (authed as `dylanleatham`), but not
   yet on the shell PATH — call it by full path, or use PR links / the Actions tab.

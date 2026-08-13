@@ -5,6 +5,13 @@ run them **on demand** with `pnpm run review` — typically right before opening
 deliberately NOT in the pre-push hook (6 real Claude sessions add 1–2 min to every push, and on
 the free plan nothing enforces a report anyway). Design: `docs/specs/dev-harness.md §6`.
 
+> **Changing a specialist's prompt, examples or config is still a change with no test behind it.**
+> The [ledger](#the-ledger--what-this-harness-remembers) now records whether past findings were
+> right, but there is no frozen case set to regress a prompt edit against — so an improvement and a
+> regression still look identical from here. That gate is
+> [harness-self-improvement.md](../docs/specs/harness-self-improvement.md) §4.2, and it is not built.
+> Read it before editing a reviewer.
+
 ## The roster
 
 | Specialist            | Blocking? | Watches                             | Catches                                                     |
@@ -52,7 +59,39 @@ pnpm run review --staged            # review staged changes
 pnpm run review --reviewer security # run one specialist
 pnpm run review --explain           # also print the context sent to each specialist
 pnpm run review --ci                # hook mode: write report, exit 1 on blocking findings
+pnpm run review --triage            # judge the last report's findings into the ledger
+pnpm run review:stats               # what the ledger adds up to
 ```
+
+## The ledger — what this harness remembers
+
+Reports (`.review-agents/report-<sha>.json`) are gitignored run artifacts, so on their own every run
+is amnesiac. `--triage` walks the findings of the most recent report and records a verdict for each
+into **`review-agents/ledger.jsonl`, which is committed**. Design and rationale:
+[harness-self-improvement.md](../docs/specs/harness-self-improvement.md) §4.1.
+
+| verdict        | meaning                                        | counts toward         |
+| -------------- | ---------------------------------------------- | --------------------- |
+| `[a] accepted` | real, and I changed the code                   | precision numerator   |
+| `[w] wrong`    | not a real problem — the reviewer was mistaken | precision denominator |
+| `[x] wont-fix` | real, but deliberately not acting on it        | **neither**           |
+
+The `wrong` / `wont-fix` split is the point. A reviewer with ten `wont-fix` findings is calibrated
+and unlucky in what it notices; a reviewer with ten `wrong` findings needs its prompt changed or
+needs retiring under dev-harness §12. One number cannot tell those apart. Only `wrong` is asked for
+a reason, because that is the reason a prompt fix gets argued from.
+
+Triage appends after **every** verdict, so quitting halfway keeps what you judged and re-running it
+asks only about the rest. It is interactive and refuses to run when stdin is not a terminal — never
+put it in a hook or a CI job.
+
+`review:stats` prints volume, fire rate, precision and the repeat-class table. Below **n=8** judged
+findings it prints `insufficient data (n=…)` rather than a percentage: a ratio from two data points
+is a number, not a measurement, and dev-harness §11's rule against checks that measure nothing
+applies to this instrument as much as to the ones it watches.
+
+Commit the ledger with your PR. `.gitattributes` marks it `merge=union` so two branches that both
+triaged a review keep both sides' records.
 
 Env: `CLAUDE_CODE_PATH` (binary override, default `claude`), `REVIEW_MOCK=1` (skip real calls —
 used by tests/CI to exercise the pipeline without tokens; `REVIEW_MOCK_OUTPUT` supplies a

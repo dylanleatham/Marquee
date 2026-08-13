@@ -586,10 +586,10 @@ Every PR that changes behavior should either update a spec or add an ADR (or exp
 The harness needs its own observability so you can trust it. Signals to surface:
 
 - **Per-PR agent runtime** — how long each specialist took. Posted as a PR comment by the orchestrator. Slow specialists suggest either context bloat (too much loaded per prompt) or genuinely hard PRs.
-- **Agent findings dashboard** (later) — how often each reviewer fires, how often findings are respected vs. overridden. Calibrates prompt quality over time.
+- **Agent findings ledger** — how often each reviewer fires, and how often its findings were right. _(Built 2026-08-13. `pnpm run review --triage` records a verdict per finding into the committed `review-agents/ledger.jsonl`; `pnpm run review:stats` prints per-specialist volume, precision and the repeat-class table. It is the instrument §12's delete rule needs — before it, that rule had never been executable. Design: [harness-self-improvement.md](harness-self-improvement.md) §4.1. Not a dashboard: a JSONL file and a printed table, per the note below about not needing dashboards early.)_
 - **Flaky test tracker** — CI logs test durations and failure rates per test. Nightly workflow flags anything with >2% failure rate for investigation.
 - **Cache hit rate** — turbo's cache hit percentage. If it drops below 50%, something's wrong with the cache config.
-- **Prompt regression signals** — periodic re-benchmarks in `review-agents/eval/` catch cases where a prompt change degrades finding quality. Not urgent early; nice to have once agents have been running for a month.
+- **Prompt regression signals** — periodic re-benchmarks in `review-agents/eval/` catch cases where a prompt change degrades finding quality. _(Still unbuilt as of 2026-08-13 — the directory does not exist, so every edit to a specialist's prompt, examples or config has shipped unvalidated. No longer "nice to have": it is the gate every other harness change in [harness-self-improvement.md](harness-self-improvement.md) is sequenced behind. Design in §4.2 there; the cases seed from this repo's own escaped-bug commits.)_
 
 None of these need dashboards early on. Log to files, spot-check periodically, revisit if signals stay noisy.
 
@@ -630,6 +630,8 @@ The harness isn't a set-and-forget artifact. Two rules for its evolution:
 **Delete checks when they generate more noise than signal.** A reviewer that fires often and is usually wrong is worse than no reviewer. Track the ratio; retire reviewers or refine prompts when the ratio goes bad.
 
 Neither is retrospective work; both happen in the PR that fixes the bug or refines the process. Small, continuous, no dedicated meetings.
+
+_Status note, 2026-08-13: until this date only the first rule had ever run. The second could not be executed at all — the ratio it says to track was recorded nowhere, since reports are per-SHA and gitignored, so every run was amnesiac, and `review-agents/KNOWN-ISSUES.md` tracks harness **defects** rather than finding **quality**. The ledger ([harness-self-improvement.md](harness-self-improvement.md) §4.1) now records it: judge a review with `pnpm run review --triage`, read it back with `pnpm run review:stats`. Two caveats on acting on what it says. First, a precision figure below n=8 is not printed at all, so a reviewer is not "bad" until there is enough evidence to say so. Second, the retirement decision the rule describes still has no safety net — there is no eval gate yet (§4.2), so changing a specialist's prompt in response to what the ledger says is still an unvalidated edit._
 
 ## 13. First-week concrete setup
 

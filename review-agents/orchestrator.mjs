@@ -8,6 +8,8 @@
 //     --base <ref>         diff against an explicit base
 //     --reviewer <id>      run a single specialist
 //     --explain            print the context sent to each specialist
+//     --triage             judge the last report's findings into review-agents/ledger.jsonl
+//     --stats              print per-specialist volume + precision from the ledger
 //   Env: REVIEW_MOCK=1 (skip real Claude calls), CLAUDE_CODE_PATH (binary override),
 //        REVIEW_TIMEOUT_MS (per-specialist spawn budget in ms, default 90000),
 //        REVIEW_TIMEOUT_RETRIES (extra attempts on a timeout, default 1)
@@ -21,6 +23,7 @@ import {
 } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { createInterface } from "node:readline/promises";
 import {
   currentSha,
   resolveBase,
@@ -42,6 +45,13 @@ import {
   dedupe,
 } from "./lib/findings.mjs";
 import { matchesAny, filesMatching, readTruncated } from "./lib/util.mjs";
+import {
+  loadLedger,
+  appendRecords,
+  computeStats,
+  formatStats,
+} from "./lib/ledger.mjs";
+import { resolveReport, runTriage } from "./lib/triage.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
@@ -59,7 +69,12 @@ const opts = {
   base: val("--base"),
   reviewer: val("--reviewer"),
   explain: has("--explain"),
+  triage: has("--triage"),
+  stats: has("--stats"),
 };
+
+const REPORT_DIR = join(ROOT, ".review-agents");
+const LEDGER_PATH = join(HERE, "ledger.jsonl");
 
 // Which specs to hand a specialist when a given package changes (dev-harness §6).
 const PACKAGE_SPECS = {
@@ -142,7 +157,65 @@ function buildContext(config, { files, diff }) {
   return parts.join("\n\n");
 }
 
+/** `--stats`: what the ledger knows. Read-only; never runs a specialist. */
+function printStats() {
+  const { records, skipped } = loadLedger(LEDGER_PATH);
+  console.log(formatStats(computeStats(records), { skipped }));
+}
+
+/** `--triage`: judge the last report's findings and append the verdicts to the ledger. */
+async function triage() {
+  const resolved = resolveReport(REPORT_DIR, currentSha());
+  if (!resolved) {
+    console.error(
+      "review-agents: no report to triage. Run `pnpm run review` first.",
+    );
+    process.exit(1);
+  }
+  if (!resolved.forCurrentSha) {
+    console.log(
+      `review-agents: no report for the current commit — triaging the most recent one instead\n` +
+        `  ${resolved.path} (sha ${String(resolved.report.sha).slice(0, 12)})`,
+    );
+  }
+  // Interactive by design, so it must never hang waiting on a stdin nobody is typing into: a
+  // --triage that wedges a hook or a CI job would be a far worse harness bug than an unmeasured
+  // reviewer.
+  if (!process.stdin.isTTY) {
+    console.error(
+      "review-agents: --triage is interactive and stdin is not a terminal.\n" +
+        "Run it from a shell, not from a hook, a pipe, or CI.",
+    );
+    process.exit(1);
+  }
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const { records } = loadLedger(LEDGER_PATH);
+    const result = await runTriage({
+      report: resolved.report,
+      records,
+      ask: (q) => rl.question(q),
+      append: (recs) => appendRecords(LEDGER_PATH, recs),
+    });
+    if (result.judged || result.skipped) {
+      console.log(
+        `\nreview-agents: ${result.judged} judged, ${result.skipped} skipped` +
+          (result.quit ? " (stopped early)" : "") +
+          `. Ledger: review-agents/ledger.jsonl — commit it.\n` +
+          `Run \`pnpm run review:stats\` to see what it adds up to.`,
+      );
+    }
+  } finally {
+    rl.close();
+  }
+}
+
 async function main() {
+  // Both verbs read what past runs recorded; neither spends a token or needs a diff.
+  if (opts.stats) return printStats();
+  if (opts.triage) return triage();
+
   const base = resolveBase(opts.base);
   const files = changedFiles({ base, staged: opts.staged });
   const sha = currentSha();
@@ -299,10 +372,9 @@ async function main() {
       unformatted: runSummaries.filter((r) => r.status === "unformatted")
         .length,
     };
-    const reportDir = join(ROOT, ".review-agents");
-    mkdirSync(reportDir, { recursive: true });
+    mkdirSync(REPORT_DIR, { recursive: true });
     writeFileSync(
-      join(reportDir, `report-${sha}.json`),
+      join(REPORT_DIR, `report-${sha}.json`),
       JSON.stringify(report, null, 2),
     );
 
@@ -325,6 +397,14 @@ async function main() {
         (silent.length ? `, ${silent.length} specialist(s) did not run` : "") +
         ").",
     );
+    // The verdict is only cheap while the diff is still in your head, so ask for it now rather
+    // than hoping the verb is remembered later. This is the whole input to dev-harness §12's
+    // "track the ratio" — untriaged, the run leaves no trace once the report is discarded.
+    if (findings.length && !opts.ci) {
+      console.log(
+        "Judge these into the ledger while they're fresh: `pnpm run review --triage`",
+      );
+    }
   }
 }
 

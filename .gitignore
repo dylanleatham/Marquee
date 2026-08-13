@@ -58,7 +58,10 @@ Thumbs.db
 .vscode/
 .idea/
 
-# Review agent reports are local run artifacts, not source
+# Review agent reports are local run artifacts, not source. What survives a run is
+# review-agents/ledger.jsonl — triaged verdicts, committed, because a harness that cannot
+# remember what its reviewers got right cannot act on dev-harness §12's "delete checks when they
+# generate more noise than signal" (docs/specs/harness-self-improvement.md §4.1).
 .review-agents/
 
 # Raw samples from scripts/idle-audit.mjs — machine-specific run artifacts. The numbers that matter
