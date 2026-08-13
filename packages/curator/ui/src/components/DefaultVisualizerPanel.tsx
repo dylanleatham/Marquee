@@ -112,7 +112,7 @@ export function DefaultVisualizerPanel() {
 
       <UploadStrip upload={inFlight} />
       {problem && (
-        <p className="settings__problem" role="alert">
+        <p className="pp-error" role="alert">
           {problem}
         </p>
       )}
@@ -126,22 +126,27 @@ export function DefaultVisualizerPanel() {
 
       {data?.present && (
         <>
-          <video
-            /* Paused while the tab is hidden or this is scrolled away. An autoplaying loop decodes
-               frames forever otherwise, and idle cost is a product requirement here, measured
-               rather than assumed (ADR 0049, issues #135/#136). The poster keeps the frame on
-               screen while it is paused, so gating costs nothing visually. */
-            ref={attachPreview}
-            className="viz__video"
-            /* Keyed on the upload count: the URL never changes, so without this the browser keeps
-               playing the clip it cached and REPLACE looks like it missed (issue #25's trap). */
-            src={`/api/settings/default-visualizer/video?v=${version}`}
-            poster={`/api/settings/default-visualizer/thumbnail?v=${version}`}
-            autoPlay={preview.visible}
-            muted
-            loop
-            playsInline
-          />
+          {/* Its own frame, not the record page's `.viz__stage`. That one positions its video
+              absolutely, which needs a containing block a Settings `<section>` doesn't provide —
+              borrowing the class put the clip over the whole page. */}
+          <div className="dviz__stage">
+            <video
+              /* Paused while the tab is hidden or this is scrolled away. An autoplaying loop decodes
+                 frames forever otherwise, and idle cost is a product requirement here, measured
+                 rather than assumed (ADR 0049, issues #135/#136). The poster keeps the frame on
+                 screen while it is paused, so gating costs nothing visually. */
+              ref={attachPreview}
+              className="dviz__video"
+              /* Keyed on the upload count: the URL never changes, so without this the browser keeps
+                 playing the clip it cached and REPLACE looks like it missed (issue #25's trap). */
+              src={`/api/settings/default-visualizer/video?v=${version}`}
+              poster={`/api/settings/default-visualizer/thumbnail?v=${version}`}
+              autoPlay={preview.visible}
+              muted
+              loop
+              playsInline
+            />
+          </div>
           <p className="setrow setrow--ro">
             <span className="pp-label">Clip</span>
             <span className="setrow__value">
@@ -166,7 +171,7 @@ export function DefaultVisualizerPanel() {
         onPush={() => run(startDefaultVisualizerPush)}
       />
 
-      <p className="settings__actions">
+      <p className="dviz__actions">
         <AsyncButton
           className="pp-action"
           onClick={async () => choose()}

@@ -97,6 +97,28 @@ describe("DefaultVisualizerPanel", () => {
     expect((video as HTMLVideoElement).muted).toBe(true);
   });
 
+  /**
+   * The preview must sit in its **own** frame. It first shipped wearing the record page's
+   * `viz__video`, which is `position: absolute; inset: 6%` and only behaves inside `.viz__stage`'s
+   * `position: relative`. A Settings `<section>` establishes no containing block, so the clip
+   * positioned against the page and covered the entire screen at 88% of the viewport — every
+   * control behind it unreachable.
+   *
+   * jsdom applies no stylesheet, so this pins the *structure* that makes the CSS correct rather than
+   * the computed geometry: the video is inside the frame, and does not borrow the other page's class.
+   */
+  it("keeps the preview inside its own frame, not the record page's", async () => {
+    vi.mocked(api.defaultVisualizer).mockResolvedValue(status());
+    const { container } = render(<DefaultVisualizerPanel />);
+    await waitFor(() => expect(container.querySelector("video")).toBeTruthy());
+
+    const video = container.querySelector("video")!;
+    expect(video.className).toBe("dviz__video");
+    expect(video.closest(".dviz__stage")).toBeTruthy();
+    // The borrowed class is the bug, by name.
+    expect(container.querySelector(".viz__video")).toBeNull();
+  });
+
   it("names the clip and its size once one is set", async () => {
     await show();
     expect(await screen.findByText(/house-loop\.mp4/)).toBeTruthy();
