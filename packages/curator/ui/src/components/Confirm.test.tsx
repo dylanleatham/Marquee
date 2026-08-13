@@ -97,7 +97,7 @@ describe("ConfirmProvider", () => {
     expect(screen.getByRole("alertdialog")).toBeTruthy();
     expect(
       screen.getByText("Delete album").closest("button")!.className,
-    ).toContain("btn--danger");
+    ).toContain("pp-btn--alert");
   });
 
   // A missing provider must never make a button silently dead.

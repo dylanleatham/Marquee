@@ -53,14 +53,14 @@ export class ErrorBoundary extends Component<Props, State> {
         <div className="error-fallback__actions">
           <button
             type="button"
-            className="btn btn--primary"
+            className="pp-btn"
             onClick={() => window.location.reload()}
           >
             Reload
           </button>
           <button
             type="button"
-            className="btn btn--ghost"
+            className="pp-action"
             onClick={() => window.location.assign("/")}
           >
             Back to queue

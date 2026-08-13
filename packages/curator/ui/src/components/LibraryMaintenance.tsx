@@ -43,25 +43,30 @@ export function LibraryMaintenance() {
   return (
     <>
       <h2>Library</h2>
-      <p className="muted">
+      <p className="pp-prose pp-prose--muted">
         Re-derive every palette from its cover art — what you want after a
         Palette Press upgrade changes how colours or motion are chosen.
         Hand-edited palettes are left alone, along with albums Roadie is still
         processing and any without cover art. It runs in the background and can
         be stopped part-way; palettes already regenerated stay regenerated.
       </p>
-      <label className="toggle">
+      {/* The same checkbox shape Settings uses for permissions — one ink square, and the cost of
+          ticking it said beside rather than under it. */}
+      <label className="perm">
         <input
+          className="perm__box"
           type="checkbox"
           checked={force}
           disabled={running}
           onChange={(e) => setForce(e.target.checked)}
         />
-        Include hand-edited palettes (discards those edits)
+        <span className="perm__label">
+          Include hand-edited palettes (discards those edits)
+        </span>
       </label>
-      <div className="row-actions">
+      <div className="settings__actions">
         <AsyncButton
-          className="btn"
+          className="pp-btn"
           onClick={run}
           disabled={running}
           pendingLabel="Starting…"
@@ -74,7 +79,7 @@ export function LibraryMaintenance() {
           used to discard which album it matched — so a Discogs-swept library holds records Curator
           can name but nothing can play. This re-runs the match for what is already on disk. */}
       <h2>Spotify matches</h2>
-      <p className="muted">
+      <p className="pp-prose pp-prose--muted">
         Records added from Discogs don&apos;t carry a Spotify album of their
         own. This looks each one up so a shelf card or demo tag can actually
         play it, and so its songs appear in the demo-cut picker. Only an{" "}
@@ -83,9 +88,9 @@ export function LibraryMaintenance() {
         record starting in the room. Nothing already matched is touched, so
         running it twice is safe.
       </p>
-      <div className="row-actions">
+      <div className="settings__actions">
         <AsyncButton
-          className="btn"
+          className="pp-btn"
           onClick={() => startSpotifyBackfill()}
           disabled={backfilling}
           pendingLabel="Starting…"

@@ -106,6 +106,15 @@ a:hover {
   }
 }
 
+/* The in-flight mark inside a button. A square, not a ring — the only round thing in the app is a
+   status dot, and this is neither. `prefers-reduced-motion` stills it to a plain square, which is
+   why every caller also swaps in a "…ING" label: the word is what survives. */
+@keyframes ppSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @keyframes ppToast {
   0% {
     opacity: 0;
@@ -164,6 +173,70 @@ a:hover {
 .pp-btn:hover {
   background: var(--pp-accent);
 }
+/* The same shape unfilled, for a high-emphasis action that isn't the only one on its row — "ask
+   Roadie to draw some" beside "upload my own". 8px of padding against the filled button's 9px, so
+   the hairline lands on the same box rather than one pixel outside it. */
+.pp-btn--outline {
+  background: transparent;
+  color: var(--pp-ink);
+  border: 1px solid var(--pp-ink);
+  padding: 8px 15px;
+}
+.pp-btn--outline:hover {
+  background: var(--pp-ink);
+  color: var(--pp-paper);
+}
+/* The one button that destroys something. Accent fill *and* an ink rule under it — the rule is what
+   makes it read as different from an ordinary button someone happens to be hovering, which accent
+   fill alone would not (§3.4). The dialog around it names the consequence in the title and again in
+   the body; this is the third channel, not the first. */
+.pp-btn--alert {
+  background: var(--pp-accent);
+  border-bottom: 3px solid var(--pp-ink);
+  padding-bottom: 6px;
+}
+.pp-btn--alert:hover {
+  background: var(--pp-accent-text);
+}
+/* Disabled is a *shape* change first — the fill drops out and the hairline goes soft, so the
+   difference survives at any hue (§3.4). Every call site also gives its reason in `title`. */
+.pp-btn:disabled,
+.pp-btn--outline:disabled {
+  background: transparent;
+  border: 1px solid var(--pp-rule-soft);
+  color: var(--pp-ink-ghost);
+  padding: 8px 15px;
+  cursor: default;
+}
+
+/* The low-emphasis action: mono, hairline-outlined, transparent. Where `.pp-btn` is the one thing
+   to do on a screen, this is everything else — REPLACE, STOP, DOWNLOAD .NFC, ← THE COLLECTION.
+   Blocks used to grow their own (`.drafts__copy`, `.svc__retry`, `.account__change`); this is the
+   shared shape those are variations of. Renders as <button>, <a> and <Link>, hence the inline-block
+   and the text-decoration reset. */
+.pp-action {
+  display: inline-block;
+  font: 500 9.5px/1 var(--pp-mono);
+  letter-spacing: 0.14em;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid var(--pp-rule-soft);
+  color: var(--pp-ink-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  text-align: center;
+}
+.pp-action:hover:not(:disabled) {
+  color: var(--pp-ink);
+  border-color: var(--pp-ink);
+  text-decoration: none;
+}
+.pp-action:disabled {
+  color: var(--pp-ink-ghost);
+  border-style: dashed;
+  cursor: default;
+}
+
 /* ---- focus ---------------------------------------------------------------------------------- */
 /* The prototype has no focus states at all. Every control here is keyboard-reachable, so every one
    needs a visible ring: an outline is a *shape*, which is what makes it readable without colour. */
@@ -172,8 +245,9 @@ a:hover {
   outline: 2px solid var(--pp-ink);
   outline-offset: 2px;
 }
-/* On ink-filled surfaces the ink ring would vanish, so it inverts. */
-.pp-btn:focus-visible,
+/* On ink-filled surfaces the ink ring would vanish, so it inverts. The outline and disabled
+   variants of `.pp-btn` are paper-backed, so they keep the ordinary ink ring. */
+.pp-btn:not(.pp-btn--outline, :disabled):focus-visible,
 .masthead__nav-item[aria-current="page"]:focus-visible,
 .filterbar__chip[aria-pressed="true"]:focus-visible {
   outline-color: var(--pp-paper);
@@ -884,6 +958,12 @@ a:hover {
   max-width: 62ch;
   text-wrap: pretty;
 }
+/* Prose that explains a control rather than addressing you — the paragraph above a sweep button,
+   the aside under a set of steps. One notch back, still full-size and readable. */
+.pp-prose--muted {
+  font-size: 13.5px;
+  color: var(--pp-ink-muted);
+}
 .pp-empty {
   padding: 48px 24px;
   border: 1px dashed var(--pp-dashed);
@@ -904,6 +984,19 @@ a:hover {
   color: var(--pp-ink-muted);
   animation: ppPulse 2.4s ease-in-out infinite;
 }
+/* The per-control counterpart to `.pp-loading`: `<Spinner/>` inside an AsyncButton. Inherits
+   `currentColor`, so it reads on the ink fill of a `.pp-btn` and on the paper of a `.pp-action`. */
+.pp-spinner {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border: 1px solid currentColor;
+  border-right-color: transparent;
+  border-bottom-color: transparent;
+  animation: ppSpin 900ms linear infinite;
+}
+
 .pp-error {
   margin: 24px;
   padding: 14px 16px;
@@ -1542,6 +1635,12 @@ a:hover {
   display: flex;
   flex-direction: column;
   gap: 18px;
+}
+/* The panel's label and its opening sentence, kept together so the 18px gap between the panel's
+   blocks doesn't open up between a heading and the line that explains it. */
+.demo__head {
+  display: flex;
+  flex-direction: column;
 }
 .demo__intro {
   margin-top: 8px;
@@ -2228,12 +2327,269 @@ a:hover {
 }
 
 /* ==================================================================================================
+   THE FURNITURE — what is mounted above every screen rather than inside one
+
+   Sweep panels, the confirm dialog and the error fallback belong to <App/>, not to a route: a sweep
+   outlives the screen that started it, a dialog can be asked for from anywhere, and the fallback has
+   to render when the route itself is what broke.
+
+   All of it was on the legacy stylesheet and was left unstyled when that block went (issue #301) —
+   these components render outside any screen, so nothing about the four converted screens made them
+   surface. Written to the same idiom as `.toast`, the other thing that floats above the paper.
+   ================================================================================================ */
+
+/* ---- the sweep panels -------------------------------------------------------------------------- */
+
+/* Three sweeps can run at once (palettes, Discogs, Spotify). Stacked bottom-*left*: the legacy rule
+   put them bottom-right, where they sat under the toast. Left of the window is the only corner
+   nothing else claims. It still floats over the Roadie dock — everything pinned to the bottom does —
+   so it sits above the dock's z-index and below the toast's, and is dismissable.
+
+   `pointer-events` is the important line. <App/> mounts the stack unconditionally and each panel
+   returns null with no job, so without it the empty stack would be an invisible 380px-wide strip
+   swallowing clicks over the left of every screen. */
+.job-stack {
+  position: fixed;
+  left: 24px;
+  bottom: 24px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 380px;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  pointer-events: none;
+}
+.job-stack > * {
+  pointer-events: auto;
+}
+
+.batch {
+  background: var(--pp-paper-raised);
+  border: 1px solid var(--pp-ink);
+  box-shadow: 0 10px 30px rgba(23, 21, 15, 0.24);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+/* STOP sits as a direct child of the column, so it has to be told not to stretch across it. */
+.batch > .pp-action {
+  align-self: flex-start;
+}
+.batch__head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.batch__head h2 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font: 400 16px/1.15 var(--pp-display);
+  letter-spacing: -0.01em;
+}
+.batch__bar {
+  height: 5px;
+  background: #ded8c9;
+  border: 1px solid var(--pp-rule-soft);
+}
+.batch__fill {
+  height: 100%;
+  background: var(--pp-ink);
+  transition: width 240ms ease;
+}
+.batch__count {
+  margin: 0;
+  font: 400 11.5px/1.5 var(--pp-body);
+  color: var(--pp-ink-muted);
+}
+
+/* The per-item report. Bounded rather than unbounded: a whole-collection sweep reports hundreds of
+   rows, and the panel is furniture, not a screen. */
+.batch__rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  border-top: 1px solid var(--pp-rule);
+}
+.batch__row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 7px 0 7px 11px;
+  border-bottom: 1px solid var(--pp-rule);
+  border-left: 2px solid transparent;
+}
+.batch__row:last-child {
+  border-bottom: 0;
+}
+.batch__label {
+  flex: 1;
+  min-width: 0;
+  font: 400 12.5px/1.35 var(--pp-body);
+  overflow-wrap: anywhere;
+}
+.batch__outcome {
+  flex: none;
+  font: 500 9.5px/1 var(--pp-mono);
+  letter-spacing: 0.1em;
+  color: var(--pp-ink-muted);
+}
+.batch__error {
+  flex-basis: 100%;
+  font: 400 11.5px/1.45 var(--pp-body);
+  color: var(--pp-accent-text);
+}
+
+/*
+  Four outcomes, marked by the *weight and position* of the left rule before any hue — `--ok` has
+  none, `--off` a soft hairline, `--warn` a full one, `--bad` a thick accent bar plus a wash. Each
+  row already spells its outcome out in `.batch__outcome` ("Skipped — hand-edited", "Failed"), which
+  is the channel that carries the meaning; this is the second one, never the only one (§3.4).
+*/
+/* Stated rather than left to the base rule, so all four tones are visible in one place here — an
+   absent modifier is how three of these went missing in the first place (issue #301). */
+.batch__row--ok {
+  border-left-color: transparent;
+}
+.batch__row--off {
+  border-left-color: var(--pp-rule-soft);
+}
+.batch__row--warn {
+  border-left-color: var(--pp-ink-muted);
+}
+.batch__row--warn .batch__outcome {
+  color: var(--pp-ink);
+}
+.batch__row--bad {
+  border-left-color: var(--pp-accent);
+  border-left-width: 3px;
+  background: var(--pp-accent-wash);
+  padding-left: 10px;
+}
+.batch__row--bad .batch__outcome {
+  color: var(--pp-accent-text);
+}
+
+/* A sentence the panel has to say about itself — a failed run, or a lost connection to Curator. */
+.banner {
+  padding: 9px 11px;
+  border: 1px solid var(--pp-rule-soft);
+  background: var(--pp-paper-sunk);
+  font: 400 11.5px/1.5 var(--pp-body);
+  color: var(--pp-ink-muted);
+}
+/* Error is the wash-and-accent treatment `.pp-error` and `.svc--down` already use; warn is the same
+   frame in plain ink. The banners are prose either way, so the words are the first channel. */
+.banner--error {
+  border-color: var(--pp-accent);
+  background: var(--pp-accent-wash);
+  color: var(--pp-accent-text);
+}
+.banner--warn {
+  border-color: var(--pp-ink-muted);
+  color: var(--pp-ink);
+}
+
+/* ---- the confirm dialog ------------------------------------------------------------------------ */
+/* Replaces window.confirm (curator-ui-ux §2), so it has to read as a stop rather than as another
+   panel: the scrim darkens the paper behind it and the dialog is the one thing on top. */
+
+.modal-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(23, 21, 15, 0.42);
+}
+.modal {
+  width: 100%;
+  max-width: 440px;
+  padding: 22px 24px;
+  background: var(--pp-paper-raised);
+  border: 1px solid var(--pp-ink);
+  box-shadow: 0 10px 30px rgba(23, 21, 15, 0.24);
+}
+.modal__title {
+  margin: 0;
+  font: 400 21px/1.15 var(--pp-display);
+  letter-spacing: -0.01em;
+}
+.modal__body {
+  margin: 10px 0 0;
+  font: 400 13.5px/1.6 var(--pp-body);
+  color: var(--pp-ink-muted);
+}
+.modal__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+/* ---- the error fallback ------------------------------------------------------------------------ */
+/* Issue #63: an uncaught render error used to unmount the tree to a blank window. Whatever else is
+   broken, this has to stand on its own — so it states the paper background rather than inheriting
+   one, and uses no class the broken subtree could have been responsible for. */
+
+.error-fallback {
+  padding: 48px 24px;
+  background: var(--pp-accent-wash);
+  color: var(--pp-ink);
+  border: 1px solid var(--pp-accent);
+}
+/* The catch-all around <App/>: there is no masthead left to sit under, so it fills the window. */
+.error-fallback--app {
+  min-height: 100vh;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+/* The per-route one keeps the masthead and nav, so it is framed inside the body instead. */
+.error-fallback--route {
+  margin: 24px;
+}
+.error-fallback__title {
+  margin: 0;
+  font: 400 30px/1 var(--pp-display);
+  letter-spacing: -0.02em;
+}
+.error-fallback__msg {
+  margin: 12px 0 0;
+  font: 500 12.5px/1.6 var(--pp-mono);
+  color: var(--pp-accent-text);
+  max-width: 72ch;
+  overflow-wrap: anywhere;
+}
+.error-fallback__actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+/* ==================================================================================================
    THE SUPPORTING SCREENS — add a record, Discogs, System, Settings
 
    The legacy block lived here until 2026-08-06: the old "backstage marquee" stylesheet with its
    variables repointed at Pressing Plant, so an unconverted screen stayed readable while the overhaul
    landed screen by screen. These four were the last of them, so it is gone — as ADR 0052 said it
-   would be. Nothing references `.page`, `.btn`, `.rail` or `--amber` any more.
+   would be.
+
+   That removal used to end "Nothing references `.page`, `.btn`, `.rail` or `--amber` any more."
+   Three of those four were wrong: five components still used `.btn`, and the tag-help page was
+   still entirely on `.page`. Deleting a rule is a claim about the *components*, and nobody had
+   checked — 51 classes ended up defined nowhere at all, two fixed in passing by #300 and the other
+   49 by issue #301. `styles.test.ts` now makes
+   that claim checkable, so the next deletion either holds or goes red.
    ================================================================================================ */
 
 /* ---- the shared frame ------------------------------------------------------------------------- */
@@ -2754,6 +3110,112 @@ a:hover {
   max-width: 62ch;
 }
 
+/* ---- writing NFC tags -------------------------------------------------------------------------- */
+/* Read standing at the shelf with a sticker in hand (issue #103), so it is the one screen in the app
+   that is mostly prose. It sits in the `.screen` frame like the other supporting screens; what it
+   adds is the reading measure and the two things that are not prose — the warnings and the tabs. */
+
+.taghelp {
+  max-width: 68ch;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.taghelp h2 {
+  font: 400 19px/1.2 var(--pp-display);
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+/* Section headings inside the prose. Uppercase mono rather than display type: they divide a page
+   you are scanning for one step, so they should read as signposts, not as titles. */
+.taghelp h3 {
+  font: 500 9.5px/1 var(--pp-mono);
+  letter-spacing: 0.18em;
+  color: var(--pp-ink-muted);
+  margin: 10px 0 0;
+}
+.taghelp ol,
+.taghelp__list {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  font: 400 14px/1.6 var(--pp-body);
+}
+.taghelp li {
+  text-wrap: pretty;
+}
+.taghelp code {
+  font: 500 12.5px/1 var(--pp-mono);
+  color: var(--pp-ink-muted);
+}
+.taghelp__steps {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+/* The two things on this page that fail *silently* when you get them wrong — the wrong tag kind,
+   and a lock bit you can never take back. Framed and washed so they can't be skimmed past; each
+   still opens with a heading that says what the warning is, so the wash is the second channel. */
+.taghelp__warn {
+  border: 1px solid var(--pp-accent);
+  background: var(--pp-accent-wash);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.taghelp__warn h2 {
+  color: var(--pp-accent-text);
+}
+.taghelp__more {
+  border-top: 1px solid var(--pp-rule);
+  padding-top: 14px;
+}
+
+/* Two ways to write a tag, neither better — a tablist, styled as the same hairline-divided row of
+   mono tabs the screens use, with room for each tab's one-line "when you'd want this". */
+.modes {
+  display: flex;
+  border: 1px solid var(--pp-rule);
+}
+.modes__tab {
+  flex: 1;
+  padding: 12px 16px;
+  border: 0;
+  border-right: 1px solid var(--pp-rule);
+  background: transparent;
+  color: var(--pp-ink-muted);
+  font: 500 10.5px/1 var(--pp-mono);
+  letter-spacing: 0.14em;
+  cursor: pointer;
+  text-align: left;
+}
+.modes__tab:last-child {
+  border-right: 0;
+}
+.modes__tab em {
+  display: block;
+  margin-top: 6px;
+  font: 400 11.5px/1.4 var(--pp-body);
+  font-style: normal;
+  letter-spacing: 0;
+}
+.modes__tab:hover {
+  color: var(--pp-ink);
+}
+/* Keyed off `aria-selected` rather than a class, like `.screen__tab` and `.dock__btn` — the
+   attribute the tab already has to carry is the one thing that cannot drift out of step with it. */
+.modes__tab[aria-selected="true"] {
+  background: var(--pp-ink);
+  color: var(--pp-paper);
+}
+.modes__tab[aria-selected="true"]:focus-visible {
+  outline-color: var(--pp-paper);
+  outline-offset: -4px;
+}
+
 /* ---- Settings --------------------------------------------------------------------------------- */
 
 .settings {
@@ -2842,6 +3304,15 @@ a:hover {
   margin-top: 14px;
 }
 
+/* The same row, for a section of Settings that isn't the visualizer panel — Library's two sweep
+   buttons. Kept separate from `.dviz__actions` on purpose: #300's lesson was that one layout class
+   shared across two contexts is how a rule ends up doing the wrong thing in one of them. */
+.settings__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 14px 0 0;
+}
 .settings__note,
 .settings__aside {
   font: 400 11.5px/1.6 var(--pp-body);

@@ -59,7 +59,7 @@ export function JobProgress({
         <h2>{heading}</h2>
         {!running && (
           <button
-            className="btn btn--ghost btn--small"
+            className="pp-action"
             onClick={onDismiss}
             aria-label={dismissLabel}
           >
@@ -99,7 +99,7 @@ export function JobProgress({
 
       {running && (
         <AsyncButton
-          className="btn btn--ghost"
+          className="pp-action"
           onClick={onCancel}
           pendingLabel="Stopping…"
         >
