@@ -381,6 +381,18 @@ describe("ADR numbering — a number that means something else on origin/main", 
     expect(() => baseAdrFiles(repo, "no-such-ref")).toThrow();
   });
 
+  it("says so out loud when --local skips the origin/main half", () => {
+    // The one branch of the CLI that weakens the gate on purpose. It must be visible: a check that
+    // silently compares against nothing reads exactly like a check that passed.
+    const repoRoot = join(adrDir, "..", "..");
+    const out = execFileSync(
+      process.execPath,
+      [join(repoRoot, "scripts", "check-adr-numbers.mjs"), "--local"],
+      { cwd: repoRoot, encoding: "utf8", timeout: 30_000 },
+    );
+    expect(out).toContain("skipping the origin/main comparison");
+  });
+
   it("names the next free number across both trees, not just this one", () => {
     // The renumber that caused #316 took "the next number I can see". 0080 was already on main.
     const dir = fixture({ "0077-mine.md": "# ADR 0077 — Mine\n" });
