@@ -77,34 +77,19 @@ $ curl -s -H "X-Trigger-Secret: SECRET" -X POST http://localhost:4741/api/admin/
 
 ## 4. Make it start on boot (systemd) — the unit
 
-`systemd` keeps Amp alive and restarts it on failure or reboot. Create the service file:
+`systemd` keeps Amp alive and restarts it on failure or reboot. The unit is a tracked file,
+[`deploy/marquee-amp.service`](deploy/marquee-amp.service) — copy it in rather than retyping it
+(it assumes username `pi`; adjust the paths if you used a different one):
 
 ```
-$ sudo nano /etc/systemd/system/marquee-amp.service
+$ sudo cp ~/Marquee/packages/amp/deploy/marquee-amp.service /etc/systemd/system/
 ```
 
-Paste this (assumes username `pi`; adjust the paths if you used a different username):
-
-```ini
-[Unit]
-Description=Marquee Amp — Sonos audio for card scans
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=pi
-WorkingDirectory=/home/pi/Marquee/packages/amp
-ExecStart=/usr/bin/node /home/pi/Marquee/packages/amp/dist/server.js
-Restart=on-failure
-RestartSec=3
-# Log to journald (bounded) rather than a file that grows forever and wears the SD card.
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-```
+> **This used to be a block of INI pasted into this document**, which is the arrangement that let the
+> Backdrop unit end up with two names and `kiosk.sh` drift for the life of
+> [#211](https://github.com/dylanleatham/Marquee/issues/211). It is now checked in and converged on
+> every `pnpm run deploy`
+> ([ADR 0080](../../docs/adrs/0080-deployment-is-one-pinned-commit-verified-on-every-host.md)).
 
 Enable and start it:
 

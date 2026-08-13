@@ -1,0 +1,24 @@
+[Unit]
+Description=Marquee Amp — Sonos audio for card scans
+Documentation=https://github.com/dylanleatham/Marquee/blob/main/packages/amp/DEPLOY.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/Marquee/packages/amp
+ExecStart=/usr/bin/node /home/pi/Marquee/packages/amp/dist/server.js
+Restart=on-failure
+RestartSec=3
+# Journald is bounded and rotates; a log file on the SD card grows forever and wears the card out.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=marquee-amp
+
+[Install]
+WantedBy=multi-user.target
+
+# The unit is `marquee-amp`, not `amp` — matching `marquee-conductor` and `marquee-stylus`, and
+# matching what is actually deployed. DEPLOY.md used to say `amp.service`, so a copy-pasted
+# `journalctl -u amp` returns nothing on a real Pi and reads exactly like a service with no traffic.

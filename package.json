@@ -9,6 +9,8 @@
   },
   "scripts": {
     "setup": "node scripts/setup.mjs",
+    "//deploy": "Always `pnpm run deploy`, never `pnpm deploy` — the latter is pnpm's own built-in command and will not run this.",
+    "deploy": "pnpm --filter @marquee/deploy build && node packages/deploy/dist/cli.js",
     "app": "pnpm --filter @marquee/desktop start",
     "curator": "pnpm --filter @marquee/curator app",
     "dev": "turbo run dev",

@@ -1,0 +1,28 @@
+[Desktop Entry]
+# Marquee Backdrop — starts the Chromium kiosk when the desktop session comes up.
+#
+# Install as ~/.config/autostart/backdrop-kiosk.desktop:
+#
+#     mkdir -p ~/.config/autostart
+#     cp ~/Marquee/packages/backdrop/deploy/backdrop-kiosk.desktop ~/.config/autostart/
+#
+# `pnpm run deploy` installs this for you and diffs it against the repo on every run; before it existed,
+# this entry was hand-typed from DEPLOY.md into a file `git pull` can never update — the same drift
+# that cost the whole life of issue #211 for kiosk.sh.
+#
+# WHY XDG AUTOSTART AND NOT A SYSTEMD UNIT. docs/runbook.md A3 and docs/bring-up-checklist.md both
+# mention a `marquee-kiosk.service`; no such unit was ever shipped, and this is the mechanism that
+# actually runs on the stand. Chromium needs a live X session with the user's DISPLAY, XAUTHORITY
+# and session bus — a system unit has none of them, and a user unit needs lingering plus an
+# imported session environment to get them. The session's own autostart already has all of it.
+#
+# The real work is in ~/kiosk.sh (installed from deploy/kiosk.sh), which is the source of truth for
+# every Chromium flag and for the 1920x1080@60 display mode. Keep this entry a launcher and nothing
+# more: a flag added here instead of there is a flag no test can see.
+Type=Application
+Name=Marquee Backdrop kiosk
+Comment=Fullscreen Chromium showing the Backdrop SPA — see packages/backdrop/DEPLOY.md
+Exec=/bin/bash /home/pi/kiosk.sh
+# The kiosk is the display; it has no window of its own to show in a session's startup UI.
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

@@ -1,0 +1,25 @@
+{
+  "name": "@marquee/deploy",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic deploy driver — puts one pinned commit on every host and verifies it landed (ADR 0080).",
+  "main": "./dist/cli.js",
+  "bin": {
+    "marquee-deploy": "./dist/cli.js"
+  },
+  "scripts": {
+    "start": "node dist/cli.js",
+    "build": "tsc -b",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "lint": "echo \"(no linter configured yet)\""
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2",
+    "vitest": "^2.1.3"
+  }
+}

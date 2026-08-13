@@ -86,7 +86,11 @@ curl -s -XPOST http://$PI5:4737/api/test/color -H "X-Trigger-Secret: $SECRET" \
 
 - [ ] Config: shared secret + media dir (`/home/pi/marquee-data/media/visualizers`)
 - [ ] Backdrop's unit up (`systemctl enable --now`) — `backdrop` or `marquee-backdrop`, depending on which guide you followed
-- [ ] Kiosk unit `marquee-kiosk.service` launches Chromium fullscreen on the TV
+- [ ] `~/kiosk.sh` and `~/.config/autostart/backdrop-kiosk.desktop` installed from
+      `packages/backdrop/deploy/` — the kiosk starts from **XDG autostart, not a systemd unit**
+      (this line named a `marquee-kiosk.service` that never existed; corrected by
+      [ADR 0080](adrs/0080-deployment-is-one-pinned-commit-verified-on-every-host.md))
+- [ ] Chromium comes up fullscreen on the TV after a reboot
 
 **GATE 3:** `curl -s http://$PI5:4740/api/status` shows it **up with a browser connected**, and the TV
 shows Backdrop's idle gradient. (The video-plays check comes after A4's sync, in the Phase 5 smoke test.)

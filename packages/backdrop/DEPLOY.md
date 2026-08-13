@@ -336,30 +336,23 @@ $ sudo nano /etc/systemd/system/backdrop.service
 > unsure which one you have:
 > `systemctl list-units --all 'marquee*' 'backdrop*' --no-pager`.
 
-Paste this exactly (it assumes username `pi` — change the paths if you used a different username):
+Don't retype it — the unit is a tracked file,
+[`deploy/marquee-backdrop.service`](deploy/marquee-backdrop.service). Copy it in (it assumes username
+`pi`; change the paths if you used a different one):
 
-```ini
-[Unit]
-Description=Marquee Backdrop backend
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=pi
-WorkingDirectory=/home/pi/Marquee/packages/backdrop
-ExecStart=/usr/bin/node /home/pi/Marquee/packages/backdrop/dist/server.js
-Restart=on-failure
-RestartSec=3
-# Log to journald (bounded) rather than a file that grows forever and wears the SD card.
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
+```
+$ sudo cp ~/Marquee/packages/backdrop/deploy/marquee-backdrop.service \
+    /etc/systemd/system/backdrop.service      # ← or marquee-backdrop.service; see the naming note above
 ```
 
-Save and exit, then enable and start it:
+> **This used to be a block of INI pasted into this document.** That is how `kiosk.sh` went wrong for
+> the whole life of [#211](https://github.com/dylanleatham/Marquee/issues/211): the copy people paste
+> and the copy the repo reviews drift apart, with nothing to notice. The file is now checked in,
+> guarded by `test/deploy-assets.test.ts`, and converged on every `pnpm run deploy`
+> ([ADR 0080](../../docs/adrs/0080-deployment-is-one-pinned-commit-verified-on-every-host.md)).
+> Nothing in the file depends on which name you install it under.
+
+Then enable and start it:
 
 ```
 $ sudo systemctl daemon-reload
@@ -602,7 +595,18 @@ router, or rely on the `backdrop.local` name (mDNS) if your network supports it.
 
 ## 15. Updating Backdrop later
 
-When there's new code:
+From your workstation, for every host at once — this is the one to reach for:
+
+```
+$ pnpm run deploy
+```
+
+It pins one commit, works out that Backdrop needs a build and a restart (and whether the kiosk needs
+a reboot), converges `~/kiosk.sh` and the unit file, and then verifies the restart actually took.
+See [packages/deploy/README.md](../deploy/README.md) and
+[ADR 0080](../../docs/adrs/0080-deployment-is-one-pinned-commit-verified-on-every-host.md).
+
+By hand on the Pi, when you can't run that:
 
 ```
 $ cd ~/Marquee

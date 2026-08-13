@@ -224,6 +224,26 @@ Costs:
 
 The Hue bridge, both Pis, and workstation must be on the same LAN. Conductor talks to the bridge over local HTTPS; Stylus talks to Conductor and Backdrop over LAN HTTP.
 
+### How code reaches those hosts
+
+> **Added 2026-08-13 ([ADR 0080](../adrs/0080-deployment-is-one-pinned-commit-verified-on-every-host.md)).**
+
+**One commit, applied to every host and verified: `pnpm run deploy`** (`packages/deploy`). Services
+are built **on the devices** — no artifact registry, no cross-compilation — but which source they are
+built from is pinned rather than pulled:
+
+| Property              | How                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **One version**       | `--ref` (default `origin/main`) resolves to a single SHA once; every host is checked out detached to that SHA and reports it back.                                                                                                                                                                                                                                                                                                                                                                                                                |
+| **Order**             | Pi 5 → Pi Zero → workstation, fixed. Curator is the only service that pushes, and an older Backdrop rejects its payload outright ([ADR 0073](../adrs/0073-a-record-with-no-visualizer-plays-the-default.md)).                                                                                                                                                                                                                                                                                                                                     |
+| **Scope**             | Derived from `git diff` against the host's current commit, via the rule table in `packages/deploy/src/changes.ts`. A path matching no rule escalates to a full deploy.                                                                                                                                                                                                                                                                                                                                                                            |
+| **Out-of-tree files** | `~/kiosk.sh`, the autostart entries and all four systemd units are tracked in the repo and converged by hash on every run, each replaced file backed up beside itself as `.bak-<sha>`. **Automatic rollback covers the systemd units only** — a failed restart restores the previous unit, or removes the file if this deploy created it. A bad kiosk asset surfaces as Backdrop's `/healthz` 503 instead, and is reverted by hand from the `.bak`. `config.toml` is not converged at all — it holds the shared secret and has no tracked source. |
+| **Proof**             | On-disk SHA, unit `ActiveEnterTimestamp` newer than the checkout, `/healthz` over loopback on the host, `diff -rq` for Stylus's non-editable install, and a bundle-name comparison for Curator.                                                                                                                                                                                                                                                                                                                                                   |
+| **Rollback**          | `--ref <old-sha>` — the same path, verified the same way.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+
+Still manual: Part A provisioning (apt, `raspi-config`, Hue pairing, secret generation), the
+`config.toml` files, and running the desktop installer that `--desktop` builds.
+
 ## 8. Cross-cutting concerns
 
 ### Auth

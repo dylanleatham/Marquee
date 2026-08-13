@@ -16,13 +16,13 @@ on the **Pi 5** by the TV; **Stylus** on the **Pi Zero 2 W** in the stand. Hue b
 the workstation must share one **LAN**. All three Pi 5 services share one address — see "The Pi 5's
 address lives in three places" in Part B.
 
-| Service       | Host        | Port          | Prod start                                                                   |
-| ------------- | ----------- | ------------- | ---------------------------------------------------------------------------- |
-| Curator       | workstation | 4739          | `pnpm --filter @marquee/curator dev`                                         |
-| Hue Conductor | Pi 5        | 4737          | systemd: `marquee-conductor` (`node dist/…`)                                 |
-| Backdrop      | Pi 5        | 4740          | systemd: `marquee-backdrop` **or** `backdrop` (+ Chromium unit) — see Part B |
-| Amp           | Pi 5        | 4741          | systemd: `marquee-amp`                                                       |
-| Stylus        | Pi Zero 2 W | 4741 (status) | systemd: `marquee-stylus`                                                    |
+| Service       | Host        | Port          | Prod start                                                                                            |
+| ------------- | ----------- | ------------- | ----------------------------------------------------------------------------------------------------- |
+| Curator       | workstation | 4739          | `pnpm --filter @marquee/curator dev`                                                                  |
+| Hue Conductor | Pi 5        | 4737          | systemd: `marquee-conductor` (`node dist/…`)                                                          |
+| Backdrop      | Pi 5        | 4740          | systemd: `marquee-backdrop` **or** `backdrop` (+ Chromium via XDG autostart, not a unit) — see Part B |
+| Amp           | Pi 5        | 4741          | systemd: `marquee-amp`                                                                                |
+| Stylus        | Pi Zero 2 W | 4741 (status) | systemd: `marquee-stylus`                                                                             |
 
 **One shared secret everywhere.** Every service-to-service call carries `X-Trigger-Secret`; pick one
 value and use it in Conductor's `[auth]`, Backdrop's auth, Curator's outbound config, and Stylus's
@@ -70,21 +70,17 @@ Work top-to-bottom; each step ends with a **Check** so a failure tells you which
 2. **Pair the Hue bridge:** `pnpm --filter @marquee/hue-conductor pair`, then **press the bridge's link
    button** when prompted. It discovers the bridge, waits for the press, and saves the application key
    into `data_dir`.
-3. **systemd unit** — `/etc/systemd/system/marquee-conductor.service`:
-   ```ini
-   [Unit]
-   Description=Marquee Hue Conductor
-   Wants=network-online.target
-   After=network-online.target
-   [Service]
-   WorkingDirectory=/home/pi/Marquee/packages/hue-conductor
-   ExecStart=/usr/bin/node dist/server.js
-   Restart=on-failure
-   User=pi
-   [Install]
-   WantedBy=multi-user.target
+3. **systemd unit** — install the tracked file
+   [`packages/hue-conductor/deploy/marquee-conductor.service`](../packages/hue-conductor/deploy/marquee-conductor.service)
+   rather than retyping one:
    ```
-   `sudo systemctl enable --now marquee-conductor`.
+   $ sudo cp ~/Marquee/packages/hue-conductor/deploy/marquee-conductor.service /etc/systemd/system/
+   $ sudo systemctl daemon-reload && sudo systemctl enable --now marquee-conductor
+   ```
+   The unit used to live here as a block to copy-paste. It is a tracked file now so that
+   `pnpm run deploy` can converge it and a test can check it keeps its restart policy — the same
+   reason `kiosk.sh` moved out of backdrop/DEPLOY.md
+   ([ADR 0080](adrs/0080-deployment-is-one-pinned-commit-verified-on-every-host.md)).
 4. **Set the listening room:** `GET /api/rooms` to find the id, then
    `PUT /api/settings { "listeningRoomId": "<roomId>" }` (or set it from Curator's Demo Room). Scans
    carry no room — they drive this one.
@@ -136,16 +132,34 @@ a CLIP pattern; check `journalctl -u marquee-conductor` for `streaming … faile
 
 1. **Config** — shared secret + the media dir where visualizer `.mp4`s live on the Pi
    (e.g. `/home/pi/marquee-data/media/visualizers`).
-2. **Node service** — `/etc/systemd/system/marquee-backdrop.service`, same shape as Conductor's but
-   `WorkingDirectory=…/packages/backdrop` and `ExecStart=/usr/bin/node dist/server.js`.
-   `sudo systemctl enable --now marquee-backdrop`.
-3. **Kiosk browser** — Backdrop's SPA is a `file://` kiosk that connects back over WebSocket
-   (backdrop/README.md). A second unit `marquee-kiosk.service` (needs the desktop/X session) runs:
-   ```sh
-   chromium-browser --kiosk --start-fullscreen --window-position=0,0 \
-     --autoplay-policy=no-user-gesture-required \
-     --app=file:///home/pi/Marquee/packages/backdrop/public/index.html?debug=0
+2. **Node service** — install the tracked unit
+   [`packages/backdrop/deploy/marquee-backdrop.service`](../packages/backdrop/deploy/marquee-backdrop.service):
    ```
+   $ sudo cp ~/Marquee/packages/backdrop/deploy/marquee-backdrop.service /etc/systemd/system/
+   $ sudo systemctl daemon-reload && sudo systemctl enable --now marquee-backdrop
+   ```
+   If your install already has this unit under the name `backdrop`, keep that name — see the naming
+   note in B0. `pnpm run deploy` converges whichever one you have.
+3. **Kiosk browser** — Backdrop's SPA is a `file://` kiosk that connects back over WebSocket
+   (backdrop/README.md). It starts from **XDG autostart, not a systemd unit**: Chromium needs a live
+   X session with the user's `DISPLAY`, `XAUTHORITY` and session bus, which a system unit has none
+   of. Install the two tracked files:
+
+   ```
+   $ cp ~/Marquee/packages/backdrop/deploy/kiosk.sh ~/kiosk.sh && chmod +x ~/kiosk.sh
+   $ mkdir -p ~/.config/autostart
+   $ cp ~/Marquee/packages/backdrop/deploy/backdrop-kiosk.desktop ~/.config/autostart/
+   ```
+
+   `~/kiosk.sh` is the source of truth for every Chromium flag and for the 1920x1080@60 display mode;
+   `packages/backdrop/test/deploy-assets.test.ts` guards it. Full detail in
+   [backdrop/DEPLOY.md](../packages/backdrop/DEPLOY.md) step 11b.
+
+   > **Corrected 2026-08-13 ([ADR 0080](adrs/0080-deployment-is-one-pinned-commit-verified-on-every-host.md)).**
+   > This step used to describe a second unit called `marquee-kiosk.service` running
+   > `chromium-browser`. No such unit was ever shipped, and a `systemctl status marquee-kiosk` on a
+   > real Pi returns "not found" — which reads like a broken install rather than a wrong document.
+   > The autostart entry above is the mechanism that has always actually run.
    - **Check:** `GET /api/status` shows it up with a browser connected. With a library entry synced
      (A4), `POST /api/admin/simulate-scan { "uri": "curator:album:<id>" }` plays that video on the TV;
      `POST /api/admin/stop` returns it to the idle gradient.
@@ -355,6 +369,39 @@ The page/NDEF bytes are the tested part (they're pinned to exactly what Stylus r
 The setup in Part A happens once. **This is the part you repeat.** Nothing here needs the Imager, the
 keyboard, or any of the one-time config — it's `git pull`, rebuild what changed, restart what changed.
 
+#### Run this
+
+```
+$ pnpm run deploy
+```
+
+That is the whole procedure. It resolves `origin/main` to one commit, puts that exact commit on the
+Pi 5, the Pi Zero and the workstation in that order, converges the out-of-tree files listed below,
+restarts what the change actually requires, and then **proves** each service is running the new code
+rather than assuming it. It refuses rather than half-applying: every host is checked before any host
+is touched. See [packages/deploy/README.md](../packages/deploy/README.md) and
+[ADR 0080](adrs/0080-deployment-is-one-pinned-commit-verified-on-every-host.md).
+
+```
+$ pnpm run deploy --dry-run              # plan only, changes nothing
+$ pnpm run deploy --only pi5             # one host
+$ pnpm run deploy --ref 53b39d3          # roll back — same path, verified the same way
+```
+
+First run needs an inventory naming your hosts, including each service's real unit name:
+
+```
+$ cp packages/deploy/hosts.example.json packages/deploy/hosts.json
+```
+
+> It is `pnpm run deploy`, not `pnpm deploy` — the latter is pnpm's own built-in command.
+
+#### The rest of this section
+
+Everything below is the same procedure by hand, and it stays for two reasons: it is what you do when
+the script can't reach a host, and it explains _why_ each step is there — which is knowledge the
+script encodes but doesn't teach. Where the two disagree, the script is what actually runs.
+
 > **Order: Pis first, workstation second.** The services tolerate each other being _old_ far better
 > than being _ahead_, because Curator is the only one that pushes. The concrete case:
 > [ADR 0073](adrs/0073-a-record-with-no-visualizer-plays-the-default.md) has Curator push
@@ -471,14 +518,28 @@ Restarting the wrong thing is the usual reason an update "didn't take". Match th
 
 #### What `git pull` will never update
 
-These live outside the repo or are gitignored, so they are yours to maintain by hand. When a doc
-changes one, pulling does nothing — you have to apply it yourself:
+These live outside the repo or are gitignored, so a pull changes the repo copy and nothing else.
+**`pnpm run deploy` now converges all but the last of them** — it hashes the installed copy against
+the repo on every run and rewrites the ones that differ (taking a backup first). By hand, they are
+yours to apply:
 
 - **`~/kiosk.sh`** — in your home directory, not the repo. Every Chromium flag lives here.
-- **`~/.config/autostart/backdrop-kiosk.desktop`** — the kiosk autostart entry.
+  Source of truth: [`packages/backdrop/deploy/kiosk.sh`](../packages/backdrop/deploy/kiosk.sh).
+- **`~/.config/autostart/backdrop-kiosk.desktop`** — the kiosk autostart entry. Source of truth:
+  [`packages/backdrop/deploy/backdrop-kiosk.desktop`](../packages/backdrop/deploy/backdrop-kiosk.desktop).
+- **`~/.config/autostart/xcompmgr.desktop`** — the compositor override
+  ([ADR 0047](adrs/0047-the-kiosk-display-pipeline-not-the-decoder.md)). Source of truth:
+  [`packages/backdrop/deploy/xcompmgr.desktop`](../packages/backdrop/deploy/xcompmgr.desktop).
+- **`/etc/systemd/system/*.service`** — after editing any unit, `sudo systemctl daemon-reload` first.
+  All four are now tracked: [conductor](../packages/hue-conductor/deploy/marquee-conductor.service),
+  [backdrop](../packages/backdrop/deploy/marquee-backdrop.service),
+  [amp](../packages/amp/deploy/marquee-amp.service),
+  [stylus](../packages/stylus/marquee-stylus.service). The **file** is canonical; the installed
+  **unit name** is not — see the naming note above.
 - **`packages/*/config.toml`** — gitignored (only `config.example.toml` is tracked). Shared secret,
   ports, `album_assets_dir`, `media_dir`. If an example file gains a new key you want, copy it across.
-- **`/etc/systemd/system/*.service`** — after editing any unit, `sudo systemctl daemon-reload` first.
+  **Not converged by the deployer**: there is no tracked source to converge towards, and these hold
+  the shared secret.
 
 > ⚠️ **Do not add Chromium flags to `~/kiosk.sh` speculatively.** GPU flags in particular
 > (`--ignore-gpu-blocklist`, `--enable-gpu-rasterization`, `--enable-zero-copy`) boot the kiosk to a

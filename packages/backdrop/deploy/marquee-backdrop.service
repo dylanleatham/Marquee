@@ -1,0 +1,27 @@
+[Unit]
+Description=Marquee Backdrop backend — video playback
+Documentation=https://github.com/dylanleatham/Marquee/blob/main/packages/backdrop/DEPLOY.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/Marquee/packages/backdrop
+ExecStart=/usr/bin/node /home/pi/Marquee/packages/backdrop/dist/server.js
+Restart=on-failure
+RestartSec=3
+# Journald is bounded and rotates; a log file on the SD card grows forever and wears the card out.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=marquee-backdrop
+
+[Install]
+WantedBy=multi-user.target
+
+# --- On this file's name ------------------------------------------------------------------------
+# The *file* is canonical; the *installed unit name* is not. DEPLOY.md §10 creates `backdrop` and
+# docs/runbook.md A3 creates `marquee-backdrop`, and both exist on real installs — which is why the
+# name is configuration (`unit` in the deploy inventory) rather than something the deployer assumes.
+# Nothing in this file depends on which name it is installed under, so converging it is safe either
+# way; installing it under the *other* name would give you two services fighting over port 4740.

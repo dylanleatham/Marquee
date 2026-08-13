@@ -1,0 +1,45 @@
+{
+  "_comment": [
+    "Copy to hosts.json (gitignored) and edit. This is the deploy inventory: the one place that",
+    "names your hosts. See packages/deploy/README.md.",
+    "",
+    "unit: the systemd unit name AS IT EXISTS ON THAT HOST. Backdrop is the one that varies —",
+    "packages/backdrop/DEPLOY.md creates 'backdrop', docs/runbook.md A3 creates 'marquee-backdrop',",
+    "and both exist on real installs. Check yours before the first deploy:",
+    "  ssh pi@backdrop.local systemctl list-units --all 'marquee*' 'backdrop*' --no-pager",
+    "",
+    "ssh: anything your SSH config accepts. Key auth is required — the deploy runs with",
+    "BatchMode=yes so it fails fast rather than hanging on a password prompt.",
+    "",
+    "Omit 'ssh' to run a host's commands locally; that is what marks the workstation."
+  ],
+
+  "hosts": {
+    "pi5": {
+      "ssh": "pi@backdrop.local",
+      "repo": "/home/pi/Marquee",
+      "kiosk": true,
+      "services": {
+        "conductor": { "unit": "marquee-conductor", "port": 4737 },
+        "backdrop": { "unit": "backdrop", "port": 4740 },
+        "amp": { "unit": "marquee-amp", "port": 4741 }
+      }
+    },
+
+    "pizero": {
+      "ssh": "pi@marquee-pizero.local",
+      "repo": "/home/pi/Marquee",
+      "services": {
+        "stylus": { "unit": "marquee-stylus", "port": 4741 }
+      }
+    },
+
+    "workstation": {
+      "repo": "C:/Users/you/dev/Marquee",
+      "user": "you",
+      "services": {
+        "curator": { "port": 4739 }
+      }
+    }
+  }
+}
