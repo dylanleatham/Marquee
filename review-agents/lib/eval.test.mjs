@@ -17,6 +17,9 @@ import {
   majorityOutcome,
   cacheKey,
   cachePolicy,
+  detectionRate,
+  rateTolerance,
+  baselineLacksRates,
   summarizeEval,
   toBaseline,
   compareBaseline,
@@ -312,8 +315,16 @@ const results = [
 test("summarizeEval: recall, false positives, and the two structural outcomes are separate", () => {
   const summary = summarizeEval(results);
   const runtime = summary.find((s) => s.id === "runtime");
-  assert.deepEqual(runtime.mustFind, { hit: 1, total: 2 });
-  assert.deepEqual(runtime.mustNotFind, { fp: 1, total: 2 });
+  // The fixture carries no hits/runs, so the run-level counters stay at zero — which is what
+  // `detectionRate` reports as null rather than as a measured 0%.
+  assert.deepEqual(runtime.mustFind, { hit: 1, total: 2, hits: 0, runs: 0 });
+  assert.deepEqual(runtime.mustNotFind, {
+    fp: 1,
+    total: 2,
+    fpRuns: 0,
+    runs: 0,
+  });
+  assert.equal(detectionRate(runtime.mustFind), null);
   assert.equal(summary.find((s) => s.id === "test-auditor").notTriggered, 1);
   assert.equal(summary.find((s) => s.id === "doc-coherence").notInstalled, 1);
 });
@@ -418,4 +429,192 @@ test("no case still carries the seeder's TODO placeholder", () => {
       `${id}: still has the seeded TODO — write the expect block by hand`,
     );
   }
+});
+
+// --- detection rate: the sensitive half of the gate --------------------------------------------
+
+// The shape the first real baseline produced: four must-find cases at 5 repeats, landing 2, 2, 2
+// and 4 hits. Majority-of-5 calls three of them a miss, so RECALL reads 1/4 — which sounds like
+// near-blindness, while the runs say the reviewer recognises these bugs half the time.
+const runtimeCases = (hitsPerCase) =>
+  hitsPerCase.map((hits) => ({
+    specialist: "runtime",
+    kind: "must-find",
+    outcome: hits * 2 > 5 ? "hit" : "miss",
+    hits,
+    runs: 5,
+  }));
+
+test("summarizeEval: keeps the run-level detection rate the majority verdict throws away", () => {
+  const summary = summarizeEval(runtimeCases([2, 2, 2, 4]));
+  const runtime = summary.find((s) => s.id === "runtime");
+  assert.deepEqual(runtime.mustFind, { hit: 1, total: 4, hits: 10, runs: 20 });
+  assert.equal(detectionRate(runtime.mustFind), 0.5);
+});
+
+test("detectionRate: nothing run is null, never a zero that reads like a measurement", () => {
+  assert.equal(detectionRate({ hits: 0, runs: 0 }), null);
+  assert.equal(detectionRate({}), null);
+  assert.equal(detectionRate({ hits: 0, runs: 5 }), 0);
+});
+
+test("summarizeEval: a must-not-find case counts the runs that emitted something, not the quiet ones", () => {
+  const results = [
+    {
+      specialist: "runtime",
+      kind: "must-not-find",
+      outcome: "hit",
+      hits: 5,
+      runs: 5,
+    },
+    {
+      specialist: "runtime",
+      kind: "must-not-find",
+      outcome: "miss",
+      hits: 3,
+      runs: 5,
+    },
+  ];
+  const runtime = summarizeEval(results).find((s) => s.id === "runtime");
+  // 0 noisy runs in the first case, 2 in the second.
+  assert.deepEqual(runtime.mustNotFind, {
+    fp: 1,
+    total: 2,
+    fpRuns: 2,
+    runs: 10,
+  });
+});
+
+test("rateTolerance: wide where the sample is thin, and it narrows as runs grow", () => {
+  // The tolerance exists because the rate is a sample from a noisy process. At p≈0.5 over 20 runs
+  // the standard error alone is ~0.11, so a strict "may not fall" would fail on sampling luck —
+  // and a gate that flakes is a gate that gets disabled.
+  const thin = rateTolerance({ hits: 10, runs: 20 });
+  const thick = rateTolerance({ hits: 100, runs: 200 });
+  assert.ok(thin > thick, "more runs must buy a tighter tolerance");
+  assert.ok(thin > 0.2 && thin < 0.25);
+  // A rate pinned at 0 or 1 has zero standard error; the floor stops that becoming a hair-trigger.
+  assert.equal(rateTolerance({ hits: 0, runs: 40 }), 0.05);
+  assert.equal(rateTolerance({ hits: 40, runs: 40 }), 0.05);
+  // Nothing measured cannot regress.
+  assert.equal(rateTolerance({ hits: 0, runs: 0 }), 1);
+});
+
+test("compareBaseline: a collapse RECALL cannot see is caught by the detection rate", () => {
+  // This is the whole reason for the change. Every case slides 2/5 → 0/5: detection goes from 50%
+  // to 10%, a total collapse — and `hit/total` does not move, because 2/5 and 0/5 are both "miss".
+  const baseline = toBaseline(summarizeEval(runtimeCases([2, 2, 2, 4])), {
+    repeats: 5,
+    generatedAt: "t",
+  });
+  const collapsed = summarizeEval(runtimeCases([0, 0, 0, 2]));
+
+  assert.equal(collapsed.find((s) => s.id === "runtime").mustFind.hit, 0);
+  const cmp = compareBaseline(collapsed, baseline);
+  assert.ok(!cmp.ok);
+  assert.match(
+    cmp.regressions.join(),
+    /detection rate fell — 50% \(10\/20 runs\) → 10%/,
+  );
+});
+
+test("compareBaseline: ordinary sampling noise is not a regression", () => {
+  // 10/20 → 8/20 is well inside two standard errors. Flagging it would make the gate useless.
+  const baseline = toBaseline(summarizeEval(runtimeCases([2, 2, 2, 4])), {
+    repeats: 5,
+    generatedAt: "t",
+  });
+  const jittered = summarizeEval(runtimeCases([1, 2, 2, 3]));
+  assert.ok(compareBaseline(jittered, baseline).ok);
+});
+
+test("compareBaseline: a per-run false-positive rise is caught before it wins a case", () => {
+  const quiet = summarizeEval([
+    {
+      specialist: "runtime",
+      kind: "must-not-find",
+      outcome: "hit",
+      hits: 5,
+      runs: 5,
+    },
+    {
+      specialist: "runtime",
+      kind: "must-not-find",
+      outcome: "hit",
+      hits: 5,
+      runs: 5,
+    },
+  ]);
+  const baseline = toBaseline(quiet, { repeats: 5, generatedAt: "t" });
+  // Still a "hit" on both cases by majority, but now noisy on nearly half the runs.
+  const noisier = summarizeEval([
+    {
+      specialist: "runtime",
+      kind: "must-not-find",
+      outcome: "hit",
+      hits: 3,
+      runs: 5,
+    },
+    {
+      specialist: "runtime",
+      kind: "must-not-find",
+      outcome: "hit",
+      hits: 3,
+      runs: 5,
+    },
+  ]);
+  assert.equal(noisier.find((s) => s.id === "runtime").mustNotFind.fp, 0);
+  const cmp = compareBaseline(noisier, baseline);
+  assert.ok(!cmp.ok);
+  assert.match(
+    cmp.regressions.join(),
+    /per-run false-positive rate rose — 0% .* → 40%/,
+  );
+});
+
+test("baselineLacksRates: an old baseline disables half the gate, and says so", () => {
+  // A baseline written before this change has no hits/runs. Treating the missing fields as zero
+  // would manufacture a regression on every run; treating the comparison as passed would report a
+  // clean gate while half of it is switched off. It is detected and announced instead.
+  const old = {
+    generatedAt: "t",
+    specialists: {
+      runtime: {
+        mustFind: { hit: 1, total: 4 },
+        mustNotFind: { fp: 0, total: 2 },
+      },
+    },
+  };
+  assert.ok(baselineLacksRates(old));
+  const cmp = compareBaseline(summarizeEval(runtimeCases([2, 2, 2, 4])), old);
+  assert.ok(cmp.ok, "an old baseline must not manufacture a regression");
+  assert.match(
+    formatEval(summarizeEval(runtimeCases([2, 2, 2, 4])), {
+      repeats: 5,
+      baseline: old,
+    }),
+    /predates detection rates/,
+  );
+
+  const current = toBaseline(summarizeEval(runtimeCases([2, 2, 2, 4])), {
+    repeats: 5,
+    generatedAt: "t",
+  });
+  assert.ok(!baselineLacksRates(current));
+  assert.ok(
+    !formatEval(summarizeEval(runtimeCases([2, 2, 2, 4])), {
+      repeats: 5,
+      baseline: current,
+    }).includes("predates detection rates"),
+  );
+});
+
+test("formatEval: both resolutions are on the table, as numbers and a percentage", () => {
+  const text = formatEval(summarizeEval(runtimeCases([2, 2, 2, 4])), {
+    repeats: 5,
+  });
+  assert.match(text, /RECALL/);
+  assert.match(text, /DETECTED/);
+  assert.match(text, /1\/4/); // case level
+  assert.match(text, /10\/20 50%/); // run level
 });

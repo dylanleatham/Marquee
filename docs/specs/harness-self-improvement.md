@@ -256,8 +256,21 @@ so the case-level outcome is nearly as noisy as the run-level one. Record baseli
 or higher, and treat a single case flipping as noise. This is a fact about the roster, not about the
 eval; it is simply the first time the harness has been able to state it.
 
-**The gate.** `review-agents/eval/baseline.json` is committed. A harness edit may not decrease any
-specialist's recall or increase its false-positive count relative to the baseline. When an edit
+**The gate.** `review-agents/eval/baseline.json` is committed, and it compares at **two
+resolutions**. Case level — the majority verdict — is strict and may not go backwards. Run level —
+the detection rate, hits over total runs — is the sensitive half, compared against a tolerance of
+two standard errors of the baseline rate.
+
+_Both, because the first baseline showed the case-level number alone is the wrong instrument
+(added 2026-08-13, after §4.1's ledger and this section had already shipped)._ It is **insensitive
+where it matters**: a reviewer sliding from 2/5 to 0/5 on every case has stopped working entirely,
+and `hit/total` does not move, since 2/5 and 0/5 are both "miss". It is also **misleading**:
+`test-auditor` reads `0/1` recall, which sounds blind, while its runs say 2/5. The tolerance on the
+run-level half is wide (≈±22% at the measured rates) and shrinks as `sqrt(runs)`, so the lever for a
+tighter gate is more cases and more repeats, not a smaller threshold.
+
+A harness edit may not decrease any specialist's recall or increase its false-positive count
+relative to the baseline. When an edit
 improves things, the new baseline is committed in the same PR — which makes the improvement a
 reviewable diff rather than an assertion in a commit message.
 

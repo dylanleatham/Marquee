@@ -139,6 +139,18 @@ Run 2 is a textbook finding: it names the bug, the issue, and both call sites. R
 nothing at all. **Recall on a known-real bug is roughly one run in three**, and that variance is
 larger than any prompt change is likely to produce.
 
+The full baseline, once every case was scored at `--repeat 5`:
+
+| specialist     | RECALL (cases) | DETECTED (runs) | FALSE-POS | FP-RUNS |
+| -------------- | -------------- | --------------- | --------- | ------- |
+| `consistency`  | 0/0            | —               | 0/1       | 0/5 0%  |
+| `runtime`      | 1/4            | 10/20 **50%**   | 0/2       | 0/10 0% |
+| `test-auditor` | 0/1            | 2/5 **40%**     | 0/0       | —       |
+
+Read the two columns together. `test-auditor` at `0/1` looks blind; at `2/5` it plainly is not. And
+**not one run on a clean diff produced a blocking finding** — 0/15. This roster's problem is
+consistency, not noise.
+
 Three consequences, and they matter more than any number in the table:
 
 1. **A single run tells you nothing.** `--repeat 1` is for iterating on an `expect` block, never for
@@ -152,8 +164,22 @@ Three consequences, and they matter more than any number in the table:
 
 ## The baseline
 
-`baseline.json` is committed. A harness edit may not lower any specialist's recall or raise its
-false positives against it. When an edit genuinely improves things, write a new baseline in the same
+`baseline.json` is committed, and the gate has two halves.
+
+**Case level** (`RECALL`, `FALSE-POS`) is strict: a majority verdict may not go backwards, at all.
+
+**Run level** (`DETECTED`, `FP-RUNS`) is the sensitive half, and it is the one that catches a real
+slide. A reviewer going from 2/5 to 0/5 on every case has stopped working, and `RECALL` would not
+move by one — both are "miss". It is compared against a **tolerance of two standard errors** of the
+baseline rate, because the rate is a sample from a noisy process: at 50% over 20 runs the standard
+error alone is ~11%, and a strict comparison would fail on sampling luck. The tolerance is wide on
+purpose, and **the way to tighten it is more cases and more repeats** — it shrinks as `sqrt(runs)` —
+not a smaller number in the code.
+
+A baseline recorded before detection rates existed makes that half inert. The run says so rather
+than reporting a clean pass from a gate that is half switched off.
+
+A harness edit may not lower any specialist's recall or raise its false positives against it. When an edit genuinely improves things, write a new baseline in the same
 PR — that makes the improvement a reviewable diff instead of an assertion in a commit message.
 
 Deleting cases is caught: a specialist the baseline covers but the run doesn't score is reported as

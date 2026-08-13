@@ -225,22 +225,44 @@ export function cachePolicy({ mock = false, noCache = false } = {}) {
   return { read: !mock && !noCache, write: !mock };
 }
 
-/** Per-specialist recall and false positives, from scored case results. */
+/**
+ * Per-specialist recall and false positives, at two resolutions.
+ *
+ * **Case level** (`hit`/`total`) is the majority verdict — the strict gate. **Run level**
+ * (`hits`/`runs`) is the detection rate, and it is the one that carries the signal.
+ *
+ * The first real baseline is why both exist. Not one must-find case scored 0/5: they landed at
+ * 2/5, 2/5, 2/5 and 4/5, so the reviewers plainly recognise these bugs and say so roughly 40% of
+ * the time. Majority-of-five rounded three of the four down to "miss", and the case-level number
+ * then reported 1/4 recall — which reads as near-blindness and is not what is happening.
+ *
+ * Worse, the majority verdict is *insensitive* in the direction that matters: a reviewer sliding
+ * from 2/5 to 0/5 on every case is a total collapse of detection and would not move `hit/total` at
+ * all. A gate that cannot see that is not protecting much.
+ */
 export function summarizeEval(results) {
   const bySpecialist = new Map();
   for (const r of results) {
     const entry = bySpecialist.get(r.specialist) ?? {
       id: r.specialist,
-      mustFind: { hit: 0, total: 0 },
-      mustNotFind: { fp: 0, total: 0 },
+      mustFind: { hit: 0, total: 0, hits: 0, runs: 0 },
+      mustNotFind: { fp: 0, total: 0, fpRuns: 0, runs: 0 },
       notTriggered: 0,
       notInstalled: 0,
     };
+    const hits = r.hits ?? 0;
+    const runs = r.runs ?? 0;
     if (r.kind === "must-find") {
       entry.mustFind.total++;
+      entry.mustFind.hits += hits;
+      entry.mustFind.runs += runs;
       if (r.outcome === "hit") entry.mustFind.hit++;
     } else {
       entry.mustNotFind.total++;
+      entry.mustNotFind.runs += runs;
+      // For a must-not-find case a "hit" run is one that stayed quiet, so the runs that did emit a
+      // blocking finding are the per-run false positives.
+      entry.mustNotFind.fpRuns += Math.max(0, runs - hits);
       if (r.outcome === "miss") entry.mustNotFind.fp++;
     }
     if (r.outcome === "not-triggered") entry.notTriggered++;
@@ -250,7 +272,41 @@ export function summarizeEval(results) {
   return [...bySpecialist.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 
-/** The comparable shape written to `eval/baseline.json`. */
+/** Hits per run, or null when nothing was run. */
+export function detectionRate({ hits = 0, runs = 0 } = {}) {
+  return runs > 0 ? hits / runs : null;
+}
+
+/**
+ * How far a detection rate may drift before it counts as a regression.
+ *
+ * Two standard errors of the baseline rate, floored. The rate is a sample from a noisy process —
+ * at the measured p ≈ 0.4 over 20 runs the standard error alone is about 0.11, so a strict
+ * "may not fall" would fail on nothing but sampling luck, and a gate that flakes is a gate that
+ * gets disabled.
+ *
+ * The tolerance is therefore wide, and deliberately visible as wide. **The way to tighten it is
+ * more cases and more repeats, not a smaller number here** — it narrows as `sqrt(runs)` grows,
+ * which is the honest lever. The floor keeps a rate of exactly 0 or 1 (where the standard error
+ * collapses to zero) from producing a hair-trigger.
+ */
+export function rateTolerance(
+  { hits = 0, runs = 0 } = {},
+  { floor = 0.05 } = {},
+) {
+  if (!runs) return 1; // nothing was measured, so nothing can regress
+  const p = hits / runs;
+  return Math.max(floor, 2 * Math.sqrt((p * (1 - p)) / runs));
+}
+
+/**
+ * The comparable shape written to `eval/baseline.json`.
+ *
+ * Carries both resolutions: the case-level counts the strict gate uses, and the run-level
+ * `hits`/`runs` the detection-rate gate needs. A baseline holding only the first is what the
+ * original version wrote, and `baselineLacksRates` detects it so the run says which half is inert
+ * rather than reporting a clean pass from a gate that is half switched off.
+ */
 export function toBaseline(summary, { repeats, generatedAt }) {
   return {
     generatedAt,
@@ -276,6 +332,8 @@ export function compareBaseline(summary, baseline) {
     return { ok: false, reason: "no-baseline", regressions: [] };
   const current = new Map(summary.map((s) => [s.id, s]));
   const regressions = [];
+  const pct = (r) => `${Math.round(r * 100)}%`;
+
   for (const [id, was] of Object.entries(baseline.specialists)) {
     const now = current.get(id);
     if (!now) {
@@ -286,14 +344,55 @@ export function compareBaseline(summary, baseline) {
     }
     if (now.mustFind.hit < was.mustFind.hit)
       regressions.push(
-        `${id}: recall fell — ${was.mustFind.hit}/${was.mustFind.total} → ${now.mustFind.hit}/${now.mustFind.total}`,
+        `${id}: recall fell — ${was.mustFind.hit}/${was.mustFind.total} → ${now.mustFind.hit}/${now.mustFind.total} case(s)`,
       );
     if (now.mustNotFind.fp > was.mustNotFind.fp)
       regressions.push(
-        `${id}: false positives rose — ${was.mustNotFind.fp}/${was.mustNotFind.total} → ${now.mustNotFind.fp}/${now.mustNotFind.total}`,
+        `${id}: false positives rose — ${was.mustNotFind.fp}/${was.mustNotFind.total} → ${now.mustNotFind.fp}/${now.mustNotFind.total} case(s)`,
       );
+
+    // The sensitive half. A baseline written before detection rates existed has no `hits`/`runs`,
+    // so it is skipped rather than treated as zero — an old baseline must not manufacture a
+    // regression, and it must not silently pass either (formatEval says when it is being skipped).
+    const wasRate = detectionRate(was.mustFind);
+    const nowRate = detectionRate(now.mustFind);
+    if (wasRate !== null && nowRate !== null) {
+      const tol = rateTolerance(was.mustFind);
+      if (nowRate < wasRate - tol)
+        regressions.push(
+          `${id}: detection rate fell — ${pct(wasRate)} (${was.mustFind.hits}/${was.mustFind.runs} runs) → ` +
+            `${pct(nowRate)} (${now.mustFind.hits}/${now.mustFind.runs}), beyond the ±${pct(tol)} sampling tolerance`,
+        );
+    }
+    const wasFp = detectionRate({
+      hits: was.mustNotFind.fpRuns,
+      runs: was.mustNotFind.runs,
+    });
+    const nowFp = detectionRate({
+      hits: now.mustNotFind.fpRuns,
+      runs: now.mustNotFind.runs,
+    });
+    if (wasFp !== null && nowFp !== null) {
+      const tol = rateTolerance({
+        hits: was.mustNotFind.fpRuns,
+        runs: was.mustNotFind.runs,
+      });
+      if (nowFp > wasFp + tol)
+        regressions.push(
+          `${id}: per-run false-positive rate rose — ${pct(wasFp)} (${was.mustNotFind.fpRuns}/${was.mustNotFind.runs} runs) → ` +
+            `${pct(nowFp)} (${now.mustNotFind.fpRuns}/${now.mustNotFind.runs}), beyond the ±${pct(tol)} sampling tolerance`,
+        );
+    }
   }
   return { ok: regressions.length === 0, reason: null, regressions };
+}
+
+/** True when a baseline predates detection rates, so the sensitive half of the gate is inert. */
+export function baselineLacksRates(baseline) {
+  const entries = Object.values(baseline?.specialists ?? {});
+  return (
+    entries.length > 0 && entries.every((s) => s?.mustFind?.runs === undefined)
+  );
 }
 
 const pad = (s, n) => String(s).padEnd(n);
@@ -301,34 +400,57 @@ const padStart = (s, n) => String(s).padStart(n);
 
 /** Plain-text report. Nothing is encoded in colour; every column reads as a word or a number. */
 export function formatEval(summary, { repeats, baseline } = {}) {
+  const rate = (r) => (r === null ? "—" : `${Math.round(r * 100)}%`);
   const out = [
     `review-agents eval: ${summary.reduce((n, s) => n + s.mustFind.total + s.mustNotFind.total, 0)} case(s), ${repeats} run(s) each.`,
     "",
     [
       pad("SPECIALIST", 18),
-      padStart("RECALL", 8),
-      padStart("FALSE-POS", 11),
-      padStart("NOT-TRIG", 10),
-      padStart("MISSING", 9),
+      padStart("RECALL", 7),
+      padStart("DETECTED", 15),
+      padStart("FALSE-POS", 10),
+      padStart("FP-RUNS", 14),
+      padStart("NOT-TRIG", 9),
+      padStart("MISSING", 8),
     ].join(""),
   ];
   for (const s of summary) {
+    const det = detectionRate(s.mustFind);
+    const fpr = detectionRate({
+      hits: s.mustNotFind.fpRuns,
+      runs: s.mustNotFind.runs,
+    });
     out.push(
       [
         pad(s.id, 18),
-        padStart(`${s.mustFind.hit}/${s.mustFind.total}`, 8),
-        padStart(`${s.mustNotFind.fp}/${s.mustNotFind.total}`, 11),
-        padStart(s.notTriggered || "—", 10),
-        padStart(s.notInstalled || "—", 9),
+        padStart(`${s.mustFind.hit}/${s.mustFind.total}`, 7),
+        padStart(
+          det === null
+            ? "—"
+            : `${s.mustFind.hits}/${s.mustFind.runs} ${rate(det)}`,
+          15,
+        ),
+        padStart(`${s.mustNotFind.fp}/${s.mustNotFind.total}`, 10),
+        padStart(
+          fpr === null
+            ? "—"
+            : `${s.mustNotFind.fpRuns}/${s.mustNotFind.runs} ${rate(fpr)}`,
+          14,
+        ),
+        padStart(s.notTriggered || "—", 9),
+        padStart(s.notInstalled || "—", 8),
       ].join(""),
     );
   }
   out.push(
     "",
-    "RECALL is must-find cases the specialist actually flagged. FALSE-POS is must-not-find cases",
-    "where it emitted a blocking finding (or matched the case's `forbid`). NOT-TRIG is cases its",
-    "routing globs never selected — it could not have found them, which is a routing bug, not a",
-    "prompt one (issue #192). MISSING is cases whose specialist is not installed yet.",
+    "RECALL counts must-find *cases* won on a majority of runs. DETECTED counts the individual",
+    "runs that found it — the sensitive number, because a reviewer sliding from 2/5 to 0/5 on every",
+    "case collapses detection without moving RECALL at all. FALSE-POS and FP-RUNS are the same two",
+    "resolutions for must-not-find cases (a run counts against you when it emits a blocking finding,",
+    "or matches the case's `forbid`). NOT-TRIG is cases the specialist's routing globs never selected",
+    "— it could not have found them, which is a routing bug, not a prompt one (issue #192). MISSING",
+    "is cases whose specialist is not installed yet.",
   );
   if (baseline) {
     const cmp = compareBaseline(summary, baseline);
@@ -337,6 +459,14 @@ export function formatEval(summary, { repeats, baseline } = {}) {
     else {
       out.push(`Baseline (${baseline.generatedAt}): REGRESSED`);
       for (const r of cmp.regressions) out.push(`  - ${r}`);
+    }
+    if (baselineLacksRates(baseline)) {
+      // Saying "no regression" while half the gate is inert is the same claim as a green tick from
+      // a check that never ran (dev-harness §11).
+      out.push(
+        "[WARN ] This baseline predates detection rates, so only the case-level half of the gate",
+        "        ran. Re-record it with --write-baseline; the cache makes that free.",
+      );
     }
   }
   return out.join("\n");
