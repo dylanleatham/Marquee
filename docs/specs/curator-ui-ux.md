@@ -1090,8 +1090,19 @@ Built 2026-08-06 at `/settings`. Two columns: **the room and the services** and 
 the left, **what Roadie may do on its own** on the right — what the room is and what it is plugged
 into reads as one thing, and the permissions are the only part of the screen that is a decision.
 
-Three things this screen is deliberate about:
+Four things this screen is deliberate about:
 
+- **The default visualizer is a setting, not a record.** Added 2026-08-12
+  ([ADR 0074](../adrs/0074-the-default-visualizer-is-chosen-in-curator.md)): the clip the screen
+  plays for a record that has none of its own. It sits under the services because that is what it
+  is — what Backdrop shows in the absence of anything else — and it belongs to the **collection**, so
+  hanging it off any one record would misstate ownership. It plays inline, because the judgement it
+  needs is "would I be happy seeing this behind 441 records", which no filename answers. It goes
+  through the same ingest as any visualizer, so there is no format to get wrong, and the Backdrop
+  line under it admits all three of its states — present, absent, can't tell — for the reason
+  [ADR 0072](../adrs/0072-backdrop-presence-is-checked-not-assumed.md) gives. **Setting one is not
+  progress on any record**: the collection still reads `NEEDS VISUALIZER` for every record using it,
+  because a stand-in is not a visualizer.
 - **Service addresses are shown, not edited.** They are resolved once at startup from `config.toml` or
   the environment, and `settings.json` sits _below_ `config.toml` in that chain — so a text field here
   could be silently overridden by a file the user can't see from this screen. Showing the value and

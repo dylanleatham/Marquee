@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api } from "../api";
 import { usePoll } from "../hooks";
 import { AsyncButton } from "../components/common";
+import { DefaultVisualizerPanel } from "../components/DefaultVisualizerPanel";
 import { errorMessage } from "../errors";
 import { SERVICE_GLOSS } from "../system";
 
@@ -286,6 +287,11 @@ export function Settings() {
               restart.
             </p>
           </section>
+
+          {/* Under the services, because it *is* one of their settings — it is what Backdrop shows
+              when a record has nothing of its own (ADR 0073) — and above ACCOUNTS because you set
+              it once and then forget it. */}
+          <DefaultVisualizerPanel />
 
           <section>
             <p className="pp-label settings__head">ACCOUNTS</p>

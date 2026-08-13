@@ -26,7 +26,13 @@ export type JobKind =
   /** Sweeping the Discogs collection into the library (issue #234). Library-scoped: no curatorId. */
   | "discogsSync"
   /** Re-matching Discogs albums to Spotify so they can play (ADR 0059). Library-scoped. */
-  | "spotifyBackfill";
+  | "spotifyBackfill"
+  /**
+   * Sending the default visualizer to Backdrop (ADR 0074). Library-scoped: the clip belongs to the
+   * collection, not to an album — and it is a file transfer over the LAN, which on a poor link is
+   * the same tens-of-minutes wait that put album media in a job (issue #177).
+   */
+  | "defaultVisualizerPush";
 export type JobStatus = "running" | "done" | "failed" | "cancelled";
 
 /** What one runtime service made of a full push (ADR 0045). */

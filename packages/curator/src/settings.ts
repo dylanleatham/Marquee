@@ -28,6 +28,28 @@ export interface CuratorSettings {
     generateCardArt?: boolean;
     generateVideo?: boolean;
   };
+  /**
+   * The clip Backdrop plays for records with no visualizer of their own
+   * ([ADR 0073](../../../docs/adrs/0073-a-record-with-no-visualizer-plays-the-default.md)).
+   *
+   * Only the *description* lives here — the bytes are at `media/visualizers/default.mp4`, like any
+   * visualizer. Settings is the right home for the description because the clip belongs to the
+   * collection rather than to any album: there is no asset file to hang it on, and inventing one
+   * would leak a fake album into every list that walks the store.
+   */
+  defaultVisualizer?: DefaultVisualizerMeta;
+}
+
+/** What ingest recorded about the accepted default clip. Mirrors an album's `VisualizerSection`. */
+export interface DefaultVisualizerMeta {
+  /** The name of the file you picked — the only human handle on which clip this is. */
+  originalFilename: string;
+  durationSec: number;
+  /** `"1920x1080"`, as stored. */
+  resolution: string;
+  uploadedAt: string;
+  /** True when ingest had to re-encode it to fit the decode budget (ADR 0040). */
+  normalized: boolean;
 }
 
 const settingsFile = (dataDir: string): string =>
@@ -108,6 +130,26 @@ export function updateGeminiSettings(
     ...cur,
     gemini: { ...cur.gemini, ...patch },
   };
+  mkdirSync(dataDir, { recursive: true });
+  writeFileSync(settingsFile(dataDir), JSON.stringify(next, null, 2));
+}
+
+/**
+ * Record (or forget) the default visualizer's description. `null` clears it — used when the clip is
+ * removed, so settings can't outlive the bytes and offer to push a file that is gone.
+ *
+ * Same read-modify-write story as `writeSpotifyCreds`: the sole writer is the human-driven Settings
+ * form. Unlike an album asset this is not subject to the write race in
+ * [#38](https://github.com/dylanleatham/Marquee/issues/38) — Roadie never touches settings.
+ */
+export function writeDefaultVisualizer(
+  dataDir: string,
+  meta: DefaultVisualizerMeta | null,
+): void {
+  const cur = readSettings(dataDir);
+  const next: CuratorSettings = { ...cur };
+  if (meta) next.defaultVisualizer = meta;
+  else delete next.defaultVisualizer;
   mkdirSync(dataDir, { recursive: true });
   writeFileSync(settingsFile(dataDir), JSON.stringify(next, null, 2));
 }

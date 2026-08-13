@@ -272,6 +272,12 @@ arrived ([ADR 0073](../../docs/adrs/0073-a-record-with-no-visualizer-plays-the-d
 get tagged and shelved long before their visualizers exist, so without this file most of the shelf
 lights the room and shows nothing.
 
+> **Easiest path: let Curator do it** (2026-08-12,
+> [ADR 0074](../../docs/adrs/0074-the-default-visualizer-is-chosen-in-curator.md)). Curator's
+> **Settings → THE DEFAULT VISUALIZER** takes any MP4, encodes it to the decode budget for you,
+> previews it, and sends it here — which is the recommended route now, and the only one that
+> encodes. The manual steps below still work and are what to use if Curator isn't to hand.
+
 One file, named `default.mp4`, in the same folder as every other visualizer. Either copy it there:
 
 ```
@@ -285,11 +291,17 @@ $ curl -s -H "X-Trigger-Secret: SECRET" -H "content-type: application/octet-stre
 ```
 
 **It is held to the same decode budget as any visualizer** — ≤1080p30, ≤10 Mbps, H.264, no audio
-track ([ADR 0040](../../docs/adrs/0040-visualizers-carry-a-decode-budget.md)). Nothing encodes it for
-you: Curator's ingest pipeline never sees this file, because it belongs to Backdrop rather than to
-any album. Run it through step 9's `ffmpeg` flags yourself, and check it with the `ffprobe` commands
-there. Since it plays more often than any single visualizer, a clip that stutters is the one you
-will notice most.
+track ([ADR 0040](../../docs/adrs/0040-visualizers-carry-a-decode-budget.md)). Since it plays more
+often than any single visualizer, a clip that stutters is the one you will notice most.
+
+> **Corrected 2026-08-12 ([ADR 0074](../../docs/adrs/0074-the-default-visualizer-is-chosen-in-curator.md)).**
+> This paragraph used to read _"Nothing encodes it for you: Curator's ingest pipeline never sees this
+> file"_ — true when written, and backwards on the axis that mattered. The clip with the widest blast
+> radius was the only one with no encode step, no validation and no preview. Curator's Settings screen
+> now runs it through the same ingest as every visualizer.
+
+If you take the manual route above, you own the encode: run it through step 9's `ffmpeg` flags
+yourself and check it with the `ffprobe` commands there.
 
 Verify:
 

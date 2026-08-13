@@ -368,10 +368,18 @@ Notes:
 `[storage].default_visualizer` (env `BACKDROP_DEFAULT_VISUALIZER`, default `default.mp4`) names one
 file, resolved against `media_dir` when relative. It is subject to the same rules as any other
 visualizer: it must sit under `media_dir`, and it must be inside the decode budget
-([ADR 0040](../adrs/0040-visualizers-carry-a-decode-budget.md)) — nothing encodes it on ingest, so
-that is on whoever puts it there.
+([ADR 0040](../adrs/0040-visualizers-carry-a-decode-budget.md)).
 
-Get it onto the Pi with `PUT /api/media/default` (§8) or by dropping it in `media_dir` out of band.
+**Curator is what puts it there** (2026-08-12,
+[ADR 0074](../adrs/0074-the-default-visualizer-is-chosen-in-curator.md)): its Settings screen takes
+any MP4, runs it through the same ingest as every visualizer — decode budget included — and sends it
+over `PUT /api/media/default` (§8). Backdrop's side is unchanged either way; dropping the file into
+`media_dir` out of band still works, and then meeting the budget is on whoever put it there.
+
+> This paragraph said "nothing encodes it on ingest, so that is on whoever puts it there" until
+> ADR 0074. That was true and it was the wrong shape: the clip that plays for _every_ unfinished
+> record was the only one with no encode step, no validation and no preview.
+
 A Backdrop with no default clip on disk degrades to the pre-ADR-0073 behaviour and says so; see §10.
 
 ## 10. Frontend SPA structure

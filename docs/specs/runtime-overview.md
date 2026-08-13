@@ -119,7 +119,7 @@ Plus one internal agent, two libraries, and two data stores:
 - **Primary location**: `~/marquee/media/` on your workstation (Curator manages)
 - **Synced location**: same path on the Pi 5, where Backdrop reads from at playback time
 - **Structure**: subdirectories for `visualizers/`, `artwork/`, `artwork-overrides/`, `thumbnails/`, and `incoming/`
-- **Shape**: `.mp4` files named by fileId (usually the same as curatorId); `.jpg` files for art and thumbnails. One reserved name: `visualizers/default.mp4`, the clip Backdrop plays for a record with no visualizer of its own ([ADR 0073](../adrs/0073-a-record-with-no-visualizer-plays-the-default.md)). It belongs to Backdrop rather than to any album, so Curator never generates or attaches it — it is put there once, by `PUT /api/media/default` or by hand.
+- **Shape**: `.mp4` files named by fileId (usually the same as curatorId); `.jpg` files for art and thumbnails. One reserved name: `visualizers/default.mp4`, the clip Backdrop plays for a record with no visualizer of its own ([ADR 0073](../adrs/0073-a-record-with-no-visualizer-plays-the-default.md)). It belongs to no album, so it is never _attached_ to one — you choose it in Curator's Settings, which ingests it like any visualizer (decode budget included) and sends it over `PUT /api/media/default` ([ADR 0074](../adrs/0074-the-default-visualizer-is-chosen-in-curator.md)). Dropping it in by hand still works.
 - **Writer**: Curator's video-upload and Roadie's art-download flows write to the workstation copy; a periodic `rsync` (or syncthing) syncs to the Pi 5
 - **Reader**: Backdrop
 - **In git**: no. Too big, binary, out-of-band sync is more appropriate.

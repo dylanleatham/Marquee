@@ -171,6 +171,49 @@ export function useVisibleCycle(length: number, holdMs: number): VisibleCycle {
 }
 
 /**
+ * Is this element actually being looked at — tab visible **and** scrolled on screen?
+ *
+ * The same two gates `useVisibleCycle` applies to its timer, exposed as a plain boolean for callers
+ * that own something more expensive than a `setInterval`. A looping `<video>` is the case that
+ * prompted it: an autoplaying preview decodes frames forever on a hidden tab, and idle cost is a
+ * product requirement here, measured rather than assumed
+ * ([ADR 0049](../../../../docs/adrs/0049-idle-cost-is-a-measured-baseline-not-a-ci-gate.md),
+ * issues [#135](https://github.com/dylanleatham/Marquee/issues/135)/[#136](https://github.com/dylanleatham/Marquee/issues/136)).
+ *
+ * Defaults to **true**, so a caller in an environment with no `IntersectionObserver` (jsdom, an old
+ * browser) plays rather than sits frozen — degrading to the ungated behaviour, never to a blank box.
+ */
+export function useOnScreen(): {
+  ref: (node: Element | null) => void;
+  visible: boolean;
+} {
+  const [onScreen, setOnScreen] = useState(true);
+  const [tabVisible, setTabVisible] = useState(
+    typeof document === "undefined" || !document.hidden,
+  );
+  // Node in state, not a ref: attaching has to re-run the observer effect, and a ref mutation won't.
+  const [node, setNode] = useState<Element | null>(null);
+  const ref = useCallback((next: Element | null) => setNode(next), []);
+
+  useEffect(() => {
+    if (!node || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([entry]) =>
+      setOnScreen(Boolean(entry?.isIntersecting)),
+    );
+    io.observe(node);
+    return () => io.disconnect();
+  }, [node]);
+
+  useEffect(() => {
+    const onVisibility = () => setTabVisible(!document.hidden);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
+
+  return { ref, visible: onScreen && tabVisible };
+}
+
+/**
  * Track whether a single async action is in flight, for per-button loading affordances (issue #62).
  * `wrap` runs the given thunk, flipping `pending` true for its duration — so each button owns its own
  * spinner/disabled state instead of sharing one page-level boolean. The thunk is invoked
