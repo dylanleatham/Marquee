@@ -18,7 +18,7 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Sequence
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from .config import Downstream
 
@@ -30,6 +30,30 @@ Sleep = Callable[[float], None]
 
 # Seconds to wait *before* attempts 1/2/3 (§8: immediate, +500ms, +2s).
 DEFAULT_RETRY_DELAYS: tuple[float, ...] = (0.0, 0.5, 2.0)
+
+
+class EventPublisher(Protocol):
+    """What :class:`~stylus.app.StylusApp` needs of a publisher.
+
+    Two things satisfy it, and the difference is the whole of #173: :class:`Publisher` sends on the
+    calling thread and returns *this* event's results, while
+    :class:`~stylus.dispatch.QueuedPublisher` queues and returns the last completed publish's. The
+    app is written against the protocol so which one it has is a wiring decision in ``__main__``.
+    """
+
+    def publish(self, event: dict[str, Any]) -> dict[str, bool]: ...
+
+
+@runtime_checkable
+class QueueReporting(Protocol):
+    """A publisher that has a backlog worth reporting on ``GET /status``.
+
+    Separate from :class:`EventPublisher` because only the asynchronous one has a queue: making it
+    optional on a single protocol would mean every implementation pretending to have one. Declared
+    rather than probed with ``getattr`` so the shape is checked statically as well as at runtime.
+    """
+
+    def stats(self) -> dict[str, int]: ...
 
 
 def urllib_transport(url: str, body: bytes, headers: dict[str, str], timeout_s: float) -> int:
@@ -51,22 +75,25 @@ class Publisher:
         transport: Transport = urllib_transport,
         sleep: Sleep | None = None,
         retry_delays: Sequence[float] = DEFAULT_RETRY_DELAYS,
-        heartbeat: Callable[[], None] = lambda: None,
     ) -> None:
         self._downstreams = tuple(downstreams)
         self._transport = transport
         self._sleep: Sleep = sleep or time.sleep
         self._retry_delays = tuple(retry_delays)
-        self._heartbeat = heartbeat
 
     def publish(self, event: dict[str, Any]) -> dict[str, bool]:
         """Send ``event`` to every downstream. Returns ``{name: delivered?}``; never raises.
 
-        Sequential and synchronous — the caller is ``StylusApp.tick()``, i.e. the poll loop, so the
-        reader is blind for however long this takes. With the current timeouts (5s Conductor, 2s
-        Backdrop) and the §8 retry window, a total outage stalls polling for ~26s. Tracked as
-        `#173 <https://github.com/dylanleatham/Marquee/issues/173>`_ (parallel fan-out or a shared
-        timeout budget); acceptable while both services are up, since a success costs one round trip.
+        Still sequential and still slow — a total outage takes ~43s to work through the §8 retry
+        window — but no longer on the poll loop's time. Since
+        `#173 <https://github.com/dylanleatham/Marquee/issues/173>`_ the caller is
+        :class:`~stylus.dispatch.Dispatcher`'s worker thread, so this blocking is the worker's
+        problem and the reader keeps reading.
+
+        **Do not add a watchdog heartbeat here.** This runs off the poll loop now, so pinging
+        systemd from it would let a healthy publisher mask a wedged reader — the exact failure
+        `ADR 0077 <../../../docs/adrs/0077-the-poll-loop-proves-it-is-alive.md>`_ exists to catch.
+        The absent constructor argument is the guard; a test asserts it stays absent.
         """
         return {d.name: self._send_with_retry(d, event) for d in self._downstreams}
 
@@ -80,11 +107,6 @@ class Publisher:
         for delay in self._retry_delays:
             if delay:
                 self._sleep(delay)
-            # This runs inside the poll tick, and a dead downstream keeps us here for the whole
-            # retry window. Without a beat per attempt the watchdog would read a *Conductor* outage
-            # as a Stylus hang and kill us for it (#308, #173). The gap it leaves is one transport
-            # timeout, which is the number `WatchdogSec=` has to clear.
-            self._heartbeat()
             try:
                 status = self._transport(d.url, body, headers, timeout_s)
             except Exception as e:  # noqa: BLE001 — a wedged network is exactly what we retry past

@@ -54,10 +54,15 @@ Deploy runbook: **[DEPLOY.md](DEPLOY.md)** (wiring, I²C, venv install, systemd,
   actually breathes), degrading to on/off, and to logging when the hardware libs are absent.
 - `stylus/watchdog.py` — `sd_notify` in about forty lines: `READY=1` at startup, `WATCHDOG=1` while
   the loop runs. A poll loop wedged in a driver call stops pinging and systemd kills it (§12,
-  [ADR 0077](../../docs/adrs/0077-the-poll-loop-proves-it-is-alive.md)). The heartbeat is threaded
-  through the **publisher** too, so a downstream outage — which legitimately stalls a tick for tens
-  of seconds ([#173](https://github.com/dylanleatham/Marquee/issues/173)) — isn't mistaken for a
-  hang. No dependency; it's a datagram, and a no-op off systemd.
+  [ADR 0077](../../docs/adrs/0077-the-poll-loop-proves-it-is-alive.md)). The poll loop is the
+  **only** heartbeat source — `Publisher` deliberately can't send one, or a healthy publisher would
+  vouch for a wedged reader. No dependency; it's a datagram, and a no-op off systemd.
+- `stylus/dispatch.py` — a bounded FIFO drained by one worker thread, so publishing never happens on
+  the poll loop. A publish takes ~43s against dead downstreams, and the reader used to be blind for
+  all of it ([#173](https://github.com/dylanleatham/Marquee/issues/173),
+  [ADR 0078](../../docs/adrs/0078-publishing-moves-off-the-poll-loop.md)). One worker, in order —
+  a `stop` that overtook its `start` would leave the lights on with nothing left to correct it.
+  Backlog shows up as `publishQueue` on `GET /status`.
 - `marquee-stylus.service` — the systemd unit (`Wants=network-online.target`, `Type=notify`,
   `WatchdogSec=30`, `Restart=always`, §12). It recovers a process that **exits**; turning a hang
   into an exit is the service's own job — the init bound above does it for startup, the watchdog

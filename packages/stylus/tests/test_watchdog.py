@@ -6,24 +6,30 @@ or in an `ntag2xx_read_block` during an NDEF read — still blocked forever, wit
 symptom: `active (running)`, silent journal, no reads, and `Restart=` never firing because nothing
 died.
 
-The fix is a liveness signal rather than a one-shot bound, and its whole risk is the false positive.
-A tick legitimately blocks for tens of seconds when downstreams are down (§8's retry window, issue
-[#173](https://github.com/dylanleatham/Marquee/issues/173)) — so a watchdog that only pinged once
-per tick would kill Stylus during a *Conductor* outage, which restarting Stylus cannot fix. Hence
-the heartbeat threaded through the publisher, and hence the tests below that pin *when* it fires,
-not just that it exists.
+The fix is a liveness signal rather than a one-shot bound, and its whole risk is the false positive:
+kill a healthy Stylus and you've manufactured an outage out of an unrelated one.
+
+That risk used to be acute. A tick blocked for tens of seconds whenever a downstream was down (§8's
+retry window), so #308 shipped with the heartbeat threaded through the publisher's retry loop to
+stop a *Conductor* outage reading as a Stylus hang.
+[#173](https://github.com/dylanleatham/Marquee/issues/173) then moved publishing onto a worker
+thread, which removed both the stall and that workaround — and inverted the hazard, because a
+heartbeat on the worker would now let a healthy publisher mask a wedged reader. So the poll loop is
+the **only** heartbeat source, `Publisher` no longer accepts one, and the tests below pin that as
+well as the timing.
 
 ``os.environ`` and the real ``AF_UNIX`` socket are the seams; both are injected, so the protocol is
 testable on a machine with no systemd (and on Windows, where ``AF_UNIX`` datagrams don't exist).
 """
 
+import inspect
 import os
 import pathlib
 import tomllib
 
 import pytest
 
-from stylus.publisher import DEFAULT_RETRY_DELAYS
+from stylus.publisher import Publisher
 from stylus.watchdog import Watchdog, notify_address, socket_sender, watchdog_interval_s
 
 
@@ -197,18 +203,33 @@ def test_watchdogsec_clears_the_slowest_legitimate_gap_between_heartbeats():
     """The false-positive guard, as arithmetic instead of a comment.
 
     Stylus pings at `WatchdogSec/2`, so the longest gap between heartbeat *calls* must stay under
-    half the deadline. The publisher beats once per attempt, so that gap is one downstream
-    `timeout_ms` plus the longest retry delay. Raising a downstream timeout in `config.example.toml`
-    without raising `WatchdogSec` would make systemd kill a perfectly healthy Stylus during a
-    downstream outage — the exact regression #308 must not introduce, and one nobody would see
-    until Conductor happened to be down.
+    half the deadline, or systemd kills a perfectly healthy service.
+
+    **This bound got much easier in #173.** The heartbeat used to have to survive a whole publish —
+    the poll loop beat once per tick and the publisher once per attempt, so the gap was a downstream
+    `timeout_ms` plus a retry delay, and raising a timeout could silently break it. Publishing now
+    happens on a worker thread, so the only beat is the one at the top of `tick()` and the gap is
+    one poll interval plus the reader's own work. Config no longer participates: the assertion below
+    reads `poll_interval_ms` rather than `timeout_ms`, which is the whole point of the change.
     """
     example = pathlib.Path(__file__).resolve().parents[1] / "config.example.toml"
-    downstreams = tomllib.loads(example.read_text(encoding="utf-8"))["downstream"]
-    slowest_attempt_s = max(d["timeout_ms"] for d in downstreams.values()) / 1000
-    worst_gap_s = slowest_attempt_s + max(DEFAULT_RETRY_DELAYS)
+    cfg = tomllib.loads(example.read_text(encoding="utf-8"))
+    poll_s = cfg["reader"]["poll_interval_ms"] / 1000
+    # A full NDEF read is ~40 pages × 3 attempts of a few ms each; a second is generous for it.
+    worst_gap_s = poll_s + 1.0
 
     assert int(_unit()["WatchdogSec"]) / 2 > worst_gap_s, (
         f"heartbeats can be {worst_gap_s}s apart, but the ping interval is "
         f"{int(_unit()['WatchdogSec']) / 2}s — raise WatchdogSec in marquee-stylus.service"
     )
+
+
+def test_the_publisher_is_not_a_heartbeat_source():
+    """The other half of the #173 change, and the one that would rot quietly.
+
+    Moving publishing to a worker thread means a heartbeat inside it would be sent while the reader
+    is wedged — a healthy publisher masking a dead poll loop, which is precisely what ADR 0077 is
+    for. `test_publisher.py` guards the constructor; this states the rule where the watchdog's own
+    invariants live, so anyone tightening WatchdogSec here meets it.
+    """
+    assert "heartbeat" not in inspect.signature(Publisher.__init__).parameters

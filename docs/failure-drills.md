@@ -103,9 +103,10 @@ curl -s -XPOST http://$PI5:4740/api/admin/stop -H "X-Trigger-Secret: $SECRET"
 
 **§9 row:** Hue bridge unreachable. **Covered by:** `hue-conductor/test/server.test.ts` — _"bridge
 unreachable → 502, lights untouched, and the next scan recovers"_. **What the drill adds:** that a
-real bridge outage looks like a refused connection and not a 30-second hang. A hang is the failure
-mode that matters here, because Stylus is blocking on this call
-([#173](https://github.com/dylanleatham/Marquee/issues/173)).
+real bridge outage looks like a refused connection and not a 30-second hang. A hang still matters
+here — it delays the lights and fills Stylus' publish backlog — but since
+[#173](https://github.com/dylanleatham/Marquee/issues/173) it no longer blocks the reader: check
+`publishQueue` on Stylus' `/status` rather than expecting the stand to go deaf.
 
 1. Pull power on the Hue bridge (or drop it off the LAN).
 2. `curl -s http://$PI5:4737/api/bridge/status` → `{"paired":true,"reachable":false}`.
@@ -238,8 +239,9 @@ curl -s http://$PIZERO:4741/status   # downstreamHealth → conductor false, bac
 
 **Fails if:** the LED is ambiguous by eye (fast-blink vs. the idle breathe should be unmistakable at
 a glance — this is exactly the polish the issue asks for), or the reader stops responding to a
-sleeve lift while the retry window is open ([#173](https://github.com/dylanleatham/Marquee/issues/173) —
-expected today, so note the duration rather than filing it again).
+sleeve lift while the retry window is open. That last one **used to be expected** and is now a
+regression: [#173](https://github.com/dylanleatham/Marquee/issues/173) moved publishing off the poll
+loop, so the stand must stay responsive throughout the outage. File it.
 
 ---
 

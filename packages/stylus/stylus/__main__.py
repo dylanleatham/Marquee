@@ -12,6 +12,7 @@ import threading
 
 from .app import StylusApp
 from .config import load_config
+from .dispatch import Dispatcher, QueuedPublisher
 from .led import create_led
 from .publisher import Publisher
 from .reader import SimulatedReader, TagReader, create_pn532_reader
@@ -54,16 +55,17 @@ def main() -> None:  # pragma: no cover - entrypoint glue
         )
 
     led = create_led(config.led.enabled, config.led.gpio_pin)
-    # One watchdog, fed from both the poll loop and the publisher's retry loop — the second is what
-    # keeps a downstream outage from reading as a Stylus hang (#308, and see stylus/watchdog.py).
+    # Fed from the poll loop and *only* the poll loop. Publishing runs on its own thread now (#173),
+    # so a heartbeat from there would let a healthy publisher vouch for a wedged reader — see
+    # stylus/watchdog.py and stylus/dispatch.py.
     watchdog = create_watchdog()
-    app = StylusApp(
-        config,
-        reader,
-        Publisher(config.downstreams, heartbeat=watchdog.ping),
-        led,
-        heartbeat=watchdog.ping,
-    )
+
+    # The reader must never wait on the network: a publish takes ~43s against dead downstreams, and
+    # for all of it the stand would be blind to sleeves coming and going (#173).
+    dispatcher = Dispatcher(Publisher(config.downstreams).publish)
+    dispatcher.start()
+
+    app = StylusApp(config, reader, QueuedPublisher(dispatcher), led, heartbeat=watchdog.ping)
 
     server = serve(StatusService(app, sim), config.status_listen_port)
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -84,6 +86,10 @@ def main() -> None:  # pragma: no cover - entrypoint glue
         pass
     finally:
         app.stop()
+        # Before the server, and with a wait: the event most likely to be sitting in the queue at
+        # shutdown is a `stop`, and losing that leaves the lights up and the video running with
+        # Stylus gone.
+        dispatcher.stop()
         server.shutdown()
 
 

@@ -1,3 +1,4 @@
+import inspect
 import json
 
 from stylus.config import Downstream
@@ -86,39 +87,16 @@ def test_fans_out_to_all_downstreams():
     assert [c["url"] for c in transport.calls][0] == "http://c/api/scan"
 
 
-# --- poll-loop liveness during a slow publish (issue #308, ADR 0077) ----------------------------
+# --- the publisher must not be able to feed the watchdog (issues #308, #173, ADR 0078) ----------
 
 
-def test_heartbeats_before_every_attempt():
-    """The regression this exists to prevent: `publish` runs *inside* the poll tick, and a total
-    downstream outage stalls it for tens of seconds (#173). A watchdog fed only once per tick would
-    read that as a hang and kill Stylus — which does nothing for a downed Conductor. Beating between
-    attempts is what makes a tight WatchdogSec safe."""
-    beats = []
-    transport = FakeTransport(OSError("refused"), OSError("refused"), OSError("refused"))
-    pub = Publisher(
-        [Downstream("conductor", "http://c/api/scan")],
-        transport=transport,
-        sleep=lambda _: None,
-        heartbeat=lambda: beats.append(1),
-    )
-    assert pub.publish(EVENT) == {"conductor": False}
-    assert len(transport.calls) == 3
-    assert len(beats) == 3, "one before each attempt, so the gap is a single transport timeout"
+def test_publisher_cannot_feed_the_watchdog():
+    """#308 beat the watchdog from inside this retry loop, because publishing then ran *on* the
+    poll loop and a downstream outage would otherwise have looked like a hang.
 
-
-def test_heartbeats_for_every_downstream_not_just_the_first():
-    beats = []
-    pub = Publisher(
-        [Downstream("conductor", "http://c/"), Downstream("backdrop", "http://b/")],
-        transport=FakeTransport(200, 200),
-        sleep=lambda _: None,
-        heartbeat=lambda: beats.append(1),
-    )
-    pub.publish(EVENT)
-    assert len(beats) == 2
-
-
-def test_heartbeat_defaults_to_a_no_op():
-    pub, _, _ = make(200)
-    assert pub.publish(EVENT) == {"conductor": True}  # must not raise
+    #173 moved publishing to a worker thread, which inverts that: a heartbeat here would now be
+    sent from a thread that keeps running while the reader is wedged, so a healthy publisher could
+    mask a dead poll loop for the length of a retry window. The parameter is gone, and its absence
+    is the guard — a comment would not survive someone re-adding it in good faith.
+    """
+    assert "heartbeat" not in inspect.signature(Publisher.__init__).parameters
