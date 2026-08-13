@@ -187,7 +187,7 @@ Rationale: fast enough that placing a sleeve feels instant, slow enough that a h
 - Slow breathe (2s cycle): IDLE, waiting
 - Solid on: PLAYING
 - Fast blink (100ms): error posting to downstream (visible signal something is wrong on the network)
-- Two short blinks then off: successful `start` published (nice touch, gives you a visual "I heard you")
+- Two short blinks then off: a `start` was **read and accepted** (nice touch, gives you a visual "I heard you"). Until 2026-08-13 this meant "successfully published"; publishing is asynchronous since [#173](https://github.com/dylanleatham/Marquee/issues/173), so the delivery result isn't known when the sleeve lands. Waiting for it would put the blink seconds after the gesture — delivery failures still show up, as the fast-blink error pattern.
 
 > **Implementation note (2026-07-28, build step 11):** patterns are frames of
 > `(brightness, duration)` played on a background thread (`stylus/led.py`); the frame tables are pure
@@ -254,6 +254,8 @@ Rationale: a scan event that arrives 30 seconds late is worse than no event at a
 > question, not a Stylus one. And because `Publisher.publish` is synchronous inside the poll loop, a
 > slow or dead downstream stalls tag polling for the whole retry window; raising timeouts widens that
 > stall. Tracked as a follow-up, not fixed here.
+>
+> **Resolved 2026-08-13 ([#173](https://github.com/dylanleatham/Marquee/issues/173), [ADR 0078](../adrs/0078-publishing-moves-off-the-poll-loop.md)):** the stall is gone. `Publisher.publish` is unchanged and still sequential, but it is now called by a worker thread draining a bounded FIFO, so the poll loop hands an event over and goes straight back to reading. Worst-case blindness drops from ~87s to one poll interval, and raising a `timeout_ms` no longer widens anything the reader can feel. What it costs: `downstreamHealth` is now the result of the last **completed** publish rather than of the event just fired, and events can be dropped under sustained outage — both visible on `GET /status`.
 
 ### Inbound status (optional)
 
@@ -261,13 +263,14 @@ Small local HTTP server on port 4741:
 
 - `GET /status` → two views, deliberately separate:
 
-  | Field                                      | View        | Meaning                                                                                                                                                                                                |
-  | ------------------------------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-  | `state`, `lastUid`, `lastUri`, `lastEvent` | the machine | What is **playing**. Null until a scan actually fired.                                                                                                                                                 |
-  | `observed: { uid, uri, at } \| null`       | the reader  | What is **on the stand right now**, decoded or not. `uri` is null when the NDEF wouldn't read; the whole object is null when the reader sees nothing.                                                  |
-  | `lastBadTag: { uid, uri, at } \| null`     | the reader  | The last tag the machine refused, **kept after the sleeve is lifted**.                                                                                                                                 |
-  | `downstreamHealth`                         | publishing  | Per-downstream result of the last publish.                                                                                                                                                             |
-  | `rf: { gsnOn, cwGsp }`                     | the chip    | The PN532 transmit drive in force (§10, [ADR 0075](../adrs/0075-stylus-drives-the-pn532-below-its-default-power.md)). Volatile settings, so this is a different question from what `config.toml` says. |
+  | Field                                      | View        | Meaning                                                                                                                                                                                                   |
+  | ------------------------------------------ | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `state`, `lastUid`, `lastUri`, `lastEvent` | the machine | What is **playing**. Null until a scan actually fired.                                                                                                                                                    |
+  | `observed: { uid, uri, at } \| null`       | the reader  | What is **on the stand right now**, decoded or not. `uri` is null when the NDEF wouldn't read; the whole object is null when the reader sees nothing.                                                     |
+  | `lastBadTag: { uid, uri, at } \| null`     | the reader  | The last tag the machine refused, **kept after the sleeve is lifted**.                                                                                                                                    |
+  | `downstreamHealth`                         | publishing  | Per-downstream result of the last **completed** publish — not necessarily of `lastEvent`, since [#173](https://github.com/dylanleatham/Marquee/issues/173) made publishing asynchronous.                  |
+  | `publishQueue: { depth, dropped } \| null` | publishing  | Backlog of the publish worker. A climbing `depth` or non-zero `dropped` is a downstream being unreachable. Null only if the publisher has no queue — the service always wires one, `--simulate` included. |
+  | `rf: { gsnOn, cwGsp }`                     | the chip    | The PN532 transmit drive in force (§10, [ADR 0075](../adrs/0075-stylus-drives-the-pn532-below-its-default-power.md)). Volatile settings, so this is a different question from what `config.toml` says.    |
 
   > **Why both.** Until 2026-08-01 only the machine's view existed, so a sleeve sitting on the reader
   > being rejected — an unwritten tag, a garbled NDEF, a URI for another scheme — made `/status`
@@ -387,7 +390,7 @@ If you find range is insufficient with a chosen stand geometry, PN532 modules wi
   >
   > ~~**A hang in the poll loop is still uncovered**~~ — **closed 2026-08-13** ([#308](https://github.com/dylanleatham/Marquee/issues/308), [ADR 0077](../adrs/0077-the-poll-loop-proves-it-is-alive.md)). A one-shot bound is the wrong shape for a loop; what a loop can offer is a signal that keeps arriving. The unit is now `Type=notify` with `WatchdogSec=30`, Stylus sends `READY=1` once the reader is up and the status port is listening, and `WATCHDOG=1` every `WatchdogSec/2`. A loop blocked in a driver call stops pinging, systemd kills it, and `Restart=always` recovers it — the same conversion #307 does for init, applied to the loop.
   >
-  > **The hard part is the false positive, not the false negative.** `publish` runs _inside_ the poll tick and legitimately blocks for tens of seconds when a downstream is down (§8's retry window, [#173](https://github.com/dylanleatham/Marquee/issues/173) — a full outage costs ~43s per publish, ~87s on a swap). A heartbeat sent once per tick would read a **Conductor** outage as a Stylus hang and kill Stylus for it, which fixes nothing. So the heartbeat is threaded into the publisher's retry loop as well: the question it answers is "is this process still executing?", not "is the network fast?". The gap it leaves is one downstream `timeout_ms` plus the longest retry delay (~7s), and `WatchdogSec` must be more than **twice** that — a test asserts the arithmetic against `config.example.toml` so raising a downstream timeout can't silently break it.
+  > **The hard part is the false positive, not the false negative.** `publish` runs _inside_ the poll tick and legitimately blocks for tens of seconds when a downstream is down (§8's retry window, [#173](https://github.com/dylanleatham/Marquee/issues/173) — a full outage costs ~43s per publish, ~87s on a swap). A heartbeat sent once per tick would read a **Conductor** outage as a Stylus hang and kill Stylus for it, which fixes nothing. So #308 threaded the heartbeat into the publisher's retry loop as well. [#173](https://github.com/dylanleatham/Marquee/issues/173) then removed the stall entirely by moving publishing onto a worker thread, which both retired that workaround and **inverted** the hazard: a heartbeat on the worker would now let a healthy publisher vouch for a wedged reader. The poll loop is therefore the only heartbeat source, `Publisher` no longer accepts one at all, and the gap `WatchdogSec` must clear is one poll interval rather than a downstream timeout.
 
 - **I2C address collisions.** PN532 defaults to `0x24`. If you add another I2C device later, check its address doesn't clash.
 - **Ghost reads.** A sleeve moved past the reader on its way to the turntable might trigger a scan you didn't intend. The insertion debounce (400ms) helps but doesn't fully solve it. If it's annoying in practice, extend `insertion_debounce_polls` to 4 (800ms). Trade-off is slight lag on real scans.

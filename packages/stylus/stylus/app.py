@@ -14,7 +14,7 @@ from typing import Any
 from .config import Config
 from .events import now_iso, start_event, stop_event
 from .led import Led, Pattern
-from .publisher import Publisher
+from .publisher import EventPublisher, QueueReporting
 from .reader import TagReader
 from .state_machine import BadTag, DetectionMachine, Start, State, Stop, Swap
 
@@ -26,7 +26,7 @@ class StylusApp:
         self,
         config: Config,
         reader: TagReader,
-        publisher: Publisher,
+        publisher: EventPublisher,
         led: Led,
         *,
         now: Callable[[], str] = now_iso,
@@ -99,10 +99,15 @@ class StylusApp:
             self._led.set(Pattern.ERROR)
 
     def _ack_start(self) -> None:
-        # §7 "two short blinks: I heard you" — only when the start actually reached a downstream.
-        # _apply_steady_led then settles to PLAYING (or ERROR) at the end of the tick.
-        if not self._last_publish_failed():
-            self._led.set(Pattern.START_ACK)
+        # §7 "two short blinks: I heard you" — fired on *acceptance*, unconditionally.
+        #
+        # It used to be conditional on the publish having succeeded, which was right while
+        # publishing was synchronous: the health map described this very event. Since #173 it
+        # describes the last *completed* publish, which may be some earlier event entirely — so
+        # gating on it would mean a stand that silently stops acknowledging scans it accepted
+        # perfectly, for as long as a downstream is unwell. The network's opinion still arrives, as
+        # the ERROR pattern _apply_steady_led settles to at the end of this tick.
+        self._led.set(Pattern.START_ACK)
 
     def _publish(self, event: dict[str, Any]) -> None:
         self._last_event = event
@@ -153,4 +158,14 @@ class StylusApp:
             # read the chip, because nothing reported what it had been configured with — and the
             # settings are volatile, so "what the config file says" is not the same question.
             "rf": {"gsnOn": self._cfg.rf.gsn_on, "cwGsp": self._cfg.rf.cw_gsp},
+            # Backlog of the async publisher (#173). A depth that keeps climbing, or a non-zero
+            # `dropped`, is the observable form of "a downstream is unreachable and events are
+            # piling up"; without it, "the lights react late" would have no visible cause anywhere.
+            # Null only when the publisher has no queue at all — `__main__` always wires one, so in
+            # practice that means unit-test wiring that passes a bare publisher.
+            "publishQueue": self._publish_queue_stats(),
         }
+
+    def _publish_queue_stats(self) -> dict[str, int] | None:
+        p = self._publisher
+        return p.stats() if isinstance(p, QueueReporting) else None

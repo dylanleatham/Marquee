@@ -22,10 +22,10 @@ Type=notify
 # recovers — the same trick #307 plays for the one-time init, applied to the loop.
 #
 # Why 30 and not less: Stylus pings at WatchdogSec/2 = 15s, so the *longest gap between heartbeat
-# calls* must stay under 15s or a healthy service gets killed. `publish` runs inside the poll tick
-# and beats once per attempt, so that gap is one downstream `timeout_ms` (5s) plus the longest
-# retry delay (2s) ≈ 7s. Comfortable — but it is the number that constrains this value, so if you
-# raise a downstream `timeout_ms` past ~12s, raise WatchdogSec with it. See DEPLOY.md §12.
+# calls* must stay under 15s or a healthy service gets killed. Since #173 the only beat is the one
+# at the top of each poll tick, and publishing happens on a worker thread, so that gap is one poll
+# interval (200ms) plus the reader's own work — comfortably under a second. Downstream `timeout_ms`
+# no longer constrains this value; before #173 it did. See DEPLOY.md §12.
 WatchdogSec=30
 
 User=pi
