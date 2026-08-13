@@ -40,6 +40,16 @@ This document ratifies the former and replaces the latter. It records the design
 > **Every screen is on the new theme**, and `styles.css`'s legacy block — which repointed the old
 > variables so an un-migrated screen still rendered — is deleted with the last screen that needed it.
 >
+> > **Corrected 2026-08-12** ([#301](https://github.com/dylanleatham/Marquee/issues/301)). "Every
+> > screen" overstated it. The four screens in the table were converted; the components mounted
+> > _outside_ a screen were not, and neither was the tag-help page. Deleting the legacy block took
+> > their rules with it, leaving **51 class names defined nowhere at all** — the sweep panels, the
+> > confirm dialog, the error fallback and `/help/tags` rendered unstyled from 2026-08-06 to
+> > 2026-08-12. Two were fixed in passing by
+> > [#300](https://github.com/dylanleatham/Marquee/issues/300); the other 49 by #301. All are now on
+> > Pressing Plant, and `ui/src/styles.test.ts` fails the build if a component asks for a class the
+> > stylesheet doesn't define. See §3.6.
+>
 > Nothing below is deleted — a spec that loses its history can't explain why the code looks the way it
 > does, or why a decision was reversed.
 
@@ -71,7 +81,9 @@ desktop, not device classes.
 > `#f5a623`, `10px` radii, Inter. That theme is gone. While the overhaul was mid-flight `styles.css`
 > carried a marked **legacy block** repointing the old `--bg`/`--panel`/`--amber` variables at the
 > tokens below, so an un-migrated screen still rendered; it was **deleted 2026-08-06** with the last
-> screen that needed it. The old names are recorded here only to make an old screenshot legible.
+> screen that needed it — though not cleanly: see the correction in §1 and
+> [#301](https://github.com/dylanleatham/Marquee/issues/301). The old names are recorded here only to
+> make an old screenshot legible.
 
 Light, printed, editorial.
 
@@ -193,6 +205,39 @@ Contrast: `--pp-ink-muted` on `--pp-paper` is ≈4.7:1 and `--pp-accent-text` on
 ≈5.6:1, both clearing AA for body text. `--pp-accent` is used for large type, rules and fills rather
 than small body copy, which is why `--pp-accent-text` exists at all. Any new token pair must be
 checked before it lands.
+
+### 3.6 Control shapes, and the rule that every class exists
+
+> **New 2026-08-12** ([#301](https://github.com/dylanleatham/Marquee/issues/301)). Written down
+> because the vocabulary was already in the code and nowhere else, which is how eight components came
+> to share a `pp-action` that had no definition.
+
+Two emphases, and one alarm. Every control in the app is one of these or a block-scoped variation of
+one; a block that needs its own (`.drafts__copy`, `.svc__retry`) starts from the nearest shape rather
+than from nothing.
+
+| Class             | Shape                                     | For                                                               |
+| ----------------- | ----------------------------------------- | ----------------------------------------------------------------- |
+| `pp-btn`          | Filled ink, paper text, no border         | The one thing to do on a screen.                                  |
+| `pp-btn--outline` | Transparent, ink text, `1px` ink hairline | High emphasis, but not the only action on its row.                |
+| `pp-btn--alert`   | Accent fill **and** a `3px` ink underline | The one button that destroys something.                           |
+| `pp-action`       | Transparent, mono, `1px` soft hairline    | Everything else — REPLACE, STOP, DOWNLOAD .NFC, ← THE COLLECTION. |
+| `pp-spinner`      | An `8px` square, two edges, rotating      | In-flight, inside a button. Paired with a "…ING" label.           |
+
+Per §3.4 none of these distinctions is a hue. `pp-btn--alert` is accent-filled **and** underlined,
+because accent fill alone reads as an ordinary button someone is hovering. Disabled drops the fill
+and softens the hairline — a filled control becomes an outlined one, which survives greyscale;
+`pp-action` goes further and switches its border to dashed.
+
+**Every class a component names must exist in `styles.css`.** `ui/src/styles.test.ts` extracts each
+`className` literal from `ui/src/**/*.tsx` and diffs it against the stylesheet; an orphan fails the
+build. A class that is deliberately unstyled — a hook for a test or a JS selector — goes on that
+test's `UNSTYLED_HOOKS` allowlist with its reason, so the next audit doesn't re-flag it.
+
+The gate covers **undefined** classes, not misapplied ones. It would not have caught
+[#300](https://github.com/dylanleatham/Marquee/issues/300), where `viz__video` existed and was simply
+the wrong class for the page it had been borrowed into. That one needs a rendered browser; jsdom
+computes no geometry, so an unstyled or wrongly-styled element asserts exactly like a correct one.
 
 ## 4. The workbench principle
 

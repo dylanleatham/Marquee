@@ -55,7 +55,7 @@ export function pickFile(accept: string, onFile: (f: File) => void): void {
 }
 
 export function Spinner() {
-  return <span className="spinner" aria-label="loading" />;
+  return <span className="pp-spinner" aria-label="loading" />;
 }
 
 type AsyncButtonProps = Omit<

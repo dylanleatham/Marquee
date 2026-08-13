@@ -80,15 +80,15 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
           >
             <h2 className="modal__title">{req.title}</h2>
             {req.body && <p className="modal__body">{req.body}</p>}
-            <div className="row-actions">
+            <div className="modal__actions">
               <button
                 ref={confirmRef}
-                className={`btn ${req.destructive ? "btn--danger" : "btn--primary"}`}
+                className={`pp-btn ${req.destructive ? "pp-btn--alert" : ""}`}
                 onClick={() => settle(true)}
               >
                 {req.confirmLabel ?? "Confirm"}
               </button>
-              <button className="btn btn--ghost" onClick={() => settle(false)}>
+              <button className="pp-action" onClick={() => settle(false)}>
                 {req.cancelLabel ?? "Cancel"}
               </button>
             </div>
