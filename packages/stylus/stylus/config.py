@@ -24,15 +24,23 @@ class ReaderConfig:
     insertion_debounce_polls: int = 2
     removal_debounce_polls: int = 10
     swap_debounce_polls: int = 1
+    # How long the one-time PN532 bring-up gets before Stylus gives up and exits so systemd can
+    # restart it (stylus-spec §12, [ADR 0076], #307). A healthy init is well under a second, so
+    # 10s is deliberately generous: too *tight* a bound turns a slow-but-working module into a
+    # boot loop, which is a worse failure than the hang it's guarding. Raise it before suspecting
+    # it. This is the single definition — `reader.py` reads its fallback off this field.
+    init_timeout_ms: int = 10_000
 
     def __post_init__(self) -> None:
         # A zero/negative interval would busy-spin; a debounce < 1 would fire on the first stray
-        # read. Guard here so a hand-edited config can't wedge the loop into nonsense.
+        # read; a zero init bound would fail every boot instantly. Guard here so a hand-edited
+        # config can't wedge the loop into nonsense.
         for name in (
             "poll_interval_ms",
             "insertion_debounce_polls",
             "removal_debounce_polls",
             "swap_debounce_polls",
+            "init_timeout_ms",
         ):
             if getattr(self, name) < 1:
                 raise ValueError(f"reader.{name} must be >= 1")
@@ -141,6 +149,7 @@ def config_from_dict(raw: dict[str, Any]) -> Config:
         insertion_debounce_polls=int(reader_raw.get("insertion_debounce_polls", 2)),
         removal_debounce_polls=int(reader_raw.get("removal_debounce_polls", 10)),
         swap_debounce_polls=int(reader_raw.get("swap_debounce_polls", 1)),
+        init_timeout_ms=int(reader_raw.get("init_timeout_ms", ReaderConfig.init_timeout_ms)),
     )
     led_raw = raw.get("led", {})
     led = LedConfig(

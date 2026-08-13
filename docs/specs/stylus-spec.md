@@ -153,6 +153,8 @@ Central loop runs at 5 Hz (poll every 200ms). State transitions:
 
 Rationale: fast enough that placing a sleeve feels instant, slow enough that a hand hovering over the reader doesn't jitter the state.
 
+`[reader]` carries one knob that isn't a debounce: `init_timeout_ms` (default 10000) bounds the one-time PN532 bring-up so a wedged module becomes a restart instead of a silent `active (running)` — see §12 "PN532 hangs".
+
 > **These are thresholds, not exact counts** ([#198](https://github.com/dylanleatham/Marquee/issues/198)).
 > "Reads needed before firing" means **at or past** the threshold: the machine keeps evaluating a
 > stable tag on every subsequent poll, not only on the poll where the streak equals the number.
@@ -291,6 +293,7 @@ poll_interval_ms = 200
 insertion_debounce_polls = 2
 removal_debounce_polls = 10
 swap_debounce_polls = 1
+init_timeout_ms = 10000              # bound on the one-time PN532 bring-up — see §12
 
 # Conductor and Backdrop both run on the Pi 5 — same host, different ports. Prefer its IP over a
 # `.local` name: mDNS resolves inconsistently across clients.
@@ -377,6 +380,13 @@ If you find range is insufficient with a chosen stand geometry, PN532 modules wi
 
 - **Pi Zero 2 W WiFi flakiness on boot.** The Pi occasionally comes up before WiFi is ready. systemd unit should `Wants=network-online.target` and `After=network-online.target`. Add a small retry in Python for the first few POSTs after boot.
 - **PN532 hangs.** Some modules occasionally lock up under heavy polling and require a reset. Wrap the read loop in a try/except that on repeated failures, toggles a GPIO tied to the PN532's reset pin (or just power-cycles by exiting the process — systemd will restart it).
+
+  > **Update (2026-08-12, [#307](https://github.com/dylanleatham/Marquee/issues/307), [ADR 0076](../adrs/0076-a-hung-pn532-init-becomes-a-restart.md)):** the bullet above assumes the lock-up surfaces as a _failure_ the read loop can catch. It doesn't always. A wedged module can block **inside** a driver call and never return, and a blocked process is not a dead one — `Restart=always` recovers a process that exits, so it never fires. The service stays `active (running)` with a silent journal, reading nothing, indefinitely.
+  >
+  > The **one-time init** is now bounded: `busio.I2C`, `PN532_I2C`, `SAM_configuration` and `configure_tx_drive` run together on a daemon thread with a join timeout (`[reader] init_timeout_ms`, default 10s). Past the bound Stylus logs the reason at CRITICAL and calls `os._exit(1)`, converting the hang into exactly the exit `Restart=always` already knows how to recover. The hung thread is never killed — it's blocked in a C-level I²C ioctl where the interpreter never regains control — so the process leaves without it.
+  >
+  > **A hang in the poll loop is still uncovered**, and has the same outward symptom. It needs a liveness signal rather than a one-shot bound — `Type=notify` + `WatchdogSec=` with `WATCHDOG=1` pinged each pass — tracked as [#308](https://github.com/dylanleatham/Marquee/issues/308).
+
 - **I2C address collisions.** PN532 defaults to `0x24`. If you add another I2C device later, check its address doesn't clash.
 - **Ghost reads.** A sleeve moved past the reader on its way to the turntable might trigger a scan you didn't intend. The insertion debounce (400ms) helps but doesn't fully solve it. If it's annoying in practice, extend `insertion_debounce_polls` to 4 (800ms). Trade-off is slight lag on real scans.
 - **The runtime services need to be tolerant of `start` without a paired `stop`.** WiFi drops, the Pi reboots, the reader misses the removal event — many ways to leave downstream services in a "playing" state with no matching stop. Both Conductor and Player should have their own idle timeout (e.g. "if no new event in 90 minutes, return to idle").

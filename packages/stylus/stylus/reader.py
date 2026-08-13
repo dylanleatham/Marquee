@@ -12,10 +12,12 @@ The state machine consumes one :class:`TagRead` (uid + decoded URI) per poll. Tw
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from typing import Protocol
 
-from .config import RfConfig
+from .bounded import run_or_die
+from .config import ReaderConfig, RfConfig
 from .ndef import parse_uri
 from .rf import configure_tx_drive
 from .state_machine import TagRead
@@ -200,14 +202,45 @@ def build_pn532_reader(pn532, rf: RfConfig, uid_cache_size: int = 8) -> TagReade
     return _Pn532Reader()
 
 
-def create_pn532_reader(  # pragma: no cover - hardware imports only; see build_pn532_reader
-    rf: RfConfig | None = None, uid_cache_size: int = 8
+def open_pn532_reader(
+    connect: Callable[[], object],
+    rf: RfConfig,
+    uid_cache_size: int = 8,
+    *,
+    init_timeout_s: float = ReaderConfig.init_timeout_ms / 1000,
+    exit_: Callable[[int], None] = os._exit,
+) -> TagReader:
+    """Bring up a PN532 under a time bound: ``connect()`` builds the chip, then it's configured.
+
+    ``connect`` is injected so the bound covers *construction* too. That is the point of this
+    function existing rather than the bound living inside :func:`build_pn532_reader`: two of the
+    four calls that can wedge — ``busio.I2C`` and ``PN532_I2C`` — happen before there is a chip
+    object to configure, and they are the two DEPLOY.md §12 names. Bounding only the setup sequence
+    would look like protection while leaving the documented hang sites open
+    ([#307](https://github.com/dylanleatham/Marquee/issues/307)).
+
+    A hang exits the process; the unit's ``Restart=always`` brings it back against a module that
+    gets a fresh chance to answer. See :mod:`stylus.bounded` for why it can't be recovered in-place.
+    """
+    return run_or_die(
+        lambda: build_pn532_reader(connect(), rf, uid_cache_size),
+        init_timeout_s,
+        stage="PN532 init",
+        exit_=exit_,
+    )
+
+
+def create_pn532_reader(  # pragma: no cover - hardware imports only; see open_pn532_reader
+    rf: RfConfig | None = None,
+    uid_cache_size: int = 8,
+    init_timeout_ms: int = ReaderConfig.init_timeout_ms,
 ) -> TagReader:
     """Build the real PN532 reader. Raises a clear error off-Pi (no ``adafruit_pn532``).
 
-    Nothing but imports and construction lives here — decoding and caching are in
-    :class:`UriCache` / :func:`assemble_ntag_ndef`, and the setup sequence is in
-    :func:`build_pn532_reader`, all of them pure or injectable and tested.
+    Nothing but imports lives here — decoding and caching are in :class:`UriCache` /
+    :func:`assemble_ntag_ndef`, the setup sequence is in :func:`build_pn532_reader`, and the
+    construction is a closure handed to :func:`open_pn532_reader` so the time bound covers it. All
+    of them pure or injectable and tested.
     """
     try:
         import board  # type: ignore
@@ -219,6 +252,10 @@ def create_pn532_reader(  # pragma: no cover - hardware imports only; see build_
             "Use SimulatedReader on the bench."
         ) from e
 
-    i2c = busio.I2C(board.SCL, board.SDA)
-    pn532 = PN532_I2C(i2c, debug=False)
-    return build_pn532_reader(pn532, rf or RfConfig(), uid_cache_size)
+    def connect():
+        # Inside the bound, not before it: opening the bus is the first thing that can wedge.
+        return PN532_I2C(busio.I2C(board.SCL, board.SDA), debug=False)
+
+    return open_pn532_reader(
+        connect, rf or RfConfig(), uid_cache_size, init_timeout_s=init_timeout_ms / 1000
+    )

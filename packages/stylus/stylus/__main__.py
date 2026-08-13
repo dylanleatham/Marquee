@@ -42,7 +42,10 @@ def main() -> None:  # pragma: no cover - entrypoint glue
         reader = sim
         log.info("running with the SIMULATED reader — POST /simulate to inject tags")
     else:
-        reader = create_pn532_reader(config.rf)
+        # Logged *before* the call, not after: this is the one step that can hang, and a line that
+        # only prints on success tells you nothing about a boot that never got past it (#307).
+        log.info("bringing up the PN532 (bound: %dms)", config.reader.init_timeout_ms)
+        reader = create_pn532_reader(config.rf, init_timeout_ms=config.reader.init_timeout_ms)
         log.info(
             "PN532 transmit drive: GsNOn=0x%02X CWGsP=0x%02X (chip defaults overcouple — #303)",
             config.rf.gsn_on,
