@@ -123,6 +123,33 @@ It is not fatal — deleting a safety comment genuinely _is_ a signal a good rev
 — but it means **recall on this set reads a little high**. Treat the baseline as a regression gate,
 which is all it claims to be, and not as a measure of how good the roster is.
 
+## Measured: run-to-run variance is the dominant effect
+
+The first real measurement this suite produced, on `runtime-rename-over-served-file`, three
+executions of an identical prompt:
+
+| run | findings                                                                              |
+| --- | ------------------------------------------------------------------------------------- |
+| 1   | none                                                                                  |
+| 2   | **blocking** at `media/video.ts:266` — "reintroducing the Windows EPERM crash (#255)" |
+|     | info at `albums/actions.ts:1727` — "always paying the delete-then-rename race window" |
+| 3   | none                                                                                  |
+
+Run 2 is a textbook finding: it names the bug, the issue, and both call sites. Runs 1 and 3 say
+nothing at all. **Recall on a known-real bug is roughly one run in three**, and that variance is
+larger than any prompt change is likely to produce.
+
+Three consequences, and they matter more than any number in the table:
+
+1. **A single run tells you nothing.** `--repeat 1` is for iterating on an `expect` block, never for
+   judging a reviewer.
+2. **Three repeats may not be enough for a baseline.** At `p ≈ 1/3` per run, majority-of-three is
+   itself only about a 1-in-4 chance of scoring `hit` — the case-level outcome is nearly as noisy as
+   the run-level one. Record the baseline at `--repeat 5` or higher, and treat a one-case change as
+   noise until it repeats.
+3. **This is the roster's problem, not the eval's.** A reviewer that finds a real bug a third of the
+   time is what the harness has always been; the eval is just the first thing able to say so.
+
 ## The baseline
 
 `baseline.json` is committed. A harness edit may not lower any specialist's recall or raise its

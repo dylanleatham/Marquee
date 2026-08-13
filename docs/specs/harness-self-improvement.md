@@ -247,6 +247,15 @@ the expectation must not come from the thing being scored.
 execution is not a measurement. The runner takes `--repeat N` (default 3) and scores by majority,
 recording the spread. A gate that flakes is a gate that gets disabled.
 
+_Measured 2026-08-13, and it is bigger than expected._ Three executions of one identical case
+(`runtime-rename-over-served-file`) produced: nothing, a textbook blocking finding naming the bug and
+both call sites, nothing. **`runtime` finds a known-real bug about one run in three.** That variance
+exceeds anything a prompt edit is likely to cause, which means the default of three repeats is too
+few for a baseline — at `p ≈ 1/3`, majority-of-three scores `hit` only about a quarter of the time,
+so the case-level outcome is nearly as noisy as the run-level one. Record baselines at `--repeat 5`
+or higher, and treat a single case flipping as noise. This is a fact about the roster, not about the
+eval; it is simply the first time the harness has been able to state it.
+
 **The gate.** `review-agents/eval/baseline.json` is committed. A harness edit may not decrease any
 specialist's recall or increase its false-positive count relative to the baseline. When an edit
 improves things, the new baseline is committed in the same PR — which makes the improvement a
