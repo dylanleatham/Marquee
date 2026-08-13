@@ -1,15 +1,15 @@
-# ADR 0076 — A demo cut plays as a position in its album, because Sonos will not start a track handed to it alone
+# ADR 0078 — A demo cut plays as a position in its album, because Sonos will not start a track handed to it alone
 
 Status: accepted · Date: 2026-08-12 · Amends:
 [ADR 0058](0058-a-demo-tag-plays-one-chosen-track.md) §2 (Amp no longer hands Sonos the track URI),
 [amp-spec.md](../specs/amp-spec.md) (§9 scan handling, §10 the Sonos sequence, §13 the driver port) ·
 Builds on [ADR 0034](0034-amp-sonos-playback-and-card-uri.md) (the queue sequence this reuses) ·
-Relates: [ADR 0075](0075-an-edit-that-changes-what-the-room-plays-pushes-it.md) (the other half of
+Relates: [ADR 0077](0077-an-edit-that-changes-what-the-room-plays-pushes-it.md) (the other half of
 [#304](https://github.com/dylanleatham/Marquee/issues/304) — the cut never reaching the runtime at all)
 
 ## Context
 
-With the cut finally reaching Amp ([ADR 0075](0075-an-edit-that-changes-what-the-room-plays-pushes-it.md)), demo tags still made no sound. Amp resolved the
+With the cut finally reaching Amp ([ADR 0077](0077-an-edit-that-changes-what-the-room-plays-pushes-it.md)), demo tags still made no sound. Amp resolved the
 choice, handed Sonos `spotify:track:1eTaznNW4Xxtx9za2SMTXB`, reported `action: "playing"`, and the
 room stayed silent. Nothing failed: no exception, no UPnP fault, no warning in the log.
 
@@ -82,7 +82,7 @@ track URI. Read together they say "this album, from this song". `demoTrack` pres
 - **`spotifyUri` in a demo scan response changed meaning** from the track to the album. It is a
   response field, not stored state; ADR 0058's `demoTrack` still names the cut.
 - **A four-day-old symptom had two independent causes.** [#304](https://github.com/dylanleatham/Marquee/issues/304) is one report and two ADRs:
-  the cut never left the workstation ([ADR 0075](0075-an-edit-that-changes-what-the-room-plays-pushes-it.md)), and once it did, the hand-off did not
+  the cut never left the workstation ([ADR 0077](0077-an-edit-that-changes-what-the-room-plays-pushes-it.md)), and once it did, the hand-off did not
   play. Fixing either alone would have left a demo tag looking exactly as broken as before, which is
   worth remembering the next time a fix "should have worked".
 - **Not addressed**: whether other Spotify-on-Sonos item shapes (a playlist, a single) behave the

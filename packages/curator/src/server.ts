@@ -598,12 +598,17 @@ export function buildServer(opts: BuildOptions = {}) {
     (config.conductor.pushAssets
       ? new ConductorSync({
           store,
-          client: new ConductorClient({
-            url: config.conductor.url,
-            ...(config.conductor.sharedSecret
-              ? { sharedSecret: config.conductor.sharedSecret }
-              : {}),
-          }),
+          // Every host that reads the album-assets store, not just the one Curator talks to
+          // (ADR 0079). On a plain deployment that is the same single URL as before.
+          clients: config.conductor.assetTargets.map(
+            (target) =>
+              new ConductorClient({
+                url: target.url,
+                ...(target.sharedSecret
+                  ? { sharedSecret: target.sharedSecret }
+                  : {}),
+              }),
+          ),
           logger: {
             info: (m) => app.log.info(m),
             warn: (m) => app.log.warn(m),
@@ -2542,6 +2547,9 @@ export function buildServer(opts: BuildOptions = {}) {
       // total is one tick per album per enabled leg. Counting only one leg would show the bar
       // finishing while the slow half — the videos — had not started; counting a disabled leg would
       // leave the bar permanently short, since a no-op sync never reports progress.
+      // Still one tick per album however many targets there are (ADR 0079) — `resyncAll` advances
+      // once an album has reached *all* of them, which is also what `pushed` counts. Ticking per
+      // album-per-target would make the bar's units differ from the number reported beside it.
       const conductorLegs = conductorSync.enabled ? assets.length : 0;
       const backdropLegs = backdrop.enabled ? assets.length : 0;
       const total = conductorLegs + backdropLegs;

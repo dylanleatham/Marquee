@@ -154,7 +154,7 @@ describe("Amp /api/scan", () => {
 
     /**
      * **The chosen cut is played as a position in the album, not as a track handed over on its own**
-     * ([ADR 0076](../../../docs/adrs/0076-a-demo-cut-plays-as-a-position-in-the-album.md)).
+     * ([ADR 0078](../../../docs/adrs/0078-a-demo-cut-plays-as-a-position-in-the-album.md)).
      *
      * Sonos accepts a bare `x-sonos-spotify:` track, resolves it, reports the right duration, puts it
      * in the queue — and will not start it. `Play()` answers `true` and the transport stays `STOPPED`,
@@ -184,7 +184,7 @@ describe("Amp /api/scan", () => {
     /**
      * A cut chosen before Curator recorded track numbers, or on an album whose position we never
      * learned. The container trick needs a position, so this falls back to handing Sonos the track
-     * itself — the pre-ADR 0076 behaviour, which works on some households and is silent on others.
+     * itself — the pre-ADR 0078 behaviour, which works on some households and is silent on others.
      * Better than refusing to play a cut we can name, and logged so the silence has a reason.
      */
     it("hands over the bare track when the cut has no track number", async () => {

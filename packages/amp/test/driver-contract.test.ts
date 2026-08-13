@@ -36,7 +36,7 @@ describe("SonosDriver contract — FakeSonosDriver", () => {
   });
 
   /**
-   * The third argument is the whole of [ADR 0076](../../../docs/adrs/0076-a-demo-cut-plays-as-a-position-in-the-album.md): a demo cut is *a position in an album*,
+   * The third argument is the whole of [ADR 0078](../../../docs/adrs/0078-a-demo-cut-plays-as-a-position-in-the-album.md): a demo cut is *a position in an album*,
    * because Sonos will not start a track handed to it on its own. Pinned in the contract rather than
    * only in the scan tests, so a second driver implementation has to carry it too — the real driver
    * turns it into a `Seek(TRACK_NR)` between `SwitchToQueue` and `Play`, which no unit test can see.

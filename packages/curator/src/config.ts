@@ -82,8 +82,25 @@ export interface Config {
    * demo calls Conductor unauthenticated (fine only when Conductor also runs with auth disabled).
    */
   conductor: {
+    /**
+     * The Conductor Curator **talks to**: the Demo Room proxy, a simulated scan, the settings reads.
+     * One service, one URL. Where the album-assets store has to *land* is `assetTargets` below —
+     * they are the same host on a plain deployment and deliberately different on the desktop app.
+     */
     url: string;
     sharedSecret?: string;
+    /**
+     * Every host that reads the album-assets store, in push order
+     * ([ADR 0079](../../../docs/adrs/0079-the-asset-push-has-more-than-one-target.md)). Never empty
+     * — it falls back to `url`, so a single-runtime setup is unchanged.
+     *
+     * A list because the deployment has more than one reader and always did: Conductor reads the
+     * palette slice, Amp reads the Spotify slice from the same directory, and the desktop shell runs
+     * a *third* Conductor over Curator's own data dir. Folding that into one URL is
+     * [#306](https://github.com/dylanleatham/Marquee/issues/306) — the shell pinned it at itself and
+     * the Pi went four days with no writer while the sync reported success.
+     */
+    assetTargets: Array<{ url: string; sharedSecret?: string }>;
     /**
      * Whether to push the album-assets store to this Conductor (ADR 0045).
      *
@@ -172,6 +189,8 @@ export const CONFIG_ENV_VARS: readonly string[] = [
   "GEMINI_IMAGE_MODEL",
   "GEMINI_VIDEO_MODEL",
   "CONDUCTOR_URL",
+  "MARQUEE_COLOCATED_CONDUCTOR_URL",
+  "CONDUCTOR_ASSET_TARGETS",
   "CURATOR_CONDUCTOR_PUSH_ASSETS",
   "BACKDROP_URL",
   "BACKDROP_MEDIA_TRANSFER",
@@ -330,8 +349,17 @@ export function loadConfig(override: Partial<Config> = {}): Config {
   // exists to push to — the default localhost URL is only there so the Demo Room proxy has somewhere
   // to aim. `push_assets` overrides either way, for a co-located Conductor (the desktop app) or to
   // turn the push off while keeping the demo proxy pointed somewhere.
-  const conductorUrl =
+  /**
+   * The co-located Conductor the desktop shell starts beside Curator, if any. Kept apart from
+   * `CONDUCTOR_URL` rather than overwriting it (ADR 0079): the shell used to set `CONDUCTOR_URL`
+   * itself, which pinned the Demo Room correctly (issue #164) and, invisibly, re-pointed the asset
+   * push away from the real runtime — leaving Amp's directory with no writer (#306). Two facts, two
+   * variables.
+   */
+  const colocatedConductorUrl = process.env.MARQUEE_COLOCATED_CONDUCTOR_URL;
+  const configuredConductorUrl =
     (conductorFile.url as string | undefined) ?? process.env.CONDUCTOR_URL;
+  const conductorUrl = colocatedConductorUrl ?? configuredConductorUrl;
   // Tri-state, unlike `asBool`: "unset" has to stay distinguishable from "explicitly false", or an
   // absent setting would read as "off" and silently disable the push wherever it defaults to on.
   const rawPushAssets =
@@ -342,6 +370,41 @@ export function loadConfig(override: Partial<Config> = {}): Config {
     rawPushAssets === ""
       ? Boolean(conductorUrl)
       : asBool(rawPushAssets);
+
+  const conductorSecret = (conductorFile.shared_secret ??
+    process.env.TRIGGER_SHARED_SECRET) as string | undefined;
+
+  /**
+   * Where the store must land, in push order (ADR 0079). An explicit list wins outright — it is
+   * someone naming the runtime by hand, and second-guessing it would make the setting a suggestion.
+   * Otherwise it is the co-located Conductor **and** the configured one, nearest first: the local
+   * push is instant and feeds the Demo Room, so a failure to reach the Pi never costs you the copy
+   * you can see. One host named twice is one target — the same store, and pushing it twice would
+   * only double the log.
+   */
+  const explicitTargets = (
+    (conductorFile.asset_targets as unknown[] | undefined) ??
+    (process.env.CONDUCTOR_ASSET_TARGETS ?? "").split(",")
+  )
+    .map((t) => String(t).trim())
+    .filter(Boolean);
+  const canonical = (url: string) => url.replace(/\/+$/, "");
+  const assetTargetUrls = [
+    ...new Set(
+      (explicitTargets.length
+        ? explicitTargets
+        : [colocatedConductorUrl, configuredConductorUrl].filter(
+            (u): u is string => Boolean(u),
+          )
+      ).map(canonical),
+    ),
+  ];
+  // Never empty: `conductor.url` always resolves to something, and a caller that has turned the
+  // push on with no target named means the one Curator talks to.
+  if (!assetTargetUrls.length)
+    assetTargetUrls.push(
+      canonical(String(conductorUrl ?? "http://localhost:4737")),
+    );
 
   // Backdrop sync (step 9). Configured only when a URL is present; absent → sync disabled. mediaDir
   // defaults to Curator's own visualizers dir — correct for a shared-root single-machine setup, and
@@ -431,13 +494,11 @@ export function loadConfig(override: Partial<Config> = {}): Config {
     conductor: {
       url: String(conductorUrl ?? "http://localhost:4737"),
       pushAssets: conductorPushAssets,
-      ...((conductorFile.shared_secret ?? process.env.TRIGGER_SHARED_SECRET)
-        ? {
-            sharedSecret: String(
-              conductorFile.shared_secret ?? process.env.TRIGGER_SHARED_SECRET,
-            ),
-          }
-        : {}),
+      assetTargets: assetTargetUrls.map((url) => ({
+        url,
+        ...(conductorSecret ? { sharedSecret: conductorSecret } : {}),
+      })),
+      ...(conductorSecret ? { sharedSecret: conductorSecret } : {}),
     },
     ...(backdropUrl
       ? {
@@ -505,5 +566,25 @@ export function loadConfig(override: Partial<Config> = {}): Config {
         }
       : {}),
   };
-  return { ...base, ...override };
+  const merged = { ...base, ...override };
+  /**
+   * An override that names a Conductor but no `assetTargets` means "push the store there" — the
+   * shape every caller building a config by hand uses, and the shape the whole codebase had before
+   * [ADR 0079](../../../docs/adrs/0079-the-asset-push-has-more-than-one-target.md). Deriving it here
+   * keeps the field non-optional for readers (no `?? [url]` fallback scattered across the routes)
+   * without making every embedder restate it.
+   */
+  if (override.conductor && !override.conductor.assetTargets)
+    merged.conductor = {
+      ...merged.conductor,
+      assetTargets: [
+        {
+          url: merged.conductor.url,
+          ...(merged.conductor.sharedSecret
+            ? { sharedSecret: merged.conductor.sharedSecret }
+            : {}),
+        },
+      ],
+    };
+  return merged;
 }

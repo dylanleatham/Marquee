@@ -100,3 +100,19 @@ runtime-overview §7 changes; this is only a new way to launch the config side.
 > directory. Anything else fails the boot with the port and both directories named, as does a child
 > that exits before it is healthy. Adoption itself is unchanged where it was always safe, and is now
 > logged.
+
+> **Update (2026-08-13, [#306](https://github.com/dylanleatham/Marquee/issues/306) /
+> [ADR 0079](0079-the-asset-push-has-more-than-one-target.md)):** decision 3's pin was **too wide**,
+> in the opposite direction to the #164 update above.
+>
+> Setting `CONDUCTOR_URL` aimed the Demo Room at the co-located Conductor — correct, and still the
+> behaviour — but that variable is _also_ where the album-assets push takes its target, and
+> `loadEnvFile` will not override an already-set var, so the `.env`'s real runtime became invisible
+> to Curator entirely. A mixed deployment (shell for the lights, Pi for video and audio) therefore
+> pushed the store only to the machine it was already on, and the Pi — where **Amp** reads the
+> directory Conductor writes — had no writer at all, while `POST /api/runtime/sync` reported
+> `pushed: 478, failures: []`.
+>
+> The shell now sets `MARQUEE_COLOCATED_CONDUCTOR_URL` and leaves `CONDUCTOR_URL` alone. Curator aims
+> the Demo Room at the co-located Conductor exactly as before, and pushes the store to **every**
+> configured target. Two facts that were sharing one variable now have one each.

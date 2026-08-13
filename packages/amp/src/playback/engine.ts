@@ -35,7 +35,7 @@ export interface NowPlaying {
   spotifyUri: string;
   target: string;
   startedAt: string;
-  /** The 1-based position within `spotifyUri` that was started, when one was asked for (ADR 0076). */
+  /** The 1-based position within `spotifyUri` that was started, when one was asked for (ADR 0078). */
   trackNumber?: number;
 }
 

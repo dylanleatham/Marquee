@@ -182,6 +182,156 @@ describe("runtime push — Curator is the one place data leaves the workstation"
     });
   });
 
+  /**
+   * **The wiring, over real HTTP, with two runtimes**
+   * ([ADR 0079](../../../docs/adrs/0079-the-asset-push-has-more-than-one-target.md) / [#306](https://github.com/dylanleatham/Marquee/issues/306)).
+   *
+   * The unit tests either build `ConductorSync` by hand or stop at `loadConfig`'s output, and #306
+   * lived in neither: it was the *glue* — a config naming one host because the desktop shell had
+   * quietly overwritten the other. So this boots the real server from a two-target config and asks
+   * the same question the maintainer asked, `POST /api/runtime/sync`, of two stub Conductors.
+   */
+  describe("a config with two asset targets, end to end", () => {
+    let second: ReturnType<typeof stubConductor>;
+    let secondUrl: string;
+
+    beforeEach(async () => {
+      second = stubConductor();
+      await second.app.listen({ port: 0, host: "127.0.0.1" });
+      const { port } = second.app.server.address() as AddressInfo;
+      secondUrl = `http://127.0.0.1:${port}`;
+    });
+    afterEach(async () => {
+      await second.app.close();
+    });
+
+    const twoTargets = () =>
+      buildServer({
+        store,
+        roadie: fakeRoadie(store),
+        prober: fakeProber(),
+        generate: fakeGenerate,
+        config: {
+          conductor: {
+            url,
+            sharedSecret: SECRET,
+            pushAssets: true,
+            assetTargets: [
+              { url, sharedSecret: SECRET },
+              { url: secondUrl, sharedSecret: SECRET },
+            ],
+          },
+        },
+      }).app;
+
+    it("puts one album on both runtimes", async () => {
+      store.save(makeAsset("twoup001"));
+      const res = await twoTargets().inject({
+        method: "POST",
+        url: "/api/albums/twoup001/push",
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().conductor).toMatchObject({ ok: true });
+      expect(conductor.assets["twoup001"]).toBeTruthy();
+      expect(second.assets["twoup001"]).toBeTruthy();
+    });
+
+    it("puts the whole library on both, and says so per host", async () => {
+      for (const id of ["lib00001", "lib00002"]) store.save(makeAsset(id));
+      const app = twoTargets();
+      const started = await app.inject({
+        method: "POST",
+        url: "/api/runtime/sync",
+      });
+      const job = await awaitJob(app, started.json().id);
+
+      expect(job.status).toBe("done");
+      expect(job.result!.runtimeSync).toMatchObject({
+        conductor: {
+          pushed: 2,
+          failures: [],
+          targets: [
+            { url, pushed: 2, failed: 0 },
+            { url: secondUrl, pushed: 2, failed: 0 },
+          ],
+        },
+      });
+      expect(Object.keys(second.assets).sort()).toEqual([
+        "lib00001",
+        "lib00002",
+      ]);
+    });
+
+    /**
+     * The report #306 turned on: a run that reaches one host of two must not answer `pushed: 2,
+     * failures: []`. It is the same number the maintainer read as success for four days.
+     */
+    it("does not count an album as pushed when a target got nothing", async () => {
+      for (const id of ["half0001", "half0002"]) store.save(makeAsset(id));
+      const app = buildServer({
+        store,
+        roadie: fakeRoadie(store),
+        prober: fakeProber(),
+        config: {
+          conductor: {
+            url,
+            sharedSecret: SECRET,
+            pushAssets: true,
+            assetTargets: [
+              { url, sharedSecret: SECRET },
+              { url: "http://127.0.0.1:1" },
+            ],
+          },
+        },
+      }).app;
+      const started = await app.inject({
+        method: "POST",
+        url: "/api/runtime/sync",
+      });
+      const job = await awaitJob(app, started.json().id);
+
+      expect(job.result!.runtimeSync).toMatchObject({
+        conductor: {
+          pushed: 0,
+          targets: [
+            { url, pushed: 2, failed: 0 },
+            { url: "http://127.0.0.1:1", pushed: 0, failed: 2 },
+          ],
+        },
+      });
+      // …while the reachable one really did get them: a dead target must not block a live one.
+      expect(Object.keys(conductor.assets).sort()).toEqual([
+        "half0001",
+        "half0002",
+      ]);
+    });
+
+    it("verifies against both, naming the one that is short", async () => {
+      store.save(makeAsset("onlyon02"));
+      // Reaches only the first target, by pushing through a single-target server.
+      await server().inject({
+        method: "POST",
+        url: "/api/albums/onlyon02/push",
+      });
+
+      const res = await twoTargets().inject({
+        method: "POST",
+        url: "/api/runtime/verify",
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().conductor).toMatchObject({
+        ok: false,
+        missing: ["onlyon02"],
+        targets: [
+          { url, ok: true, missing: [] },
+          { url: secondUrl, ok: false, missing: ["onlyon02"] },
+        ],
+      });
+    });
+  });
+
   describe("POST /api/runtime/sync", () => {
     it("returns 202 with a library-scoped job, then pushes every album", async () => {
       for (const id of ["sync0001", "sync0002", "sync0003"])
