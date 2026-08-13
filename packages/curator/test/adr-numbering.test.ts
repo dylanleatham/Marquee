@@ -20,6 +20,13 @@ import {
 // Repo-wide invariant, hosted here for the same reason metaprompts.test.ts is: this is the leg CI
 // runs (`test:unit`), and the docs have no package of their own.
 //
+// It stays here rather than moving to `contract-tests/` beside `conflict-markers.test.mjs`, which is
+// where the other `scripts/*.mjs` tests live and which the consistency agent has flagged. Three
+// **immutable** ADRs place this file in the `test:unit` leg by name — 0064 (why that leg runs
+// unfiltered), 0065, 0066 — so a move would leave stale citations in documents that may not be
+// edited to match. The precedent is real; the cost of honouring it here is higher than the
+// inconsistency. Revisit only if `test:unit` and `test:contracts` ever stop both gating every PR.
+//
 // Issue #151: two branches each allocated "the next ADR number" in parallel and both merged, so
 // 0022 and 0023 each named two unrelated decisions — and ~74 citations of the form "ADR 0022"
 // silently became ambiguous. Renaming the files was cheap; disambiguating the citations was not.
