@@ -367,9 +367,35 @@ then predictable rather than dependent on state you can't see from the tile.
   the third colour the row reads "held in reserve" rather than naming a place the lights don't have.
 - `+ ADD A LIGHT` and **BACK TO ROADIE'S ORIGINAL** (which replaces "reset to auto"/"start over"),
   then the line promising both palettes are recoverable.
+- **UPLOAD A DIFFERENT COVER**, immediately right of BACK TO ROADIE'S ORIGINAL — your own picture
+  when the one Roadie found is a bad scan, and the palette re-derived from it. Added 2026-08-13
+  ([ADR 0084](../adrs/0084-your-own-cover-is-a-palette-control.md)); the route itself has existed
+  since [#100](https://github.com/dylanleatham/Marquee/issues/100) with nothing able to call it.
+  Four things this has to get right:
+  - **It asks before discarding a hand-edit** — curator-spec §12's dialog, `PULL NEW COLOURS` /
+    `KEEP MY COLOURS`. No Cancel: the cover changes either way, so the question is only about the
+    colours. Escape and the scrim resolve to **keep**, the side that loses nothing. A palette nobody
+    has touched skips the dialog — re-deriving is the point of the upload.
+  - **USE THE COVER ROADIE FOUND** sits beside it while — and only while — an override is in force.
+    The fetched cover is never deleted, so the way back ships with the way in. It asks the same §12
+    question, and passes the answer explicitly, because `DELETE`'s server-side default re-derives
+    whether or not the palette was hand-edited.
+  - **The source card reads `FROM YOUR COVER`**, not FROM THE SLEEVE, and a second reassurance line
+    says the override is in force and that BACK TO ROADIE'S ORIGINAL now re-extracts from _your_
+    file. A label that names a cover the record is not using is the failure this prevents.
+  - **The `UploadStrip`**, not a spinner (§3.4) — the same strip the card and the visualizer show.
+    The wait it covers is mostly Palette Press re-extracting, which is what the strip's
+    "Adding <name> to the record…" state is for.
 
-Dropped from the old Look station and **not** to be reinstated: the artwork override, the source
-badge, the genre tags, and the raw `{"transitionMs":…,"holdMs":…}` JSON.
+Dropped from the old Look station and **not** to be reinstated: the source badge, the genre tags,
+and the raw `{"transitionMs":…,"holdMs":…}` JSON.
+
+> **The artwork override left this list on 2026-08-13**
+> ([ADR 0084](../adrs/0084-your-own-cover-is-a-palette-control.md)). The other three are ways of
+> _displaying_ a palette; the cover is its **input**. Grouping them was a classification error, and
+> it left the screen offering two answers to "these colours are wrong" — re-extract, or use the
+> feeling palette — while the most direct one, _the picture it extracted from is a bad scan_, had no
+> control at all. The other three stay dropped.
 
 **Moved, not dropped: how the lights _move_.** The Motion picker
 ([ADR 0039](../adrs/0039-one-motion-picker-clip-patterns-are-selectable.md), driving

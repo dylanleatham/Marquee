@@ -1337,9 +1337,15 @@ a:hover {
   cursor: default;
 }
 
+/* Wraps because the row grew past two: + ADD A LIGHT, BACK TO ROADIE'S ORIGINAL, UPLOAD A DIFFERENT
+   COVER, and — only while one is in force — USE THE COVER ROADIE FOUND (ADR 0081). Four labels this
+   long overflow the panel's 820px on a narrow window, and a control pushed off the edge is a control
+   that isn't there. The row gap is tighter than the column gap so a wrapped line still reads as one
+   group. */
 .lights__actions {
   display: flex;
-  gap: 22px;
+  flex-wrap: wrap;
+  gap: 10px 22px;
   margin-top: 14px;
 }
 .lights__reassure {
