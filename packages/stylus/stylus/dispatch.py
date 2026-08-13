@@ -1,5 +1,5 @@
 """Publishing off the poll loop (stylus-spec §8,
-[ADR 0078](../../../docs/adrs/0078-publishing-moves-off-the-poll-loop.md)).
+[ADR 0082](../../../docs/adrs/0082-publishing-moves-off-the-poll-loop.md)).
 
 ``Publisher.publish`` used to be called synchronously from ``StylusApp.tick()`` — which *is* the poll
 loop — so the reader stopped reading for as long as a publish took. With the shipped timeouts and

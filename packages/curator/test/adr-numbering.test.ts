@@ -26,9 +26,9 @@ import {
 //
 // The checks themselves now live in `scripts/check-adr-numbers.mjs` (issue #317). This file was
 // the only place they ran, and it runs in exactly one CI leg — which `CI_ENABLED=false` skips, and
-// which `pre-push`'s affected-only filter cannot select for a docs-only change. Three collisions
-// shipped through that gap (#151, then 0075/0076, then #316's 0077/0078). The hook runs the script
-// on every push; this file is where the script is *proven*, which is the half a hook can't do.
+// which `pre-push`'s affected-only filter cannot select for a docs-only change. Four collisions
+// shipped through that gap (#151's 0022/0023, then 0064, 0075/0076, and #316's 0077/0078). The hook
+// runs the script on every push; this file is where the script is *proven*, which a hook can't do.
 //
 // A gate whose whole job is to fail loudly should be shown failing: every assertion in the first
 // suite is `toEqual([])`, which passes just as happily if the detection is broken and silently
@@ -73,6 +73,33 @@ describe("ADR numbering", () => {
     );
   });
 
+  // The scope of the two link checks above, asserted rather than assumed. It used to be three globs
+  // — `docs` markdown, `packages` TS/TSX, `CLAUDE.md` — and eighteen ADR-citing files sat outside
+  // it. #316's renumber broke a citation in `dispatch.py`; nothing said so, and the hand sweep had
+  // been written to the same three globs, because that is what the guard looked like it covered.
+  it("scans every tracked text file, not the three globs that let a .py citation break", () => {
+    const repoRoot = join(adrDir, "..", "..");
+    const scanned = new Set(citingSources(repoRoot));
+    for (const outsideTheOldScope of [
+      join(repoRoot, "packages", "stylus", "stylus", "dispatch.py"),
+      join(repoRoot, "packages", "stylus", "README.md"),
+      join(repoRoot, "contract-tests", "schemas.test.mjs"),
+      join(repoRoot, "packages", "backdrop", "public", "styles.css"),
+    ]) {
+      expect(scanned).toContain(outsideTheOldScope);
+    }
+    // …but not the 9MB logo, and not anything git doesn't track.
+    expect(scanned).not.toContain(
+      join(
+        repoRoot,
+        "docs",
+        "design_handoff_curator_overhaul",
+        "marquee-logo.jpeg",
+      ),
+    );
+    expect([...scanned].some((f) => f.includes("node_modules"))).toBe(false);
+  });
+
   // `driftFromBaseIn` is deliberately *not* run against the real origin/main here. CI checks out at
   // depth 1 and has no such ref, so this suite could only skip the check — and a gate that skips
   // itself is the failure mode #316 was. The hook runs it where the ref exists by construction (you
@@ -108,9 +135,10 @@ function fixture(files: Record<string, string>): string {
 
 /**
  * Compose a markdown ADR link at runtime. Written literally, the fixtures below would be matched by
- * `brokenAdrLinksIn`'s own regex when it walks `packages/**` — this file would fail its own check,
- * the same self-scan problem `scripts/check-conflict-markers.mjs` solves by building its markers
- * from `repeat()` rather than typing them out.
+ * `brokenAdrLinksIn`'s own regex when it reaches this file — which it now certainly does, since the
+ * scan covers every tracked text file — and this file would fail its own check. Same self-scan
+ * problem `scripts/check-conflict-markers.mjs` solves by building its markers from `repeat()`
+ * rather than typing them out.
  */
 const mdLink = (label: string, href: string) => `[${label}](${href})`;
 

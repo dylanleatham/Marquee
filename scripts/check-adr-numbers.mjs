@@ -22,7 +22,7 @@
 //   node scripts/check-adr-numbers.mjs              # every check, including against origin/main
 //   node scripts/check-adr-numbers.mjs --local      # skip the origin/main check (no network)
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -160,26 +160,39 @@ export function labelHrefMismatchesIn(files, root) {
   return mismatched;
 }
 
-/** Every file under `dir` with one of `exts`, skipping build output and dependencies. */
-export function walk(dir, exts) {
-  const out = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name === "node_modules" || entry.name.startsWith("dist"))
-      continue;
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...walk(full, exts));
-    else if (exts.some((e) => entry.name.endsWith(e))) out.push(full);
-  }
-  return out;
-}
+/** Files whose bytes aren't worth scanning for a markdown link. Everything else is. */
+const BINARY =
+  /\.(jpe?g|png|gif|ico|webp|svgz|pdf|zip|gz|woff2?|ttf|otf|eot|mp[34]|wav|bin)$/i;
+const MAX_BYTES = 2 * 1024 * 1024; // a 9MB logo has no ADR citations in it
 
-/** Every source the citation checks scan: docs, TS/TSX under packages, and the working agreement. */
+/**
+ * Every tracked file that could cite an ADR — which is *every* tracked text file, deliberately.
+ *
+ * This used to be three globs: `docs` markdown, `packages` TS/TSX, and `CLAUDE.md`. Eighteen files
+ * cited ADRs from outside that set — `.py`, `.toml`, `.css`, `.js`, `.mjs`, and every README and
+ * DEPLOY guide under `packages/` — and none of them were checked. The #316 renumber broke
+ * `packages/stylus/stylus/dispatch.py` and the guard said nothing, because the hand sweep had been
+ * written to match the same three globs. A gate that defines its own scope narrowly teaches the
+ * sweep to be narrow too.
+ *
+ * `git ls-files` rather than a directory walk: it is the definition of "in the repo", it inherits
+ * `.gitignore` for free (no `node_modules`, no `dist`, no `.turbo`), and an untracked scratch file
+ * can't fail someone else's push. A **denylist** of binary extensions rather than an allowlist of
+ * text ones, so the next file type to cite an ADR is covered without anyone remembering to add it.
+ */
 export function citingSources(repoRoot) {
-  return [
-    ...walk(join(repoRoot, "docs"), [".md"]),
-    ...walk(join(repoRoot, "packages"), [".ts", ".tsx"]),
-    join(repoRoot, "CLAUDE.md"),
-  ];
+  return git(["ls-files", "-z"], repoRoot)
+    .split("\0")
+    .filter((p) => p && !BINARY.test(p))
+    .map((p) => join(repoRoot, p))
+    .filter((p) => {
+      // Tracked-but-deleted (mid-rename) would otherwise throw in the readers above.
+      try {
+        return statSync(p).size <= MAX_BYTES;
+      } catch {
+        return false;
+      }
+    });
 }
 
 function git(args, cwd) {
@@ -264,13 +277,18 @@ function main(argv) {
   console.error(
     `\nAn ADR number must name exactly one decision, here and on origin/main (issue #151).` +
       `\nThe next free number is ${nextFreeNumber(local, baseFiles)}.` +
-      `\nRenumbering is a rename plus a sweep of every citation across docs/**, packages/**` +
-      `\nand CLAUDE.md — both the link label and the href.\n`,
+      `\nRenumbering is a rename plus a sweep of every citation in every tracked file — not just` +
+      `\nthe docs: the last one broke a .py docstring. Both the link label and the href.\n`,
   );
   return 1;
 }
 
-// `process.argv[1]` is this file only when it was run directly, not when a test imports it.
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+// CLI. `import.meta.main` is not available on Node 22, so compare argv instead — same shape as
+// scripts/check-conflict-markers.mjs and scripts/idle-audit.mjs, whose form dodges the Windows
+// path-separator mismatch. A test that imports this file must not trigger the run.
+if (
+  process.argv[1] &&
+  import.meta.url.endsWith(process.argv[1].replace(/\\/g, "/"))
+) {
   process.exit(main(process.argv.slice(2)));
 }

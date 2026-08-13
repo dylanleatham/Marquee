@@ -68,6 +68,13 @@ filter.**
 4. On failure it prints **the next genuinely free number**, computed across both trees. The absence
    of that one number is what turned the third collision into the fourth.
 5. `pnpm run check:adrs` runs the same thing on demand.
+6. **The citation scan covers every tracked text file**, via `git ls-files` and a denylist of binary
+   extensions — not the three globs (`docs` markdown, `packages` TS/TSX, `CLAUDE.md`) it used to.
+   Eighteen files cited ADRs from outside that set, and the #316 renumber duly broke a link in
+   `packages/stylus/stylus/dispatch.py` while the guard stayed green. The hand sweep had been
+   written to match the same three globs, which is the real lesson: a gate that defines its scope
+   narrowly teaches the sweep to be narrow too. A denylist means the next file type to cite an ADR
+   is covered without anyone remembering to add it.
 
 Two details are deliberate:
 
