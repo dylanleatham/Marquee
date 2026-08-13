@@ -1,0 +1,23 @@
+[Unit]
+Description=Marquee Hue Conductor — lighting driver
+Documentation=https://github.com/dylanleatham/Marquee/blob/main/docs/runbook.md
+# The Pi can finish booting before the LAN is routable, and Conductor talks to the Hue bridge over
+# it from the first request. Without network-online the first scans after a reboot fail against an
+# unreachable bridge and read as a pairing problem.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/Marquee/packages/hue-conductor
+ExecStart=/usr/bin/node /home/pi/Marquee/packages/hue-conductor/dist/server.js
+Restart=on-failure
+RestartSec=3
+# Journald is bounded and rotates; a log file on the SD card grows forever and wears the card out.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=marquee-conductor
+
+[Install]
+WantedBy=multi-user.target

@@ -334,6 +334,20 @@ That's issue #52 done.
 
 ## 13. Updating Stylus later
 
+From your workstation, for every host at once — this is the one to reach for:
+
+```
+$ pnpm run deploy
+```
+
+It does the `pip install` below without being reminded, re-copies `marquee-stylus.service` if it
+changed, and then runs the `diff` that proves the installed copy matches the checkout — which is the
+whole of the trap this section exists to warn about. See
+[packages/deploy/README.md](../deploy/README.md) and
+[ADR 0080](../../docs/adrs/0080-deployment-is-one-pinned-commit-verified-on-every-host.md).
+
+By hand on the Pi Zero, when you can't run that:
+
 ```
 $ cd ~/Marquee && git pull
 $ cd packages/stylus && .venv/bin/pip install '.[hardware]'

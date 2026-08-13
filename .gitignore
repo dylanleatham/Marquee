@@ -22,6 +22,10 @@ packages/desktop/release/
 *.local.toml
 config.toml
 
+# Deploy inventory — hostnames and paths for *your* install. Tracked as hosts.example.json only,
+# the same arrangement as the config.example.toml files it sits alongside.
+packages/deploy/hosts.json
+
 # Python
 __pycache__/
 *.py[cod]
