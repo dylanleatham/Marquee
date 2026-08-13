@@ -18,9 +18,15 @@ export interface AlbumSpotifyInput {
    * default for every album — means a demo scan plays the whole album, exactly as a card does.
    */
   demoTrack?: {
-    /** `spotify:track:<id>`. The only field Amp uses; the rest is Curator's bookkeeping. */
+    /** `spotify:track:<id>`. Reported back on the scan, and the fallback hand-off (ADR 0076). */
     spotifyUri: string;
     name?: string;
+    /**
+     * 1-based position in the album — how the cut is actually played ([ADR 0076](../../../docs/adrs/0076-a-demo-cut-plays-as-a-position-in-the-album.md)): Sonos is
+     * given the album container and seeked here, because it will not start a bare track. Optional on
+     * the asset, so a cut recorded without one still plays by the older route.
+     */
+    trackNumber?: number;
   } | null;
 }
 

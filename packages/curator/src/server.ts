@@ -898,19 +898,31 @@ export function buildServer(opts: BuildOptions = {}) {
           fields.regeneratePalette === undefined
             ? !handEdited
             : fields.regeneratePalette !== "false";
-        if (!wants)
-          return reply
-            .code(201)
-            .send({ artwork: asset.artwork, paletteRegenerated: false });
+        /**
+         * ★sync (#304) on **both** branches, not only the regenerating one. A new cover usually
+         * re-derives the palette the room plays; when the human keeps their hand-edit it does not,
+         * and the push then costs one PUT to keep the runtime's file identical to this one — the
+         * identity ADR 0045 leans on to answer "is the runtime up to date" by comparing files.
+         */
+        if (!wants) {
+          const sync = await syncPlaybackChange(asset);
+          return reply.code(201).send({
+            artwork: asset.artwork,
+            paletteRegenerated: false,
+            sync,
+          });
+        }
         const regenerated = await actions.regeneratePalette(
           actionDeps,
           curatorId,
           true,
         );
+        const sync = await syncPlaybackChange(regenerated);
         return reply.code(201).send({
           artwork: regenerated.artwork,
           palette: regenerated.palette,
           paletteRegenerated: true,
+          sync,
         });
       } finally {
         if (file) rmSync(file.path, { force: true });
@@ -932,21 +944,27 @@ export function buildServer(opts: BuildOptions = {}) {
         return reply
           .code(404)
           .send({ error: "this album has no artwork override" });
-      // Same hand-edit protection as the upload path, expressed as a query param.
-      if (regeneratePalette === "false" || !asset.artwork)
+      // Same hand-edit protection as the upload path, expressed as a query param — and the same
+      // ★sync (#304) on both branches.
+      if (regeneratePalette === "false" || !asset.artwork) {
+        const sync = await syncPlaybackChange(asset);
         return reply.send({
           artwork: asset.artwork,
           paletteRegenerated: false,
+          sync,
         });
+      }
       const regenerated = await actions.regeneratePalette(
         actionDeps,
         curatorId,
         true,
       );
+      const sync = await syncPlaybackChange(regenerated);
       return reply.send({
         artwork: regenerated.artwork,
         palette: regenerated.palette,
         paletteRegenerated: true,
+        sync,
       });
     } catch (err) {
       return actionError(err, reply, req);
@@ -1109,7 +1127,9 @@ export function buildServer(opts: BuildOptions = {}) {
         curatorId,
         colors as PaletteEditColor[],
       );
-      return { palette: asset.palette };
+      // ★sync (#304): Conductor plays these colours, and it plays them from its own copy.
+      const sync = await syncPlaybackChange(asset);
+      return { palette: asset.palette, sync };
     } catch (err) {
       return actionError(err, reply, req);
     }
@@ -1132,10 +1152,13 @@ export function buildServer(opts: BuildOptions = {}) {
         // so a caller flipping the type doesn't have to restate the knobs.
         "params" in body ? body.params : undefined,
       );
+      // ★sync (#304): the override only means anything to the service reading it at scan time.
+      const sync = await syncPlaybackChange(asset);
       return {
         patternOverride: asset.patternOverride ?? null,
         patternOverrideParams: asset.patternOverrideParams ?? {},
         pattern: asset.pattern,
+        sync,
       };
     } catch (err) {
       return actionError(err, reply, req);
@@ -1183,7 +1206,10 @@ export function buildServer(opts: BuildOptions = {}) {
         .send({ error: "source must be cover, feeling or blend" });
     try {
       const asset = await actions.choosePalette(actionDeps, curatorId, source);
-      return { palette: asset.palette, pattern: asset.pattern };
+      // ★sync (#304): colours and motion both changed here (ADR 0033) — both are played from the
+      // runtime's copy.
+      const sync = await syncPlaybackChange(asset);
+      return { palette: asset.palette, pattern: asset.pattern, sync };
     } catch (err) {
       return actionError(err, reply, req);
     }
@@ -1198,7 +1224,9 @@ export function buildServer(opts: BuildOptions = {}) {
         curatorId,
         force,
       );
-      return { palette: asset.palette, pattern: asset.pattern };
+      // ★sync (#304): a re-extraction replaces the colours the room is playing right now.
+      const sync = await syncPlaybackChange(asset);
+      return { palette: asset.palette, pattern: asset.pattern, sync };
     } catch (err) {
       return actionError(err, reply, req);
     }
@@ -1335,6 +1363,25 @@ export function buildServer(opts: BuildOptions = {}) {
   /** The video routes only ever wanted the transfer job; keep that shape for them. */
   const syncVideoChange = async (asset: AlbumAsset) =>
     (await syncAlbumToRuntime(asset)).transferJob;
+
+  /**
+   * ★sync after an edit that changes **what the room plays** ([#304](https://github.com/dylanleatham/Marquee/issues/304)).
+   *
+   * Conductor's directory is the copy Amp reads at scan time (ADR 0045), so a choice that lands only
+   * on the workstation is a choice the stand never makes. That is how every demo tag came to play
+   * its record from track 1: the cut was chosen here, Amp read an asset without one, and took ADR
+   * 0058's fallback — which is also the correct behaviour for a record with no cut, so the room
+   * could not tell the two apart.
+   *
+   * **Conductor only, deliberately not `syncAlbumToRuntime`.** Backdrop's projection carries nothing
+   * these edits touch, and that helper also cancels the album's in-flight media transfer — so
+   * picking a demo cut would abandon a video upload that has nothing to do with it.
+   *
+   * Best-effort like every other push: the outcome is recorded as the album's syncIssue and returned
+   * beside the edit, never raised over it (roadie-spec §6).
+   */
+  const syncPlaybackChange = (asset: AlbumAsset) =>
+    conductorSync.syncAlbum(asset);
 
   /**
    * Push one album to the whole runtime, as an API response: the asset to Conductor (which Amp reads
@@ -1769,9 +1816,13 @@ export function buildServer(opts: BuildOptions = {}) {
         curatorId,
         spotifyUri ?? null,
       );
+      // ★sync (#304): this is the album Amp streams. Naming it here and not on the runtime leaves
+      // the stand unable to play a record Curator now says is playable.
+      const sync = await syncPlaybackChange(asset);
       return {
         spotifyUri: asset.metadata.spotifyUri ?? null,
         demoTrack: asset.demoTrack ?? null,
+        sync,
       };
     } catch (err) {
       return actionError(err, reply, req);
@@ -1920,7 +1971,9 @@ export function buildServer(opts: BuildOptions = {}) {
     };
     try {
       const asset = actions.setDemoTrack(actionDeps, curatorId, track ?? null);
-      return { demoTrack: asset.demoTrack ?? null };
+      // ★sync (#304): the choice is only worth anything to Amp, and Amp reads the runtime's copy.
+      const sync = await syncPlaybackChange(asset);
+      return { demoTrack: asset.demoTrack ?? null, sync };
     } catch (err) {
       return actionError(err, reply, req);
     }

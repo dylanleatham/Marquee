@@ -174,7 +174,27 @@ export function buildServer(opts: BuildOptions = {}) {
      */
     const demoTrackUri =
       kind === "demo" ? asset.demoTrack?.spotifyUri : undefined;
-    const spotifyUri = demoTrackUri ?? asset.metadata.spotifyUri;
+
+    /**
+     * **A cut plays as a position in its album, not as a track handed over on its own**
+     * ([ADR 0076](../../../docs/adrs/0076-a-demo-cut-plays-as-a-position-in-the-album.md)).
+     *
+     * Sonos accepts a bare `spotify:track:`, resolves it, reports its duration, queues it — and never
+     * leaves `STOPPED`. Nothing errors, so the only symptom is a silent room, which is the one
+     * outcome ADR 0058 §3 set out to avoid. Handing over the album container and seeking to the
+     * track plays the identical track.
+     *
+     * Both parts have to be there: the album to enqueue, and the position to seek to. When either is
+     * missing we fall back to the old bare-track hand-off rather than refusing a cut we can name.
+     */
+    const demoAlbumUri = asset.metadata.spotifyUri;
+    const demoTrackNumber =
+      kind === "demo" && demoTrackUri && demoAlbumUri
+        ? asset.demoTrack?.trackNumber
+        : undefined;
+    const spotifyUri =
+      (demoTrackNumber ? demoAlbumUri : demoTrackUri) ??
+      asset.metadata.spotifyUri;
     if (!spotifyUri) {
       req.log.warn(
         `${kind} scan ${scan.uri}: album has no Spotify URI — staying silent`,
@@ -190,9 +210,15 @@ export function buildServer(opts: BuildOptions = {}) {
       req.log.info(
         `demo scan ${scan.uri}: no demo track chosen — playing the album instead`,
       );
+    // Named at `warn`, because on a household that won't start a bare track this is the difference
+    // between the cut and silence, and the fix is to re-pick the cut so its position gets recorded.
+    else if (kind === "demo" && !demoTrackNumber)
+      req.log.warn(
+        `demo scan ${scan.uri}: the chosen cut has no track number — handing Sonos the track itself, which some households accept and others play silently (ADR 0076)`,
+      );
 
     try {
-      await engine.start(target, spotifyUri, parsed.curatorId);
+      await engine.start(target, spotifyUri, parsed.curatorId, demoTrackNumber);
     } catch (err) {
       // Environmental Sonos failure (no favorite/binding, unreachable): degrade, don't error.
       if (err instanceof SonosUnavailableError) {
@@ -216,7 +242,12 @@ export function buildServer(opts: BuildOptions = {}) {
       target,
       // The chosen track, or `null` when the demo tag fell back to the album — otherwise the two
       // outcomes produce identical `playing` responses and the fallback is invisible to a caller.
+      //
+      // `spotifyUri` above names what **Sonos was handed**, which for a cut is now the album (ADR
+      // 0076); `trackNumber` is the position inside it. Present together they say "this album, from
+      // this song"; `demoTrack` alone says the cut had no position and went over as a bare track.
       ...(kind === "demo" ? { demoTrack: demoTrackUri ?? null } : {}),
+      ...(demoTrackNumber ? { trackNumber: demoTrackNumber } : {}),
     });
   });
 

@@ -260,6 +260,16 @@ awaiting_verify → verified` needs `physicallyVerifiedAt`. `preview/approve`, `
 > `POST /api/runtime/verify` is the cross-service drift check. Because two services now write
 > `roadie.syncIssues`, each entry is namespaced by the service that raised it so they cannot erase
 > each other's findings.
+>
+> **Update (2026-08-12, [ADR 0075](../adrs/0075-an-edit-that-changes-what-the-room-plays-pushes-it.md)): ★ also fires on an edit, not only on a
+> milestone.** Every route that changes a field the runtime reads at scan time — the demo cut, the
+> hand-named Spotify URI, the palette, the motion override, the chosen or re-derived palette, the
+> cover override — pushes the asset to Conductor before it answers. The triggers above are all
+> milestones on the way to `verified`, which is terminal, so an edit made to a finished record
+> reached the room only via **Sync everything**; that is [#304](https://github.com/dylanleatham/Marquee/issues/304), where every demo tag played its
+> album from track 1. These pushes are Conductor-only and skip Backdrop deliberately (its projection
+> carries none of those fields, and the Backdrop path cancels in-flight media transfers). Library
+> sweeps still do not push per album — see ADR 0075 for the boundary and the exclusions.
 
 Curator synchronizes Backdrop at two human-driven transitions. _(Original step-5 design below; the
 mechanism was revised by [ADR 0015](../adrs/0015-backdrop-sync-triggered-at-projection-changes.md) —

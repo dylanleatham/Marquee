@@ -34,6 +34,30 @@ describe("SonosDriver contract — FakeSonosDriver", () => {
     ]);
     expect(d.stopCalls).toEqual(["Living Room"]);
   });
+
+  /**
+   * The third argument is the whole of [ADR 0076](../../../docs/adrs/0076-a-demo-cut-plays-as-a-position-in-the-album.md): a demo cut is *a position in an album*,
+   * because Sonos will not start a track handed to it on its own. Pinned in the contract rather than
+   * only in the scan tests, so a second driver implementation has to carry it too — the real driver
+   * turns it into a `Seek(TRACK_NR)` between `SwitchToQueue` and `Play`, which no unit test can see.
+   */
+  it("carries the 1-based position a demo cut plays from", async () => {
+    const d = new FakeSonosDriver();
+    await d.play("Living Room", "spotify:album:abc", 4);
+    expect(d.playCalls).toEqual([
+      {
+        target: "Living Room",
+        spotifyUri: "spotify:album:abc",
+        trackNumber: 4,
+      },
+    ]);
+  });
+
+  it("omits the position when none was asked for — a card plays from the top", async () => {
+    const d = new FakeSonosDriver();
+    await d.play("Living Room", "spotify:album:abc");
+    expect(d.playCalls[0]).not.toHaveProperty("trackNumber");
+  });
 });
 
 // Opt-in live check: set AMP_SONOS_E2E=1 on a machine with a Sonos on the LAN. Skipped in CI.

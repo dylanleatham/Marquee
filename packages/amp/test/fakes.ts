@@ -41,6 +41,8 @@ export class FakeTimers implements Timers {
 export interface PlayCall {
   target: string;
   spotifyUri: string;
+  /** 1-based position within `spotifyUri`'s container, when one was asked for (ADR 0076). */
+  trackNumber?: number;
 }
 
 export interface FakeSonosOptions {
@@ -55,9 +57,18 @@ export class FakeSonosDriver implements SonosDriver {
 
   constructor(private readonly opts: FakeSonosOptions = {}) {}
 
-  async play(target: string, spotifyUri: string): Promise<void> {
+  async play(
+    target: string,
+    spotifyUri: string,
+    trackNumber?: number,
+  ): Promise<void> {
     if (this.opts.failPlay) throw this.opts.failPlay;
-    this.playCalls.push({ target, spotifyUri });
+    // Recorded only when asked for, so the card path's expectations stay `{ target, spotifyUri }`.
+    this.playCalls.push({
+      target,
+      spotifyUri,
+      ...(trackNumber === undefined ? {} : { trackNumber }),
+    });
   }
 
   async stop(target: string): Promise<void> {
