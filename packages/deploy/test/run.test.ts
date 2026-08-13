@@ -301,6 +301,53 @@ describe("health checks", () => {
     ).rejects.toThrow(/returned 500/);
   });
 
+  it("waits out Backdrop's 503 while the kiosk browser is still starting", async () => {
+    // Found on the real Pi 5: after the reboot, Backdrop answered 503 for ~30s while Chromium came
+    // up, then 200. The check accepted the first non-000 code as a verdict, so it warned "the TV is
+    // showing nothing" about a stand that was fine seconds later. A warning that is usually wrong
+    // trains you to ignore the one time it isn't.
+    let calls = 0;
+    const exec = fake(["packages/backdrop/public/index.html"]).route(
+      /127\.0\.0\.1:4740\/healthz/,
+      () => ({ stdout: ++calls < 4 ? "503" : "200" }),
+    );
+
+    const outcome = await run(
+      pi5,
+      ["packages/backdrop/public/index.html"],
+      exec,
+    );
+
+    expect(outcome.rebooted).toBe(true);
+    expect(outcome.warnings).toEqual([]);
+    expect(calls).toBeGreaterThanOrEqual(4);
+    expect(report.oks.join("\n")).toMatch(/backdrop healthy \(200\)/);
+  });
+
+  it("still warns when Backdrop's 503 never clears", async () => {
+    const exec = fake(["packages/backdrop/public/index.html"]).route(
+      /127\.0\.0\.1:4740\/healthz/,
+      { stdout: "503" },
+    );
+    const outcome = await run(
+      pi5,
+      ["packages/backdrop/public/index.html"],
+      exec,
+    );
+    expect(outcome.warnings.join("\n")).toMatch(/no browser is attached/);
+  });
+
+  it("fails, rather than warning, when Backdrop answers nothing at all", async () => {
+    // Distinguishable from the 503 case: nothing answered, so the backend itself is down.
+    const exec = fake(["packages/backdrop/public/index.html"]).route(
+      /127\.0\.0\.1:4740\/healthz/,
+      { stdout: "000" },
+    );
+    await expect(
+      run(pi5, ["packages/backdrop/public/index.html"], exec),
+    ).rejects.toThrow(/never answered/);
+  });
+
   it("treats Backdrop's 503 as a warning about the kiosk, not a dead backend", async () => {
     // 503 means the backend is fine and no browser is attached — the most useful signal after a
     // Backdrop deploy, because a crashed Chromium is invisible from `systemctl status`.
