@@ -46,7 +46,7 @@ streaming-only records.
   `curator:demo:<id>` → the album's chosen `demoTrack.spotifyUri`
   ([ADR 0058](../adrs/0058-a-demo-tag-plays-one-chosen-track.md)), both via the synced album-assets store
 
-> **What Amp plays is only as fresh as that store** ([ADR 0077](../adrs/0077-an-edit-that-changes-what-the-room-plays-pushes-it.md), 2026-08-12). Amp has no ingest
+> **What Amp plays is only as fresh as that store** ([ADR 0081](../adrs/0081-an-edit-that-changes-what-the-room-plays-pushes-it.md), 2026-08-12). Amp has no ingest
 > route of its own: it reads the directory Curator pushes to Conductor (ADR 0045), so a choice made
 > in Curator is inert here until that push happens. Curator now pushes on the edit itself — choosing
 > the demo cut, naming the Spotify album — rather than only at a milestone. This is [#304](https://github.com/dylanleatham/Marquee/issues/304): every demo

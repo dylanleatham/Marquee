@@ -1,4 +1,4 @@
-# ADR 0078 — Publishing moves off the poll loop
+# ADR 0082 — Publishing moves off the poll loop
 
 - **Status:** Accepted
 - **Date:** 2026-08-13
