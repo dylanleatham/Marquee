@@ -60,7 +60,7 @@ Deploy runbook: **[DEPLOY.md](DEPLOY.md)** (wiring, I²C, venv install, systemd,
 - `stylus/dispatch.py` — a bounded FIFO drained by one worker thread, so publishing never happens on
   the poll loop. A publish takes ~43s against dead downstreams, and the reader used to be blind for
   all of it ([#173](https://github.com/dylanleatham/Marquee/issues/173),
-  [ADR 0078](../../docs/adrs/0078-publishing-moves-off-the-poll-loop.md)). One worker, in order —
+  [ADR 0082](../../docs/adrs/0082-publishing-moves-off-the-poll-loop.md)). One worker, in order —
   a `stop` that overtook its `start` would leave the lights on with nothing left to correct it.
   Backlog shows up as `publishQueue` on `GET /status`.
 - `marquee-stylus.service` — the systemd unit (`Wants=network-online.target`, `Type=notify`,

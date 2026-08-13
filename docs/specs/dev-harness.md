@@ -114,6 +114,15 @@ If any fail, commit is blocked. `--no-verify` exists for genuine emergencies; do
 
 ### Pre-push (runs on `git push`, budget: 20-30 seconds)
 
+- **ADR numbering**: `node scripts/check-adr-numbers.mjs`, and it runs **first and unconditionally**
+  — outside the affected-only filter below. _(Added 2026-08-13,
+  [issue #317](https://github.com/dylanleatham/Marquee/issues/317),
+  [ADR 0083](../adrs/0083-an-adr-number-is-checked-against-origin-main-at-push-time.md).)_ An ADR is
+  a docs-only change touching no package, so `--filter=...[HEAD^1]` selects nothing and this hook
+  used to run **zero** tests on the one push that can introduce a number collision. It also compares
+  against the numbers `origin/main` has already published, which no single-branch check can — see
+  §5's note on why `test:unit` runs unfiltered for the same reason. Pass `--local` to skip only the
+  `origin/main` half when you're offline.
 - **Contract validation**: run the JSON schema validators against every checked-in fixture and reference payload. Catches schema drift before CI does. The same suite carries the repo-wide conflict-marker scan — a backstop for the pre-commit check, since that one can be skipped with `--no-verify` and CI's `test:contracts` step (in the **static**
   job) runs it unfiltered.
 - **Unit tests** on affected packages via turbo cache. Only re-runs what changed.
@@ -136,10 +145,11 @@ pnpm turbo run type-check --filter=...[HEAD^1]
 
 ```bash
 #!/usr/bin/env sh
+node scripts/check-adr-numbers.mjs || exit 1
 pnpm turbo run test:contracts test:unit --filter=...[HEAD^1]
 ```
 
-The `--filter=...[HEAD^1]` syntax runs turbo tasks only for packages affected by the changes since the previous commit. That's what keeps hooks fast even as the repo grows.
+The `--filter=...[HEAD^1]` syntax runs turbo tasks only for packages affected by the changes since the previous commit. That's what keeps hooks fast even as the repo grows — and it is why the ADR check sits **outside** it. A guard for changes that touch no package cannot be selected by a package filter; that is not a tuning detail but the reason four number collisions reached `main` ([ADR 0083](../adrs/0083-an-adr-number-is-checked-against-origin-main-at-push-time.md)). Any future repo-wide guard belongs on the same unfiltered line.
 
 ## 5. CI pipeline
 

@@ -1,3 +1,12 @@
+# ADR numbering first, and *unconditionally* — the affected-only run below cannot see it.
+# An ADR is a docs-only change, so it touches no package, so `--filter="...[HEAD^1]"` selects
+# nothing and zero tests run on the one push that can introduce a number collision. That hole plus
+# `CI_ENABLED=false` (the Actions billing block, which skips the `test:unit` leg that is the only
+# other place this runs) is how three collisions shipped: #151, then 0075/0076, then #316. It also
+# checks against `origin/main`, which no single-branch gate can — see scripts/check-adr-numbers.mjs
+# and issue #317. Pass --local to skip only the origin/main half when you're offline.
+node scripts/check-adr-numbers.mjs || exit 1
+
 # Affected-only tests, falling back to a full run when there's no parent commit
 # to diff against (e.g. pushing the very first commit).
 if git rev-parse --verify -q HEAD^1 >/dev/null 2>&1; then

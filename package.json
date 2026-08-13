@@ -25,6 +25,7 @@
     "type-check": "turbo run type-check",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "check:adrs": "node scripts/check-adr-numbers.mjs",
     "review": "node review-agents/orchestrator.mjs",
     "validate": "pnpm run format:check && pnpm run lint && pnpm run type-check && pnpm run test",
     "prepare": "husky"

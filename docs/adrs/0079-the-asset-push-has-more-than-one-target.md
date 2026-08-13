@@ -6,7 +6,7 @@ Status: accepted · Date: 2026-08-13 · Amends:
 [runtime-overview.md](../specs/runtime-overview.md) (§8 sync table),
 [curator-spec.md](../specs/curator-spec.md) (§Config, §Runtime sync) ·
 Fixes [#306](https://github.com/dylanleatham/Marquee/issues/306) ·
-Relates: [ADR 0077](0077-an-edit-that-changes-what-the-room-plays-pushes-it.md) (the edits that now
+Relates: [ADR 0081](0081-an-edit-that-changes-what-the-room-plays-pushes-it.md) (the edits that now
 push — which this makes actually arrive), [ADR 0034](0034-amp-sonos-playback-and-card-uri.md) (Amp,
 which reads the directory but is nobody's target)
 

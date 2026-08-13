@@ -603,7 +603,7 @@ invisible from the service status. For a colour-free read of the kiosk's own vie
   matches; otherwise rsync those yourself (A4.3). One album only:
   `POST /api/albums/:curatorId/push`. `POST /api/runtime/verify` to confirm.
 
-  > **Since 2026-08-12 ([ADR 0077](adrs/0077-an-edit-that-changes-what-the-room-plays-pushes-it.md)) you no longer have to remember this after an
+  > **Since 2026-08-12 ([ADR 0081](adrs/0081-an-edit-that-changes-what-the-room-plays-pushes-it.md)) you no longer have to remember this after an
   > _edit_.** Choosing a demo cut, naming the album on Spotify, editing a palette, overriding the
   > motion or replacing the cover each push on their own. This step is still the one to run after a
   > **sweep** (`/api/batch/regenerate-palettes`, `/api/albums/spotify-backfill`), which deliberately

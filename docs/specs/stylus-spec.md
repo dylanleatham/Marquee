@@ -255,7 +255,7 @@ Rationale: a scan event that arrives 30 seconds late is worse than no event at a
 > slow or dead downstream stalls tag polling for the whole retry window; raising timeouts widens that
 > stall. Tracked as a follow-up, not fixed here.
 >
-> **Resolved 2026-08-13 ([#173](https://github.com/dylanleatham/Marquee/issues/173), [ADR 0078](../adrs/0078-publishing-moves-off-the-poll-loop.md)):** the stall is gone. `Publisher.publish` is unchanged and still sequential, but it is now called by a worker thread draining a bounded FIFO, so the poll loop hands an event over and goes straight back to reading. Worst-case blindness drops from ~87s to one poll interval, and raising a `timeout_ms` no longer widens anything the reader can feel. What it costs: `downstreamHealth` is now the result of the last **completed** publish rather than of the event just fired, and events can be dropped under sustained outage — both visible on `GET /status`.
+> **Resolved 2026-08-13 ([#173](https://github.com/dylanleatham/Marquee/issues/173), [ADR 0082](../adrs/0082-publishing-moves-off-the-poll-loop.md)):** the stall is gone. `Publisher.publish` is unchanged and still sequential, but it is now called by a worker thread draining a bounded FIFO, so the poll loop hands an event over and goes straight back to reading. Worst-case blindness drops from ~87s to one poll interval, and raising a `timeout_ms` no longer widens anything the reader can feel. What it costs: `downstreamHealth` is now the result of the last **completed** publish rather than of the event just fired, and events can be dropped under sustained outage — both visible on `GET /status`.
 
 ### Inbound status (optional)
 

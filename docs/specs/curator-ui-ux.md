@@ -554,7 +554,7 @@ Then the tracklist, one row each: `●`/`○`, number, name, length, and either 
 `USE THIS ONE`. The chosen row is raised **and** filled-glyphed **and** labelled — never colour alone
 (§3.4). `IN USE`, matching the card gallery, because the app has one word for "this is the one".
 
-**Choosing here reaches the room** _(2026-08-12, [ADR 0077](../adrs/0077-an-edit-that-changes-what-the-room-plays-pushes-it.md))_. The panel's promise is that the tag
+**Choosing here reaches the room** _(2026-08-12, [ADR 0081](../adrs/0081-an-edit-that-changes-what-the-room-plays-pushes-it.md))_. The panel's promise is that the tag
 plays this song from now on, and until [#304](https://github.com/dylanleatham/Marquee/issues/304) it did not keep it: the choice was saved on the
 workstation and Amp went on playing the record from track 1 off its own stale copy. The route now
 pushes the asset before it answers, so the sentence in the ink border is true the moment it appears.

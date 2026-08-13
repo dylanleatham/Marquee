@@ -1,19 +1,31 @@
 import { describe, it, expect, afterAll } from "vitest";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import {
+  adrFilesFromLsTree,
+  baseAdrFiles,
+  brokenAdrLinksIn,
+  citingSources,
+  collectAdrs,
+  collisionsIn,
+  driftFromBaseIn,
+  headingMismatchesIn,
+  labelHrefMismatchesIn,
+  nextFreeNumber,
+} from "../../../scripts/check-adr-numbers.mjs";
 
 // Repo-wide invariant, hosted here for the same reason metaprompts.test.ts is: this is the leg CI
 // runs (`test:unit`), and the docs have no package of their own.
+//
+// It stays here rather than moving to `contract-tests/` beside `conflict-markers.test.mjs`, which is
+// where the other `scripts/*.mjs` tests live and which the consistency agent has flagged. Three
+// **immutable** ADRs place this file in the `test:unit` leg by name — 0064 (why that leg runs
+// unfiltered), 0065, 0066 — so a move would leave stale citations in documents that may not be
+// edited to match. The precedent is real; the cost of honouring it here is higher than the
+// inconsistency. Revisit only if `test:unit` and `test:contracts` ever stop both gating every PR.
 //
 // Issue #151: two branches each allocated "the next ADR number" in parallel and both merged, so
 // 0022 and 0023 each named two unrelated decisions — and ~74 citations of the form "ADR 0022"
@@ -22,10 +34,15 @@ import { dirname, join } from "node:path";
 // "numbered, immutable, citable" — citability is the half that breaks, and it breaks quietly, so
 // it needs a check that turns a silent merge into a red one.
 //
-// The checks are extracted as functions rather than inlined so they can be run against fixture
-// directories below. A gate whose whole job is to fail loudly should be shown failing: every
-// assertion here is `toEqual([])`, which passes just as happily if the detection is broken and
-// silently returns nothing. "It's green" and "it works" are different claims.
+// The checks themselves now live in `scripts/check-adr-numbers.mjs` (issue #317). This file was
+// the only place they ran, and it runs in exactly one CI leg — which `CI_ENABLED=false` skips, and
+// which `pre-push`'s affected-only filter cannot select for a docs-only change. Four collisions
+// shipped through that gap (#151's 0022/0023, then 0064, 0075/0076, and #316's 0077/0078). The hook
+// runs the script on every push; this file is where the script is *proven*, which a hook can't do.
+//
+// A gate whose whole job is to fail loudly should be shown failing: every assertion in the first
+// suite is `toEqual([])`, which passes just as happily if the detection is broken and silently
+// returns nothing. "It's green" and "it works" are different claims — hence the fixtures below.
 const adrDir = join(
   dirname(fileURLToPath(import.meta.url)),
   "..",
@@ -34,98 +51,6 @@ const adrDir = join(
   "docs",
   "adrs",
 );
-
-interface Adr {
-  file: string;
-  number: string;
-  heading: string | undefined;
-}
-
-/** The ADRs in `dir` — numbered filenames only, sorted, each paired with its heading number. */
-function collectAdrs(dir: string): Adr[] {
-  return readdirSync(dir)
-    .filter((f) => /^\d{4}-.*\.md$/.test(f))
-    .sort()
-    .map((file) => ({
-      file,
-      number: file.slice(0, 4),
-      heading: readFileSync(join(dir, file), "utf8")
-        .split("\n")
-        .find((l) => l.startsWith("# "))
-        ?.match(/^# ADR (\d{4})\b/)?.[1],
-    }));
-}
-
-/** Numbers claimed by more than one ADR. Empty = each number names exactly one decision. */
-function collisionsIn(adrs: Adr[]): string[] {
-  const byNumber = new Map<string, string[]>();
-  for (const adr of adrs) {
-    byNumber.set(adr.number, [...(byNumber.get(adr.number) ?? []), adr.file]);
-  }
-  // Name both files: the fix is a rename plus a citation sweep, and you need to know which two.
-  return [...byNumber.entries()]
-    .filter(([, files]) => files.length > 1)
-    .map(([number, files]) => `${number}: ${files.join(" and ")}`);
-}
-
-/** ADRs whose `# ADR NNNN` heading disagrees with their filename — a half-finished renumber. */
-function headingMismatchesIn(adrs: Adr[]): string[] {
-  return adrs
-    .filter((a) => a.heading !== a.number)
-    .map((a) => `${a.file} → heading says ${a.heading ?? "(none)"}`);
-}
-
-/** ADR links in `files` whose target doesn't exist, relative to the linking file. */
-function brokenAdrLinksIn(files: string[], root: string): string[] {
-  const broken: string[] = [];
-  for (const file of files) {
-    const text = readFileSync(file, "utf8");
-    for (const [, href] of text.matchAll(
-      /\]\(([^)]*adrs\/\d{4}-[^)]+\.md)\)/g,
-    )) {
-      if (!existsSync(join(dirname(file), href))) {
-        broken.push(`${file.slice(root.length + 1)} → ${href}`);
-      }
-    }
-  }
-  return broken;
-}
-
-/**
- * ADR links in `files` whose label names a different ADR than the file it points at.
- *
- * The other half of the citability problem, and the one a resolving link hides: issue #233 found
- * thirteen Discogs comments citing "ADR 0016" (Stylus) when they meant 0017 — both accepted the same
- * day. Converting those to links is what puts them under `brokenAdrLinksIn`, but a link is only as
- * honest as its label: `[ADR 0016](…/0017-*.md)` resolves perfectly and still tells the reader the
- * wrong thing. A bare number can't be checked at all; a link can, so check it.
- */
-function labelHrefMismatchesIn(files: string[], root: string): string[] {
-  const mismatched: string[] = [];
-  for (const file of files) {
-    const text = readFileSync(file, "utf8");
-    for (const [, label, href] of text.matchAll(
-      /\[ADR (\d{4})\]\(([^)]*adrs\/(\d{4})-[^)]+\.md)\)/g,
-    )) {
-      const target = href.match(/adrs\/(\d{4})-/)?.[1];
-      if (label !== target) {
-        mismatched.push(
-          `${file.slice(root.length + 1)} → [ADR ${label}](${href})`,
-        );
-      }
-    }
-  }
-  return mismatched;
-}
-
-/** Every source the citation checks scan: docs, TS/TSX under packages, and the working agreement. */
-function citingSources(repoRoot: string): string[] {
-  return [
-    ...walk(join(repoRoot, "docs"), [".md"]),
-    ...walk(join(repoRoot, "packages"), [".ts", ".tsx"]),
-    join(repoRoot, "CLAUDE.md"),
-  ];
-}
 
 describe("ADR numbering", () => {
   const adrs = collectAdrs(adrDir);
@@ -157,12 +82,45 @@ describe("ADR numbering", () => {
       [],
     );
   });
+
+  // The scope of the two link checks above, asserted rather than assumed. It used to be three globs
+  // — `docs` markdown, `packages` TS/TSX, `CLAUDE.md` — and eighteen ADR-citing files sat outside
+  // it. #316's renumber broke a citation in `dispatch.py`; nothing said so, and the hand sweep had
+  // been written to the same three globs, because that is what the guard looked like it covered.
+  it("scans every tracked text file, not the three globs that let a .py citation break", () => {
+    const repoRoot = join(adrDir, "..", "..");
+    const scanned = new Set(citingSources(repoRoot));
+    for (const outsideTheOldScope of [
+      join(repoRoot, "packages", "stylus", "stylus", "dispatch.py"),
+      join(repoRoot, "packages", "stylus", "README.md"),
+      join(repoRoot, "contract-tests", "schemas.test.mjs"),
+      join(repoRoot, "packages", "backdrop", "public", "styles.css"),
+    ]) {
+      expect(scanned).toContain(outsideTheOldScope);
+    }
+    // …but not the 9MB logo, and not anything git doesn't track.
+    expect(scanned).not.toContain(
+      join(
+        repoRoot,
+        "docs",
+        "design_handoff_curator_overhaul",
+        "marquee-logo.jpeg",
+      ),
+    );
+    expect([...scanned].some((f) => f.includes("node_modules"))).toBe(false);
+  });
+
+  // `driftFromBaseIn` is deliberately *not* run against the real origin/main here. CI checks out at
+  // depth 1 and has no such ref, so this suite could only skip the check — and a gate that skips
+  // itself is the failure mode #316 was. The hook runs it where the ref exists by construction (you
+  // are pushing to it); the fixtures below are where it's proven.
 });
 
 // --- proof that the checks above actually fail -------------------------------------------------
 //
 // Each case is the real thing that happened (or nearly did): 0022/0023/0026 allocated twice, a
-// rename that left the heading behind, and a link left pointing at the old filename.
+// rename that left the heading behind, a link left pointing at the old filename, and — #316 — a
+// renumber that was clean in its own tree and landed on top of main's.
 
 const fixtures: string[] = [];
 afterAll(() => {
@@ -187,9 +145,10 @@ function fixture(files: Record<string, string>): string {
 
 /**
  * Compose a markdown ADR link at runtime. Written literally, the fixtures below would be matched by
- * `brokenAdrLinksIn`'s own regex when it walks `packages/**` — this file would fail its own check,
- * the same self-scan problem `scripts/check-conflict-markers.mjs` solves by building its markers
- * from `repeat()` rather than typing them out.
+ * `brokenAdrLinksIn`'s own regex when it reaches this file — which it now certainly does, since the
+ * scan covers every tracked text file — and this file would fail its own check. Same self-scan
+ * problem `scripts/check-conflict-markers.mjs` solves by building its markers from `repeat()`
+ * rather than typing them out.
  */
 const mdLink = (label: string, href: string) => `[${label}](${href})`;
 
@@ -309,15 +268,146 @@ describe("ADR numbering — the checks detect what they claim to", () => {
   });
 });
 
-/** Every file under `dir` with one of `exts`, skipping build output and dependencies. */
-function walk(dir: string, exts: string[]): string[] {
-  const out: string[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name === "node_modules" || entry.name.startsWith("dist"))
-      continue;
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...walk(full, exts));
-    else if (exts.some((e) => entry.name.endsWith(e))) out.push(full);
-  }
-  return out;
-}
+// --- the check `collisionsIn` cannot make (#316) ------------------------------------------------
+//
+// Every fixture here is clean under `collisionsIn`. That is the whole point: the branch that broke
+// 0077 was green on its own tree, because main's 0077 wasn't in it.
+
+describe("ADR numbering — a number that means something else on origin/main", () => {
+  it("catches a renumber that lands on an ADR main already published", () => {
+    // Commit 6f85a8e, exactly: the curator ADR moved off a colliding 0075 and onto 0077, which
+    // Stylus had taken in e11fab0. Nothing in the branch's own tree said so.
+    const dir = fixture({
+      "0077-an-edit-that-changes-what-the-room-plays-pushes-it.md":
+        "# ADR 0077 — An edit pushes it\n",
+    });
+    const local = collectAdrs(dir);
+    expect(collisionsIn(local)).toEqual([]); // clean here — and broken on merge
+    expect(
+      driftFromBaseIn(local, ["0077-the-poll-loop-proves-it-is-alive.md"]),
+    ).toEqual([
+      "0077: origin/main has 0077-the-poll-loop-proves-it-is-alive.md, this tree has 0077-an-edit-that-changes-what-the-room-plays-pushes-it.md",
+    ]);
+  });
+
+  it("stays quiet when a new ADR takes a number main has never allocated", () => {
+    const dir = fixture({
+      "0077-the-poll-loop-proves-it-is-alive.md": "# ADR 0077 — Poll loop\n",
+      "0081-brand-new.md": "# ADR 0081 — Brand new\n",
+    });
+    expect(
+      driftFromBaseIn(collectAdrs(dir), [
+        "0077-the-poll-loop-proves-it-is-alive.md",
+      ]),
+    ).toEqual([]);
+  });
+
+  it("catches a published ADR that was re-slugged or deleted, not only one that was displaced", () => {
+    // ADRs are "numbered, immutable, citable". A published number that names nothing here is a
+    // citation break too — and the ones outside this repo (PR bodies, review threads) no sweep
+    // can reach.
+    const dir = fixture({ "0002-kept.md": "# ADR 0002 — Kept\n" });
+    expect(
+      driftFromBaseIn(collectAdrs(dir), ["0001-gone.md", "0002-kept.md"]),
+    ).toEqual(["0001: origin/main has 0001-gone.md, this tree has (nothing)"]);
+  });
+
+  it("lets a branch move an ADR off a number that is already colliding on main", () => {
+    // This branch, exactly. Main has 0077 twice; there is no allocation to preserve, and the only
+    // fix is to move one of them. A gate that blocks its own remedy would just be turned off.
+    const dir = fixture({
+      "0077-the-poll-loop-proves-it-is-alive.md": "# ADR 0077 — Poll loop\n",
+      "0081-an-edit-that-changes-what-the-room-plays-pushes-it.md":
+        "# ADR 0081 — An edit pushes it\n",
+    });
+    const local = collectAdrs(dir);
+    expect(
+      driftFromBaseIn(local, [
+        "0077-an-edit-that-changes-what-the-room-plays-pushes-it.md",
+        "0077-the-poll-loop-proves-it-is-alive.md",
+      ]),
+    ).toEqual([]);
+    // …and the escape hatch can't hide a tree that's still broken: this is what still has to pass.
+    expect(collisionsIn(local)).toEqual([]);
+  });
+
+  it("parses git ls-tree output: NUL-separated, path-prefixed, trailing separator, non-ADRs", () => {
+    // The shape `git ls-tree -z --name-only <ref> docs/adrs/` actually emits. Every fixture above
+    // hands `driftFromBaseIn` a pre-parsed array, so without this the prefix-stripping and the
+    // filter are the one part of the base check nothing exercises.
+    expect(
+      adrFilesFromLsTree(
+        "docs/adrs/0077-the-poll-loop-proves-it-is-alive.md\0" +
+          "docs/adrs/0078-a-demo-cut-plays-as-a-position-in-the-album.md\0" +
+          "docs/adrs/README.md\0" +
+          "docs/adrs/notes.txt\0",
+      ),
+    ).toEqual([
+      "0077-the-poll-loop-proves-it-is-alive.md",
+      "0078-a-demo-cut-plays-as-a-position-in-the-album.md",
+    ]);
+    expect(adrFilesFromLsTree("")).toEqual([]);
+  });
+
+  it("reads the numbers off a real git ref, not a hand-built string", () => {
+    // A parser test can agree with a wrong idea of git's output. This runs the real command against
+    // a real tree, which is the only thing that says the two halves fit together.
+    const repo = fixture({
+      "docs/adrs/0001-first.md": "# ADR 0001 — First\n",
+      "docs/adrs/0002-second.md": "# ADR 0002 — Second\n",
+      "docs/adrs/README.md": "# Not an ADR\n",
+      "docs/specs/elsewhere.md": "# Not in adrs/\n",
+    });
+    const run = (...args: string[]) =>
+      execFileSync("git", args, { cwd: repo, encoding: "utf8" });
+    run("init", "--quiet", "--initial-branch=base");
+    run("config", "core.autocrlf", "false"); // else git warns on every LF file, on Windows
+    run("-c", "user.email=t@t", "-c", "user.name=t", "add", "-A");
+    run(
+      "-c",
+      "user.email=t@t",
+      "-c",
+      "user.name=t",
+      "commit",
+      "--quiet",
+      "-m",
+      "adrs",
+    );
+    // A local ref, so nothing here touches the network.
+    expect(baseAdrFiles(repo, "base")).toEqual([
+      "0001-first.md",
+      "0002-second.md",
+    ]);
+  });
+
+  it("refuses to guess when the base ref doesn't resolve", () => {
+    // The alternative — returning [] — would make every branch pass the base check silently, which
+    // is the shape of the failure this whole file exists to stop.
+    const repo = fixture({ "docs/adrs/0001-first.md": "# ADR 0001 — First\n" });
+    execFileSync("git", ["init", "--quiet"], { cwd: repo });
+    expect(() => baseAdrFiles(repo, "no-such-ref")).toThrow();
+  });
+
+  it("says so out loud when --local skips the origin/main half", () => {
+    // The one branch of the CLI that weakens the gate on purpose. It must be visible: a check that
+    // silently compares against nothing reads exactly like a check that passed.
+    const repoRoot = join(adrDir, "..", "..");
+    const out = execFileSync(
+      process.execPath,
+      [join(repoRoot, "scripts", "check-adr-numbers.mjs"), "--local"],
+      { cwd: repoRoot, encoding: "utf8", timeout: 30_000 },
+    );
+    expect(out).toContain("skipping the origin/main comparison");
+  });
+
+  it("names the next free number across both trees, not just this one", () => {
+    // The renumber that caused #316 took "the next number I can see". 0080 was already on main.
+    const dir = fixture({ "0077-mine.md": "# ADR 0077 — Mine\n" });
+    expect(
+      nextFreeNumber(collectAdrs(dir), [
+        "0079-the-asset-push-has-more-than-one-target.md",
+        "0080-deployment-is-one-pinned-commit-verified-on-every-host.md",
+      ]),
+    ).toBe("0081");
+  });
+});

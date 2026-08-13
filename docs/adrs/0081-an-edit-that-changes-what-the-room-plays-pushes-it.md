@@ -1,4 +1,4 @@
-# ADR 0077 — An edit that changes what the room plays pushes it, rather than waiting for a milestone
+# ADR 0081 — An edit that changes what the room plays pushes it, rather than waiting for a milestone
 
 Status: accepted · Date: 2026-08-12 · Amends:
 [ADR 0045](0045-curator-pushes-album-assets-to-conductor.md) (widens the push triggers),
