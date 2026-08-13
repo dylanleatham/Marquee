@@ -160,11 +160,12 @@ Two record kinds:
 
 ```jsonc
 // One per triaged run — the denominator, and the reviewer-fired rate.
-{ "kind": "run", "ts": "2026-08-13T18:22:04Z", "sha": "7fa6072…", "base": "…",
+{ "kind": "run", "ts": "2026-08-13T18:22:04Z", "runId": "2026-08-13T18:21:30Z", "sha": "7fa6072…",
+  "base": "…",
   "specialists": [ { "id": "runtime", "status": "ran", "durationMs": 79210, "findings": 2 } ] }
 
 // One per triaged finding.
-{ "kind": "finding", "ts": "…", "sha": "7fa6072…", "specialist": "runtime",
+{ "kind": "finding", "ts": "…", "runId": "…", "sha": "7fa6072…", "specialist": "runtime",
   "severity": "blocking", "file": "packages/curator/src/roomArm.ts", "line": 88,
   "message": "The ffmpeg spawn has no timeout, so a hung encode wedges the event loop.",
   "fingerprint": "a8762c3e8e4c", "verdict": "accepted", "note": "" }
@@ -173,6 +174,12 @@ Two record kinds:
 `message` is stored alongside the fingerprint rather than being reduced to it. A repeat-class table
 whose rows read `a8762c3e8e4c ×3` is unreadable, and the ledger is the harness's memory — a memory
 that cannot say _what_ was repeated only proves that something was.
+
+`runId` identifies a **review**, not a commit — the report's `createdAt`, falling back to
+`sha|base`. One commit can be reviewed more than once (`--staged` now, `--base HEAD~3` after), and
+both write the same `report-<sha>.json`, so the second overwrites the first. Keying the run record
+on `sha` therefore dropped one of them; see RA-6 in
+[KNOWN-ISSUES.md](../../review-agents/KNOWN-ISSUES.md) for what that looked like in the output.
 
 `verdict` is one of:
 

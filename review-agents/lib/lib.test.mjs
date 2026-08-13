@@ -31,6 +31,7 @@ import {
   formatStats,
   MIN_SAMPLE,
   VERDICTS,
+  runIdOf,
 } from "./ledger.mjs";
 import { runTriage, renderFinding, CHOICES } from "./triage.mjs";
 
@@ -931,4 +932,119 @@ test("runTriage: end of input quits instead of throwing on a half-finished pass"
   assert.equal(result.judged, 1);
   assert.ok(result.quit);
   assert.equal(appended.filter((r) => r.kind === "finding").length, 1);
+});
+
+test("runTriage: two reviews of the same commit are two runs, not one", async () => {
+  // Found by dogfooding on 2026-08-13, before this ever reached main. `--staged` and
+  // `--base HEAD~3` both write `report-<sha>.json` for the *same* HEAD, so the second review
+  // overwrites the first's report — but the run record was keyed on sha alone, so triage decided
+  // the run was already recorded and skipped it. The observed result was a stats table that
+  // contradicted itself: `consistency` showed FIRED=0 next to an accepted finding, and
+  // `spec-adherence` showed RUNS=0 while having triaged one. An instrument whose whole job is
+  // honest measurement must not do that (dev-harness §11).
+  const runA = {
+    sha: "abc",
+    base: "abc",
+    createdAt: "2026-08-13T21:00:14.975Z",
+    specialists: [
+      { id: "consistency", status: "no-findings", durationMs: 23185 },
+    ],
+    findings: [],
+  };
+  const runB = {
+    sha: "abc", // same commit …
+    base: "HEAD~3", // … different diff, so a different review
+    createdAt: "2026-08-13T21:05:48.215Z",
+    specialists: [
+      { id: "consistency", status: "ran", durationMs: 30000 },
+      { id: "spec-adherence", status: "ran", durationMs: 40000 },
+    ],
+    findings: [finding({ specialist: "spec-adherence", line: 20 })],
+  };
+
+  const appended = [];
+  const drive = async (report, keys) => {
+    const queue = [...keys];
+    await runTriage({
+      report,
+      records: [...appended],
+      ask: async () => queue.shift() ?? "q",
+      append: (recs) => appended.push(...recs),
+      now: () => "2026-08-13T00:00:00Z",
+      log: () => {},
+    });
+  };
+
+  await drive(runA, ["q"]);
+  await drive(runB, ["a"]);
+
+  const runs = appended.filter((r) => r.kind === "run");
+  assert.equal(runs.length, 2, "the second review must record its own run");
+  assert.deepEqual(
+    runs.map((r) => r.runId),
+    [runA.createdAt, runB.createdAt],
+  );
+
+  // And the table that comes out of it is now internally consistent: the specialist that fired
+  // is counted as having fired, and the one that only ran in the second review is not at zero runs.
+  const { specialists } = computeStats(appended);
+  const specAdherence = specialists.find((s) => s.id === "spec-adherence");
+  assert.equal(specAdherence.runs, 1);
+  assert.equal(specAdherence.fired, 1);
+  assert.equal(specAdherence.triaged, 1);
+});
+
+test("runTriage: re-triaging the same report still does not duplicate its run", async () => {
+  // The resume path depends on this: quit halfway, come back, and the run must not be recorded
+  // twice or every duration and fire count is double-counted.
+  const appended = [];
+  const drive = async (keys) => {
+    const queue = [...keys];
+    await runTriage({
+      report: triageReport,
+      records: [...appended],
+      ask: async () => queue.shift() ?? "q",
+      append: (recs) => appended.push(...recs),
+      now: () => "2026-08-13T00:00:00Z",
+      log: () => {},
+    });
+  };
+  await drive(["a", "q"]);
+  await drive(["a", "q"]);
+  assert.equal(appended.filter((r) => r.kind === "run").length, 1);
+});
+
+test("runIdOf: a report with no createdAt still distinguishes runs by its base", () => {
+  // Reports written before runId existed have no createdAt. Falling back to sha alone would
+  // recreate the exact bug for them, so the fallback carries the base too.
+  assert.notEqual(
+    runIdOf({ sha: "abc", base: "abc" }),
+    runIdOf({ sha: "abc", base: "HEAD~3" }),
+  );
+  assert.equal(
+    runIdOf({ sha: "abc", base: "abc" }),
+    runIdOf({ sha: "abc", base: "abc" }),
+  );
+  // createdAt wins when present — it identifies the run exactly.
+  assert.equal(runIdOf({ sha: "abc", base: "x", createdAt: "T" }), "T");
+});
+
+test("computeStats: findings recorded before runId existed still count", () => {
+  // The ledger is append-only, so the two real findings triaged on 2026-08-13 keep their original
+  // shape. They must not be dropped or crash the stats just because they predate the field.
+  const legacy = {
+    kind: "finding",
+    sha: "abc",
+    specialist: "consistency",
+    severity: "info",
+    file: "packages/deploy/src/exec.ts",
+    line: 33,
+    message: "Naming drift.",
+    fingerprint: "2077ebaa2d95",
+    verdict: "accepted",
+    note: "",
+  };
+  const { specialists } = computeStats([legacy]);
+  assert.equal(specialists[0].triaged, 1);
+  assert.equal(specialists[0].accepted, 1);
 });

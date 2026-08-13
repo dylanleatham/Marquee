@@ -12,7 +12,12 @@
 
 import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { pendingFindings, findingRecord, runRecord } from "./ledger.mjs";
+import {
+  pendingFindings,
+  findingRecord,
+  runRecord,
+  runIdOf,
+} from "./ledger.mjs";
 
 /**
  * Keystroke → verdict. Every verdict the ledger defines must be reachable from here: a verdict with
@@ -102,9 +107,11 @@ export async function runTriage({
   const alreadyDone = total - pending.length;
 
   // The run record is the denominator — how often each specialist ran, and how often it fired at
-  // all. Written once per sha, before any verdict, so a triage abandoned immediately still records
-  // that the run happened.
-  const haveRun = records.some((r) => r.kind === "run" && r.sha === report.sha);
+  // all. Written once per *review*, before any verdict, so a triage abandoned immediately still
+  // records that the review happened. Keyed on `runIdOf`, not sha: one commit can be reviewed
+  // twice against different bases, and keying on sha silently dropped the second.
+  const runId = runIdOf(report);
+  const haveRun = records.some((r) => r.kind === "run" && r.runId === runId);
   if (!haveRun) append([runRecord({ report, ts: now() })]);
 
   if (!pending.length) {
@@ -149,7 +156,14 @@ export async function runTriage({
         ? (await ask("  why was it wrong? (one line, optional): ")).trim()
         : "";
     append([
-      findingRecord({ sha: report.sha, finding, verdict, note, ts: now() }),
+      findingRecord({
+        sha: report.sha,
+        runId,
+        finding,
+        verdict,
+        note,
+        ts: now(),
+      }),
     ]);
     judged++;
   }
