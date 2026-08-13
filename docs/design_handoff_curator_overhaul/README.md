@@ -379,9 +379,16 @@ in mono. Active tab: ink text, `2px solid #B4402C` bottom border.
 - Footer: an accent `SEE IT IN THE ROOM →` button and "The lights are signed off in
   the room, with them on."
 
-Dropped from the old Look station and **not** to be reinstated here: artwork
-override upload, the source badge, the genre tags, and the raw
-`{"transitionMs":…,"holdMs":…}` JSON.
+Dropped from the old Look station and **not** to be reinstated here: the source
+badge, the genre tags, and the raw `{"transitionMs":…,"holdMs":…}` JSON.
+
+> **Amended 2026-08-13** ([ADR 0084](../adrs/0084-your-own-cover-is-a-palette-control.md)):
+> the artwork override upload came off that list and back onto this panel, as
+> `UPLOAD A DIFFERENT COVER` immediately right of `BACK TO ROADIE'S ORIGINAL`, with
+> `USE THE COVER ROADIE FOUND` appearing beside it while one is in force. The other
+> three are ways of _displaying_ a palette; the cover is its **input**. The comps in
+> this folder predate that and still show the three-button row — see curator-ui-ux
+> §5.0 for the current one.
 
 **Visualizer panel**
 

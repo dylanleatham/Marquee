@@ -51,6 +51,7 @@ import {
   readSettings,
 } from "./settings.js";
 import { Roadie } from "./roadie/worker.js";
+import { defaultGenerate } from "./roadie/steps.js";
 import { isCuratorId } from "./ids.js";
 import {
   TransitionError,
@@ -149,7 +150,12 @@ export interface BuildOptions {
    * `dist-ui` in a test run — which is how both #183 and #241 shipped uncaught.
    */
   uiDir?: string;
-  /** Injected palette generator (tests pass a fake; prod uses real Palette Press). */
+  /**
+   * Injected palette generator. Tests pass a fake to keep node-vibrant out of the run; **omitting it
+   * resolves to real Palette Press**, which is what prod does — see `actionDeps` below and
+   * [#319](https://github.com/dylanleatham/Marquee/issues/319), where this comment described that
+   * behaviour a year before the code did it.
+   */
   generate?: PaletteGenerator;
   /** Injected Spotify client (tests pass one backed by fake-spotify); prod builds from config. */
   spotify?: SpotifyClient;
@@ -539,7 +545,15 @@ export function buildServer(opts: BuildOptions = {}) {
     store,
     prober,
     gemini,
-    generate: opts.generate,
+    /**
+     * Falls back to real Palette Press, the same way `Roadie` does with the same option
+     * ([#319](https://github.com/dylanleatham/Marquee/issues/319)). Without the `??` this read
+     * `opts.generate`, and the shipped entry point calls `buildServer()` with no options — so
+     * Roadie extracted a palette on ingest and every re-extract a human could ask for answered
+     * "palette generator isn't available". A default on one of two sibling constructions is not a
+     * default; it is a trap that only production steps in.
+     */
+    generate: opts.generate ?? defaultGenerate,
     generateCardArt: genCardArt,
     generateVideo: genVideo,
   };
@@ -3381,12 +3395,14 @@ export function buildServer(opts: BuildOptions = {}) {
    * the running sweep rather than walking the collection again.
    *
    * Sends the job as the body, like every other job-starting route — `202` means "here is your job."
+   *
+   * There is no "is there a generator" precheck. There was one, answering 503, and after
+   * [#319](https://github.com/dylanleatham/Marquee/issues/319) gave `actionDeps` its Palette Press
+   * fallback it became unreachable: Palette Press is a workspace import, so the sweep cannot be
+   * asked for without one. Keeping an unreachable guard would have left the impression that
+   * "no generator" is a state this route still has to handle.
    */
   app.post("/api/batch/regenerate-palettes", async (req, reply) => {
-    if (!actionDeps.generate)
-      return reply
-        .code(503)
-        .send({ error: "palette generator isn't available" });
     const force = (req.query as { force?: string }).force === "1";
     const job = jobs.start(
       "paletteBatch",

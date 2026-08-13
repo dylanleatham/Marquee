@@ -16,6 +16,8 @@ vi.mock("../api", () => ({
     editPalette: vi.fn().mockResolvedValue({}),
     choosePalette: vi.fn().mockResolvedValue({}),
     feelingPalette: vi.fn().mockResolvedValue({}),
+    uploadArtworkOverride: vi.fn().mockResolvedValue({}),
+    removeArtworkOverride: vi.fn().mockResolvedValue({}),
   },
   // The real shape, because the panel branches on `status` — sniffing the message text would pass
   // this test and then break the day the server rewords its 409.
@@ -30,6 +32,7 @@ vi.mock("../api", () => ({
 }));
 
 import { api, ApiError, type AlbumAsset } from "../api";
+import { ConfirmProvider } from "./Confirm";
 import { LightsPanel } from "./LightsPanel";
 
 const asset = (over: Partial<AlbumAsset> = {}): AlbumAsset =>
@@ -61,17 +64,24 @@ const asset = (over: Partial<AlbumAsset> = {}): AlbumAsset =>
     ...over,
   }) as AlbumAsset;
 
-/** Routed: the sign-off line links to the room, which is the only place lights are signed off. */
+/**
+ * Routed: the sign-off line links to the room, which is the only place lights are signed off.
+ * Wrapped in the real `ConfirmProvider`, because the hand-edit dialog the cover upload asks
+ * (curator-spec §12) is the behaviour worth pinning, and `useConfirm` outside a provider silently
+ * answers `true` — i.e. a stub here would test the one path that never protects anything.
+ */
 const panel = (a: AlbumAsset) => (
   <MemoryRouter>
-    <LightsPanel
-      curatorId="abc12345"
-      asset={a}
-      refresh={() => {}}
-      run={async (fn) => {
-        await fn();
-      }}
-    />
+    <ConfirmProvider>
+      <LightsPanel
+        curatorId="abc12345"
+        asset={a}
+        refresh={() => {}}
+        run={async (fn) => {
+          await fn();
+        }}
+      />
+    </ConfirmProvider>
   </MemoryRouter>
 );
 
@@ -335,6 +345,304 @@ describe("LightsPanel — the sign-off", () => {
     show();
     for (const gone of [/looks right/i, /sign.?off/i, /approve/i])
       expect(screen.queryByRole("button", { name: gone })).toBeNull();
+  });
+});
+
+/**
+ * The artwork override, back on this panel by [ADR 0084](../../../../../docs/adrs/0084-your-own-cover-is-a-palette-control.md).
+ *
+ * The cover is the palette's *input*, so the thing worth pinning is not that a file goes up — it is
+ * every way a cover swap can quietly take colours with it: the hand-edit dialog curator-spec §12 has
+ * specified since the override was first built, the debounced autosave that must not land after the
+ * server re-extracts, and the two sentences that stop claiming "the sleeve" once your own cover is
+ * the one in force.
+ */
+describe("LightsPanel — your own cover", () => {
+  const overridden = (over: Partial<AlbumAsset> = {}) =>
+    asset({
+      artwork: {
+        resolvedPath: "media/artwork/abc12345-override.png",
+        contentHash: "deadbeef",
+        overrideActive: true,
+      },
+      ...over,
+    } as Partial<AlbumAsset>);
+
+  const handEdited = (over: Partial<AlbumAsset> = {}) =>
+    asset({
+      palette: {
+        colors: [{ hex: "#4B0082", role: "primary" }],
+        source: "hand",
+        handEdited: true,
+      },
+      ...over,
+    });
+
+  /**
+   * Drive the OS file chooser `pickFile` opens. It builds a *detached* input and clicks it — right
+   * for the UI, and unreachable from the rendered tree, so the test intercepts the element at
+   * creation. Same helper as CardPanel.test.tsx, for the same reason. `files` is read-only in jsdom,
+   * hence the defineProperty.
+   */
+  const choose = (file: File, click: () => void) => {
+    const real = document.createElement.bind(document);
+    const spy = vi
+      .spyOn(document, "createElement")
+      .mockImplementation((tag: string) => {
+        const el = real(tag);
+        if (tag === "input") {
+          Object.defineProperty(el, "files", { value: [file] });
+          (el as HTMLInputElement).click = () =>
+            (el as HTMLInputElement).onchange?.(new Event("change"));
+        }
+        return el;
+      });
+    click();
+    spy.mockRestore();
+  };
+
+  const cover = () => new File(["png"], "my-scan.png", { type: "image/png" });
+  const upload = (a: AlbumAsset = asset()) => {
+    show(a);
+    choose(cover(), () =>
+      fireEvent.click(
+        screen.getByRole("button", { name: "UPLOAD A DIFFERENT COVER" }),
+      ),
+    );
+  };
+  /** What the caller answered the §12 dialog — `undefined` when it was never asked. */
+  const sentRegenerate = () =>
+    vi.mocked(api.uploadArtworkOverride).mock.calls[0]?.[2];
+
+  it("sits to the right of BACK TO ROADIE'S ORIGINAL", () => {
+    // The position is the point: the cover belongs beside the controls that re-derive from it, not
+    // on a tab of its own — you find out the scan is bad while looking at the colours it produced.
+    show();
+    const labels = Array.from(
+      document.querySelector(".lights__actions")!.querySelectorAll("button"),
+    ).map((b) => b.textContent);
+    expect(labels).toEqual([
+      "+ ADD A LIGHT",
+      "BACK TO ROADIE'S ORIGINAL",
+      "UPLOAD A DIFFERENT COVER",
+    ]);
+  });
+
+  it("sends the picked file and pulls new colours from it", async () => {
+    upload();
+    await waitFor(() => expect(api.uploadArtworkOverride).toHaveBeenCalled());
+    const [id, file] = vi.mocked(api.uploadArtworkOverride).mock.calls[0]!;
+    expect(id).toBe("abc12345");
+    expect((file as File).name).toBe("my-scan.png");
+    expect(sentRegenerate()).toBe(true);
+  });
+
+  it("asks nothing when there is no hand-edit to protect", async () => {
+    // The dialog is protection, not ceremony: re-deriving is the whole reason you uploaded a cover.
+    upload();
+    await waitFor(() => expect(api.uploadArtworkOverride).toHaveBeenCalled());
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  // curator-spec §12: "never overwrite a hand-edit without user action."
+  it("asks before a new cover re-derives a hand-edited palette", async () => {
+    upload(handEdited());
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog.textContent).toContain("edited these lights by hand");
+    // Nothing has gone up yet — the question is asked *before* the upload, not after it fails.
+    expect(api.uploadArtworkOverride).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "PULL NEW COLOURS" }));
+    await waitFor(() => expect(api.uploadArtworkOverride).toHaveBeenCalled());
+    expect(sentRegenerate()).toBe(true);
+  });
+
+  it("keeps the hand-edit when told to — and puts the cover on anyway", async () => {
+    upload(handEdited());
+    fireEvent.click(
+      await screen.findByRole("button", { name: "KEEP MY COLOURS" }),
+    );
+    await waitFor(() => expect(api.uploadArtworkOverride).toHaveBeenCalled());
+    expect(sentRegenerate()).toBe(false);
+  });
+
+  it("treats a dismissal as keeping the colours, the side that loses nothing", async () => {
+    // Escape and the scrim both resolve `false`. Landing on "regenerate" would make the safe answer
+    // the one you have to remember to give.
+    upload(handEdited());
+    await screen.findByRole("alertdialog");
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(api.uploadArtworkOverride).toHaveBeenCalled());
+    expect(sentRegenerate()).toBe(false);
+  });
+
+  /**
+   * regression: the review pass's one blocking finding. The debounce was disarmed *after* awaiting
+   * the dialog — and the dialog waits on a human, so the 700ms window closes long before the answer
+   * does. The timer fired mid-dialog, and its PUT could land after the server had re-extracted.
+   *
+   * The test above could not see it: with no hand-edit, the confirm resolves in a microtask and the
+   * dialog path never runs. Every assertion here is about what happens *while the dialog is open*.
+   */
+  it("does not let the autosave fire while the §12 dialog is open", async () => {
+    show(handEdited());
+    fireEvent.change(hexField(1), { target: { value: "#112233" } });
+    choose(cover(), () =>
+      fireEvent.click(
+        screen.getByRole("button", { name: "UPLOAD A DIFFERENT COVER" }),
+      ),
+    );
+    await screen.findByRole("alertdialog");
+    // Already written, *before* the question was asked — not sitting on a timer behind it.
+    expect(api.editPalette).toHaveBeenCalledTimes(1);
+
+    await settle();
+    expect(api.editPalette).toHaveBeenCalledTimes(1);
+    expect(api.uploadArtworkOverride).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "KEEP MY COLOURS" }));
+    await waitFor(() => expect(api.uploadArtworkOverride).toHaveBeenCalled());
+    expect(sentRegenerate()).toBe(false);
+    // The flush is the whole point of settling rather than dropping: "keep my colours" has to mean
+    // the ones on screen, including the keystrokes that had not reached the server yet.
+    expect(api.editPalette).toHaveBeenCalledWith("abc12345", [
+      { hex: "#112233" },
+    ]);
+
+    // And nothing is left armed behind the finished upload, which is the far end of the same race.
+    await settle();
+    expect(api.editPalette).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * regression: the review pass's second blocking finding. The button was gated on
+   * `cover.inFlight`, which only spans the transfer — but a cover change starts earlier, with the
+   * autosave flush, and that is a real round-trip with no dialog on screen yet to take the clicks.
+   *
+   * The §12 dialog's own scrim (`position:fixed; inset:0`) already covered the window after it
+   * mounts, so the flush was the only genuinely open one. Narrow, and still a window: two flows
+   * from two clicks, racing to set the same album's cover.
+   */
+  it("cannot be started twice while the flush before the dialog is in flight", async () => {
+    let landFlush!: () => void;
+    vi.mocked(api.editPalette).mockReturnValueOnce(
+      new Promise((resolve) => {
+        landFlush = () => resolve({} as never);
+      }),
+    );
+    show(handEdited());
+    fireEvent.change(hexField(1), { target: { value: "#112233" } });
+
+    const button = () =>
+      screen.getByRole("button", { name: "UPLOAD A DIFFERENT COVER" });
+    choose(cover(), () => fireEvent.click(button()));
+
+    // The flush is out and unanswered — no dialog yet, so nothing else is intercepting clicks.
+    await waitFor(() => expect(api.editPalette).toHaveBeenCalled());
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect((button() as HTMLButtonElement).disabled).toBe(true);
+
+    // A second press in that window must not open a second file chooser.
+    let reopened = false;
+    choose(cover(), () => {
+      reopened = true;
+      fireEvent.click(button());
+    });
+    expect(reopened).toBe(true); // the helper ran; the disabled button is what refuses
+    expect(api.uploadArtworkOverride).not.toHaveBeenCalled();
+
+    landFlush();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "KEEP MY COLOURS" }),
+    );
+    await waitFor(() =>
+      expect(api.uploadArtworkOverride).toHaveBeenCalledTimes(1),
+    );
+  });
+
+  it("frees the button again once the cover change finishes", async () => {
+    upload();
+    await waitFor(() => expect(api.uploadArtworkOverride).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(
+        (
+          screen.getByRole("button", {
+            name: "UPLOAD A DIFFERENT COVER",
+          }) as HTMLButtonElement
+        ).disabled,
+      ).toBe(false),
+    );
+  });
+
+  it("asks even when only the unsaved edit makes it a hand-edit", async () => {
+    // `handEdited` is the server's view and it is one poll behind. Asking on that flag alone skips
+    // the dialog for the one person with something to lose: whoever is mid-edit right now.
+    show();
+    fireEvent.change(hexField(1), { target: { value: "#ABCDEF" } });
+    choose(cover(), () =>
+      fireEvent.click(
+        screen.getByRole("button", { name: "UPLOAD A DIFFERENT COVER" }),
+      ),
+    );
+    expect(await screen.findByRole("alertdialog")).toBeTruthy();
+  });
+
+  it("offers the way back only once a cover of your own is in force", () => {
+    show();
+    expect(
+      screen.queryByRole("button", { name: /USE THE COVER ROADIE FOUND/ }),
+    ).toBeNull();
+    cleanup();
+    show(overridden());
+    expect(
+      screen.getByRole("button", { name: /USE THE COVER ROADIE FOUND/ }),
+    ).toBeTruthy();
+  });
+
+  it("puts Roadie's cover back, re-deriving from it", async () => {
+    show(overridden());
+    fireEvent.click(
+      screen.getByRole("button", { name: /USE THE COVER ROADIE FOUND/ }),
+    );
+    await waitFor(() =>
+      expect(api.removeArtworkOverride).toHaveBeenCalledWith("abc12345", true),
+    );
+  });
+
+  it("asks about a hand-edit on the way back too — the DELETE re-derives by default", async () => {
+    // This route's server-side default is the opposite of the upload's: it regenerates whether or
+    // not the palette was hand-edited, so §12 is the caller's to honour here.
+    show(
+      overridden({
+        palette: {
+          colors: [{ hex: "#4B0082", role: "primary" }],
+          source: "hand",
+          handEdited: true,
+        },
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: /USE THE COVER ROADIE FOUND/ }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "KEEP MY COLOURS" }),
+    );
+    await waitFor(() =>
+      expect(api.removeArtworkOverride).toHaveBeenCalledWith("abc12345", false),
+    );
+  });
+
+  it("stops calling it the sleeve once your own cover is the one in force", () => {
+    // Both sentences are load-bearing. The card would otherwise name a cover the record is not
+    // using, and BACK TO ROADIE'S ORIGINAL — which now re-extracts from *your* file — would be the
+    // only thing on screen still promising the one Roadie found.
+    show();
+    expect(screen.getByText("FROM THE SLEEVE")).toBeTruthy();
+    cleanup();
+    show(overridden());
+    expect(screen.getByText("FROM YOUR COVER")).toBeTruthy();
+    expect(screen.queryByText("FROM THE SLEEVE")).toBeNull();
+    expect(screen.getByText(/Your own cover is the one in force/)).toBeTruthy();
   });
 });
 

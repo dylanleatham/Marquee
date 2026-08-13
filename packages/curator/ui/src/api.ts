@@ -990,24 +990,40 @@ export const api = {
   /**
    * Upload an override. `regeneratePalette` is the user's answer to the hand-edit question — omit it
    * and the server keeps a hand-edited palette, per curator-spec §12.
+   *
+   * Through `postForm` rather than `req` so the Lights panel can show the same UploadStrip the card
+   * and the visualizer show (issue #284). A cover is small, but the wait it covers is mostly Palette
+   * Press re-extracting on the far side, and that silence is the one that reads as a press that
+   * missed ([ADR 0084](../../../../docs/adrs/0084-your-own-cover-is-a-palette-control.md)).
    */
   uploadArtworkOverride: (
     id: string,
     file: File,
     regeneratePalette?: boolean,
+    opts?: UploadOptions,
   ) => {
     const form = new FormData();
     form.append("file", file);
     if (regeneratePalette !== undefined)
       form.append("regeneratePalette", String(regeneratePalette));
-    return req<{ artwork: AlbumAsset["artwork"]; paletteRegenerated: boolean }>(
-      `/api/albums/${id}/artwork/override`,
-      { method: "POST", body: form },
-    );
+    return postForm<{
+      artwork: AlbumAsset["artwork"];
+      paletteRegenerated: boolean;
+    }>(`/api/albums/${id}/artwork/override`, form, opts);
   },
-  removeArtworkOverride: (id: string) =>
+  /**
+   * Drop the override and go back to the cover Roadie found.
+   *
+   * `regeneratePalette:false` keeps a hand-edited palette. It has to be passed explicitly, because
+   * this route's default is the opposite of the upload's: DELETE re-derives whether or not the
+   * palette was hand-edited, so curator-spec §12's "never overwrite a hand-edit without user action"
+   * is the caller's to honour here.
+   */
+  removeArtworkOverride: (id: string, regeneratePalette = true) =>
     req<{ artwork: AlbumAsset["artwork"]; paletteRegenerated: boolean }>(
-      `/api/albums/${id}/artwork/override`,
+      `/api/albums/${id}/artwork/override${
+        regeneratePalette ? "" : "?regeneratePalette=false"
+      }`,
       { method: "DELETE" },
     ),
 

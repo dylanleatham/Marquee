@@ -15,7 +15,10 @@ import {
   validHex,
 } from "../lights";
 import { relativeTime } from "../format";
-import { AsyncButton } from "./common";
+import { usePending, useUpload } from "../hooks";
+import { AsyncButton, pickFile } from "./common";
+import { useConfirm } from "./Confirm";
+import { UploadStrip } from "./UploadStrip";
 import type { Run } from "../run";
 
 /**
@@ -31,8 +34,15 @@ import type { Run } from "../run";
  * 3. **Order is the meaning.** A colour's slot says where it lands in the room ("the wall wash"),
  *    not what the field is called. The role dropdown is gone; reordering is the edit.
  *
- * Dropped from the old bench and deliberately not reinstated: the artwork override, the source
- * badge, the genre tags, and the raw `{"transitionMs":…}` JSON.
+ * Dropped from the old bench and deliberately not reinstated: the source badge, the genre tags, and
+ * the raw `{"transitionMs":…}` JSON.
+ *
+ * **Back, on purpose: the artwork override**
+ * ([ADR 0084](../../../../../docs/adrs/0084-your-own-cover-is-a-palette-control.md)). It was dropped
+ * with the rest of the old Look station, and that was the wrong cut: the other three are ways of
+ * *displaying* a palette, but the cover is the palette's **input**, and a bad scan is a colour
+ * problem with no other answer on this screen. It lives beside BACK TO ROADIE'S ORIGINAL rather
+ * than on a tab of its own, because that is where you are standing when you find out.
  */
 
 /** Long enough that a drag on the colour picker is one save, short enough to feel immediate. */
@@ -72,6 +82,18 @@ export function LightsPanel({
 
   const [draft, setDraft] = useState(() => toEditable(serverColors));
   const [save, setSave] = useState<SaveState>({ kind: "clean" });
+  const cover = useUpload();
+  const confirm = useConfirm();
+  /**
+   * Whether a cover change is anywhere in its run — **not** just while bytes are moving.
+   *
+   * `cover.inFlight` only covers the transfer, and a cover change starts well before that: it
+   * flushes the autosave first, which is a real round-trip with no dialog on screen yet to catch a
+   * second click. Gating the button on `inFlight` left exactly that gap open. Once the §12 dialog
+   * mounts, its scrim (`position:fixed; inset:0`) takes the clicks instead, so the flush is the only
+   * unguarded window — but it is a network call, which is long enough to double-click through.
+   */
+  const [changing, whileChanging] = usePending();
   // The signature this component last sent or adopted. Anything else arriving from the poll is a
   // change from elsewhere (a palette swap, a sweep, Roadie) and is adopted.
   const syncedSig = useRef(serverSig);
@@ -174,6 +196,68 @@ export function LightsPanel({
       setSave({ kind: "clean" });
     });
 
+  /**
+   * Settle the autosave, then ask curator-spec §12's question — the dialog it has specified since
+   * the override was first built ("You have a hand-edited palette. Regenerate with new art?").
+   *
+   * Three things happen here and **the order is the point**, because a cover change is the one
+   * action on this panel that can overlap an autosave still in flight:
+   *
+   * 1. **Disarm the debounce first, synchronously.** The dialog waits on a human, so it is open for
+   *    an unbounded time — far longer than the 700ms window. A timer left armed across it fires
+   *    mid-dialog, and its `PUT` can land *after* the server has re-extracted, putting the old
+   *    colours straight back on top of the new cover. Clearing after the `await` does not prevent
+   *    that; it only tidies up once the damage is possible. `choose` clears synchronously and this
+   *    has to match it.
+   * 2. **Flush what was queued rather than dropping it.** Those are the user's most recent
+   *    keystrokes. The unmount flush exists because losing them is worse than having no autosave at
+   *    all, and uploading a cover is not a licence to lose them — least of all when the answer below
+   *    is "keep my colours". `commit` never rejects, so a failed flush surfaces on the saved line
+   *    instead of taking the upload down with it.
+   * 3. **Count a queued edit as a hand-edit.** `asset.palette.handEdited` is the *server's* view and
+   *    it is one poll behind — an edit made three seconds ago has not reached it. Asking on that
+   *    flag alone would skip the dialog for exactly the person who is mid-edit, which is the one
+   *    person with something to lose.
+   *
+   * Both answers go through with the cover change; the question is only what happens to the colours.
+   * So the dismissals — Escape, clicking the scrim — land on `false`, the side that loses nothing. A
+   * palette nobody has touched skips the dialog entirely: there is no edit to protect, and
+   * re-deriving is the whole reason you uploaded a cover.
+   */
+  const settleThenAsk = async (coverEither: string): Promise<boolean> => {
+    if (timer.current) clearTimeout(timer.current);
+    const queued = pending.current;
+    if (queued) await commit(queued);
+    if (!queued && asset.palette?.handEdited !== true) return true;
+    return confirm({
+      title: "Pull new colours from it?",
+      body: `You have edited these lights by hand. ${coverEither} either way — this is only about the colours.`,
+      confirmLabel: "PULL NEW COLOURS",
+      cancelLabel: "KEEP MY COLOURS",
+    });
+  };
+
+  /** Your own cover, when the one Roadie found is a bad scan. Roadie extracts from this instead. */
+  const uploadCover = (file: File) =>
+    whileChanging(() =>
+      run(async () => {
+        const regenerate = await settleThenAsk("The new cover goes on");
+        await cover.send(file, (opts) =>
+          api.uploadArtworkOverride(curatorId, file, regenerate, opts),
+        );
+        setSave({ kind: "clean" });
+      }),
+    );
+
+  const dropCover = () =>
+    whileChanging(() =>
+      run(async () => {
+        const regenerate = await settleThenAsk("Roadie's cover comes back");
+        await api.removeArtworkOverride(curatorId, regenerate);
+        setSave({ kind: "clean" });
+      }),
+    );
+
   if (!asset.palette)
     return (
       <p className="pp-prose">
@@ -184,6 +268,8 @@ export function LightsPanel({
   const candidates = asset.paletteCandidates;
   const source = asset.palette.source ?? "cover";
   const onFeeling = source === "feeling" || source === "blend";
+  // Your own cover is in force, so every sentence on this panel that says "the sleeve" now means it.
+  const ownCover = asset.artwork?.overrideActive === true;
   const rows = lightRows(draft);
   // Roadie only writes a note when it has proposed colours from how the record sounds; a plain
   // cover extraction has nothing to say, and inventing a sentence would be worse than the gap.
@@ -201,7 +287,9 @@ export function LightsPanel({
 
       <div className="lights__sources">
         <SourceCard
-          label="FROM THE SLEEVE"
+          /* Not "FROM THE SLEEVE" while an upload is in force — the card would be naming a cover
+             the record is not using, which is the one thing this control makes possible. */
+          label={ownCover ? "FROM YOUR COVER" : "FROM THE SLEEVE"}
           colors={candidates?.cover ?? (onFeeling ? [] : asset.palette.colors)}
           inUse={!onFeeling}
           onUse={() => choose("cover")}
@@ -301,11 +389,49 @@ export function LightsPanel({
           >
             BACK TO ROADIE&apos;S ORIGINAL
           </AsyncButton>
+          {/* The palette's *input*, next to the two controls that re-derive from it.
+              Deliberately not an `AsyncButton`, though its neighbour is: this click's own promise
+              settles the moment the OS file chooser opens, so a spinner bound to it would flash and
+              vanish before any work started, and the label would lie. `changing` is what the two
+              share instead — it spans the whole run, including the autosave flush that happens
+              before the dialog is up to intercept anything. */}
+          <button
+            type="button"
+            className="pp-action"
+            disabled={changing}
+            onClick={() => pickFile("image/png,image/jpeg", uploadCover)}
+            title="Roadie pulls the colours from this instead of the sleeve it found"
+          >
+            UPLOAD A DIFFERENT COVER
+          </button>
+          {ownCover && (
+            <AsyncButton
+              className="pp-action"
+              disabled={changing}
+              onClick={dropCover}
+              pendingLabel="PUTTING IT BACK…"
+              title="Drop your cover and go back to the one Roadie found"
+            >
+              USE THE COVER ROADIE FOUND
+            </AsyncButton>
+          )}
         </div>
+        <UploadStrip upload={cover.inFlight} />
         <p className="lights__reassure">
           Roadie&apos;s original extraction and the feeling palette are always
           here — nothing you do to this list destroys either.
         </p>
+        {/* Said in words, because with a cover of your own in force BACK TO ROADIE'S ORIGINAL
+            re-extracts from *that* — the label is otherwise the only thing on screen still
+            promising the sleeve Roadie found. */}
+        {ownCover && (
+          <p className="lights__reassure">
+            Your own cover is the one in force, so both the sleeve colours and
+            BACK TO ROADIE&apos;S ORIGINAL come from it rather than from the
+            cover Roadie found. That cover was never deleted — USE THE COVER
+            ROADIE FOUND brings it back.
+          </p>
+        )}
       </div>
     </div>
   );

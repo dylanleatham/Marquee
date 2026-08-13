@@ -82,6 +82,65 @@ export const pngImage = (width = 1024, height = 1024): Buffer => {
   ]);
 };
 
+/**
+ * A decodable PNG with actual **colour** in it — horizontal bands, one per hex given.
+ *
+ * `pngImage` is a solid mid-grey field, which is right for anything that only walks the chunk stream
+ * but is the one thing a palette extractor cannot do its job on: a single flat tone comes back
+ * `insufficient`. This exists for the tests that run the real Palette Press (`server-wiring.test.ts`,
+ * [#319](https://github.com/dylanleatham/Marquee/issues/319)) and therefore need a cover with
+ * something to find. Deliberately large-banded rather than noisy — the extractor quantises, so a few
+ * broad, saturated, well-separated blocks are what make the assertion about wiring rather than about
+ * how good node-vibrant is on a particular image.
+ */
+export const pngBands = (
+  hexes: string[] = ["#0B6E4F", "#E8871E", "#124E78", "#F2E8CF", "#8B1E3F"],
+  size = 128,
+): Buffer => {
+  const chunk = (type: string, data: Buffer): Buffer => {
+    const c = Buffer.alloc(12 + data.length);
+    c.writeUInt32BE(data.length, 0);
+    c.write(type, 4, "ascii");
+    data.copy(c, 8);
+    c.writeUInt32BE(
+      crc32(c.subarray(4, 8 + data.length)) >>> 0,
+      8 + data.length,
+    );
+    return c;
+  };
+
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(size, 0);
+  ihdr.writeUInt32BE(size, 4);
+  ihdr.writeUInt8(8, 8); // bit depth
+  ihdr.writeUInt8(2, 9); // colour type: truecolour RGB
+
+  const rgb = hexes.map((h) => [
+    parseInt(h.slice(1, 3), 16),
+    parseInt(h.slice(3, 5), 16),
+    parseInt(h.slice(5, 7), 16),
+  ]);
+  const stride = 1 + size * 3;
+  const raw = Buffer.alloc(size * stride);
+  for (let y = 0; y < size; y++) {
+    const [r, g, b] = rgb[Math.floor((y / size) * rgb.length)]!;
+    raw.writeUInt8(0, y * stride); // filter: none
+    for (let x = 0; x < size; x++) {
+      const at = y * stride + 1 + x * 3;
+      raw.writeUInt8(r!, at);
+      raw.writeUInt8(g!, at + 1);
+      raw.writeUInt8(b!, at + 2);
+    }
+  }
+
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", deflateSync(raw)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+};
+
 /** A minimal JPEG buffer with an SOF0 marker carrying the given dimensions (padded past the SOF). */
 export const jpegBytes = (width = 600, height = 1050): Buffer => {
   const b = Buffer.from([
