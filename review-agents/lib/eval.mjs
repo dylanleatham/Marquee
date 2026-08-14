@@ -226,6 +226,27 @@ export function cachePolicy({ mock = false, noCache = false } = {}) {
 }
 
 /**
+ * May this run be compared against the baseline, and may it record one?
+ *
+ * Two kinds of run produce numbers that are not measurements, and both have to be kept away from the
+ * gate for the same reason `cachePolicy` keeps mock runs out of the cache:
+ *
+ * - **Mock.** `REVIEW_MOCK=1` answers `[]` for every specialist, so every must-find case misses and
+ *   the gate reports a total collapse that means nothing.
+ * - **Filtered.** `--case` / `--reviewer` score a deliberate subset, so every specialist they
+ *   exclude looks as though it lost all of its cases.
+ *
+ * Writing a baseline from either is worse than comparing against one. A filtered baseline silently
+ * drops the excluded specialists' floors; a mock baseline is all zeroes, so the gate passes forever
+ * after. A mock run wrote exactly that file once, because the guard lived in a CLI branch where
+ * nothing tested it — which is why it lives here now.
+ */
+export function gatePolicy({ mock = false, filtered = false } = {}) {
+  const scoreless = mock || filtered;
+  return { compare: !scoreless, writeBaseline: !scoreless };
+}
+
+/**
  * Per-specialist recall and false positives, at two resolutions.
  *
  * **Case level** (`hit`/`total`) is the majority verdict — the strict gate. **Run level**

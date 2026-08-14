@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { globToRegExp, matchesAny } from "./util.mjs";
+import { globToRegExp, matchesAny, mapWithConcurrency } from "./util.mjs";
 import {
   extractJsonArray,
   salvageProse,
@@ -15,6 +15,7 @@ import {
   resolveTimeoutMs,
   resolveRepairTimeoutMs,
   resolveRetries,
+  resolveConcurrency,
   runSpecialist,
 } from "./claude.mjs";
 import { summarizeRun, silentWarning } from "./outcome.mjs";
@@ -34,6 +35,7 @@ import {
   runIdOf,
 } from "./ledger.mjs";
 import { runTriage, renderFinding, CHOICES } from "./triage.mjs";
+import { loadSpecialists } from "./specialists.mjs";
 
 test("globToRegExp: ** spans directories, * does not", () => {
   assert.match(
@@ -245,40 +247,40 @@ test("resolveRetries: default 1, env override, fallback on bad input", () => {
   assert.equal(resolveRetries({ REVIEW_TIMEOUT_RETRIES: "1.5" }), 1);
 });
 
-test("runSpecialist: retries once on a timeout, then succeeds (RA-2)", () => {
+test("runSpecialist: retries once on a timeout, then succeeds (RA-2)", async () => {
   let calls = 0;
-  const spawn = () => {
+  const spawn = async () => {
     calls++;
     // First attempt times out; second returns a clean JSON reply.
     if (calls === 1)
       return { error: Object.assign(new Error("t"), { code: "ETIMEDOUT" }) };
     return { status: 0, stdout: '{"result":"[]"}' };
   };
-  const res = runSpecialist({ prompt: "p" }, { spawn, retries: 1 });
+  const res = await runSpecialist({ prompt: "p" }, { spawn, retries: 1 });
   assert.equal(calls, 2);
   assert.equal(res.ok, true);
   assert.equal(res.text, "[]");
 });
 
-test("runSpecialist: gives up after retries are exhausted on repeated timeouts", () => {
+test("runSpecialist: gives up after retries are exhausted on repeated timeouts", async () => {
   let calls = 0;
-  const spawn = () => {
+  const spawn = async () => {
     calls++;
     return { error: Object.assign(new Error("t"), { code: "ETIMEDOUT" }) };
   };
-  const res = runSpecialist({ prompt: "p" }, { spawn, retries: 1 });
+  const res = await runSpecialist({ prompt: "p" }, { spawn, retries: 1 });
   assert.equal(calls, 2); // initial + 1 retry
   assert.equal(res.ok, false);
   assert.equal(res.timedOut, true);
 });
 
-test("runSpecialist: does NOT retry a non-timeout failure", () => {
+test("runSpecialist: does NOT retry a non-timeout failure", async () => {
   let calls = 0;
-  const spawn = () => {
+  const spawn = async () => {
     calls++;
     return { status: 1, stderr: "boom" };
   };
-  const res = runSpecialist({ prompt: "p" }, { spawn, retries: 3 });
+  const res = await runSpecialist({ prompt: "p" }, { spawn, retries: 3 });
   assert.equal(calls, 1); // a real failure isn't retried
   assert.equal(res.ok, false);
   assert.match(res.reason, /exited 1/);
@@ -336,15 +338,18 @@ test("resolveTimeoutMs: a specialist's own timeoutMs wins over the env default (
   );
 });
 
-test("runSpecialist: passes the specialist's budget through to spawn (RA-3)", () => {
+test("runSpecialist: passes the specialist's budget through to spawn (RA-3)", async () => {
   let seen;
-  const spawn = (_bin, _args, o) => {
+  const spawn = async (_bin, _args, o) => {
     seen = o.timeout;
     return { status: 0, stdout: '{"result":"[]"}' };
   };
-  runSpecialist({ prompt: "p", timeoutMs: 300_000 }, { spawn, retries: 0 });
+  await runSpecialist(
+    { prompt: "p", timeoutMs: 300_000 },
+    { spawn, retries: 0 },
+  );
   assert.equal(seen, 300_000);
-  runSpecialist({ prompt: "p" }, { spawn, retries: 0 });
+  await runSpecialist({ prompt: "p" }, { spawn, retries: 0 });
   assert.equal(seen, 90_000); // no declared budget -> the default
 });
 
@@ -452,9 +457,9 @@ const PROSE =
   "I found one blocking issue: the upload handler has no timeout, so a stalled client wedges " +
   "the event loop. Wrap the read in AbortSignal.timeout(5000).";
 
-test("parseWithRepair: a well-formed reply is used as-is, with no repair call", () => {
+test("parseWithRepair: a well-formed reply is used as-is, with no repair call", async () => {
   let called = 0;
-  const out = parseWithRepair('[{"severity":"info","message":"m"}]', {
+  const out = await parseWithRepair('[{"severity":"info","message":"m"}]', {
     repair: () => {
       called++;
       return { ok: true, text: "[]" };
@@ -465,8 +470,8 @@ test("parseWithRepair: a well-formed reply is used as-is, with no repair call", 
   assert.equal(out.raw.length, 1);
 });
 
-test("parseWithRepair: prose is recovered as structured findings, keeping severity", () => {
-  const out = parseWithRepair(PROSE, {
+test("parseWithRepair: prose is recovered as structured findings, keeping severity", async () => {
+  const out = await parseWithRepair(PROSE, {
     repair: (text) => {
       // The repair is a translation, so it must be handed the original reply.
       assert.match(text, /wedges the event loop/);
@@ -484,9 +489,9 @@ test("parseWithRepair: prose is recovered as structured findings, keeping severi
   assert.equal(out.raw[0].line, 4);
 });
 
-test("parseWithRepair: a repair that also replies in prose falls through, it doesn't loop", () => {
+test("parseWithRepair: a repair that also replies in prose falls through, it doesn't loop", async () => {
   let calls = 0;
-  const out = parseWithRepair(PROSE, {
+  const out = await parseWithRepair(PROSE, {
     repair: () => {
       calls++;
       return { ok: true, text: "Sorry — here is the summary again in words." };
@@ -497,15 +502,15 @@ test("parseWithRepair: a repair that also replies in prose falls through, it doe
   assert.equal(out.raw, null);
 });
 
-test("parseWithRepair: a failed or throwing repair is never worse than not trying", () => {
+test("parseWithRepair: a failed or throwing repair is never worse than not trying", async () => {
   assert.deepEqual(
-    parseWithRepair(PROSE, {
+    await parseWithRepair(PROSE, {
       repair: () => ({ ok: false, reason: "timeout" }),
     }),
     { raw: null, outcome: "unrepaired" },
   );
   assert.deepEqual(
-    parseWithRepair(PROSE, {
+    await parseWithRepair(PROSE, {
       repair: () => {
         throw new Error("spawn failed");
       },
@@ -513,15 +518,15 @@ test("parseWithRepair: a failed or throwing repair is never worse than not tryin
     { raw: null, outcome: "unrepaired" },
   );
   // No repair injected at all (the mock path) still degrades to prose salvage.
-  assert.deepEqual(parseWithRepair(PROSE), {
+  assert.deepEqual(await parseWithRepair(PROSE), {
     raw: null,
     outcome: "unrepaired",
   });
 });
 
-test("parseWithRepair: an empty findings array is a clean answer, not something to repair", () => {
+test("parseWithRepair: an empty findings array is a clean answer, not something to repair", async () => {
   let called = 0;
-  const out = parseWithRepair("[]", {
+  const out = await parseWithRepair("[]", {
     repair: () => {
       called++;
       return { ok: true, text: "[]" };
@@ -1141,5 +1146,90 @@ test("doc-coherence triggers on docs anywhere, and on files that cite an ADR", (
   assert.ok(
     config.triggerImports?.length,
     "doc-coherence needs the import route for ADR citations in source",
+  );
+});
+
+// --- concurrency (ADR 0087) --------------------------------------------------------------------
+
+test("resolveConcurrency: three by default, overridable, bad input falls back", () => {
+  // Not unbounded. Each slot is a full Claude Code session, and the sequential design this replaces
+  // was chosen to be "gentler on a loaded machine than N concurrent sessions" — a cap keeps that.
+  assert.equal(resolveConcurrency({}), 3);
+  assert.equal(resolveConcurrency({ REVIEW_CONCURRENCY: "6" }), 6);
+  assert.equal(resolveConcurrency({ REVIEW_CONCURRENCY: "1" }), 1);
+  for (const bad of ["0", "-2", "nope", "1.5", ""])
+    assert.equal(resolveConcurrency({ REVIEW_CONCURRENCY: bad }), 3);
+});
+
+test("mapWithConcurrency: never exceeds the cap", async () => {
+  // The property the cap exists for. Without it this is Promise.all, which opens every session at
+  // once — eight concurrent Claude processes on a laptop that is also running the dev servers.
+  let inFlight = 0;
+  let peak = 0;
+  const items = Array.from({ length: 12 }, (_, i) => i);
+  await mapWithConcurrency(items, 3, async () => {
+    inFlight++;
+    peak = Math.max(peak, inFlight);
+    await new Promise((r) => setTimeout(r, 5));
+    inFlight--;
+  });
+  assert.equal(peak, 3);
+});
+
+test("mapWithConcurrency: results keep input order, not completion order", async () => {
+  // The orchestrator zips runs back to specialists positionally, and the eval scores per case —
+  // both break silently if a slow item's result lands in a fast item's slot.
+  const delays = [30, 1, 20, 2];
+  const out = await mapWithConcurrency(delays, 2, async (ms, i) => {
+    await new Promise((r) => setTimeout(r, ms));
+    return i;
+  });
+  assert.deepEqual(out, [0, 1, 2, 3]);
+});
+
+test("mapWithConcurrency: a cap wider than the work does not spin idle workers", async () => {
+  let started = 0;
+  await mapWithConcurrency([1, 2], 16, async () => {
+    started++;
+  });
+  assert.equal(started, 2);
+  assert.deepEqual(await mapWithConcurrency([], 4, async () => 1), []);
+});
+
+test("mapWithConcurrency: one slow item does not hold up the ones behind it", async () => {
+  // With a sequential runner, `runtime`'s 300s budget delayed everything after it. The point of the
+  // pool is that a slow specialist occupies one slot rather than the whole run.
+  const order = [];
+  await mapWithConcurrency([50, 1, 1], 3, async (ms, i) => {
+    await new Promise((r) => setTimeout(r, ms));
+    order.push(i);
+  });
+  assert.deepEqual(order, [1, 2, 0], "the fast items finish first");
+});
+
+test("--fast selects exactly the triggered blocking specialists", () => {
+  // The tier is defined by what can stop a push, so it must be derived from `blocking` rather than
+  // from a hand-maintained list that would drift the next time a reviewer changes severity.
+  const roster = loadSpecialists();
+  const blocking = roster.filter((s) => s.blocking).map((s) => s.id);
+  const info = roster.filter((s) => !s.blocking).map((s) => s.id);
+  assert.ok(blocking.length >= 4, "the fast tier must not be empty");
+  assert.ok(info.length >= 2, "and must actually skip something");
+  // The two rosters partition it — nothing is in neither, nothing is in both.
+  assert.equal(blocking.length + info.length, roster.length);
+  assert.deepEqual(
+    blocking.filter((id) => info.includes(id)),
+    [],
+  );
+});
+
+test("runSpecialist: a rejected spawn is a failure, not an unhandled rejection", async () => {
+  // A promise-returning spawn can reject where the synchronous one could only return an error
+  // object. Left unhandled that would take down the whole run rather than one specialist.
+  const spawn = async () => {
+    throw Object.assign(new Error("spawn exploded"), { code: "EACCES" });
+  };
+  await assert.rejects(() =>
+    runSpecialist({ prompt: "p" }, { spawn, retries: 0 }),
   );
 });

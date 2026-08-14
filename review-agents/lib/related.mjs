@@ -141,9 +141,12 @@ export function relatedFiles({
 /**
  * Resolve a specialist's `contextRelated` block against a change.
  *
- * Shape: `{ over: string[], maxFiles?: number, maxBytes?: number }`. `by` is accepted and ignored
- * for now — it documents the intent at the call site and leaves room for a second strategy without
- * a config migration.
+ * Shape: `{ over: string[], maxFiles?: number, maxBytes?: number }`.
+ *
+ * There is deliberately no `by` discriminator. An earlier draft carried `by: "keywords"` to leave
+ * room for a second strategy, and the `consistency` reviewer caught that the config had a field
+ * neither the README nor ADR 0086 documented. A key that nothing reads is speculative generality
+ * plus a drift risk; the next strategy can add it when it exists.
  */
 export function resolveContextRelated(config, { files, diff, root }) {
   const spec = config?.contextRelated;

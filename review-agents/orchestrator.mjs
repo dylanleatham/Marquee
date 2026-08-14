@@ -8,11 +8,13 @@
 //     --base <ref>         diff against an explicit base
 //     --reviewer <id>      run a single specialist
 //     --explain            print the context sent to each specialist
+//     --fast               only the blocking specialists — the mid-session check
 //     --triage             judge the last report's findings into review-agents/ledger.jsonl
 //     --stats              print per-specialist volume + precision from the ledger
 //   Env: REVIEW_MOCK=1 (skip real Claude calls), CLAUDE_CODE_PATH (binary override),
 //        REVIEW_TIMEOUT_MS (per-specialist spawn budget in ms, default 90000),
-//        REVIEW_TIMEOUT_RETRIES (extra attempts on a timeout, default 1)
+//        REVIEW_TIMEOUT_RETRIES (extra attempts on a timeout, default 1),
+//        REVIEW_CONCURRENCY (sessions in flight at once, default 3)
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -28,8 +30,10 @@ import {
   claudeAvailable,
   runSpecialist,
   resolveRepairTimeoutMs,
+  resolveConcurrency,
   isMock,
 } from "./lib/claude.mjs";
+import { mapWithConcurrency } from "./lib/util.mjs";
 import { summarizeRun, silentWarning } from "./lib/outcome.mjs";
 import { composePrompt, repairPrompt } from "./lib/prompt.mjs";
 import {
@@ -68,6 +72,7 @@ const opts = {
   base: val("--base"),
   reviewer: val("--reviewer"),
   explain: has("--explain"),
+  fast: has("--fast"),
   triage: has("--triage"),
   stats: has("--stats"),
 };
@@ -155,15 +160,30 @@ async function main() {
   if (opts.reviewer)
     specialists = specialists.filter((s) => s.id === opts.reviewer);
 
-  const relevant = specialists.filter((s) => isTriggered(s, files));
+  let relevant = specialists.filter((s) => isTriggered(s, files));
+  // --fast: the mid-session check. Only the reviewers that can actually stop a push, so the loop is
+  // short enough to run while the change is still in your head — which is what CLAUDE.md asks for
+  // and what the full roster's wall clock made unrealistic. The full set still runs before the PR.
+  const skippedByFast = opts.fast ? relevant.filter((s) => !s.blocking) : [];
+  if (opts.fast) relevant = relevant.filter((s) => s.blocking);
+
+  const concurrency = resolveConcurrency();
   console.log(
     `review-agents: ${files.length} file(s) changed; running ${relevant.length}/${specialists.length} specialist(s)` +
       (isMock() ? " [MOCK]" : "") +
-      `\n  base=${base.slice(0, 12)} sha=${sha.slice(0, 12)}`,
+      (opts.fast ? " [FAST]" : "") +
+      `\n  base=${base.slice(0, 12)} sha=${sha.slice(0, 12)} concurrency=${concurrency}`,
   );
+  if (skippedByFast.length)
+    console.log(
+      `  --fast skipped ${skippedByFast.length} informational specialist(s): ` +
+        `${skippedByFast.map((s) => s.id).join(", ")}. Run without --fast before the PR.`,
+    );
 
-  const runs = await Promise.all(
-    relevant.map(async (config) => {
+  const runs = await mapWithConcurrency(
+    relevant,
+    concurrency,
+    async (config) => {
       const started = Date.now();
       const context = buildContext(config, { files, diff });
       const cut = truncatedContext(config.id);
@@ -180,7 +200,7 @@ async function main() {
           `\n──── context for ${config.id} ────\n${context.slice(0, 4000)}\n────────────────`,
         );
       }
-      const res = runSpecialist({
+      const res = await runSpecialist({
         prompt: composePrompt(config, context),
         model: config.model,
         timeoutMs: config.timeoutMs,
@@ -199,7 +219,7 @@ async function main() {
       }
       // One translation round before falling back to prose (issue #117). A repair carries no diff,
       // so it is cheap; it re-uses the specialist's own model so the wording stays theirs.
-      const { raw, outcome } = parseWithRepair(res.text, {
+      const { raw, outcome } = await parseWithRepair(res.text, {
         repair: (text) =>
           runSpecialist({
             prompt: repairPrompt(text),
@@ -266,7 +286,7 @@ async function main() {
         durationMs,
         findings,
       };
-    }),
+    },
   );
 
   const all = dedupe(runs.flatMap((r) => r.findings));

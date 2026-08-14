@@ -43,9 +43,12 @@ else is informational.
 1. Resolves the diff base (`origin/main` merge-base for a branch; `--staged` or `--base` to override).
 2. Computes changed files + a capped unified diff.
 3. Routes: each specialist's `config.json` declares what triggers it and what context to load.
-4. Runs each relevant specialist via Claude Code headless (`claude -p --output-format json`). The
-   call is a blocking `spawnSync`, so specialists run **one at a time** — gentler on a loaded
-   machine than N concurrent sessions. A specialist that overruns its budget retries once (RA-2).
+4. Runs each relevant specialist via Claude Code headless (`claude -p --output-format json`), at
+   most `REVIEW_CONCURRENCY` (default **3**) at a time
+   ([ADR 0087](../docs/adrs/0087-specialists-run-concurrently-under-a-cap.md)). A cap rather than
+   `Promise.all`: each slot is a full Claude Code session, and a laptop also running the dev
+   services should not have eight opened on it. A specialist that overruns its budget retries once
+   (RA-2). Lines print as each finishes, so the order is completion order, not roster order.
 5. Parses each reply into findings. A reply that isn't the JSON array gets **one reformat round** —
    the specialist is asked to translate its own reply into the contract shape, with no diff attached,
    so structure (file, line, severity) survives instead of collapsing into one unstructured info
@@ -68,6 +71,7 @@ pnpm run review                     # review this branch vs origin/main
 pnpm run review --staged            # review staged changes
 pnpm run review --reviewer security # run one specialist
 pnpm run review --explain           # also print the context sent to each specialist
+pnpm run review --fast              # only the blocking specialists — the mid-session check
 pnpm run review --ci                # hook mode: write report, exit 1 on blocking findings
 pnpm run review --triage            # judge the last report's findings into the ledger
 pnpm run review:stats               # what the ledger adds up to
@@ -104,7 +108,9 @@ applies to this instrument as much as to the ones it watches.
 Commit the ledger with your PR. `.gitattributes` marks it `merge=union` so two branches that both
 triaged a review keep both sides' records.
 
-Env: `CLAUDE_CODE_PATH` (binary override, default `claude`), `REVIEW_MOCK=1` (skip real calls —
+Env: `REVIEW_CONCURRENCY` (sessions in flight, default `3` — drop it to `1` for the old
+strictly-sequential behaviour on a loaded machine),
+`CLAUDE_CODE_PATH` (binary override, default `claude`), `REVIEW_MOCK=1` (skip real calls —
 used by tests/CI to exercise the pipeline without tokens; `REVIEW_MOCK_OUTPUT` supplies a
 canned findings array), `REVIEW_TIMEOUT_MS` (default spawn budget in ms, default
 `90000` — bump it on a slow/loaded machine if a specialist gets marked unavailable),

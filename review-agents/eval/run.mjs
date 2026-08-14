@@ -42,6 +42,7 @@ import {
   majorityOutcome,
   cacheKey,
   cachePolicy,
+  gatePolicy,
   summarizeEval,
   toBaseline,
   compareBaseline,
@@ -130,18 +131,18 @@ const writeCache = (key, value) => {
 };
 
 /** Run one specialist over one case's diff, exactly as a real review would. */
-function executeOnce(specialist, testCase) {
+async function executeOnce(specialist, testCase) {
   const context = buildContext(specialist, {
     files: testCase.files,
     diff: testCase.patch,
   });
-  const res = runSpecialist({
+  const res = await runSpecialist({
     prompt: composePrompt(specialist, context),
     model: specialist.model,
     timeoutMs: specialist.timeoutMs,
   });
   if (!res.ok) return { findings: [], failed: res.reason };
-  const { raw } = parseWithRepair(res.text);
+  const { raw } = await parseWithRepair(res.text);
   return {
     findings: normalizeFindings(raw ?? [], {
       specialist: specialist.id,
@@ -239,7 +240,7 @@ async function main() {
 
     const outcomes = [];
     for (let i = 0; i < opts.repeat; i++) {
-      const { findings, failed } = executeOnce(specialist, testCase);
+      const { findings, failed } = await executeOnce(specialist, testCase);
       if (failed) {
         console.warn(`  ! ${testCase.id}: run ${i + 1} failed (${failed})`);
         continue;
@@ -287,8 +288,12 @@ async function main() {
   // tuning an `expect` block, and a gate that cries REGRESSED at every diagnostic teaches you to
   // stop reading it.
   const filtered = Boolean(opts.case || opts.reviewer);
+  // A mock run is excluded for the same reason it is excluded from the cache: `REVIEW_MOCK=1`
+  // answers `[]` for every specialist, so every must-find case "misses" and the gate reports a
+  // total collapse that means nothing. Comparing it would train you to ignore the word REGRESSED.
+  const gate = gatePolicy({ mock: isMock(), filtered });
   const baseline =
-    !filtered && existsSync(BASELINE_PATH)
+    gate.compare && existsSync(BASELINE_PATH)
       ? JSON.parse(readFileSync(BASELINE_PATH, "utf8"))
       : null;
 
@@ -302,12 +307,17 @@ async function main() {
       `\n[WARN ] ${errored.length} case(s) errored and were left out of the table.`,
     );
 
-  if (opts.writeBaseline && filtered) {
+  if (opts.writeBaseline && !gate.writeBaseline) {
     // Recording a subset as *the* baseline would quietly delete every unscored specialist's floor —
-    // the precise move the anti-deletion rule exists to catch, performed by the tool itself.
+    // the precise move the anti-deletion rule exists to catch, performed by the tool itself. A mock
+    // baseline is worse: every figure in it would be zero, so the gate would pass forever after.
+    // This is not hypothetical — a REVIEW_MOCK run wrote exactly that file before this guard landed.
     console.error(
-      "\nreview-agents eval: refusing to write a baseline from a filtered run.\n" +
-        "--case/--reviewer score a subset, and the result would silently drop every specialist they excluded.",
+      isMock()
+        ? "\nreview-agents eval: refusing to write a baseline from a mock run.\n" +
+            "REVIEW_MOCK answers [] for every specialist, so the recorded floor would be all zeroes."
+        : "\nreview-agents eval: refusing to write a baseline from a filtered run.\n" +
+            "--case/--reviewer score a subset, and the result would silently drop every specialist they excluded.",
     );
     process.exit(1);
   }
@@ -323,10 +333,12 @@ async function main() {
     return;
   }
 
-  if (filtered) {
+  if (!gate.compare) {
     console.log(
-      "\nreview-agents eval: filtered run — scored a subset, so the baseline was not compared.\n" +
-        "Run without --case/--reviewer to gate.",
+      isMock()
+        ? "\nreview-agents eval: mock run — no real verdicts, so the baseline was not compared."
+        : "\nreview-agents eval: filtered run — scored a subset, so the baseline was not compared.\n" +
+            "Run without --case/--reviewer to gate.",
     );
     return;
   }

@@ -4,12 +4,13 @@
 // Mock mode (REVIEW_MOCK=1): return a canned response so the whole pipeline can be
 // exercised in CI/tests without spending tokens or needing auth. REVIEW_MOCK_OUTPUT
 // (a JSON findings array) overrides the canned empty result.
-import { spawnSync } from "node:child_process";
+import { spawnSync, spawn as nodeSpawn } from "node:child_process";
 
 const BIN = process.env.CLAUDE_CODE_PATH || "claude";
 const DEFAULT_TIMEOUT_MS = 90_000; // per-specialist budget (dev-harness §6 failure modes)
 const DEFAULT_RETRIES = 1; // extra attempts on a *timeout* only (RA-2)
 const DEFAULT_REPAIR_TIMEOUT_MS = 60_000; // a reformat carries no diff (RA-4)
+const DEFAULT_CONCURRENCY = 3; // sessions in flight at once
 const IS_WIN = process.platform === "win32";
 
 export const isMock = () => process.env.REVIEW_MOCK === "1";
@@ -63,6 +64,89 @@ export function resolveRepairTimeoutMs(env = process.env) {
   return positiveInt(env.REVIEW_REPAIR_TIMEOUT_MS) ?? DEFAULT_REPAIR_TIMEOUT_MS;
 }
 
+/**
+ * How many specialists may have a Claude session open at once (`REVIEW_CONCURRENCY`, default 3).
+ *
+ * Not unbounded. The original code ran them strictly one at a time and the comment gave the reason
+ * — "gentler on a loaded machine than N concurrent sessions" — which was written when N was six and
+ * is still the right instinct at eight. A cap keeps that property while turning a sum of budgets
+ * into roughly a third of one: the roster's timeouts add to about twenty minutes worst case, which
+ * is why nobody ran the reviewers in the inner loop CLAUDE.md asks for.
+ */
+export function resolveConcurrency(env = process.env) {
+  return positiveInt(env.REVIEW_CONCURRENCY) ?? DEFAULT_CONCURRENCY;
+}
+
+/**
+ * One invocation of the binary, resolving to the same shape `spawnSync` returns.
+ *
+ * Written by hand rather than using `spawn`'s own `timeout`/`maxBuffer` because neither exists on
+ * `spawn` the way it does on `spawnSync`: `spawn` has no `maxBuffer` at all, and its `timeout` kills
+ * the child without producing the `ETIMEDOUT` error code that `interpret` and the retry rule are
+ * written against. Both are therefore enforced here, and the result is normalised back to the
+ * `spawnSync` shape so `interpret` and every retry test keep working unchanged.
+ */
+function spawnOnce(bin, args, { input, timeout, maxBuffer, shell }) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = nodeSpawn(bin, args, { shell, stdio: ["pipe", "pipe", "pipe"] });
+    } catch (error) {
+      return resolve({ error });
+    }
+
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    let overflowed = false;
+    let settled = false;
+
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    // A hung Claude session must not wedge the run — this is the bound the whole harness leans on.
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, timeout);
+
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+      if (stdout.length > maxBuffer) {
+        overflowed = true;
+        child.kill("SIGKILL");
+      }
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+
+    child.on("error", (error) => finish({ error }));
+    // EPIPE when the child exits before reading the prompt — the close handler owns the outcome.
+    child.stdin.on("error", () => {});
+    child.on("close", (status, signal) => {
+      if (timedOut)
+        return finish({
+          error: Object.assign(new Error("spawn timed out"), {
+            code: "ETIMEDOUT",
+          }),
+        });
+      if (overflowed)
+        return finish({
+          error: new Error(`output exceeded maxBuffer (${maxBuffer} bytes)`),
+        });
+      finish({ status, signal, stdout, stderr });
+    });
+
+    child.stdin.end(input);
+  });
+}
+
 export function claudeAvailable() {
   if (isMock()) return true;
   const r = spawnSync(BIN, ["--version"], {
@@ -110,9 +194,9 @@ function interpret(r) {
  * than spending a second attempt. Non-timeout failures (bad exit, ENOENT) don't retry. `spawn`
  * and `retries` are injectable so the retry path is unit-testable without a real Claude call.
  */
-export function runSpecialist(
+export async function runSpecialist(
   { prompt, model, timeoutMs },
-  { spawn = spawnSync, retries = resolveRetries() } = {},
+  { spawn = spawnOnce, retries = resolveRetries() } = {},
 ) {
   if (isMock())
     return { ok: true, text: process.env.REVIEW_MOCK_OUTPUT ?? "[]" };
@@ -124,7 +208,7 @@ export function runSpecialist(
   let result;
   for (let attempt = 0; attempt <= retries; attempt++) {
     result = interpret(
-      spawn(BIN, args, {
+      await spawn(BIN, args, {
         input: prompt,
         encoding: "utf8",
         timeout: budget,

@@ -4,12 +4,13 @@ How the review harness learns. Extends [dev-harness.md](dev-harness.md) §6 (the
 §11 (observability of the harness itself) and §12 (iteration) — read those first; this document
 does not repeat them.
 
-Status: **Phase 1 built (2026-08-13); Phases 2–6 proposed.** Sections 1–5 are the design; §6 is the
-implementation plan and carries the per-phase status; §7 records what is deliberately out of scope.
+Status: **Phases 1–4 built (2026-08-13); Phases 5–6 proposed.** Sections 1–5 are the design; §6 is
+the implementation plan and carries the per-phase status; §7 records what is deliberately out of
+scope.
 
-§4.1 (the ledger) describes shipped behaviour. **§4.2–§4.6 do not** — nothing there is enforced yet,
-and in particular there is still no eval gate, so an edit to a specialist's prompt is still an
-unvalidated change.
+§4.1 (the ledger), §4.2 (the eval gate), §4.3 (the two new specialists) and §4.4 (latency) describe
+shipped behaviour. **§4.5 (refute-or-promote) and §4.6 (the retro) do not.** Note that §4.5's premise
+has since been contradicted by measurement — see the note there before building it.
 
 ---
 
@@ -366,6 +367,25 @@ what it drops is genuinely low-yield.
 
 ### 4.5 Refute-or-promote on blocking findings
 
+> **Measurement has undercut this section's premise. Read this before building it.**
+>
+> Refute-or-promote spends sessions to raise precision. Across every `must-not-find` case scored so
+> far, the roster's measured false-positive rate is **zero** — not one blocking finding on a clean
+> diff, at either the case or the run resolution. Precision is not this roster's problem.
+>
+> Recall is. Detection sits at 33–50% per run, and the same cases land at 2/5 and 4/5 rather than at
+> 0/5, so the reviewers recognise these bugs and simply fail to say so most of the time. A pass that
+> can only ever _remove_ findings is aimed at the wrong end of that.
+>
+> The inverse is the better bet on the same evidence: run each triggered specialist **more than once
+> and union the findings**. At ~40% per run, three runs union to ~78%. It costs the same tokens as
+> refutation and pushes on the measured weakness rather than the imagined one — and Phase 4's
+> concurrency is what makes 3× affordable. It is also directly testable: the eval can score a
+> unioned run against the same baseline.
+>
+> Neither should be built on four `must-not-find` cases. Widen that side of the case set first;
+> §7's coverage note says why three clean diffs cannot support a claim about false positives.
+
 Before a `blocking` finding gates, one cheap session receives the finding plus the surrounding file
 and is asked to **refute** it, defaulting to "stands" unless it can name the specific reason the
 finding does not hold. A refuted finding is **demoted to info with the refutation attached** — never
@@ -525,7 +545,24 @@ headless sessions have tools at all.
 `doc-coherence` starts **info**. Promote to blocking only once the ledger shows its precision holds
 — which is Phase 1 paying for itself.
 
-### Phase 4 — latency, proven not to cost recall
+### Phase 4 — latency, proven not to cost recall — **shipped 2026-08-13**
+
+Built as planned ([ADR 0087](../adrs/0087-specialists-run-concurrently-under-a-cap.md)), with one
+correction to the plan's acceptance criterion and one bug worth recording.
+
+**The eval cannot validate this change.** The plan said "and `review:eval` matches baseline". It
+caches on a specialist's prompt, examples, config and model, none of which move here — so a
+post-change run is a cache hit that proves nothing, and `--no-cache` re-samples a process whose
+measured variance (33–50%) dwarfs any effect concurrency could have. Asking for an eval pass here
+would have been the ritual version of a check that measures nothing. The instruments that apply are
+the pool and retry unit tests, and the wall clock.
+
+**Making `runSpecialist` async silently broke `parseWithRepair`.** It called `repair(text)`
+synchronously and tested `second?.ok`, which against a promise is `undefined` — so every prose reply
+would have fallen through to `unrepaired`, RA-4's whole recovery path would have been dead, **and
+every test would still have passed**, because the fakes were synchronous. The general shape is worth
+carrying: turning one function async breaks every synchronous consumer that reads a field off its
+result, and a suite built on synchronous fakes cannot see it.
 
 **Goal:** the inner loop becomes affordable enough to actually be used as one.
 

@@ -244,15 +244,25 @@ editing one reviewer re-runs only its own cases. Cache lives in `.review-agents/
 
 ## Cost
 
-Real Claude sessions, run serially: roughly `cases × repeats` sessions on a cold cache. The current
-set is 8 cases, so a full `--repeat 3` run is 24 sessions — minutes, not seconds. `--repeat 1` while
-iterating, the default 3 before recording a baseline. A single execution is not a measurement: model
-output varies run to run, and a gate that flakes is a gate that gets disabled.
+Real Claude sessions: roughly `cases × repeats` on a cold cache. The current set is **14 cases**, so
+a full `--repeat 3` run is 42 sessions — minutes, not seconds. `--repeat 1` while iterating, the
+default 3 before recording a baseline. A single execution is not a measurement: model output varies
+run to run, and a gate that flakes is a gate that gets disabled.
+
+Unlike a review, the eval runs its cases one at a time — the concurrency added in
+[ADR 0087](../../docs/adrs/0087-specialists-run-concurrently-under-a-cap.md) applies to a review's
+roster, not to this loop.
 
 ## Current coverage
 
-Eight cases: five `must-find` (four `runtime`, one `test-auditor`) and three `must-not-find`. That is
-short of the twelve-plus-eight the spec asks for, and the gap is concentrated in `security`,
-`spec-adherence` and `contract-guardian`, which have **no cases at all** — their rows will read
-`0/0`, which is honest but is not coverage. `git log` has plenty more `fix(...)` commits to seed
-from.
+Fourteen cases: eleven `must-find` — four `runtime`, four `null-result`, two `doc-coherence`, one
+`test-auditor` — and three `must-not-find`. That meets the spec's twelve-plus-eight target on the
+must-find side and falls well short on must-not-find, which matters more than it sounds: three clean
+diffs are a thin basis for the claim that this roster does not cry wolf.
+
+`security`, `spec-adherence` and `contract-guardian` have **no cases at all**. Their rows read `0/0`,
+which is honest and is not coverage. `git log` has plenty more `fix(...)` commits to seed from.
+
+**`baseline.json` predates the two new specialists**, so `doc-coherence` and `null-result` have no
+recorded floor yet. Re-record it with `--repeat 5 --write-baseline` when you have the sessions to
+spare.

@@ -358,6 +358,13 @@ _The roster is eight, not the six this section originally described._
 
 ### Orchestration
 
+_Updated 2026-08-13, [ADR 0087](../adrs/0087-specialists-run-concurrently-under-a-cap.md):
+specialists run **concurrently under a cap** (`REVIEW_CONCURRENCY`, default 3), not one at a time.
+The sequential design was deliberate — "gentler on a loaded machine than N concurrent sessions" —
+but that argues for a cap rather than a width of one, and the sum of the roster's budgets is why
+nobody ran the reviewers in the inner loop this document asks for. `--fast` adds a second tier: only
+the triggered blocking specialists, for the mid-session check._
+
 `review-agents/orchestrator.js` runs during the pre-push hook (and from `pnpm run review` locally). It:
 
 1. Reads the PR diff

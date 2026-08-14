@@ -17,6 +17,7 @@ import {
   majorityOutcome,
   cacheKey,
   cachePolicy,
+  gatePolicy,
   detectionRate,
   rateTolerance,
   baselineLacksRates,
@@ -279,6 +280,36 @@ test("cacheKey: the case, the diff and the repeat count are all part of it", () 
   assert.notEqual(cacheKey(args), cacheKey({ ...args, caseJson: { id: "d" } }));
   assert.notEqual(cacheKey(args), cacheKey({ ...args, patch: "other" }));
   assert.notEqual(cacheKey(args), cacheKey({ ...args, repeats: 5 }));
+});
+
+test("gatePolicy: a mock run is never compared to the baseline, and never writes one", () => {
+  // A mock answers [] for every specialist, so every must-find case misses. Comparing that reports a
+  // total collapse that means nothing; writing it records a floor of all zeroes and the gate passes
+  // forever after. The second is not hypothetical — a REVIEW_MOCK run wrote exactly that file while
+  // this guard lived in an untested CLI branch.
+  assert.deepEqual(gatePolicy({ mock: true }), {
+    compare: false,
+    writeBaseline: false,
+  });
+});
+
+test("gatePolicy: a filtered run is never compared, and never writes a partial baseline", () => {
+  // --case/--reviewer score a deliberate subset, so every excluded specialist looks like it lost all
+  // its cases — which is the anti-deletion rule firing on a diagnostic, and a baseline written from
+  // one would silently drop those specialists' floors.
+  assert.deepEqual(gatePolicy({ filtered: true }), {
+    compare: false,
+    writeBaseline: false,
+  });
+  assert.deepEqual(gatePolicy({ mock: true, filtered: true }), {
+    compare: false,
+    writeBaseline: false,
+  });
+});
+
+test("gatePolicy: an ordinary full run gates normally", () => {
+  assert.deepEqual(gatePolicy({}), { compare: true, writeBaseline: true });
+  assert.deepEqual(gatePolicy(), { compare: true, writeBaseline: true });
 });
 
 test("cachePolicy: a mock run neither reads nor writes the result cache", () => {
