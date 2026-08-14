@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-14T15:01:13.632Z",
+  "generatedAt": "2026-08-14T16:47:11.677Z",
   "repeats": 5,
   "specialists": {
     "consistency": {
@@ -8,6 +8,20 @@
         "total": 0,
         "hits": 0,
         "runs": 0
+      },
+      "mustNotFind": {
+        "fp": 0,
+        "total": 1,
+        "fpRuns": 0,
+        "runs": 5
+      }
+    },
+    "contract-guardian": {
+      "mustFind": {
+        "hit": 0,
+        "total": 1,
+        "hits": 0,
+        "runs": 5
       },
       "mustNotFind": {
         "fp": 0,
@@ -56,6 +70,34 @@
         "total": 2,
         "fpRuns": 0,
         "runs": 10
+      }
+    },
+    "security": {
+      "mustFind": {
+        "hit": 1,
+        "total": 1,
+        "hits": 4,
+        "runs": 5
+      },
+      "mustNotFind": {
+        "fp": 0,
+        "total": 1,
+        "fpRuns": 0,
+        "runs": 5
+      }
+    },
+    "spec-adherence": {
+      "mustFind": {
+        "hit": 1,
+        "total": 1,
+        "hits": 5,
+        "runs": 5
+      },
+      "mustNotFind": {
+        "fp": 0,
+        "total": 1,
+        "fpRuns": 0,
+        "runs": 5
       }
     },
     "test-auditor": {
