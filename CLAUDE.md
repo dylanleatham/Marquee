@@ -63,6 +63,32 @@ signal." A class that keeps being **accepted** is a missing gate — close it. A
 **wrong** is a prompt to fix. See
 [harness-self-improvement.md](docs/specs/harness-self-improvement.md) §4.1.
 
+The loop, concretely:
+
+```bash
+pnpm run review --fast      # mid-session, blocking reviewers only (~1-2 min)
+pnpm run review             # before the PR, all eight (~10 min — it samples 3x)
+pnpm run review --triage    # judge what it said, while it is still fresh
+git add review-agents/ledger.jsonl
+```
+
+**If the PR touches `review-agents/`, also run `pnpm run review:eval`.** A prompt, an `examples.md`
+or a `config.json` is behaviour, and that is the only thing standing between an edit that improves a
+reviewer and one that quietly costs it recall
+([ADR 0085](docs/adrs/0085-a-harness-edit-is-validated-against-a-frozen-case-set.md)). It cannot run
+in CI — a GitHub runner has no `claude` binary — so nothing enforces it. It happens because you
+remember, or it does not happen.
+
+Every week or two, `pnpm run review:retro` reads the ledger and the eval and writes a proposal file.
+It changes nothing; you decide, and anything you change from it goes back through `review:eval`. It
+also says when the baseline has gone stale — re-recording is ~35 real sessions, so treat that as a
+deliberate sit-down.
+
+A full review samples each reviewer three times and unions the findings, because measured detection
+is 33–80% _per run_ ([ADR 0088](docs/adrs/0088-a-review-samples-each-specialist-and-unions-the-findings.md)).
+That is where the recall comes from and also why it takes ten minutes. `REVIEW_SAMPLES=1` restores
+the fast, lossier behaviour.
+
 Three checks close most of what otherwise slips through — each is the durable fix for a finding that
 has recurred:
 
