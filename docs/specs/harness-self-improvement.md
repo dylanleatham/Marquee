@@ -4,13 +4,13 @@ How the review harness learns. Extends [dev-harness.md](dev-harness.md) §6 (the
 §11 (observability of the harness itself) and §12 (iteration) — read those first; this document
 does not repeat them.
 
-Status: **Phases 1–5 built (2026-08-13); Phase 6 proposed.** Sections 1–5 are the design; §6 is
+Status: **All six phases built (2026-08-13 – 2026-08-14).** Sections 1–5 are the design; §6 is
 the implementation plan and carries the per-phase status; §7 records what is deliberately out of
 scope.
 
 §4.1 (the ledger), §4.2 (the eval gate), §4.3 (the two new specialists) and §4.4 (latency) describe
 shipped behaviour. **§4.5 (refute-or-promote) was measured and rejected** — sampling-and-union
-shipped in its place, see the note there and ADR 0088. **§4.6 (the retro) is not built.**
+shipped in its place, see the note there and ADR 0088. §4.6 (the retro) is built — [ADR 0089](../adrs/0089-the-retro-proposes-and-a-human-accepts.md).
 
 ---
 
@@ -608,7 +608,7 @@ extension to it.
 That fail-closed rule is the §11 discipline applied to the new component: a refuter that isn't
 running must not be indistinguishable from a refuter that agreed.
 
-### Phase 6 — the retro, and making the workflow executable
+### Phase 6 — the retro, and making the workflow executable — **shipped 2026-08-14**
 
 **Goal:** close the loop, and move the workflow rules from prose into mechanism.
 

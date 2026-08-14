@@ -58,6 +58,11 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Claude Code worktrees live under .claude/, and .claude/ is now partly tracked (skills, hooks and
+# settings — see .claude/README.md). Without this, a stray `git add -A` from the main checkout would
+# commit an entire working copy of the repo into itself.
+.claude/worktrees/
+
 # Review agent reports are local run artifacts, not source. What survives a run is
 # review-agents/ledger.jsonl — triaged verdicts, committed, because a harness that cannot
 # remember what its reviewers got right cannot act on dev-harness §12's "delete checks when they

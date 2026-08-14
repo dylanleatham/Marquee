@@ -655,6 +655,13 @@ The harness isn't a set-and-forget artifact. Two rules for its evolution:
 
 Neither is retrospective work; both happen in the PR that fixes the bug or refines the process. Small, continuous, no dedicated meetings.
 
+_Mechanism, 2026-08-14 ([ADR 0089](../adrs/0089-the-retro-proposes-and-a-human-accepts.md)):
+`pnpm run review:retro` reads the ledger, the escaped-bug commits, the eval baseline and the case set,
+and writes a proposal file to `review-agents/retro/`. It **proposes and never accepts** — a test
+asserts it leaves the tree byte-for-byte unchanged — and anything done from its output still has to
+pass `pnpm run review:eval`. That is the loop this section describes, with a human holding the accept
+step._
+
 _Status note, 2026-08-13: until this date only the first rule had ever run. The second could not be executed at all — the ratio it says to track was recorded nowhere, since reports are per-SHA and gitignored, so every run was amnesiac, and `review-agents/KNOWN-ISSUES.md` tracks harness **defects** rather than finding **quality**. The ledger ([harness-self-improvement.md](harness-self-improvement.md) §4.1) now records it: judge a review with `pnpm run review --triage`, read it back with `pnpm run review:stats`. Two caveats on acting on what it says. First, a precision figure below n=8 is not printed at all, so a reviewer is not "bad" until there is enough evidence to say so. Second, the retirement decision the rule describes still has no safety net — there is no eval gate yet (§4.2), so changing a specialist's prompt in response to what the ledger says is still an unvalidated edit._
 
 ## 13. First-week concrete setup

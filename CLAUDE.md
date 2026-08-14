@@ -91,9 +91,16 @@ doc-reconcile pass), don't just fix the instance.
   `main` isn't hard-protected (free plan) — the git hooks are the gate; don't commit product code
   straight to `main`.
 - **Review agents** run on demand: `pnpm run review` — run it early and iteratively, not just before
-  the PR (see "Definition of done" above); not in pre-push. Then `--triage` what it found, and commit
-  the ledger. See [review-agents/README.md](review-agents/README.md) and
-  `review-agents/KNOWN-ISSUES.md`.
+  the PR (see "Definition of done" above); not in pre-push. `--fast` is the mid-session tier. Then
+  `--triage` what it found, and commit the ledger. See
+  [review-agents/README.md](review-agents/README.md) and `review-agents/KNOWN-ISSUES.md`.
+- **The workflow rules above have mechanisms**, in [.claude/](.claude/README.md): `/fix-bug` walks
+  the bug-fix procedure including the _watch it fail_ step, `/new-adr` takes the number from
+  `origin/main` rather than `ls`, and a Stop hook says so when source changed and the reviewers never
+  ran. Prose is a suggestion; these are the executed version. Four ADR collisions shipped while
+  `check:adrs` existed and was correct, which is the size of that gap.
+- **`pnpm run review:retro`** reads the ledger and the eval and proposes what to change next. It
+  never edits a prompt — see [ADR 0089](docs/adrs/0089-the-retro-proposes-and-a-human-accepts.md).
 - **Bugs** are tracked as GitHub issues; the fixing PR `Closes #<n>`. See the bug-fix workflow above.
 - `gh` CLI is installed at `C:\Program Files\GitHub CLI\gh.exe` (authed as `dylanleatham`), but not
   yet on the shell PATH — call it by full path, or use PR links / the Actions tab.
