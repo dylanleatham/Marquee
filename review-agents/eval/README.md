@@ -114,42 +114,51 @@ Two shapes need `--forward` instead of reversal:
 - **must-not-find cases.** A clean merged feature already _is_ the case. Reversing it would produce
   a revert, which is a different change with different risks.
 
-### A reversed guard-removal is the wrong shape for `null-result`
+### `null-result` measured 0/9, then 16/20, and nothing about it changed
 
-`null-result` scored **0 detections across nine runs** on its first three cases — three revisions of
-its prompt and config, no movement. Under the same contract and machinery, `doc-coherence` hit on its
-first attempt and `runtime` detects at 50%, so the harness was not the problem.
+The most important number in this directory is one that moved without a cause.
 
-Two prompt bugs were real and got fixed, and neither moved the number: the first version stacked
-"fire rarely", a vague decision test and one misleading sentence on top of the shared contract's
-"finding nothing is the common case"; and it loaded `dev-harness.md` for §11's rule, which begins at
-byte 41,156 of a 48,771-byte file — past the 16KB context cap, so the sentence it existed for never
-arrived.
+On 2026-08-13, `null-result` was scored three times over three revisions of its prompt and config
+and produced **zero detections in nine runs**. It was documented as broken, marked unproven in the
+roster, and a hand-authored case (`null-result-new-step-skips-silently`) was written to work out
+whether the fault was the prompt or the cases. That case detected at 1/3, and the conclusion drawn
+was that a reversed guard-removal reads as a deliberate revert and is the wrong shape for this
+reviewer.
 
-The cases were the problem. All three reverse a guard-**adding** commit, so each deletes the guard,
-its test and its explanatory comment in one motion — which reads as a deliberate feature removal
-rather than a check going quiet.
+On 2026-08-14 the baseline was recorded at `--repeat 5`, and the same four cases scored:
 
-`null-result-new-step-skips-silently` was hand-authored to separate the two hypotheses: a **new** CI
-step, added in good faith, that no-ops to green whenever an env var is unset. Nothing removed,
-nothing intentional-looking. It detected at **1/3**, with a textbook finding:
+| case                                  | hits |
+| ------------------------------------- | ---- |
+| `null-result-bare-node-test`          | 5/5  |
+| `null-result-ffmpeg-tests-skip`       | 4/5  |
+| `null-result-turbo-strips-fork-cap`   | 4/5  |
+| `null-result-new-step-skips-silently` | 3/5  |
 
-> When `PALETTE_GOLDEN_DIR` is unset the step just echoes and exits 0, so if the workflow never
-> actually sets that variable, the golden comparison silently never runs while the step reports the
-> same green as a real pass.
+**16/20 — 80% per-run detection, and 4/4 cases.** The three "wrong shape" cases scored 13/15.
+`git log -- review-agents/null-result/` shows no commit between the two measurements: same prompt,
+same examples, same config.
 
-So the reviewer works, at the same 33–50% the rest of the roster manages.
+So the earlier conclusion was wrong, and this section previously stated it as established fact. What
+replaced it is not a better conclusion but a live question. Two candidates:
 
-**The three reversed cases are kept, not deleted.** They encode behaviour the prompt explicitly asks
-for — _"if this change removes or weakens something an existing check depends on, report it"_ — and
-the reviewer does not do it. That is a real gap between what the prompt claims and what the reviewer
-does, and deleting the cases would erase the evidence rather than the gap. They sit in the baseline
-at 0, which is a floor to improve from and an honest statement of what this reviewer does not yet
-catch.
+1. **Run-to-run variance is far larger than assumed.** Nine runs sounded like enough. If the true
+   rate is 80%, nine consecutive misses has probability 0.2⁹ ≈ 5×10⁻⁷, so this would have to mean
+   something correlated the runs — time of day, load, an upstream model change — rather than
+   independent sampling.
+2. **The spawn rewrite ([ADR 0087](../../docs/adrs/0087-specialists-run-concurrently-under-a-cap.md)).**
+   Every 0/9 measurement predates it and used `spawnSync` with `shell: true`; every measurement
+   since uses `spawn` with an explicit `stdin.end()`. `null-result`'s composed prompt is the largest
+   on the roster (11,887 chars against `runtime`'s 8,273), so if the old path truncated or raced
+   large stdin on Windows, this reviewer would be the first to lose its examples — and a specialist
+   handed a truncated prompt would answer `[]` exactly as observed.
 
-The general lesson, and it applies to any case seeded from history: **check that the reversal
-produces the shape the reviewer is scoped for.** A reversed fix is a plausible-looking commit, and
-plausible-looking is not the same as in-scope.
+Candidate 2 is testable and worth testing, because if it is right then **every measurement in this
+suite taken before ADR 0087 is suspect**, including the 33–50% detection rate that
+[ADR 0088](../../docs/adrs/0088-a-review-samples-each-specialist-and-unions-the-findings.md) was
+argued from.
+
+The methodological point stands regardless: this suite is the only reason any of this is visible,
+and it has now caught its own earlier conclusion being wrong. A number from nine runs is not a fact.
 
 ### A fix that reconciled every copy reverses into a self-consistent diff
 

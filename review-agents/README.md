@@ -29,12 +29,12 @@ the free plan nothing enforces a report anyway). Design: `docs/specs/dev-harness
 Only findings a **blocking** specialist explicitly marks `"blocking"` fail the push. Everything
 else is informational.
 
-> ⚠ **`null-result` catches a check that no-ops, not one that is deleted.** Measured: it detects a
-> newly-added step that silently skips (1/3 runs, in line with the rest of the roster), and detects
-> **nothing** when a guard is removed wholesale — 0 across nine runs, which reads to it as a
-> deliberate revert. Its own prompt asks for that second case, so the gap is real and is recorded in
-> the baseline rather than papered over. Details:
-> [eval/README.md](eval/README.md#a-reversed-guard-removal-is-the-wrong-shape-for-null-result).
+> ⚠ **`null-result` measured 0/9, then 16/20, with no change to its prompt or config.** It is the
+> best-scoring reviewer on the board today (80% per-run detection, 4/4 cases) and it was scored at
+> zero four days' work earlier. Nothing about the reviewer changed in between. Until that is
+> explained, treat _every_ per-reviewer number here as less settled than it looks — including the
+> good ones. Details:
+> [eval/README.md](eval/README.md#null-result-measured-09-then-1620-and-nothing-about-it-changed).
 
 ## How it works
 

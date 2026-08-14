@@ -52,6 +52,19 @@ and this multiplies the token cost of every review. `REVIEW_SAMPLES=1` restores 
 
 ## Consequences
 
+**The evidence under this decision is now in doubt, and the ADR is left standing anyway.** On
+2026-08-14 `null-result` scored 16/20 (80% per-run) on cases it had scored 0/9 on the day before,
+with no commit touching its prompt or config in between. Every measurement behind the 33–50% figure
+quoted above predates [ADR 0087](0087-specialists-run-concurrently-under-a-cap.md)'s spawn rewrite;
+every measurement since is higher. If the old `spawnSync` path was truncating large stdin on Windows
+— and `null-result` has the longest prompt on the roster — then the detection rate this decision was
+argued from was measuring a delivery bug rather than the reviewers.
+
+Sampling-and-union does no harm if the true rate is 80% (it costs sessions and adds findings that a
+single run would have surfaced anyway), so this is not withdrawn. But **`REVIEW_SAMPLES=3` should be
+re-justified once that is resolved**, and if the reviewers were always this good, the right default
+is probably 1. See review-agents/eval/README.md for the open question.
+
 **A review costs 3× the sessions.** Reviews are on-demand — they are deliberately not in `pre-push`
 — so this is a cost on a command someone chose to run, and ADR 0087's 1.85× wall-clock improvement
 partly absorbs it. The run states its session count in the header rather than leaving it to be

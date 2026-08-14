@@ -253,7 +253,10 @@ async function main() {
           : cached.outcome;
       results.push({ ...base, ...cached, outcome, cached: true });
       console.log(
-        `  ✓ ${testCase.id}: ${cached.outcome} (${cached.hits}/${cached.runs}) [cached]`,
+        // The computed outcome, not `cached.outcome` — the cache stopped storing a verdict when
+        // aggregation became a mode chosen at read time, so the stored field is undefined on any
+        // entry written since. The summary table was right; only this line lied.
+        `  ✓ ${testCase.id}: ${outcome} (${cached.hits}/${cached.runs}) [cached]`,
       );
       continue;
     }
