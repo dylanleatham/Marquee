@@ -1048,3 +1048,98 @@ test("computeStats: findings recorded before runId existed still count", () => {
   assert.equal(specialists[0].triaged, 1);
   assert.equal(specialists[0].accepted, 1);
 });
+
+// --- issue #192, applied to a new trigger surface (null-result) ---------------------------------
+
+/** Every CI workflow on disk, discovered rather than listed. */
+function workflowFiles() {
+  const dir = join(REPO_ROOT, ".github", "workflows");
+  return existsSync(dir)
+    ? readdirSync(dir)
+        .filter((f) => /\.ya?ml$/.test(f))
+        .map((f) => `.github/workflows/${f}`)
+    : [];
+}
+
+/** Every package.json that declares a test script — the things whose runner can go quiet. */
+function testScriptManifests() {
+  const out = [];
+  const walk = (rel) => {
+    for (const entry of readdirSync(join(REPO_ROOT, rel || "."))) {
+      if (
+        ["node_modules", "dist", ".turbo", ".git", "coverage"].includes(entry)
+      )
+        continue;
+      const childRel = rel ? `${rel}/${entry}` : entry;
+      const abs = join(REPO_ROOT, childRel);
+      if (statSync(abs).isDirectory()) walk(childRel);
+      else if (entry === "package.json") {
+        const pkg = JSON.parse(readFileSync(abs, "utf8"));
+        if (Object.keys(pkg.scripts ?? {}).some((s) => s.startsWith("test")))
+          out.push(childRel);
+      }
+    }
+  };
+  walk("");
+  return out;
+}
+
+test("null-result triggers on every workflow and test-script manifest on disk (#192)", () => {
+  // RA-5's lesson applied to a new reviewer rather than re-learned on it: a *blocking* specialist
+  // that is never triggered emits no findings and no [GAP] warning, so the run reads as a clean
+  // pass. The globs are checked against what is actually in the tree, so the next workflow or
+  // package cannot silently fall outside them.
+  const { triggerGlobs } = specialistConfig("null-result");
+  const surface = [...workflowFiles(), ...testScriptManifests(), "turbo.json"];
+  assert.ok(
+    surface.length > 5,
+    "the discovered trigger surface must not be empty",
+  );
+  const missed = surface.filter((f) => !matchesAny(f, triggerGlobs));
+  assert.deepEqual(
+    missed,
+    [],
+    `null-result would not run on: ${missed.join(", ")}`,
+  );
+});
+
+test("null-result does not trigger on ordinary product source", () => {
+  // The other half of routing: a reviewer that fires on everything is a reviewer whose findings
+  // get skimmed. Its brief is checks, not code.
+  const { triggerGlobs } = specialistConfig("null-result");
+  for (const notItsJob of [
+    "packages/curator/src/server.ts",
+    "packages/curator/ui/src/pages/Room.tsx",
+    "packages/stylus/stylus/reader.py",
+    "docs/specs/dev-harness.md",
+  ]) {
+    assert.equal(
+      matchesAny(notItsJob, triggerGlobs),
+      false,
+      `${notItsJob} is not a check`,
+    );
+  }
+});
+
+test("doc-coherence triggers on docs anywhere, and on files that cite an ADR", () => {
+  // Two routes on purpose. The glob catches documentation; `triggerImports` catches the #236 shape,
+  // where six *source* files carried a comment citing the wrong ADR — a doc problem living in .ts.
+  const config = specialistConfig("doc-coherence");
+  for (const doc of [
+    "docs/specs/curator-spec.md",
+    "docs/adrs/0085-a-harness-edit-is-validated-against-a-frozen-case-set.md",
+    "CLAUDE.md",
+    "packages/stylus/README.md",
+    "review-agents/eval/README.md",
+  ]) {
+    assert.equal(
+      matchesAny(doc, config.triggerGlobs),
+      true,
+      `${doc} is documentation`,
+    );
+  }
+  assert.ok(
+    config.triggerImports?.length,
+    "doc-coherence needs the import route for ADR citations in source",
+  );
+});

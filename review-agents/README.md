@@ -2,7 +2,7 @@
 
 Specialist Claude Code reviewers that read a diff and surface things worth thinking about. You
 run them **on demand** with `pnpm run review` — typically right before opening a PR. They are
-deliberately NOT in the pre-push hook (6 real Claude sessions add 1–2 min to every push, and on
+deliberately NOT in the pre-push hook (8 real Claude sessions add minutes to every push, and on
 the free plan nothing enforces a report anyway). Design: `docs/specs/dev-harness.md §6`.
 
 > **Editing a specialist's prompt, examples or config is a change under test.** Run
@@ -23,6 +23,8 @@ the free plan nothing enforces a report anyway). Design: `docs/specs/dev-harness
 | **consistency**       | info      | code files                          | naming / error / log / structure drift                      |
 | **runtime**           | ✅        | code files                          | missing timeouts, throws in async chains, leaks, races      |
 | **security**          | ✅        | all changes                         | hardcoded secrets, injection, path traversal, disabled auth |
+| **null-result**       | ✅        | workflows, manifests, task config   | a check that can stop measuring and still report green      |
+| **doc-coherence**     | info      | docs, and any file citing an ADR    | the copy of a fact nobody updated                           |
 
 Only findings a **blocking** specialist explicitly marks `"blocking"` fail the push. Everything
 else is informational.
@@ -132,7 +134,23 @@ it auto-discovers any dir containing a `config.json`.
 `REVIEW_TIMEOUT_MS`), and any of `triggerAll` (bool),
 `triggerGlobs` (string[]), `triggerImports` (string[] — run if a changed file's text contains
 one), `contextGlobs` (string[] — files to load into context), `includePackageSpecs` (bool —
-auto-load the spec(s) for changed packages).
+auto-load the spec(s) for changed packages), `contextRelated` (object — context found by search).
+
+**`contextRelated`** exists for a reviewer whose context cannot be named in advance
+([ADR 0086](../docs/adrs/0086-a-specialist-may-be-given-context-found-by-search.md)). `doc-coherence`
+asks "which other copies of this fact are now wrong?", and the answer is whichever of 80-plus ADRs
+and 17 specs happen to mention what the diff touched — a search, not a glob. Files are scored by how
+many distinct keywords from the change they contain, and appear in the prompt under
+`# Possibly related`, deliberately worded so the reviewer treats them as a lead rather than as
+authority.
+
+```jsonc
+"contextRelated": { "over": ["docs/**/*.md"], "maxFiles": 6, "maxBytes": 100000 }
+```
+
+Bounded on four axes (candidates scanned, bytes per file, files returned, total bytes) and
+deterministic — the eval caches on a specialist's config, so context that reshuffled between runs
+would make a cached result meaningless. See `lib/related.mjs`.
 
 **Write source globs as `packages/**/src/**`, never `packages/*/src/**`.** A single `*` matches one
 path segment, and not every package keeps its source one level down — `packages/curator/ui/src/` and

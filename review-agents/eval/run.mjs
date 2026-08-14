@@ -281,9 +281,16 @@ async function main() {
   }
 
   const summary = summarizeEval(scored);
-  const baseline = existsSync(BASELINE_PATH)
-    ? JSON.parse(readFileSync(BASELINE_PATH, "utf8"))
-    : null;
+  // A filtered run scores a deliberate subset, so the baseline's "this specialist's cases vanished"
+  // rule — which exists to catch someone deleting cases to make the gate green — would fire on every
+  // `--case` and `--reviewer` invocation. Those are the diagnostic flags, used constantly while
+  // tuning an `expect` block, and a gate that cries REGRESSED at every diagnostic teaches you to
+  // stop reading it.
+  const filtered = Boolean(opts.case || opts.reviewer);
+  const baseline =
+    !filtered && existsSync(BASELINE_PATH)
+      ? JSON.parse(readFileSync(BASELINE_PATH, "utf8"))
+      : null;
 
   if (opts.json) {
     console.log(JSON.stringify({ results, summary, baseline }, null, 2));
@@ -295,6 +302,15 @@ async function main() {
       `\n[WARN ] ${errored.length} case(s) errored and were left out of the table.`,
     );
 
+  if (opts.writeBaseline && filtered) {
+    // Recording a subset as *the* baseline would quietly delete every unscored specialist's floor —
+    // the precise move the anti-deletion rule exists to catch, performed by the tool itself.
+    console.error(
+      "\nreview-agents eval: refusing to write a baseline from a filtered run.\n" +
+        "--case/--reviewer score a subset, and the result would silently drop every specialist they excluded.",
+    );
+    process.exit(1);
+  }
   if (opts.writeBaseline) {
     const next = toBaseline(summary, {
       repeats: opts.repeat,
@@ -307,6 +323,13 @@ async function main() {
     return;
   }
 
+  if (filtered) {
+    console.log(
+      "\nreview-agents eval: filtered run — scored a subset, so the baseline was not compared.\n" +
+        "Run without --case/--reviewer to gate.",
+    );
+    return;
+  }
   if (!baseline) {
     console.error(
       "\nreview-agents eval: no baseline recorded, so there is nothing to compare against.\n" +

@@ -1,0 +1,12 @@
+{
+  "id": "null-result-bare-node-test",
+  "source": "commit:06f80e4 (reversed)",
+  "kind": "must-find",
+  "specialist": "null-result",
+  "expect": {
+    "matches": [
+      "zero tests|no tests|0 tests|exit(s|ed|ing)? 0|discover|nothing to run|passes? without|green"
+    ]
+  },
+  "notes": "Reverse of #283/#286: four package.json test scripts go back to bare `node --test`, which exits 0 having found nothing. That is byte-for-byte what a passing run looks like to turbo and to CI."
+}

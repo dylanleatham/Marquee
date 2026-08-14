@@ -293,7 +293,7 @@ Three principles that make agent review actually valuable rather than noisy:
 
 ### The reviewer roster
 
-Six specialists, each with a defined scope, prompt, and blocking behavior.
+Eight specialists, each with a defined scope, prompt, and blocking behavior. (Six at the time this section was written; `null-result` and `doc-coherence` were added 2026-08-13 — see the end of the list.)
 
 **Contract Guardian** _(blocking)_
 
@@ -338,6 +338,23 @@ Six specialists, each with a defined scope, prompt, and blocking behavior.
 - Job: catch the obvious stuff — hardcoded secrets, SQL injection, path traversal, disabled auth, `eval()`, `child_process` with untrusted input
 - Prompt loads: just the diff (no context needed for pattern-matching)
 - Behavior: any finding blocks. False positive rate needs to stay very low for this to be trusted; use conservative prompts.
+
+**Null-Result Reviewer** _(blocking)_ — _added 2026-08-13, [ADR 0086](../adrs/0086-a-specialist-may-be-given-context-found-by-search.md)_
+
+- Watches: `.github/workflows/**`, `turbo.json`, every `package.json`, test-runner config, `scripts/**`
+- Job: one question — **what does this check's output look like when it is silently doing nothing, and is that distinguishable from success?** Nothing else about a workflow is its brief.
+- Blocks: a runner that can discover nothing and exit 0; a skip that reads as a pass; a setting dropped before it reaches the process that reads it; a guard removed while what it guarded remains.
+- Exists because §11's standing rule was enforced by three bespoke tests guarding three holes that had already opened (#180/#217, #223, #283), and nothing asked the question of a _new_ check.
+
+**Doc-Coherence Reviewer** _(informational)_ — _added 2026-08-13, [ADR 0086](../adrs/0086-a-specialist-may-be-given-context-found-by-search.md)_
+
+- Watches: `docs/**`, any markdown in the tree, and — via `triggerImports` — any source file citing an ADR
+- Job: one question — **this change edited a fact; which other copies of that fact are now wrong?**
+- Prompt loads: context found by _search_ rather than by glob (`contextRelated`), since the relevant documents are whichever ones mention what the diff touched
+- Informational only for now. Promotion to blocking waits on ledger evidence that its precision holds.
+- Exists because documentation fact-drift is the highest-frequency escaped class in this repo (#236, #260, #282, four ADR collisions), CLAUDE.md states the rule, and `spec-adherence` only watches code↔spec drift in one direction.
+
+_The roster is eight, not the six this section originally described._
 
 ### Orchestration
 
@@ -411,7 +428,7 @@ Findings return as JSON matching a shared schema (finding severity, file/line, m
 Agents run as a **pre-push hook**. Their findings are written to a report file that gets committed as part of the push; CI verifies the report exists and covers the current commit hash, but doesn't re-run agents itself.
 
 - Setup: `.husky/pre-push` invokes `pnpm run review --ci`. The invocation blocks the push until Claude Code sessions complete.
-- Behavior: every push waits for local agents (typical 30–90 seconds for the full six specialists in parallel). Report is committed as `.review-agents/report-<sha>.json`. CI's `code-review.yml` workflow just checks the report is present and matches the pushed SHA.
+- Behavior: every push waits for local agents (typical 30–90 seconds for the full roster in parallel). Report is committed as `.review-agents/report-<sha>.json`. CI's `code-review.yml` workflow just checks the report is present and matches the pushed SHA.
 - Cost: your existing Claude Code subscription; no per-PR API tokens.
 - Escape hatch: `--no-verify` bypasses the hook for genuine emergencies. Report absence is caught by CI, so bypassed pushes still fail the check.
 

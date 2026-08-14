@@ -1,0 +1,19 @@
+{
+  "id": "doc-coherence",
+  "blocking": false,
+  "model": "sonnet",
+  "timeoutMs": 240000,
+  "triggerGlobs": [
+    "docs/**/*.md",
+    "*.md",
+    "packages/**/*.md",
+    "review-agents/**/*.md"
+  ],
+  "triggerImports": ["docs/adrs/", "ADR 00"],
+  "contextRelated": {
+    "by": "keywords",
+    "over": ["docs/**/*.md", "*.md", "packages/**/*.md"],
+    "maxFiles": 6,
+    "maxBytes": 100000
+  }
+}

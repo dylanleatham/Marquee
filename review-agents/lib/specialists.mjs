@@ -13,6 +13,7 @@ import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { matchesAny, filesMatching, readTruncated } from "./util.mjs";
+import { resolveContextRelated } from "./related.mjs";
 
 const HERE = dirname(dirname(fileURLToPath(import.meta.url))); // review-agents/
 const ROOT = dirname(HERE); // repo root
@@ -107,6 +108,22 @@ export function buildContext(config, { files, diff, root = ROOT }) {
   for (const rel of ctxFiles) {
     const body = readTruncated(join(root, rel));
     if (body) parts.push(`# Context: ${rel}\n\`\`\`\n${body}\n\`\`\``);
+  }
+
+  // Context a glob cannot name: files that share vocabulary with this change (ADR 0086). Labelled
+  // differently from `# Context:` on purpose — these were selected by a heuristic, and a reviewer
+  // told they are "possibly related" will hedge where one told they are "the context" would not.
+  for (const { file, score } of resolveContextRelated(config, {
+    files,
+    diff,
+    root,
+  })) {
+    if (ctxFiles.has(file)) continue;
+    const body = readTruncated(join(root, file));
+    if (body)
+      parts.push(
+        `# Possibly related (matched ${score} keyword(s) from this change): ${file}\n\`\`\`\n${body}\n\`\`\``,
+      );
   }
   return parts.join("\n\n");
 }

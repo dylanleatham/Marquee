@@ -1,0 +1,12 @@
+{
+  "id": "doc-coherence-address-in-three-places",
+  "source": "commit:513f2eb (reversed)",
+  "kind": "must-find",
+  "specialist": "doc-coherence",
+  "expect": {
+    "matches": [
+      "bring-up|checklist|three|third|another cop|other (cop|place)|still says|inconsistent|contradict|elsewhere"
+    ]
+  },
+  "notes": "Reverse of #260, applied to docs/runbook.md ONLY. The full reverse is not a valid case: the fix updated the runbook and the bring-up checklist together, so reversing both produces a self-consistent diff with no doc-to-doc contradiction in it \u2014 and doc-coherence correctly said nothing. Excluding the checklist from the reverse leaves it saying 'three places' in the tree while the diff changes the runbook to 'two', which is the drift this reviewer exists to catch and which contextRelated has to surface."
+}

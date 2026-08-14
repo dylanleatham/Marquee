@@ -1,0 +1,23 @@
+{
+  "id": "null-result",
+  "blocking": true,
+  "model": "sonnet",
+  "timeoutMs": 120000,
+  "triggerGlobs": [
+    ".github/workflows/**",
+    "turbo.json",
+    "**/package.json",
+    "**/vitest.config.*",
+    "**/*.config.mjs",
+    "scripts/**/*.mjs",
+    "contract-tests/**",
+    "e2e/**",
+    "packages/**/*.test.ts",
+    "packages/**/*.test.tsx",
+    "packages/**/*.test.mjs",
+    "packages/**/conftest.py",
+    "packages/**/pytest.ini",
+    "packages/**/pyproject.toml"
+  ],
+  "contextGlobs": ["docs/specs/dev-harness.md"]
+}

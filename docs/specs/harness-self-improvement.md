@@ -322,8 +322,16 @@ inspectable via `--explain`, which is how false positives get diagnosed today. W
 sessions even have tools enabled under the current invocation needs to be **verified, not
 assumed**, before (b) is costed.
 
+_Resolved 2026-08-13: (a), built as `lib/related.mjs` and recorded in
+[ADR 0086](../adrs/0086-a-specialist-may-be-given-context-found-by-search.md). Choosing it removed
+the need to answer the tools question at all. Two properties turned out to be load-bearing: bounded
+on four axes (candidates scanned, bytes per file, files returned, total bytes), and **deterministic**
+— the eval caches on a specialist's config, so context that reshuffled between runs would make a
+cached result meaningless and a re-ordering could read as a regression._
+
 **`null-result`** _(blocking)_ — the silent-green class. Triggers on `.github/workflows/**`,
-`turbo.json`, `**/package.json`, `scripts/**/*.mjs`, `**/*.test.*`, `**/vitest.config.*`. Context:
+`turbo.json`, every `package.json`, `scripts/**/*.mjs`, test-runner config, and test files under
+`packages/**` — but deliberately **not** ordinary product source, which a test asserts. Context:
 `docs/specs/dev-harness.md`. One question, taken verbatim from §11: _what does this check's output
 look like when it is silently doing nothing, and is that distinguishable from success?_ Blocking,
 because all four instances of this class shipped behind a green tick. Small trigger surface, so it
@@ -479,7 +487,7 @@ Seeding order — start with the cases that are already understood: #223, #283, 
 (`null-result`); #316, #260, #236 (`doc-coherence`); #248, #245 (`test-auditor` hermeticity);
 #173, #307 (`runtime`). Must-not-find cases come from recent clean feature merges (#292, #293, #295).
 
-### Phase 3 — the two new specialists, cases first
+### Phase 3 — the two new specialists, cases first — **shipped 2026-08-13**
 
 **Goal:** cover the two largest escaped classes.
 

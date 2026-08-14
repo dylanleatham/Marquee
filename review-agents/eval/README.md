@@ -113,6 +113,22 @@ Two shapes need `--forward` instead of reversal:
 - **must-not-find cases.** A clean merged feature already _is_ the case. Reversing it would produce
   a revert, which is a different change with different risks.
 
+### A fix that reconciled every copy reverses into a self-consistent diff
+
+Found by writing `doc-coherence-address-in-three-places` and watching it correctly fail. The fix
+(#260) updated the runbook **and** the bring-up checklist in one commit, so reversing the whole thing
+put both back to "two places" — leaving a diff that contradicts nothing. `doc-coherence` said
+nothing, and was right to: it looks for one copy of a fact going stale while another is edited, and
+there was no such copy.
+
+The case only became valid once the reverse was restricted to **one** of the two files
+(`--exclude docs/bring-up-checklist.md`), leaving the checklist saying "three" in the tree while the
+diff says "two".
+
+The general trap: **a reversed fix is only a case if the reversal leaves something wrong that the
+reviewer can see.** A fix that made the world consistent reverses into a world that is consistently
+wrong, which is a different — and for most reviewers, invisible — problem.
+
 ### Known limitation: a reversed diff carries the fix's own explanation
 
 `git show -R` turns the fix's added comments into **deleted** lines, so a reviewer sees
