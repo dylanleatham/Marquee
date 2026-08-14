@@ -113,6 +113,43 @@ Two shapes need `--forward` instead of reversal:
 - **must-not-find cases.** A clean merged feature already _is_ the case. Reversing it would produce
   a revert, which is a different change with different risks.
 
+### A reversed guard-removal is the wrong shape for `null-result`
+
+`null-result` scored **0 detections across nine runs** on its first three cases — three revisions of
+its prompt and config, no movement. Under the same contract and machinery, `doc-coherence` hit on its
+first attempt and `runtime` detects at 50%, so the harness was not the problem.
+
+Two prompt bugs were real and got fixed, and neither moved the number: the first version stacked
+"fire rarely", a vague decision test and one misleading sentence on top of the shared contract's
+"finding nothing is the common case"; and it loaded `dev-harness.md` for §11's rule, which begins at
+byte 41,156 of a 48,771-byte file — past the 16KB context cap, so the sentence it existed for never
+arrived.
+
+The cases were the problem. All three reverse a guard-**adding** commit, so each deletes the guard,
+its test and its explanatory comment in one motion — which reads as a deliberate feature removal
+rather than a check going quiet.
+
+`null-result-new-step-skips-silently` was hand-authored to separate the two hypotheses: a **new** CI
+step, added in good faith, that no-ops to green whenever an env var is unset. Nothing removed,
+nothing intentional-looking. It detected at **1/3**, with a textbook finding:
+
+> When `PALETTE_GOLDEN_DIR` is unset the step just echoes and exits 0, so if the workflow never
+> actually sets that variable, the golden comparison silently never runs while the step reports the
+> same green as a real pass.
+
+So the reviewer works, at the same 33–50% the rest of the roster manages.
+
+**The three reversed cases are kept, not deleted.** They encode behaviour the prompt explicitly asks
+for — _"if this change removes or weakens something an existing check depends on, report it"_ — and
+the reviewer does not do it. That is a real gap between what the prompt claims and what the reviewer
+does, and deleting the cases would erase the evidence rather than the gap. They sit in the baseline
+at 0, which is a floor to improve from and an honest statement of what this reviewer does not yet
+catch.
+
+The general lesson, and it applies to any case seeded from history: **check that the reversal
+produces the shape the reviewer is scoped for.** A reversed fix is a plausible-looking commit, and
+plausible-looking is not the same as in-scope.
+
 ### A fix that reconciled every copy reverses into a self-consistent diff
 
 Found by writing `doc-coherence-address-in-three-places` and watching it correctly fail. The fix

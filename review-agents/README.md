@@ -23,11 +23,18 @@ the free plan nothing enforces a report anyway). Design: `docs/specs/dev-harness
 | **consistency**       | info      | code files                          | naming / error / log / structure drift                      |
 | **runtime**           | ✅        | code files                          | missing timeouts, throws in async chains, leaks, races      |
 | **security**          | ✅        | all changes                         | hardcoded secrets, injection, path traversal, disabled auth |
-| **null-result**       | ✅        | workflows, manifests, task config   | a check that can stop measuring and still report green      |
+| **null-result**       | ✅        | workflows, manifests, task config   | a new check that no-ops into a green tick (see ⚠ below)     |
 | **doc-coherence**     | info      | docs, and any file citing an ADR    | the copy of a fact nobody updated                           |
 
 Only findings a **blocking** specialist explicitly marks `"blocking"` fail the push. Everything
 else is informational.
+
+> ⚠ **`null-result` catches a check that no-ops, not one that is deleted.** Measured: it detects a
+> newly-added step that silently skips (1/3 runs, in line with the rest of the roster), and detects
+> **nothing** when a guard is removed wholesale — 0 across nine runs, which reads to it as a
+> deliberate revert. Its own prompt asks for that second case, so the gap is real and is recorded in
+> the baseline rather than papered over. Details:
+> [eval/README.md](eval/README.md#a-reversed-guard-removal-is-the-wrong-shape-for-null-result).
 
 ## How it works
 

@@ -489,6 +489,20 @@ Seeding order — start with the cases that are already understood: #223, #283, 
 
 ### Phase 3 — the two new specialists, cases first — **shipped 2026-08-13**
 
+Both reviewers exist and both detect. Two results worth carrying forward:
+
+- **`doc-coherence` works and is worth the slot.** It hit its ADR-citation case on the first attempt
+  and found a contradiction the case did not ask for — `oauth.ts` citing ADR 0017 and 0016 for the
+  same decision one sentence apart.
+- **`null-result` detects a check that no-ops, not one that is deleted.** 1/3 on a hand-authored
+  newly-added silent-skip step; **0 across nine runs** when a guard is removed wholesale, which it
+  reads as a deliberate revert. Its own prompt asks for the second case, so that gap is real, and it
+  sits in the baseline at zero rather than being deleted — the cases are the evidence of the gap.
+
+Both findings came from the eval, and neither was visible without it. Two of the five seeded cases
+turned out to be invalid, which is the other lesson: a reversed fix is a plausible-looking commit,
+and plausible-looking is not the same as in-scope for the reviewer being scored.
+
 **Goal:** cover the two largest escaped classes.
 
 Test-first, exactly as [bug-fix-workflow.md](bug-fix-workflow.md) requires: **write the eval cases

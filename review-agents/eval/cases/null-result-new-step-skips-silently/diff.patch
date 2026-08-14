@@ -1,0 +1,19 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 1111111..2222222 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -108,6 +108,14 @@ jobs:
+       - name: Unit tests
+         run: pnpm run test:unit
+ 
++      - name: Palette golden comparison
++        run: |
++          if [ -n "$PALETTE_GOLDEN_DIR" ]; then
++            node scripts/compare-goldens.mjs --dir "$PALETTE_GOLDEN_DIR"
++          else
++            echo "PALETTE_GOLDEN_DIR not set, skipping golden comparison"
++          fi
++
+       - name: Upload coverage
+         if: always()
+         uses: actions/upload-artifact@v4
