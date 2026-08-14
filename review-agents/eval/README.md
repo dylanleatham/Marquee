@@ -140,6 +140,51 @@ The same behaviour the second case describes is already covered at 5/5 by
 disposition, not diagnosis: retire it, or reassign it to `consistency`, which has no must-find case
 at all. Either way it should stop being scored against a reviewer whose scope excludes it.
 
+### The specialists can read the repo, and that changes what a case means
+
+Discovered 2026-08-14, by accident, while measuring a reassigned case. `consistency` reported:
+
+> This test file imports `PATTERN_LABELS` from "./Room", but this diff removes that export — the
+> import (and the tests that use it, e.g. lines 226/245) will no longer resolve.
+
+`Room.test.tsx` is **not in that case's diff** — the diff is one file, `Room.tsx` — and `consistency`
+has no `contextGlobs` at all. Every citation checks out exactly: line 47 is the import, 226 and 245
+are the uses, and 212–218 is a regression comment about issue #287. Arbitrary line numbers cannot be
+inferred. **The specialists have file access and are reading the working tree.**
+
+This was `harness-self-improvement.md` §8's first open question, parked as "unverified" and marked as
+something that "determines whether the current specialists could be reading files nobody accounted
+for in their budgets". They are.
+
+Three things follow, and the middle one matters most here.
+
+**ADR 0086's rationale is partly void.** One reason given for resolving `doc-coherence`'s context by
+search rather than letting it grep was that grepping "makes one reviewer tool-using while every other
+reads a fixed prompt, so they stop being comparable". They were never non-tool-using. The decision's
+other reasons — bounded work behind a fixed timeout, and context that stays visible to `--explain` —
+still hold, and are enough on their own. The comparability argument is withdrawn.
+
+**A case is not hermetic, and cannot be made so.** This directory's own advice was "write the case so
+a reader with only the reviewer's inputs could reach the verdict". The reviewer's inputs are the diff
+**plus the repository as it stands**, which means:
+
+- A frozen diff describes a change, while the files on disk show today's code. For a reversed case
+  the two disagree by construction: the diff reintroduces a bug the file no longer contains. A
+  reviewer that reads the file may notice, and there is no way to tell from a score whether it found
+  the bug or found the contradiction.
+- A case's difficulty drifts as the repo drifts, without the case changing. `cacheKey` covers the
+  case, the diff and the specialist — not the tree — so a cached result can outlive the reason it was
+  right.
+
+This is a live limitation, not a solved one. It does not invalidate the measurements — a reviewer
+that reads the repo is exactly what a reviewer does in production, so the eval is measuring the real
+thing — but it does mean **a case cannot be reasoned about as a closed problem**, and a surprising
+score deserves a look at what the reviewer might have read.
+
+**The 16KB context truncation is less severe than recorded**, since a specialist handed the first 7%
+of `curator-spec.md` can read the rest. Whether it knows to is another matter, and the `[CTX ]`
+warning stays.
+
 ### A case can only be found from what the reviewer is given
 
 Worth checking before writing a case, and easy to get wrong: **six of the eight reviewers see only

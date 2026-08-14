@@ -61,10 +61,13 @@ told a file is "possibly related" hedges where one told it is "the context" woul
 The rejected alternative was **letting the specialist grep for itself**. Each reviewer is a real
 headless Claude Code session in the repo, so it could. Cheaper to build, and rejected on three
 counts: it makes one reviewer tool-using while every other reads a fixed prompt, so they stop being
-comparable; it puts an unbounded amount of work behind a fixed timeout; and the context becomes
-invisible to `--explain`, which is how false positives are diagnosed today. (Whether headless
-sessions have tools enabled under the current invocation was never verified, and this decision
-removes the need to find out.)
+comparable (**withdrawn 2026-08-14 — see below**); it puts an unbounded amount of work behind a fixed timeout; and the context becomes
+invisible to `--explain`, which is how false positives are diagnosed today. _Amended 2026-08-14: they do have tools._ `consistency` was observed citing three exact line numbers
+from a file in neither its diff nor any context glob. So the comparability argument above is
+**withdrawn** — the specialists were never non-tool-using. The other two reasons stand on their own
+and are why this decision does not change: an unbounded grep still sits behind a fixed timeout, and
+context resolved by the orchestrator stays visible to `--explain`, which is how a false positive gets
+diagnosed. What does change is what a _case_ means; see review-agents/eval/README.md.
 
 Two constraints on the implementation, both load-bearing:
 

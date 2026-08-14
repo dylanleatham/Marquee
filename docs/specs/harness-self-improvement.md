@@ -671,9 +671,13 @@ which is the correct amount of authority for an unproven loop to have.
 
 ## 8. Open questions
 
-1. **Do headless specialist sessions have tools?** `claude -p --output-format json` with a piped
-   prompt — unverified. It determines whether §4.3(b) was ever a real option and whether the current
-   specialists could be reading files nobody accounted for in their budgets.
+1. ~~**Do headless specialist sessions have tools?**~~ _Answered 2026-08-14: **yes.** `consistency`
+   cited three exact line numbers and a comment from `Room.test.tsx`, a file in neither its diff nor
+   any context glob, and every citation checked out. So the current specialists **are** reading files
+   nobody accounted for in their budgets, §4.3(b) was a real option, and — the part that matters —
+   an eval case is not a closed problem: the reviewer sees the frozen diff plus today's working tree,
+   and for a reversed case those disagree by construction. See
+   [eval/README.md](../../review-agents/eval/README.md)._
 2. ~~**Triage UX.**~~ _Closed 2026-08-13 by Phase 1: interactive, appending after every verdict, and
    resumable. The append-as-you-go behaviour buys the interruption-friendliness that the markdown
    round-trip was wanted for, without a second mechanism to maintain._
