@@ -42,6 +42,7 @@ import {
   loadSpecialists,
   isTriggered,
   buildContext,
+  truncatedContext,
 } from "./lib/specialists.mjs";
 import {
   loadLedger,
@@ -165,6 +166,15 @@ async function main() {
     relevant.map(async (config) => {
       const started = Date.now();
       const context = buildContext(config, { files, diff });
+      const cut = truncatedContext(config.id);
+      if (cut.length) {
+        // Not a warning about this run so much as about the roster: a reviewer reading a fragment
+        // of the spec it checks against is reviewing less than it claims to. curator-spec.md is
+        // 230KB against a 16KB cap.
+        console.warn(
+          `  [CTX  ] ${config.id}: context truncated at 16KB — ${cut.join(", ")}`,
+        );
+      }
       if (opts.explain) {
         console.log(
           `\n──── context for ${config.id} ────\n${context.slice(0, 4000)}\n────────────────`,

@@ -91,7 +91,17 @@ export function changedPackages(files) {
  * repo root, because context resolved against anything else would not be the context the reviewer
  * actually gets.
  */
+export const TRUNCATION_MARKER = "… (file truncated)";
+
+/** Context files that were cut short on the last `buildContext` call, by specialist id. */
+const truncatedBySpecialist = new Map();
+
+/** Which context files a specialist received only a fragment of. Empty is the healthy case. */
+export const truncatedContext = (id) => truncatedBySpecialist.get(id) ?? [];
+
 export function buildContext(config, { files, diff, root = ROOT }) {
+  const truncated = [];
+  truncatedBySpecialist.set(config.id, truncated);
   const parts = [
     `# Changed files\n${files.map((f) => `- ${f}`).join("\n")}`,
     `# Diff\n\`\`\`diff\n${diff}\n\`\`\``,
@@ -107,7 +117,14 @@ export function buildContext(config, { files, diff, root = ROOT }) {
   }
   for (const rel of ctxFiles) {
     const body = readTruncated(join(root, rel));
-    if (body) parts.push(`# Context: ${rel}\n\`\`\`\n${body}\n\`\`\``);
+    if (!body) continue;
+    // `readTruncated` caps at 16KB by default and says so only inside the string it returns, where
+    // nothing reads it. Several specs are far larger — curator-spec.md is 230KB, so a reviewer
+    // handed it sees the first 7% — and the reviewer cannot tell it is looking at a fragment. That
+    // is a review quietly covering less than it claims (dev-harness §11), so it is at least
+    // reported here. See truncatedContext() for what the caller does with it.
+    if (body.endsWith(TRUNCATION_MARKER)) truncated.push(rel);
+    parts.push(`# Context: ${rel}\n\`\`\`\n${body}\n\`\`\``);
   }
 
   // Context a glob cannot name: files that share vocabulary with this change (ADR 0086). Labelled
