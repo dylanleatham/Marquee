@@ -114,6 +114,55 @@ Two shapes need `--forward` instead of reversal:
 - **must-not-find cases.** A clean merged feature already _is_ the case. Reversing it would produce
   a revert, which is a different change with different risks.
 
+### Mis-assigned, not hard — and the pair is what proved it
+
+`contract-guardian` had one case and scored 0/5 on it. That number could have meant the case was
+hard, the prompt was weak, or the case belonged to a different reviewer, and one case cannot tell
+those apart. A second case in the reviewer's stated shape can.
+
+| case                                               | shape                                              | detection |
+| -------------------------------------------------- | -------------------------------------------------- | --------- |
+| `contract-guardian-renamed-field-consumer-missed`  | schema field renamed, one consumer left behind     | **3/3**   |
+| `contract-guardian-consumer-ignores-pattern-types` | consumer stops honouring an **unchanged** contract | 1/7       |
+
+The reviewer is excellent at its brief and effectively blind to a different question that had been
+assigned to it. Its prompt says so outright — every rule is keyed on _"a contract change"_, and the
+second case contains none: `packages/contracts` is untouched and a screen merely stopped importing
+from it. **The 0/5 was correct behaviour**, and reading it as a prompt failure would have sent
+someone to rewrite a reviewer that was working.
+
+On the classic case it also went past the expectation: it traced the consequence (`every color sent
+to sess.start becomes undefined`), noted the missing `version` bump, and observed that `rgb` is a
+misleading name for what is still a hex string — a design critique nobody planted.
+
+The same behaviour the second case describes is already covered at 5/5 by
+`spec-adherence-room-offers-three-of-eight`, cut from the same commit. So the open question is now
+disposition, not diagnosis: retire it, or reassign it to `consistency`, which has no must-find case
+at all. Either way it should stop being scored against a reviewer whose scope excludes it.
+
+### A case can only be found from what the reviewer is given
+
+Worth checking before writing a case, and easy to get wrong: **six of the eight reviewers see only
+the diff.** Only `contract-guardian` (the schemas, the integration contract) and `test-auditor` (the
+testing strategy) receive anything else, plus `doc-coherence`'s keyword-matched
+`# Possibly related` files.
+
+That constrains what a case can even be. `contract-guardian`'s brief is "breaking schema changes,
+unupdated consumers" — but it is never handed consumer source, so a case whose stale consumer sits
+outside the diff is **unfindable by construction**. The reviewer would have to already know the
+repo. Scoring such a case would measure the context loader, not the reviewer, and would read as a
+prompt failure.
+
+So `contract-guardian-renamed-field-consumer-missed` puts every piece of evidence inside the diff: a
+required property renamed in the schema, the TypeScript type and the Curator producer updated, and
+`hue-conductor/src/server.ts` touched for an unrelated reason while still calling
+`colors.map((c) => c.hex)`. That is a real rename PR that missed one call site, and it is decidable
+from the diff alone.
+
+The general rule: **write the case so a reader with only the reviewer's inputs could reach the
+verdict.** If you have to consult the repo to know the finding is correct, so would the reviewer, and
+it cannot.
+
 ### A single diagnostic run does not validate a case
 
 `contract-guardian`'s case hit 1/1 on its diagnostic run, with a finding that named issue #287
