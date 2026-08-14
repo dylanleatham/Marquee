@@ -271,14 +271,33 @@ roster, not to this loop.
 
 ## Current coverage
 
-Fourteen cases: eleven `must-find` — four `runtime`, four `null-result`, two `doc-coherence`, one
-`test-auditor` — and three `must-not-find`. That meets the spec's twelve-plus-eight target on the
-must-find side and falls well short on must-not-find, which matters more than it sounds: three clean
-diffs are a thin basis for the claim that this roster does not cry wolf.
+Twenty cases across all eight reviewers — every one now has at least one.
 
-`security`, `spec-adherence` and `contract-guardian` have **no cases at all**. Their rows read `0/0`,
-which is honest and is not coverage. `git log` has plenty more `fix(...)` commits to seed from.
+| specialist          | must-find | must-not-find |
+| ------------------- | --------- | ------------- |
+| `runtime`           | 4         | 2             |
+| `null-result`       | 4         | 0             |
+| `doc-coherence`     | 2         | 0             |
+| `contract-guardian` | 1         | 1             |
+| `security`          | 1         | 1             |
+| `spec-adherence`    | 1         | 1             |
+| `test-auditor`      | 1         | 0             |
+| `consistency`       | 0         | 1             |
 
-**`baseline.json` predates the two new specialists**, so `doc-coherence` and `null-result` have no
-recorded floor yet. Re-record it with `--repeat 5 --write-baseline` when you have the sessions to
-spare.
+Six `must-not-find` cases, which is the floor below which no claim about false positives is worth
+making — and it is a floor, not a comfortable margin. `consistency` still has no must-find case.
+
+`security` is the one case here with **no commit behind it**. No `fix(...)` in this repo's history is
+a security fix, so there was nothing to seed from and it is hand-authored: a hardcoded API token
+added as a convenience fallback, and a route joining a user-supplied path segment onto a data
+directory. Both written to look like plausible additions rather than vandalism, since a case that
+reads as obvious sabotage measures nothing.
+
+Two cases come from **different slices of the same commit** (#291). Reversing only the code, specs
+left alone, gives `spec-adherence` a diff whose behaviour contradicts a spec nobody edited. Reversing
+only the consumer, `packages/contracts/**` left alone, gives `contract-guardian` a contract that is
+still correct and a screen that stopped honouring it. The same history makes different cases
+depending on where you cut it.
+
+**`baseline.json` predates all six.** Re-record it with `--repeat 5 --write-baseline`; the retro says
+so too.

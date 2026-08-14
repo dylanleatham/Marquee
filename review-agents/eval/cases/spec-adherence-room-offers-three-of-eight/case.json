@@ -1,0 +1,12 @@
+{
+  "id": "spec-adherence-room-offers-three-of-eight",
+  "source": "commit:4ddca49 (reversed)",
+  "kind": "must-find",
+  "specialist": "spec-adherence",
+  "expect": {
+    "matches": [
+      "eight|three|PATTERN_TYPES|spec|curator-spec|documented|contradict|only (a )?subset|all (of )?the (motions|patterns)"
+    ]
+  },
+  "notes": "Reverse of #291, code only \u2014 docs excluded, so curator-spec.md and curator-ui-ux.md still describe all eight motions while the diff takes the room back to offering three. That asymmetry is the case: reversing the spec too would have produced a self-consistent change with no drift to find, which is the trap that made doc-coherence-address-in-three-places invalid on its first attempt."
+}

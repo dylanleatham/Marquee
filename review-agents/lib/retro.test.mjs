@@ -126,9 +126,13 @@ test("coverageProposals: a specialist the baseline never scored has no coverage"
       runtime: { mustFind: { total: 4 }, mustNotFind: { total: 8 } },
     },
   };
-  const out = coverageProposals(baseline, ["runtime", "security"]);
-  assert.equal(out.length, 1);
-  assert.match(out[0].title, /security has no eval coverage/);
+  // No cases on disk for security either, so this is the write-some-cases branch.
+  const out = coverageProposals(baseline, ["runtime", "security"], []);
+  const security = out.find((p) => p.title.includes("security"));
+  assert.match(security.title, /security has no eval coverage/);
+  assert.equal(security.kind, "add-a-case");
+  // With no cases at all it also reports the empty must-not-find side; runtime is scored, so quiet.
+  assert.equal(out.filter((p) => p.title.includes("runtime")).length, 0);
 });
 
 test("coverageProposals: too few clean cases to claim anything about false positives", () => {
@@ -137,9 +141,34 @@ test("coverageProposals: too few clean cases to claim anything about false posit
       runtime: { mustFind: { total: 4 }, mustNotFind: { total: 3 } },
     },
   };
-  const out = coverageProposals(baseline, ["runtime"]);
-  assert.match(out.map((p) => p.title).join(), /only 3 must-not-find/);
-  assert.ok(MIN_CLEAN_CASES > 3);
+  const cases = [
+    { specialist: "runtime", kind: "must-not-find" },
+    { specialist: "runtime", kind: "must-not-find" },
+    { specialist: "runtime", kind: "must-find" },
+  ];
+  const out = coverageProposals(baseline, ["runtime"], cases);
+  assert.match(out.map((p) => p.title).join(), /only 2 must-not-find/);
+  assert.ok(MIN_CLEAN_CASES > 2);
+});
+
+test("coverageProposals: cases the baseline has not scored are a re-measure, not a rewrite", () => {
+  // Both states read as "0/0" from the baseline alone, and they need opposite actions. Telling
+  // someone to write cases they already wrote is how a proposal file teaches people to skim it.
+  const baseline = {
+    specialists: { runtime: { mustFind: {}, mustNotFind: {} } },
+  };
+  const cases = [{ specialist: "security", kind: "must-find" }];
+  const out = coverageProposals(
+    baseline,
+    ["runtime", "security", "consistency"],
+    cases,
+  );
+  const security = out.find((p) => p.title.includes("security"));
+  const consistency = out.find((p) => p.title.includes("consistency"));
+  assert.equal(security.kind, "re-measure");
+  assert.match(security.title, /cases the baseline has never scored/);
+  assert.equal(consistency.kind, "add-a-case");
+  assert.match(consistency.title, /no eval coverage at all/);
 });
 
 test("baselineAgeProposals: a stale baseline is not a floor", () => {

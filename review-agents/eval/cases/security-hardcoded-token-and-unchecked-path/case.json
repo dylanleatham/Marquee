@@ -1,0 +1,12 @@
+{
+  "id": "security-hardcoded-token-and-unchecked-path",
+  "source": "handwritten",
+  "kind": "must-find",
+  "specialist": "security",
+  "expect": {
+    "matches": [
+      "hardcoded|hard-coded|committed (secret|token|credential)|secret in|credential in|path traversal|\\.\\./|directory traversal|unsanitis|unsanitiz|unvalidated path|arbitrary file"
+    ]
+  },
+  "notes": "Hand-authored: no fix(...) commit in this repo's history is a security fix, so there is nothing to seed from. Two of the four things security's prompt names, in the shape they would actually arrive: a hardcoded API token added as a convenience fallback, and a route joining a user-supplied path segment onto a data directory with no containment check. Both are plausible-looking additions rather than obvious vandalism, which is the property whose absence made the reversed null-result cases useless."
+}

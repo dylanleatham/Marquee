@@ -1,0 +1,12 @@
+{
+  "id": "contract-guardian-consumer-ignores-pattern-types",
+  "source": "commit:4ddca49 (reversed)",
+  "kind": "must-find",
+  "specialist": "contract-guardian",
+  "expect": {
+    "matches": [
+      "PATTERN_TYPES|CLIP_PATTERN_TYPES|STREAM_PATTERN_TYPES|contract|consumer|own list|hard-?cod|diverg|out of sync|subset"
+    ]
+  },
+  "notes": "Reverse of #291, consumer only \u2014 packages/contracts/** excluded, so the contract still exports all eight pattern types while Room.tsx drops the import and hardcodes its own list of three. That is contract-guardian's brief exactly: the contract is fine, the consumer stopped honouring it. The real #287 was this same shape, and the contract's own doc comment now warns about it."
+}

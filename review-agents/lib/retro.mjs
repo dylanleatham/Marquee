@@ -132,7 +132,7 @@ export function uncoveredEscapeProposals(fixCommits, cases) {
 }
 
 /** Specialists the eval does not cover at all: their rows read 0/0, which is not coverage. */
-export function coverageProposals(baseline, specialistIds) {
+export function coverageProposals(baseline, specialistIds, cases = []) {
   // No baseline is not thin coverage, it is no measurement — and reporting "only 0 must-not-find
   // cases" against a baseline that does not exist would be inventing a finding out of missing data,
   // which is the failure this whole document is about.
@@ -149,24 +149,42 @@ export function coverageProposals(baseline, specialistIds) {
     ];
 
   const scored = new Set(Object.keys(baseline.specialists));
+  const withCases = new Set(cases.map((c) => c.specialist));
   const out = [];
-  for (const id of specialistIds)
-    if (!scored.has(id))
+  for (const id of specialistIds) {
+    if (scored.has(id)) continue;
+    // Two different states with two different actions. "No cases exist" means write some; "cases
+    // exist but the baseline predates them" means re-measure — and telling someone to write cases
+    // they already wrote is how a proposal file teaches people to skim it.
+    if (withCases.has(id))
+      out.push(
+        proposal(
+          "re-measure",
+          "act",
+          `${id} has cases the baseline has never scored`,
+          "The cases are on disk and the recorded floor predates them, so nothing is comparing " +
+            "them to anything. Re-record with `--repeat 5 --write-baseline`.",
+          [
+            `${cases.filter((c) => c.specialist === id).length} case(s) unscored`,
+          ],
+        ),
+      );
+    else
       out.push(
         proposal(
           "add-a-case",
           "act",
           `${id} has no eval coverage at all`,
-          "Its row reads 0/0, which is honest and is not coverage. Nothing would notice if an " +
-            "edit to this reviewer broke it.",
+          "No cases exist for it. Its row reads 0/0, which is honest and is not coverage — " +
+            "nothing would notice if an edit to this reviewer broke it.",
           [],
         ),
       );
+  }
 
-  const clean = Object.values(baseline.specialists).reduce(
-    (n, s) => n + (s.mustNotFind?.total ?? 0),
-    0,
-  );
+  // Counted from the cases on disk, not the baseline: the suite is what exists, and a baseline that
+  // has not caught up is the *other* proposal above.
+  const clean = cases.filter((c) => c.kind === "must-not-find").length;
   if (clean < MIN_CLEAN_CASES)
     out.push(
       proposal(
@@ -219,7 +237,7 @@ export function buildRetro({
   const proposals = [
     ...repeatClassProposals(stats),
     ...precisionProposals(stats),
-    ...coverageProposals(baseline, specialistIds),
+    ...coverageProposals(baseline, specialistIds, cases),
     ...baselineAgeProposals(baseline, now),
     ...silentReviewerProposals(stats),
     ...uncoveredEscapeProposals(fixCommits, cases),

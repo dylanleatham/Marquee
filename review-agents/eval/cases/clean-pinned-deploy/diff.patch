@@ -1,0 +1,4800 @@
+diff --git a/.gitignore b/.gitignore
+index fc5156c..15d364a 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -22,6 +22,10 @@ packages/desktop/release/
+ *.local.toml
+ config.toml
+ 
++# Deploy inventory — hostnames and paths for *your* install. Tracked as hosts.example.json only,
++# the same arrangement as the config.example.toml files it sits alongside.
++packages/deploy/hosts.json
++
+ # Python
+ __pycache__/
+ *.py[cod]
+diff --git a/package.json b/package.json
+index fb1df55..05e8320 100644
+--- a/package.json
++++ b/package.json
+@@ -9,6 +9,8 @@
+   },
+   "scripts": {
+     "setup": "node scripts/setup.mjs",
++    "//deploy": "Always `pnpm run deploy`, never `pnpm deploy` — the latter is pnpm's own built-in command and will not run this.",
++    "deploy": "pnpm --filter @marquee/deploy build && node packages/deploy/dist/cli.js",
+     "app": "pnpm --filter @marquee/desktop start",
+     "curator": "pnpm --filter @marquee/curator app",
+     "dev": "turbo run dev",
+diff --git a/packages/amp/deploy/marquee-amp.service b/packages/amp/deploy/marquee-amp.service
+new file mode 100644
+index 0000000..4ce08ee
+--- /dev/null
++++ b/packages/amp/deploy/marquee-amp.service
+@@ -0,0 +1,24 @@
++[Unit]
++Description=Marquee Amp — Sonos audio for card scans
++Documentation=https://github.com/dylanleatham/Marquee/blob/main/packages/amp/DEPLOY.md
++After=network-online.target
++Wants=network-online.target
++
++[Service]
++Type=simple
++User=pi
++WorkingDirectory=/home/pi/Marquee/packages/amp
++ExecStart=/usr/bin/node /home/pi/Marquee/packages/amp/dist/server.js
++Restart=on-failure
++RestartSec=3
++# Journald is bounded and rotates; a log file on the SD card grows forever and wears the card out.
++StandardOutput=journal
++StandardError=journal
++SyslogIdentifier=marquee-amp
++
++[Install]
++WantedBy=multi-user.target
++
++# The unit is `marquee-amp`, not `amp` — matching `marquee-conductor` and `marquee-stylus`, and
++# matching what is actually deployed. DEPLOY.md used to say `amp.service`, so a copy-pasted
++# `journalctl -u amp` returns nothing on a real Pi and reads exactly like a service with no traffic.
+diff --git a/packages/backdrop/deploy/backdrop-kiosk.desktop b/packages/backdrop/deploy/backdrop-kiosk.desktop
+new file mode 100644
+index 0000000..31453c3
+--- /dev/null
++++ b/packages/backdrop/deploy/backdrop-kiosk.desktop
+@@ -0,0 +1,28 @@
++[Desktop Entry]
++# Marquee Backdrop — starts the Chromium kiosk when the desktop session comes up.
++#
++# Install as ~/.config/autostart/backdrop-kiosk.desktop:
++#
++#     mkdir -p ~/.config/autostart
++#     cp ~/Marquee/packages/backdrop/deploy/backdrop-kiosk.desktop ~/.config/autostart/
++#
++# `pnpm run deploy` installs this for you and diffs it against the repo on every run; before it existed,
++# this entry was hand-typed from DEPLOY.md into a file `git pull` can never update — the same drift
++# that cost the whole life of issue #211 for kiosk.sh.
++#
++# WHY XDG AUTOSTART AND NOT A SYSTEMD UNIT. docs/runbook.md A3 and docs/bring-up-checklist.md both
++# mention a `marquee-kiosk.service`; no such unit was ever shipped, and this is the mechanism that
++# actually runs on the stand. Chromium needs a live X session with the user's DISPLAY, XAUTHORITY
++# and session bus — a system unit has none of them, and a user unit needs lingering plus an
++# imported session environment to get them. The session's own autostart already has all of it.
++#
++# The real work is in ~/kiosk.sh (installed from deploy/kiosk.sh), which is the source of truth for
++# every Chromium flag and for the 1920x1080@60 display mode. Keep this entry a launcher and nothing
++# more: a flag added here instead of there is a flag no test can see.
++Type=Application
++Name=Marquee Backdrop kiosk
++Comment=Fullscreen Chromium showing the Backdrop SPA — see packages/backdrop/DEPLOY.md
++Exec=/bin/bash /home/pi/kiosk.sh
++# The kiosk is the display; it has no window of its own to show in a session's startup UI.
++NoDisplay=true
++X-GNOME-Autostart-enabled=true
+diff --git a/packages/backdrop/deploy/marquee-backdrop.service b/packages/backdrop/deploy/marquee-backdrop.service
+new file mode 100644
+index 0000000..5a27fe4
+--- /dev/null
++++ b/packages/backdrop/deploy/marquee-backdrop.service
+@@ -0,0 +1,27 @@
++[Unit]
++Description=Marquee Backdrop backend — video playback
++Documentation=https://github.com/dylanleatham/Marquee/blob/main/packages/backdrop/DEPLOY.md
++After=network-online.target
++Wants=network-online.target
++
++[Service]
++Type=simple
++User=pi
++WorkingDirectory=/home/pi/Marquee/packages/backdrop
++ExecStart=/usr/bin/node /home/pi/Marquee/packages/backdrop/dist/server.js
++Restart=on-failure
++RestartSec=3
++# Journald is bounded and rotates; a log file on the SD card grows forever and wears the card out.
++StandardOutput=journal
++StandardError=journal
++SyslogIdentifier=marquee-backdrop
++
++[Install]
++WantedBy=multi-user.target
++
++# --- On this file's name ------------------------------------------------------------------------
++# The *file* is canonical; the *installed unit name* is not. DEPLOY.md §10 creates `backdrop` and
++# docs/runbook.md A3 creates `marquee-backdrop`, and both exist on real installs — which is why the
++# name is configuration (`unit` in the deploy inventory) rather than something the deployer assumes.
++# Nothing in this file depends on which name it is installed under, so converging it is safe either
++# way; installing it under the *other* name would give you two services fighting over port 4740.
+diff --git a/packages/deploy/hosts.example.json b/packages/deploy/hosts.example.json
+new file mode 100644
+index 0000000..d27ca21
+--- /dev/null
++++ b/packages/deploy/hosts.example.json
+@@ -0,0 +1,45 @@
++{
++  "_comment": [
++    "Copy to hosts.json (gitignored) and edit. This is the deploy inventory: the one place that",
++    "names your hosts. See packages/deploy/README.md.",
++    "",
++    "unit: the systemd unit name AS IT EXISTS ON THAT HOST. Backdrop is the one that varies —",
++    "packages/backdrop/DEPLOY.md creates 'backdrop', docs/runbook.md A3 creates 'marquee-backdrop',",
++    "and both exist on real installs. Check yours before the first deploy:",
++    "  ssh pi@backdrop.local systemctl list-units --all 'marquee*' 'backdrop*' --no-pager",
++    "",
++    "ssh: anything your SSH config accepts. Key auth is required — the deploy runs with",
++    "BatchMode=yes so it fails fast rather than hanging on a password prompt.",
++    "",
++    "Omit 'ssh' to run a host's commands locally; that is what marks the workstation."
++  ],
++
++  "hosts": {
++    "pi5": {
++      "ssh": "pi@backdrop.local",
++      "repo": "/home/pi/Marquee",
++      "kiosk": true,
++      "services": {
++        "conductor": { "unit": "marquee-conductor", "port": 4737 },
++        "backdrop": { "unit": "backdrop", "port": 4740 },
++        "amp": { "unit": "marquee-amp", "port": 4741 }
++      }
++    },
++
++    "pizero": {
++      "ssh": "pi@marquee-pizero.local",
++      "repo": "/home/pi/Marquee",
++      "services": {
++        "stylus": { "unit": "marquee-stylus", "port": 4741 }
++      }
++    },
++
++    "workstation": {
++      "repo": "C:/Users/you/dev/Marquee",
++      "user": "you",
++      "services": {
++        "curator": { "port": 4739 }
++      }
++    }
++  }
++}
+diff --git a/packages/deploy/package.json b/packages/deploy/package.json
+new file mode 100644
+index 0000000..1d39899
+--- /dev/null
++++ b/packages/deploy/package.json
+@@ -0,0 +1,25 @@
++{
++  "name": "@marquee/deploy",
++  "version": "0.0.0",
++  "private": true,
++  "type": "module",
++  "description": "Deterministic deploy driver — puts one pinned commit on every host and verifies it landed (ADR 0080).",
++  "main": "./dist/cli.js",
++  "bin": {
++    "marquee-deploy": "./dist/cli.js"
++  },
++  "scripts": {
++    "start": "node dist/cli.js",
++    "build": "tsc -b",
++    "type-check": "tsc --noEmit",
++    "test": "vitest run",
++    "test:unit": "vitest run",
++    "lint": "echo \"(no linter configured yet)\""
++  },
++  "devDependencies": {
++    "@types/node": "^22.7.5",
++    "tsx": "^4.19.1",
++    "typescript": "^5.6.2",
++    "vitest": "^2.1.3"
++  }
++}
+diff --git a/packages/deploy/src/assets.ts b/packages/deploy/src/assets.ts
+new file mode 100644
+index 0000000..d692635
+--- /dev/null
++++ b/packages/deploy/src/assets.ts
+@@ -0,0 +1,160 @@
++// The files that live outside the checkout, and where each one belongs on which host.
++//
++// docs/runbook.md keeps a list titled "What `git pull` will never update" — the kiosk launcher, the
++// autostart entries, the systemd units. They are copies. Editing the repo copy changes nothing on
++// the stand, and the documented remedy is to remember to run two `diff` commands. That is the
++// largest drift risk in the deployment and it is the one thing a deployer can close outright: this
++// manifest is the mapping, and the deploy step diffs every entry on every run.
++//
++// `packages/*/config.toml` is deliberately **not** here. It holds the shared secret and per-install
++// paths, it is gitignored, and only `config.example.toml` is tracked — so there is no repo-side
++// source of truth to converge towards. The deployer reports when an example file gains a key the
++// live config lacks, and leaves the edit to a human.
++
++import { isLocal, type Host, type ServiceId } from "./hosts.js";
++
++export interface Asset {
++  /** Stable id, used in reports and by `--skip-asset`. */
++  id: string;
++  /** Repo-relative source path, forward slashes. */
++  source: string;
++  /**
++   * `unit` files go to /etc/systemd/system under the host's configured unit name and need sudo plus
++   * a `daemon-reload`; `user` files are a plain copy into the owning account's home.
++   */
++  kind: "unit" | "user";
++  /** For `unit` assets: whose configured unit name gives the destination filename. */
++  service?: ServiceId;
++  /** For `user` assets: destination path relative to the account's home directory. */
++  homePath?: string;
++  /** Octal mode the installed copy must carry. */
++  mode: "644" | "755";
++  why: string;
++}
++
++export const ASSETS: readonly Asset[] = [
++  {
++    id: "conductor-unit",
++    source: "packages/hue-conductor/deploy/marquee-conductor.service",
++    kind: "unit",
++    service: "conductor",
++    mode: "644",
++    why: "Conductor's systemd unit",
++  },
++  {
++    id: "backdrop-unit",
++    source: "packages/backdrop/deploy/marquee-backdrop.service",
++    kind: "unit",
++    service: "backdrop",
++    mode: "644",
++    why: "Backdrop's systemd unit",
++  },
++  {
++    id: "amp-unit",
++    source: "packages/amp/deploy/marquee-amp.service",
++    kind: "unit",
++    service: "amp",
++    mode: "644",
++    why: "Amp's systemd unit",
++  },
++  {
++    id: "stylus-unit",
++    // The one unit that was already tracked, and so the one that sets the pattern. It sits at the
++    // package root rather than under deploy/ because DEPLOY.md has pointed at that path since it
++    // was written; moving it would break a documented `cp` for no gain.
++    source: "packages/stylus/marquee-stylus.service",
++    kind: "unit",
++    service: "stylus",
++    mode: "644",
++    why: "Stylus's systemd unit",
++  },
++  {
++    id: "kiosk-launcher",
++    source: "packages/backdrop/deploy/kiosk.sh",
++    kind: "user",
++    homePath: "kiosk.sh",
++    // Executed by the autostart entry, so it must carry the execute bit; a 644 copy fails at boot
++    // with nothing in /tmp/kiosk.log to explain it, because the script never runs to open the log.
++    mode: "755",
++    why: "every Chromium flag and the 1920x1080@60 display mode",
++  },
++  {
++    id: "kiosk-autostart",
++    source: "packages/backdrop/deploy/backdrop-kiosk.desktop",
++    kind: "user",
++    homePath: ".config/autostart/backdrop-kiosk.desktop",
++    mode: "644",
++    why: "starts the kiosk with the desktop session",
++  },
++  {
++    id: "compositor-override",
++    source: "packages/backdrop/deploy/xcompmgr.desktop",
++    kind: "user",
++    homePath: ".config/autostart/xcompmgr.desktop",
++    mode: "644",
++    why: "disables the tearing compositor (ADR 0047)",
++  },
++];
++
++/** The kiosk assets — installed only on the host that drives the display. */
++const KIOSK_ASSET_IDS = new Set([
++  "kiosk-launcher",
++  "kiosk-autostart",
++  "compositor-override",
++]);
++
++/** The assets `host` is responsible for, given the services it runs and whether it drives a kiosk. */
++export function assetsFor(host: Host): Asset[] {
++  return ASSETS.filter((asset) => {
++    if (KIOSK_ASSET_IDS.has(asset.id)) return host.kiosk === true;
++    return (
++      asset.service !== undefined && host.services[asset.service] !== undefined
++    );
++  });
++}
++
++/** Absolute destination path for `asset` on `host`. */
++export function destFor(asset: Asset, host: Host): string {
++  if (asset.kind === "unit") {
++    const unit = asset.service ? host.services[asset.service]?.unit : undefined;
++    if (!unit) {
++      throw new Error(
++        `asset ${asset.id} is a unit for "${asset.service}", which ${host.name} does not run`,
++      );
++    }
++    return `/etc/systemd/system/${unit}.service`;
++  }
++  return `${host.home}/${asset.homePath}`;
++}
++
++/**
++ * The canonical paths the tracked asset files are written with. A stock install — user `pi`, repo at
++ * `~/Marquee` — renders byte-for-byte identical to the file in the repo, which keeps the documented
++ * `cp ~/Marquee/packages/backdrop/deploy/kiosk.sh ~/kiosk.sh` honest for anyone installing by hand.
++ */
++export const CANONICAL_REPO = "/home/pi/Marquee";
++export const CANONICAL_HOME = "/home/pi";
++
++/**
++ * `source` with the canonical paths rewritten for `host`.
++ *
++ * Repo before home, because the repo path contains the home path — replacing the shorter one first
++ * would turn `/home/pi/Marquee` into `<home>/Marquee` and quietly ignore a configured `repo`.
++ */
++export function render(source: string, host: Host): string {
++  return source
++    .split(CANONICAL_REPO)
++    .join(host.repo)
++    .split(CANONICAL_HOME)
++    .join(host.home);
++}
++
++/**
++ * Assets are installed over SSH by piping content to `sudo tee`, so a host that runs commands
++ * locally (the workstation) has none — Curator has no unit and drives no kiosk. Guarding here keeps
++ * the install path from having to reason about a local/remote split it would otherwise get wrong
++ * exactly once.
++ */
++export function hostTakesAssets(host: Host): boolean {
++  return !isLocal(host) && assetsFor(host).length > 0;
++}
+diff --git a/packages/deploy/src/changes.ts b/packages/deploy/src/changes.ts
+new file mode 100644
+index 0000000..bd758ce
+--- /dev/null
++++ b/packages/deploy/src/changes.ts
+@@ -0,0 +1,299 @@
++// What a set of changed files actually requires — docs/runbook.md's "What actually needs what"
++// table, encoded so it is applied by a machine instead of remembered by a person.
++//
++// The table exists because restarting the wrong thing is the usual reason an update "didn't take".
++// Every entry here is a rule the runbook already states in prose; the value of having it as code is
++// that the fan-out cases (a `packages/contracts` edit reaching three services that have no source
++// change of their own) are applied every time rather than when you remember the warning.
++//
++// The important design property is the fallback: a path matching **no** rule escalates to a full
++// deploy of every host, and says which path did it. A new package, a renamed directory, or a file
++// nobody anticipated therefore over-builds rather than silently skipping a service. Getting a rule
++// wrong costs a rebuild; having no rule at all used to cost a stale runtime that looks healthy.
++
++import { NODE_PI_SERVICES, type ServiceId } from "./hosts.js";
++
++export interface Effects {
++  /** `pnpm install` is required before any build (a dependency or the lockfile moved). */
++  pnpmInstall: boolean;
++  /** Services needing `pnpm --filter <pkg> build`. */
++  build: Set<ServiceId>;
++  /** Services needing a `systemctl restart` (or, for Curator, a process restart). */
++  restart: Set<ServiceId>;
++  /** Stylus needs `.venv/bin/pip install --no-deps .` — site-packages holds a *copy* (issue #201). */
++  pipInstall: boolean;
++  /** The Chromium kiosk needs its page reloaded; `git pull` alone leaves the old copy in memory. */
++  kioskReload: boolean;
++  /** Out-of-tree assets (`~/kiosk.sh`, autostart entries, unit files) need re-converging. */
++  assets: boolean;
++  /** Paths that matched no rule and so forced a full deploy. Empty on a normal run. */
++  unrecognized: string[];
++}
++
++export function noEffects(): Effects {
++  return {
++    pnpmInstall: false,
++    build: new Set(),
++    restart: new Set(),
++    pipInstall: false,
++    kioskReload: false,
++    assets: false,
++    unrecognized: [],
++  };
++}
++
++/** Everything, for every host — the escalation target and what `--full` produces. */
++export function fullEffects(): Effects {
++  return {
++    pnpmInstall: true,
++    build: new Set<ServiceId>([...NODE_PI_SERVICES, "curator"]),
++    restart: new Set<ServiceId>([...NODE_PI_SERVICES, "curator", "stylus"]),
++    pipInstall: true,
++    kioskReload: true,
++    assets: true,
++    unrecognized: [],
++  };
++}
++
++export function isEmpty(e: Effects): boolean {
++  return (
++    !e.pnpmInstall &&
++    e.build.size === 0 &&
++    e.restart.size === 0 &&
++    !e.pipInstall &&
++    !e.kioskReload &&
++    !e.assets
++  );
++}
++
++type Outcome = "ignore" | "full" | Partial<Effects>;
++
++interface Rule {
++  readonly test: RegExp;
++  readonly why: string;
++  readonly outcome: Outcome;
++}
++
++const buildAndRestart = (...ids: ServiceId[]): Partial<Effects> => ({
++  build: new Set(ids),
++  restart: new Set(ids),
++});
++
++/**
++ * Ordered — **first match wins**, so the specific rules precede the general ones. Paths are
++ * repo-relative and always use forward slashes (git's output format, on Windows too).
++ */
++export const RULES: readonly Rule[] = [
++  // --- things that change nothing that runs ----------------------------------------------------
++  // Checked first so a DEPLOY.md edit inside a service package doesn't trip that package's rule.
++  {
++    test: /(^|\/)[^/]+\.md$/,
++    why: "documentation",
++    outcome: "ignore",
++  },
++  {
++    test: /^(docs|\.github|review-agents|spikes|flipper|fixtures|e2e|contract-tests)\//,
++    why: "docs, CI config, and tooling that never runs on a device",
++    outcome: "ignore",
++  },
++  {
++    test: /^packages\/(fakes|deploy)\//,
++    why: "test doubles and this deployer itself — neither ships to a host",
++    outcome: "ignore",
++  },
++  {
++    test: /^packages\/[^/]+\/(test|tests)\//,
++    why: "tests don't ship",
++    outcome: "ignore",
++  },
++  {
++    test: /^packages\/[^/]+\/config\.example\.toml$/,
++    // The real config.toml is gitignored and hand-maintained; the example moving is a prompt to a
++    // human, not an action. Reported by the assets step rather than acted on here.
++    why: "example config — the live config.toml is not managed by deploy",
++    outcome: "ignore",
++  },
++  {
++    test: /^(\.gitignore|\.nvmrc|\.prettier\w*|commitlint\.config\.mjs|\.env\.example)$/,
++    why: "repo hygiene",
++    outcome: "ignore",
++  },
++
++  // --- dependency and toolchain changes: rebuild everything --------------------------------------
++  // A moved dependency can change any service's behaviour without touching its source, and a build
++  // against a half-installed tree fails in ways that read as a code error. Cheapest correct answer.
++  {
++    test: /^(pnpm-lock\.yaml|pnpm-workspace\.yaml|package\.json|turbo\.json|tsconfig\.base\.json)$/,
++    why: "workspace dependency or toolchain change",
++    outcome: "full",
++  },
++  {
++    test: /^packages\/[^/]+\/(package\.json|tsconfig\.json)$/,
++    why: "a package's dependencies or compiler settings moved",
++    outcome: "full",
++  },
++
++  // --- shared libraries: the fan-out the runbook warns about ------------------------------------
++  {
++    test: /^packages\/contracts\//,
++    // "Rebuild every Node service on the Pi — they each compile contracts in as a dependency."
++    // Stylus is added to that list here: it is stdlib-only and needs no build, but it hand-builds
++    // payloads to match these schemas, so a widened schema or a new scan-URI kind is exactly the
++    // case where a stale reader sends a shape the freshly-built services reject. Reinstalling it
++    // costs seconds and removes the judgement call.
++    why: "every service compiles contracts in; Stylus encodes the same shapes by hand",
++    outcome: {
++      build: new Set<ServiceId>([...NODE_PI_SERVICES, "curator"]),
++      restart: new Set<ServiceId>([...NODE_PI_SERVICES, "curator", "stylus"]),
++      pipInstall: true,
++    },
++  },
++  {
++    test: /^packages\/observability\//,
++    why: "shared logging library, compiled into every Node service",
++    outcome: {
++      build: new Set<ServiceId>([...NODE_PI_SERVICES, "curator"]),
++      restart: new Set<ServiceId>([...NODE_PI_SERVICES, "curator"]),
++    },
++  },
++  {
++    test: /^packages\/palette-press\//,
++    why: "palette extraction runs in-process in Curator only",
++    outcome: buildAndRestart("curator"),
++  },
++
++  // --- Backdrop: three different artefacts in one package ---------------------------------------
++  {
++    test: /^packages\/backdrop\/public\//,
++    // Vanilla JS/CSS loaded as file:// straight from the working tree, so the checkout updates it
++    // instantly — but Chromium is already holding the old copy in memory. No build, no restart:
++    // the backend never reads these files. Reloading the browser is the entire action.
++    why: "kiosk SPA — served from the working tree, cached in the running browser",
++    outcome: { kioskReload: true },
++  },
++  {
++    // Backdrop's deploy/ holds two unrelated kinds of file, and they need opposite actions: the
++    // unit is systemd's and wants a service restart, the rest are the desktop session's and want a
++    // reboot. Lumping them together either reboots the Pi for a unit edit or — the one that
++    // actually matters — leaves Backdrop running on the old unit after its unit file changed.
++    test: /^packages\/backdrop\/deploy\/marquee-backdrop\.service$/,
++    why: "Backdrop unit file",
++    outcome: { assets: true, restart: new Set<ServiceId>(["backdrop"]) },
++  },
++  {
++    test: /^packages\/backdrop\/deploy\//,
++    // kiosk.sh and the autostart entries are *copied* out of the repo, so a pull never updates the
++    // installed copy. Converging them changes how the session starts, which needs the session
++    // restarted to take effect.
++    why: "kiosk launcher / autostart assets, installed by copy",
++    outcome: { assets: true, kioskReload: true },
++  },
++  {
++    test: /^packages\/backdrop\/src\//,
++    why: "Backdrop backend",
++    outcome: buildAndRestart("backdrop"),
++  },
++
++  // --- the remaining Node services ---------------------------------------------------------------
++  {
++    test: /^packages\/hue-conductor\/deploy\//,
++    why: "Conductor unit file",
++    outcome: { assets: true, restart: new Set<ServiceId>(["conductor"]) },
++  },
++  {
++    test: /^packages\/hue-conductor\//,
++    why: "Conductor",
++    outcome: buildAndRestart("conductor"),
++  },
++  {
++    test: /^packages\/amp\/deploy\//,
++    why: "Amp unit file",
++    outcome: { assets: true, restart: new Set<ServiceId>(["amp"]) },
++  },
++  {
++    test: /^packages\/amp\//,
++    why: "Amp",
++    outcome: buildAndRestart("amp"),
++  },
++
++  // --- Stylus: no build, but the installed copy is not the checkout ------------------------------
++  {
++    test: /^packages\/stylus\/marquee-stylus\.service$/,
++    why: "Stylus unit file",
++    outcome: { assets: true, restart: new Set<ServiceId>(["stylus"]) },
++  },
++  {
++    test: /^packages\/stylus\//,
++    // Installed non-editable, so site-packages holds a copy that `git pull` never touches. Skipping
++    // the pip install leaves `systemctl status` reporting active over four-day-old code (#201).
++    why: "Stylus — installed non-editable, so the checkout is not what runs",
++    outcome: { pipInstall: true, restart: new Set<ServiceId>(["stylus"]) },
++  },
++
++  // --- the workstation ---------------------------------------------------------------------------
++  {
++    test: /^packages\/(curator|desktop)\//,
++    // Desktop is here because it forks Curator and serves Curator's UI: a desktop-side change lands
++    // only when the shell is rebuilt and relaunched, which is the same action Curator needs.
++    why: "Curator and the desktop shell that hosts it",
++    outcome: buildAndRestart("curator"),
++  },
++];
++
++/** The first rule matching `path`, or undefined if nothing claims it. */
++export function ruleFor(path: string): Rule | undefined {
++  return RULES.find((r) => r.test.test(path));
++}
++
++function merge(into: Effects, from: Partial<Effects>): void {
++  if (from.pnpmInstall) into.pnpmInstall = true;
++  if (from.pipInstall) into.pipInstall = true;
++  if (from.kioskReload) into.kioskReload = true;
++  if (from.assets) into.assets = true;
++  for (const id of from.build ?? []) into.build.add(id);
++  for (const id of from.restart ?? []) into.restart.add(id);
++}
++
++/**
++ * The work a set of changed paths requires.
++ *
++ * `paths` is the output of `git diff --name-only <deployed> <target>` — repo-relative, forward
++ * slashes. An unrecognized path escalates the whole result to a full deploy and is recorded in
++ * `unrecognized` so the run can say what caused it.
++ */
++export function effectsFor(paths: readonly string[]): Effects {
++  const effects = noEffects();
++  const unrecognized: string[] = [];
++
++  for (const path of paths) {
++    const rule = ruleFor(path);
++    if (!rule) {
++      unrecognized.push(path);
++      continue;
++    }
++    if (rule.outcome === "ignore") continue;
++    if (rule.outcome === "full") return { ...fullEffects(), unrecognized: [] };
++    merge(effects, rule.outcome);
++  }
++
++  if (unrecognized.length > 0) return { ...fullEffects(), unrecognized };
++  return effects;
++}
++
++/**
++ * A build ordering that respects the fact that every service compiles `packages/contracts`.
++ *
++ * `pnpm --filter <pkg> build` runs `tsc -b`, which follows project references and builds the
++ * dependency itself — so this is about a stable, reportable order rather than about correctness.
++ */
++export function buildOrder(ids: Iterable<ServiceId>): ServiceId[] {
++  const order: ServiceId[] = [
++    "conductor",
++    "backdrop",
++    "amp",
++    "curator",
++    "stylus",
++  ];
++  const wanted = new Set(ids);
++  return order.filter((id) => wanted.has(id));
++}
+diff --git a/packages/deploy/src/cli.ts b/packages/deploy/src/cli.ts
+new file mode 100644
+index 0000000..2b2d264
+--- /dev/null
++++ b/packages/deploy/src/cli.ts
+@@ -0,0 +1,297 @@
++#!/usr/bin/env node
++// `pnpm run deploy` — resolve one commit, put it on every host, prove it landed.
++//
++// Output carries no colour. State is in the words and the markers, never in a hue: this repo's
++// operator is colour-blind, and a red/green terminal convention is exactly the kind of thing that
++// reads as "fine" to the wrong pair of eyes.
++
++import { readFile } from "node:fs/promises";
++import { join, resolve } from "node:path";
++import { CuratorStaleError } from "./curator.js";
++import {
++  CommandFailed,
++  RealExecutor,
++  TIMEOUTS,
++  type Executor,
++} from "./exec.js";
++import { parseConfig, ConfigError, type Host } from "./hosts.js";
++import {
++  deploy,
++  describeEffects,
++  DeployError,
++  type DeployOptions,
++  type Reporter,
++} from "./run.js";
++
++const USAGE = `
++marquee-deploy — put one commit on every Marquee host, and verify it.
++
++  pnpm run deploy [options]
++
++Options:
++  --ref <ref>        What to deploy. Default: origin/main. Accepts a branch, tag or SHA —
++                     resolved to a single commit once, then used verbatim on every host.
++                     Roll back with --ref <old-sha>.
++  --only <names>     Comma-separated host names from the inventory (e.g. --only pi5,pizero).
++  --full             Skip the change analysis; rebuild and restart everything.
++  --dry-run          Preflight and print the plan. Changes nothing that runs — it does
++                     fetch on each host, so the plan is the real one rather than a guess.
++  --desktop          Also rebuild the Windows installer (packages/desktop/release/).
++  --allow-dirty      Proceed even if a host has local modifications. They will be discarded.
++  --hosts <path>     Inventory file. Default: packages/deploy/hosts.json
++                     (copy hosts.example.json to create it).
++  -h, --help         This.
++
++Deploy order is Pis first, workstation second, and is not configurable: Curator is the only
++service that pushes, so a runtime that is behind is recoverable and one that is ahead is not.
++`.trim();
++
++interface Args {
++  ref: string;
++  only: string[] | null;
++  full: boolean;
++  dryRun: boolean;
++  desktop: boolean;
++  allowDirty: boolean;
++  hosts: string | null;
++  help: boolean;
++}
++
++export function parseArgs(argv: readonly string[]): Args {
++  const args: Args = {
++    ref: "origin/main",
++    only: null,
++    full: false,
++    dryRun: false,
++    desktop: false,
++    allowDirty: false,
++    hosts: null,
++    help: false,
++  };
++
++  for (let i = 0; i < argv.length; i++) {
++    const arg = argv[i];
++    const value = () => {
++      const v = argv[++i];
++      if (v === undefined) throw new ConfigError(`${arg} needs a value`);
++      return v;
++    };
++    switch (arg) {
++      case "--ref":
++        args.ref = value();
++        break;
++      case "--only":
++        args.only = value()
++          .split(",")
++          .map((s) => s.trim())
++          .filter(Boolean);
++        break;
++      case "--hosts":
++        args.hosts = value();
++        break;
++      case "--full":
++        args.full = true;
++        break;
++      case "--dry-run":
++        args.dryRun = true;
++        break;
++      case "--desktop":
++        args.desktop = true;
++        break;
++      case "--allow-dirty":
++        args.allowDirty = true;
++        break;
++      case "-h":
++      case "--help":
++        args.help = true;
++        break;
++      default:
++        throw new ConfigError(`unknown option "${arg}"\n\n${USAGE}`);
++    }
++  }
++  return args;
++}
++
++/** Markers are text, not colour. `!` never appears on a line that isn't asking for attention. */
++const reporter: Reporter = {
++  info: (m) => console.log(`\n${m}`),
++  step: (host, m) => console.log(`  → [${host}] ${m}`),
++  ok: (host, m) => console.log(`  ✓ [${host}] ${m}`),
++  warn: (host, m) => console.log(`  ! [${host}] WARNING: ${m}`),
++};
++
++/** Run a command in the repo on this machine — used to resolve the target before any host is touched. */
++async function local(
++  exec: Executor,
++  repoRoot: string,
++  argv: string[],
++  label: string,
++) {
++  const self: Host = {
++    name: "local",
++    repo: repoRoot,
++    services: {},
++    user: "local",
++    home: repoRoot,
++  };
++  return exec.exec(self, {
++    argv,
++    timeoutMs: TIMEOUTS.git,
++    label,
++    cwd: repoRoot,
++  });
++}
++
++export async function main(argv: readonly string[]): Promise<number> {
++  const args = parseArgs(argv);
++  if (args.help) {
++    console.log(USAGE);
++    return 0;
++  }
++
++  const exec = new RealExecutor();
++
++  const root = await local(
++    exec,
++    process.cwd(),
++    ["git", "rev-parse", "--show-toplevel"],
++    "find repo root",
++  );
++  const repoRoot = resolve(root.stdout.trim());
++
++  const hostsPath = args.hosts
++    ? resolve(args.hosts)
++    : join(repoRoot, "packages", "deploy", "hosts.json");
++
++  let hosts: Host[];
++  try {
++    hosts = parseConfig(JSON.parse(await readFile(hostsPath, "utf8")));
++  } catch (err) {
++    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
++      console.error(
++        `No deploy inventory at ${hostsPath}.\n\n` +
++          `Create one by copying the example and filling in your hosts:\n` +
++          `  cp packages/deploy/hosts.example.json packages/deploy/hosts.json\n\n` +
++          `It is gitignored, like the config.toml files it sits alongside.`,
++      );
++      return 1;
++    }
++    throw err;
++  }
++
++  if (args.only) {
++    const known = new Set(hosts.map((h) => h.name));
++    const unknown = args.only.filter((n) => !known.has(n));
++    if (unknown.length > 0) {
++      console.error(
++        `--only names host(s) not in ${hostsPath}: ${unknown.join(", ")}\n` +
++          `Known hosts: ${[...known].join(", ")}`,
++      );
++      return 1;
++    }
++    hosts = hosts.filter((h) => args.only!.includes(h.name));
++  }
++
++  // Resolve the ref exactly once. Everything downstream uses the SHA, so a push landing mid-deploy
++  // cannot leave two hosts on different commits — which is the whole point of the exercise.
++  await local(
++    exec,
++    repoRoot,
++    ["git", "fetch", "--quiet", "--tags", "origin"],
++    "fetch",
++  );
++  const resolved = await local(
++    exec,
++    repoRoot,
++    ["git", "rev-parse", `${args.ref}^{commit}`],
++    `resolve ${args.ref}`,
++  );
++  const targetSha = resolved.stdout.trim();
++
++  const options: DeployOptions = {
++    targetRef: args.ref,
++    targetSha,
++    full: args.full,
++    dryRun: args.dryRun,
++    allowDirty: args.allowDirty,
++    desktop: args.desktop,
++    now: () => Date.now(),
++    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
++    repoRoot,
++    // From the commit, not the checkout. Deploying `origin/main` while sitting on a feature branch
++    // is the normal case, and reading assets off the working tree there installs the *branch's*
++    // copy — which is how a Pi came to run new code under an old systemd unit.
++    readAssetSource: async (path) => {
++      const res = await exec.exec(
++        {
++          name: "local",
++          repo: repoRoot,
++          services: {},
++          user: "local",
++          home: repoRoot,
++        },
++        {
++          argv: ["git", "show", `${targetSha}:${path}`],
++          cwd: repoRoot,
++          timeoutMs: TIMEOUTS.probe,
++          label: `read ${path} at ${targetSha.slice(0, 8)}`,
++          // A path absent at the target commit is data, not a failure — see `readAssetSource`.
++          allowFailure: true,
++        },
++      );
++      return res.code === 0 ? res.stdout : null;
++    },
++  };
++
++  const result = await deploy(hosts, exec, options, reporter);
++
++  console.log(
++    args.dryRun
++      ? `\nDry run — nothing that runs was changed (each host fetched). Target ${targetSha.slice(0, 8)} (${args.ref}).`
++      : `\nDeployed ${targetSha.slice(0, 8)} (${args.ref}).`,
++  );
++  for (const host of result.hosts) {
++    const did = describeEffects(host.effects);
++    // "no change" is only true if the host was already on the target. A host with nothing to build
++    // or restart still moves to the target commit, and saying "no change" there contradicts the
++    // per-host line printed above it.
++    const moved = host.previousSha !== null && host.previousSha !== targetSha;
++    console.log(
++      `  ${host.host}: ${did || (moved ? "check out the target commit only" : "already on the target, nothing to do")}`,
++    );
++    for (const asset of host.convergedAssets) {
++      console.log(`    installed asset: ${asset}`);
++    }
++  }
++  if (result.warnings.length > 0) {
++    console.log(`\n${result.warnings.length} warning(s) need attention:`);
++    for (const w of result.warnings) console.log(`  ! ${w}`);
++  }
++  return 0;
++}
++
++const isEntry =
++  process.argv[1] !== undefined &&
++  import.meta.url ===
++    new URL(`file://${process.argv[1].replace(/\\/g, "/")}`).href;
++
++if (isEntry) {
++  main(process.argv.slice(2))
++    .then((code) => process.exit(code))
++    .catch((err: unknown) => {
++      // Expected, actionable failures print their message and nothing else. Anything unexpected
++      // keeps its stack, because that one is a bug in the deployer rather than in the deployment.
++      // CommandFailed is in this list because it is the *most* common real failure — a `tsc` error
++      // on the Pi, a unit that won't start — and it already carries the command and the tail of the
++      // output. Printing a Node stack above that buries the one part the operator needs.
++      const expected =
++        err instanceof DeployError ||
++        err instanceof ConfigError ||
++        err instanceof CuratorStaleError ||
++        err instanceof CommandFailed;
++      console.error(
++        `\nDEPLOY FAILED\n\n${expected ? (err as Error).message : String((err as Error).stack ?? err)}`,
++      );
++      process.exit(1);
++    });
++}
+diff --git a/packages/deploy/src/curator.ts b/packages/deploy/src/curator.ts
+new file mode 100644
+index 0000000..e003abc
+--- /dev/null
++++ b/packages/deploy/src/curator.ts
+@@ -0,0 +1,152 @@
++// The workstation's own trap, and the check that catches it.
++//
++// Curator is the one service with no systemd unit — it runs under the desktop shell — so the deploy
++// cannot restart it and cannot use a unit's restart timestamp to prove it did. Worse, on this host
++// "built" and "running" are genuinely independent: `localhost:4739` is usually the packaged
++// Marquee.exe serving its *own bundled copy* of Curator, so a `git checkout` plus a `pnpm build` in
++// the repo can complete perfectly and change nothing about what is actually serving.
++//
++// There is an exact check available, and it falls out of the bug that made this matter. Curator
++// registers `@fastify/static` with `wildcard: false`, so it enumerates `dist-ui` once at startup;
++// Vite renames every bundle on each build. That combination is why a Curator kept running across a
++// UI build serves a stale UI (issue #183, which failed *silently* until it was made to 404). Turned
++// around, it is a staleness oracle: ask the running server for `/` and compare the bundle it names
++// with the bundle now on disk. Same name → it started after this build. Different name → it is
++// serving the previous commit, whatever `git rev-parse HEAD` says.
++
++import { readFile } from "node:fs/promises";
++import { join } from "node:path";
++import { TIMEOUTS, type Executor } from "./exec.js";
++import type { Host } from "./hosts.js";
++import type { Reporter } from "./run.js";
++
++/** The hashed entry bundle Vite writes into `index.html`, e.g. `/assets/index-D4f9Xa2b.js`. */
++export function entryBundle(html: string): string | null {
++  return html.match(/\/assets\/index-[A-Za-z0-9_-]+\.js/)?.[0] ?? null;
++}
++
++export type CuratorState =
++  | { kind: "not-running" }
++  | { kind: "fresh"; bundle: string }
++  | { kind: "stale"; running: string | null; built: string }
++  | { kind: "unknown"; why: string };
++
++/**
++ * Compare the freshly built `dist-ui` with what the running Curator is serving.
++ *
++ * Returns `unknown` rather than throwing when the comparison can't be made — a missing `dist-ui`
++ * after a deploy that didn't build Curator is normal, and shouldn't read as a failure.
++ */
++export async function curatorState(
++  host: Host,
++  repoRoot: string,
++  port: number,
++  exec: Executor,
++): Promise<CuratorState> {
++  let built: string | null;
++  try {
++    const html = await readFile(
++      join(repoRoot, "packages", "curator", "dist-ui", "index.html"),
++      "utf8",
++    );
++    built = entryBundle(html);
++  } catch {
++    return {
++      kind: "unknown",
++      why: "no built dist-ui/index.html to compare against",
++    };
++  }
++  if (!built) {
++    return {
++      kind: "unknown",
++      why: "the built index.html names no /assets/index-*.js bundle",
++    };
++  }
++
++  const res = await exec.exec(host, {
++    argv: ["curl", "-s", "--max-time", "5", `http://127.0.0.1:${port}/`],
++    timeoutMs: TIMEOUTS.probe,
++    label: "fetch the running Curator's index",
++    allowFailure: true,
++  });
++  // Nothing listening is not a failure: a deploy to a workstation with Curator closed is fine, and
++  // the next launch picks up the new build on its own.
++  if (res.code !== 0 || res.stdout.trim() === "")
++    return { kind: "not-running" };
++
++  const running = entryBundle(res.stdout);
++  if (running === built) return { kind: "fresh", bundle: built };
++  return { kind: "stale", running, built };
++}
++
++export class CuratorStaleError extends Error {}
++
++/**
++ * Report the workstation's Curator, and fail if it is demonstrably serving the previous build.
++ *
++ * This is a hard failure rather than a warning on purpose. The promise this deployer makes is that
++ * on a zero exit every host is running the target commit; a Curator serving last week's bundle
++ * breaks that promise, and it is the single failure the operator is most likely to shrug off,
++ * because every other signal — `git rev-parse`, a green build, a 200 from `/healthz` — looks right.
++ */
++export async function reportCurator(
++  host: Host,
++  repoRoot: string,
++  port: number,
++  exec: Executor,
++  report: Reporter,
++): Promise<void> {
++  const state = await curatorState(host, repoRoot, port, exec);
++
++  switch (state.kind) {
++    case "fresh":
++      report.ok(host.name, `Curator is serving this build (${state.bundle})`);
++      return;
++    case "not-running":
++      report.ok(
++        host.name,
++        "Curator is not running — the next launch picks up this build. Start it with `pnpm app`.",
++      );
++      return;
++    case "unknown":
++      report.warn(
++        host.name,
++        `could not verify what Curator is serving: ${state.why}`,
++      );
++      return;
++    case "stale":
++      throw new CuratorStaleError(
++        `${host.name}: Curator on :${port} is serving ${state.running ?? "an unrecognised page"}, ` +
++          `but this build produced ${state.built} — it is running the previous commit.\n\n` +
++          `Restart it, then re-run this deploy:\n` +
++          `  • Packaged app: quit Marquee.exe and relaunch it. Note that the installer bundles its ` +
++          `own copy of Curator, so a relaunch only picks up this commit if you also rebuild and ` +
++          `reinstall it — re-run with --desktop to build the installer.\n` +
++          `  • From the repo: stop and restart \`pnpm curator\`.`,
++      );
++  }
++}
++
++/**
++ * Build the Windows installer. Deliberately stops at the artifact: installing it runs an NSIS UI and
++ * replaces the app the operator is using, which is their call to make, not a deploy step.
++ */
++export async function buildDesktopInstaller(
++  host: Host,
++  exec: Executor,
++  report: Reporter,
++): Promise<void> {
++  report.step(host.name, "building the desktop installer (several minutes)");
++  await exec.exec(host, {
++    argv: ["pnpm", "--filter", "@marquee/desktop", "dist"],
++    // Bundles two servers, rebuilds native deps and runs electron-builder; the slowest step here by
++    // a wide margin, and still bounded.
++    timeoutMs: 1_800_000,
++    label: "build desktop installer",
++  });
++  report.ok(
++    host.name,
++    "installer built in packages/desktop/release/ — run it to update the packaged app " +
++      "(unsigned, so SmartScreen will warn)",
++  );
++}
+diff --git a/packages/deploy/src/exec.ts b/packages/deploy/src/exec.ts
+new file mode 100644
+index 0000000..f42f435
+--- /dev/null
++++ b/packages/deploy/src/exec.ts
+@@ -0,0 +1,228 @@
++// Running commands on a host — the only part of this package that touches the outside world.
++//
++// Two rules shape it. Everything is an **argv array**, never a shell string, so nothing here has to
++// reason about quoting a path with a space in it; and everything carries a **timeout**, because the
++// deployer drives subprocesses and the network and a hung `pnpm install` against an unreachable
++// registry must fail the deploy rather than park it forever with no output.
++//
++// `Executor` is an interface so `run.ts` can be tested against a scripted fake — the whole deploy,
++// including the failure and rollback paths, runs in unit tests with no Pi switched on.
++
++import { spawn } from "node:child_process";
++import { isLocal, type Host } from "./hosts.js";
++
++export interface Command {
++  argv: string[];
++  /** Absolute path on the host. Defaults to the host's repo. */
++  cwd?: string;
++  timeoutMs: number;
++  /** Human-readable, used in progress output and failure messages. */
++  label: string;
++  stdin?: string;
++  /** Probes set this: a non-zero exit is data, not a failure. */
++  allowFailure?: boolean;
++}
++
++export interface CommandResult {
++  code: number;
++  stdout: string;
++  stderr: string;
++}
++
++export interface Executor {
++  exec(host: Host, cmd: Command): Promise<CommandResult>;
++}
++
++export class CommandFailed extends Error {
++  constructor(
++    readonly host: string,
++    readonly command: Command,
++    readonly result: CommandResult,
++  ) {
++    const detail = [result.stderr.trim(), result.stdout.trim()]
++      .filter(Boolean)
++      .join("\n")
++      .split("\n")
++      .slice(-12) // the tail is where the actual error is; the head is usually progress noise
++      .join("\n");
++    super(
++      `${host}: ${command.label} failed (exit ${result.code})\n$ ${command.argv.join(" ")}\n${detail}`,
++    );
++    this.name = "CommandFailed";
++  }
++}
++
++/** Single-quote for POSIX `sh`. `'` is closed, escaped, and reopened — the only character that can. */
++export function shellQuote(arg: string): string {
++  return `'${arg.split("'").join(`'\\''`)}'`;
++}
++
++/** An argv (plus optional cwd) as one shell-quoted string, for handing to a remote shell. */
++export function toRemoteScript(argv: string[], cwd?: string): string {
++  const command = argv.map(shellQuote).join(" ");
++  return cwd ? `cd ${shellQuote(cwd)} && ${command}` : command;
++}
++
++/**
++ * The full local argv for running `cmd` on a remote `host`.
++ *
++ * **The script must be the one and only command argument.** `ssh` does not preserve argv boundaries:
++ * it joins everything after the target with single spaces and hands the resulting *string* to the
++ * remote login shell, which parses it once. So passing `["sh", "-c", script]` does not run
++ * `sh -c "<script>"` remotely — the remote shell re-splits it and `sh -c` receives only the script's
++ * first word. That is exactly what happened on the first real run against the Pi 5:
++ *
++ *     sh -c cd '/home/pi/Marquee' && 'git' 'rev-parse' 'HEAD'
++ *
++ * which ran a bare `cd`, then `git rev-parse HEAD` in the *home* directory, and reported
++ * "fatal: not a git repository" for a host whose checkout was present and fine.
++ *
++ * `toRemoteScript` already produces a string written to be parsed by exactly one shell, so the fix
++ * is to let the remote login shell be that shell. Anything in `cmd.argv` that genuinely needs a
++ * nested shell passes its own `sh -c` inside the argv, which survives because this function quotes
++ * it as data.
++ */
++export function sshArgv(host: Host, cmd: Command, cwd: string): string[] {
++  return [...SSH_OPTIONS, host.ssh!, "--", toRemoteScript(cmd.argv, cwd)];
++}
++
++/**
++ * SSH options that make an unattended deploy fail fast instead of hanging.
++ *
++ * `BatchMode=yes` is the load-bearing one: without it, a host whose key isn't installed drops to an
++ * interactive password prompt against a stdin that is either closed or carrying a file, and the
++ * deploy stalls with no output rather than saying "you have no key on pizero".
++ */
++export const SSH_OPTIONS = [
++  "-o",
++  "BatchMode=yes",
++  "-o",
++  "ConnectTimeout=10",
++  // A deploy is a burst of short commands; one multiplexed connection avoids paying the handshake
++  // per step, and the 30s idle close means it doesn't outlive the run by any meaningful amount.
++  "-o",
++  "ControlMaster=auto",
++  "-o",
++  "ControlPersist=30",
++];
++
++/**
++ * Windows resolves `pnpm` to `pnpm.cmd`, which `spawn` cannot execute without a shell — and using a
++ * shell would put the quoting problem this module avoids straight back. Naming the shims explicitly
++ * is narrower than `shell: true` and fails loudly rather than mysteriously if a new one appears.
++ */
++const WINDOWS_SHIMS = new Set(["pnpm", "npm", "npx", "node"]);
++
++function localArgv(argv: string[]): string[] {
++  const [head, ...rest] = argv;
++  if (head === undefined) throw new Error("empty argv");
++  if (
++    process.platform === "win32" &&
++    WINDOWS_SHIMS.has(head) &&
++    head !== "node"
++  ) {
++    return [`${head}.cmd`, ...rest];
++  }
++  return [head, ...rest];
++}
++
++export class RealExecutor implements Executor {
++  constructor(private readonly log: (line: string) => void = () => {}) {}
++
++  async exec(host: Host, cmd: Command): Promise<CommandResult> {
++    const cwd = cmd.cwd ?? host.repo;
++    const [file, ...args] = isLocal(host)
++      ? localArgv(cmd.argv)
++      : ["ssh", ...sshArgv(host, cmd, cwd)];
++
++    this.log(`${host.name} $ ${cmd.argv.join(" ")}`);
++
++    const result = await this.spawn(
++      file!,
++      args,
++      isLocal(host) ? cwd : undefined,
++      cmd,
++    );
++    if (result.code !== 0 && !cmd.allowFailure) {
++      throw new CommandFailed(host.name, cmd, result);
++    }
++    return result;
++  }
++
++  private spawn(
++    file: string,
++    args: string[],
++    cwd: string | undefined,
++    cmd: Command,
++  ): Promise<CommandResult> {
++    return new Promise((resolve, reject) => {
++      const child = spawn(file, args, {
++        cwd,
++        stdio: ["pipe", "pipe", "pipe"],
++        windowsHide: true,
++      });
++
++      let stdout = "";
++      let stderr = "";
++      let timedOut = false;
++
++      // The bound. `unref` is deliberately not used: this timer must keep the process alive long
++      // enough to fire, or a wedged child would let node exit reporting success.
++      const timer = setTimeout(() => {
++        timedOut = true;
++        child.kill("SIGKILL");
++      }, cmd.timeoutMs);
++
++      child.stdout.on("data", (d: Buffer) => {
++        stdout += d.toString();
++      });
++      child.stderr.on("data", (d: Buffer) => {
++        stderr += d.toString();
++      });
++
++      child.on("error", (err) => {
++        clearTimeout(timer);
++        reject(
++          new Error(`${cmd.label}: could not run ${file} — ${err.message}`),
++        );
++      });
++
++      child.on("close", (code) => {
++        clearTimeout(timer);
++        if (timedOut) {
++          reject(
++            new Error(
++              `${cmd.label}: timed out after ${cmd.timeoutMs}ms\n$ ${cmd.argv.join(" ")}\n` +
++                `${stderr.trim() || stdout.trim()}`,
++            ),
++          );
++          return;
++        }
++        resolve({ code: code ?? -1, stdout, stderr });
++      });
++
++      if (cmd.stdin !== undefined) child.stdin.end(cmd.stdin);
++      else child.stdin.end();
++    });
++  }
++}
++
++/** Timeouts, in one place so they can be reviewed as a set rather than found one at a time. */
++export const TIMEOUTS = {
++  /** Probes and status reads. Generous enough for a loaded Pi Zero, short enough to notice. */
++  probe: 20_000,
++  /** `git fetch` over a domestic uplink. */
++  git: 180_000,
++  /** `pnpm install` on a Pi — the slowest routine step, and the one most worth bounding. */
++  install: 900_000,
++  /** `tsc -b` across the workspace on a Pi 5. */
++  build: 900_000,
++  /** `pip install --no-deps .` — seconds when the native wheels are already built. */
++  pip: 300_000,
++  /** `systemctl restart` returns once the unit is started, not once it is healthy. */
++  restart: 60_000,
++  /** Writing an asset. */
++  file: 30_000,
++  /** `reboot` disconnects us; the command itself returns immediately or dies with the link. */
++  reboot: 30_000,
++} as const;
+diff --git a/packages/deploy/src/hosts.ts b/packages/deploy/src/hosts.ts
+new file mode 100644
+index 0000000..199b6d6
+--- /dev/null
++++ b/packages/deploy/src/hosts.ts
+@@ -0,0 +1,218 @@
++// The deploy inventory: which hosts exist, how to reach them, and what each one runs.
++//
++// This file is the answer to "the Pi 5's address lives in three places" (docs/runbook.md) for the
++// deploy path specifically: one file names the hosts, and everything else in this package derives
++// from it. It is deliberately *not* read from `.env` — `.env` is documented as dev/CI-only, isn't
++// loaded by every entry point (a Git Bash shell mangles path-shaped variables in it), and a deploy
++// that silently picks up a stale exported variable is the opposite of what this package is for.
++//
++// `hosts.json` is gitignored and `hosts.example.json` is tracked, matching the `config.example.toml`
++// convention the runtime services already use.
++
++/** Every service the deployer knows how to put on a host. Anything else in config is an error. */
++export const SERVICE_IDS = [
++  "conductor",
++  "backdrop",
++  "amp",
++  "stylus",
++  "curator",
++] as const;
++
++export type ServiceId = (typeof SERVICE_IDS)[number];
++
++/**
++ * Services that are compiled by `tsc -b` and therefore inherit changes to `packages/contracts`
++ * through a rebuild and no other way. Stylus is Python and Curator builds on the workstation.
++ */
++export const NODE_PI_SERVICES: readonly ServiceId[] = [
++  "conductor",
++  "backdrop",
++  "amp",
++];
++
++/** The workspace package each service is built from — used to form `pnpm --filter` invocations. */
++export const SERVICE_PACKAGE: Record<ServiceId, string> = {
++  conductor: "@marquee/hue-conductor",
++  backdrop: "@marquee/backdrop",
++  amp: "@marquee/amp",
++  stylus: "stylus",
++  curator: "@marquee/curator",
++};
++
++export interface ServiceConfig {
++  /**
++   * The systemd unit name **as it exists on that host**, not as this repo would prefer it.
++   *
++   * Backdrop is the reason this is configuration rather than a constant: packages/backdrop/DEPLOY.md
++   * creates `backdrop` and docs/runbook.md A3 creates `marquee-backdrop`, and both exist on real
++   * installs. Guessing wrong gives `Unit marquee-backdrop.service not found` partway through a
++   * `systemctl restart` that already touched the other units — the exact half-applied state Part B
++   * tells you to avoid by hand. Preflight checks this name exists before anything mutates.
++   *
++   * Omitted for `curator`, which runs on the workstation under the desktop shell, not under systemd.
++   */
++  unit?: string;
++  /** Port the service's `/healthz` answers on, checked from the host itself over loopback. */
++  port: number;
++}
++
++export interface HostConfig {
++  /** `user@host` for SSH. Omitted only for the workstation, which runs commands locally. */
++  ssh?: string;
++  /** Absolute path to the Marquee checkout on that host. */
++  repo: string;
++  /** Services this host runs, keyed by service id. */
++  services: Partial<Record<ServiceId, ServiceConfig>>;
++  /**
++   * True if this host drives the Chromium kiosk. Kiosk changes need a browser reload rather than a
++   * service restart, which is the single most common reason a Backdrop update "didn't take".
++   */
++  kiosk?: boolean;
++  /**
++   * The account that owns the checkout and the user-level kiosk assets (`~/kiosk.sh`, the autostart
++   * entries). Defaults to the user in `ssh`. Only needed when they differ.
++   */
++  user?: string;
++}
++
++export interface DeployConfig {
++  hosts: Record<string, HostConfig>;
++}
++
++export interface Host extends HostConfig {
++  /** The inventory key (`pi5`, `pizero`, `workstation`) — how `--only` and reports name a host. */
++  name: string;
++  user: string;
++  /** Home directory of `user` on that host, where the user-level kiosk assets live. */
++  home: string;
++}
++
++/**
++ * Deploy order. Pis first, workstation second.
++ *
++ * This is not cosmetic and it is not alphabetical. Curator is the only service that *pushes*, so the
++ * runtime tolerates being old far better than being ahead: ADR 0073 has Curator push `usesDefault`
++ * entries that a Backdrop predating it rejects with a 400, failing the whole sync. Deploying the
++ * workstation first therefore produces a runtime that looks deployed and cannot be synced to.
++ *
++ * Hosts not named here run after the ones that are, in inventory order — a new Pi added to
++ * `hosts.json` gets a sensible default rather than silently jumping the queue.
++ */
++export const HOST_ORDER: readonly string[] = ["pi5", "pizero", "workstation"];
++
++export class ConfigError extends Error {}
++
++function fail(message: string): never {
++  throw new ConfigError(message);
++}
++
++/** Parse and fully validate a deploy inventory. Throws `ConfigError` naming the offending key. */
++export function parseConfig(raw: unknown): Host[] {
++  if (typeof raw !== "object" || raw === null) {
++    fail("hosts config must be a JSON object");
++  }
++  const { hosts } = raw as { hosts?: unknown };
++  if (typeof hosts !== "object" || hosts === null) {
++    fail('hosts config must have a "hosts" object');
++  }
++
++  const entries = Object.entries(hosts as Record<string, unknown>);
++  if (entries.length === 0) fail('hosts config has no hosts under "hosts"');
++
++  const parsed = entries.map(([name, value]) => parseHost(name, value));
++
++  // A service deployed to two hosts is a real configuration people reach for by copy-paste (the
++  // workstation's co-located Conductor in the desktop app is the tempting case). It would make
++  // "deployed" ambiguous — two hosts each reporting a different SHA for the same service — so it is
++  // rejected rather than picked between.
++  const seen = new Map<ServiceId, string>();
++  for (const host of parsed) {
++    for (const id of Object.keys(host.services) as ServiceId[]) {
++      const other = seen.get(id);
++      if (other)
++        fail(`service "${id}" is configured on both ${other} and ${host.name}`);
++      seen.set(id, host.name);
++    }
++  }
++
++  return sortHosts(parsed);
++}
++
++function parseHost(name: string, value: unknown): Host {
++  if (typeof value !== "object" || value === null) {
++    fail(`host "${name}" must be an object`);
++  }
++  const host = value as HostConfig;
++
++  if (typeof host.repo !== "string" || host.repo.length === 0) {
++    fail(`host "${name}" needs a "repo" path`);
++  }
++  if (host.ssh !== undefined && typeof host.ssh !== "string") {
++    fail(`host "${name}" has a non-string "ssh"`);
++  }
++  if (typeof host.services !== "object" || host.services === null) {
++    fail(`host "${name}" needs a "services" object`);
++  }
++
++  const services: Partial<Record<ServiceId, ServiceConfig>> = {};
++  for (const [id, svc] of Object.entries(host.services)) {
++    if (!(SERVICE_IDS as readonly string[]).includes(id)) {
++      fail(
++        `host "${name}" names unknown service "${id}" — known services are ${SERVICE_IDS.join(", ")}`,
++      );
++    }
++    if (typeof svc !== "object" || svc === null) {
++      fail(`host "${name}" service "${id}" must be an object`);
++    }
++    const { unit, port } = svc as ServiceConfig;
++    if (typeof port !== "number" || !Number.isInteger(port) || port <= 0) {
++      fail(`host "${name}" service "${id}" needs an integer "port"`);
++    }
++    // Curator is the one service with no unit: it runs under the desktop shell, not systemd.
++    if (id !== "curator" && (typeof unit !== "string" || unit.length === 0)) {
++      fail(
++        `host "${name}" service "${id}" needs a "unit" — the systemd unit name as it exists on that ` +
++          `host (Backdrop is "backdrop" or "marquee-backdrop" depending on which guide you followed; ` +
++          `check with: systemctl list-units --all 'marquee*' 'backdrop*' --no-pager)`,
++      );
++    }
++    services[id as ServiceId] = { ...(unit ? { unit } : {}), port };
++  }
++
++  if (Object.keys(services).length === 0) {
++    fail(`host "${name}" lists no services`);
++  }
++
++  const user = host.user ?? host.ssh?.split("@")[0];
++  if (!user) {
++    fail(`host "${name}" needs a "user" (it has no "ssh" to infer one from)`);
++  }
++
++  return {
++    ...host,
++    name,
++    services,
++    user,
++    // Kiosk assets are installed into the owning account's home directory. Derived rather than
++    // configured so there is one less field to get subtly wrong; `user` remains overridable.
++    home: user === "root" ? "/root" : `/home/${user}`,
++  };
++}
++
++function sortHosts(hosts: Host[]): Host[] {
++  const rank = (h: Host) => {
++    const i = HOST_ORDER.indexOf(h.name);
++    return i === -1 ? HOST_ORDER.length : i;
++  };
++  return [...hosts].sort((a, b) => rank(a) - rank(b));
++}
++
++/** The host running `id`, or undefined if the inventory doesn't deploy it. */
++export function hostFor(hosts: Host[], id: ServiceId): Host | undefined {
++  return hosts.find((h) => h.services[id] !== undefined);
++}
++
++/** True when the host runs commands locally rather than over SSH. */
++export function isLocal(host: Host): boolean {
++  return host.ssh === undefined;
++}
+diff --git a/packages/deploy/src/run.ts b/packages/deploy/src/run.ts
+new file mode 100644
+index 0000000..be49947
+--- /dev/null
++++ b/packages/deploy/src/run.ts
+@@ -0,0 +1,927 @@
++// The deploy itself: preflight every host, then put one pinned commit on each in order and prove it
++// landed.
++//
++// The guarantee this file exists to provide is narrow and worth stating exactly. On a zero exit,
++// every host in the inventory has the target commit checked out, every out-of-tree asset matches the
++// repo at that commit, and every service has been restarted *after* that checkout and is answering.
++// On any other exit, it says which host and which step, and no later host was touched.
++//
++// Three properties do most of that work:
++//
++//   * **Preflight is total and mutates nothing.** Every host is checked — reachable, clean, units
++//     present, sudo usable — before any host is written to. A typo in the Pi Zero's hostname fails
++//     before the Pi 5 has restarted anything, instead of halfway through.
++//   * **Restart is verified against the clock, not assumed.** No service reports its commit, so
++//     "did it restart?" is answered by comparing the unit's ActiveEnterTimestamp with the moment the
++//     checkout finished. A unit that was already running before the checkout is stale, and says so —
++//     which is the whole of issue #201's failure mode, and the `systemctl status` that reads
++//     `active (running)` over four-day-old code.
++//   * **A unit rewrite is reversible.** Converging a systemd unit takes a backup first; if the
++//     service then fails to come up, the previous unit is put back — restored from the backup, or
++//     removed if this deploy is what created it — before the error is raised. A deploy that fails is
++//     acceptable; a deploy that fails *and* leaves the stand dead is not.
++
++import { createHash } from "node:crypto";
++import {
++  assetsFor,
++  destFor,
++  hostTakesAssets,
++  render,
++  type Asset,
++} from "./assets.js";
++import {
++  buildOrder,
++  effectsFor,
++  fullEffects,
++  isEmpty,
++  noEffects,
++  type Effects,
++} from "./changes.js";
++import { buildDesktopInstaller, reportCurator } from "./curator.js";
++import {
++  CommandFailed,
++  shellQuote,
++  TIMEOUTS,
++  type Command,
++  type Executor,
++} from "./exec.js";
++import {
++  isLocal,
++  SERVICE_PACKAGE,
++  type Host,
++  type ServiceId,
++} from "./hosts.js";
++
++export interface Reporter {
++  /** A step about to run. */
++  step(host: string, message: string): void;
++  /** A step that succeeded, or a verified fact. */
++  ok(host: string, message: string): void;
++  /** Something the operator must act on that isn't fatal. */
++  warn(host: string, message: string): void;
++  /** Run-level narration. */
++  info(message: string): void;
++}
++
++export interface DeployOptions {
++  /** What the caller asked for (`origin/main`, a tag, a SHA) — reported, never re-resolved. */
++  targetRef: string;
++  /** The single commit every host will end up on. */
++  targetSha: string;
++  /** Skip the change analysis and do everything. */
++  full: boolean;
++  /** Plan and report without mutating any host. */
++  dryRun: boolean;
++  /** Proceed even if a host has local modifications. Off by default: they'd be silently discarded. */
++  allowDirty: boolean;
++  /** Also rebuild the desktop installer on the workstation. */
++  desktop: boolean;
++  /** Injectable for tests. */
++  now: () => number;
++  sleep: (ms: number) => Promise<void>;
++  /** Repo root on the machine running the deploy. Used for locally-built output, not for assets. */
++  repoRoot: string;
++  /**
++   * One out-of-tree asset's content **as of the target commit** — not as of the working tree.
++   *
++   * The distinction is the whole correctness of asset convergence, and getting it wrong is not
++   * theoretical: the first real deploy of this tool ran from a feature branch based on an older
++   * commit while deploying `origin/main`. `marquee-stylus.service` had changed on main from
++   * `Type=simple` to `Type=notify` with `WatchdogSec=30`, but the deployer compared the Pi's
++   * installed unit against the *branch's* older copy, found them identical, and converged nothing.
++   * The Pi ended up running the new code — which sends `READY=1`/`WATCHDOG=1` — under a unit that
++   * arms no watchdog, so `sd_notify` silently no-opped and the "a wedged poll loop gets restarted"
++   * fix was inert. Every check passed and the deploy reported success.
++   *
++   * Implemented as `git show <targetSha>:<path>`, so it depends on the commit and never on what the
++   * deploying checkout happens to have.
++   *
++   * Returns **null** when the path doesn't exist at that commit, which is a normal state rather than
++   * an error: the manifest describes assets this repo tracks *now*, and a rollback to a commit from
++   * before one was tracked must not explode on it. An asset that didn't exist at the target commit
++   * simply isn't managed at the target commit, and is left exactly as the host has it.
++   */
++  readAssetSource: (repoRelativePath: string) => Promise<string | null>;
++}
++
++export interface HostOutcome {
++  host: string;
++  previousSha: string | null;
++  effects: Effects;
++  /** Assets whose installed copy differed and was replaced. */
++  convergedAssets: string[];
++  warnings: string[];
++  rebooted: boolean;
++}
++
++export interface DeployResult {
++  targetSha: string;
++  hosts: HostOutcome[];
++  warnings: string[];
++}
++
++export class DeployError extends Error {}
++
++const short = (sha: string) => sha.slice(0, 8);
++
++/** Bounded poll. Never loops forever: `attempts` is the only exit besides success. */
++async function waitFor<T>(
++  what: string,
++  attempts: number,
++  delayMs: number,
++  sleep: (ms: number) => Promise<void>,
++  probe: () => Promise<T | null>,
++): Promise<T> {
++  let last: unknown;
++  for (let i = 0; i < attempts; i++) {
++    if (i > 0) await sleep(delayMs);
++    try {
++      const result = await probe();
++      if (result !== null) return result;
++      last = "not ready";
++    } catch (err) {
++      last = err instanceof Error ? err.message : String(err);
++    }
++  }
++  throw new DeployError(
++    `${what}: gave up after ${attempts} attempts over ~${Math.round((attempts * delayMs) / 1000)}s (${String(last)})`,
++  );
++}
++
++// --- preflight -----------------------------------------------------------------------------------
++
++export interface Preflight {
++  host: Host;
++  /** The commit the host is on right now, or null if it couldn't be determined. */
++  currentSha: string | null;
++  /** Paths changed between `currentSha` and the target, or null if the diff wasn't computable. */
++  changed: string[] | null;
++}
++
++/**
++ * Everything that can be checked without changing anything. Runs for every host before the first
++ * mutation, so a misconfigured inventory costs nothing but time.
++ */
++export async function preflight(
++  host: Host,
++  exec: Executor,
++  opts: DeployOptions,
++  report: Reporter,
++): Promise<Preflight> {
++  const run = (cmd: Command) => exec.exec(host, cmd);
++  report.step(host.name, "preflight");
++
++  // Reachability and repo presence in one command: `git rev-parse` fails if the path isn't a repo.
++  const head = await run({
++    argv: ["git", "rev-parse", "HEAD"],
++    timeoutMs: TIMEOUTS.probe,
++    label: "read current commit",
++    allowFailure: true,
++  });
++  if (head.code !== 0) {
++    throw new DeployError(
++      `${host.name}: no git checkout at ${host.repo} (or the host is unreachable)\n${head.stderr.trim()}`,
++    );
++  }
++  const currentSha = head.stdout.trim();
++
++  // A dirty tree is refused rather than stashed: `git checkout` would either fail or, for an
++  // untracked file that collides, clobber it. Deploying is not the time to make that judgement.
++  const status = await run({
++    argv: ["git", "status", "--porcelain", "--untracked-files=no"],
++    timeoutMs: TIMEOUTS.probe,
++    label: "check for local modifications",
++  });
++  if (status.stdout.trim() !== "") {
++    const files = status.stdout.trim().split("\n").slice(0, 10).join("\n");
++    if (!opts.allowDirty) {
++      throw new DeployError(
++        `${host.name}: ${host.repo} has local modifications, which a checkout would discard:\n${files}\n` +
++          `Commit or revert them on the host, or re-run with --allow-dirty to discard them.`,
++      );
++    }
++    report.warn(
++      host.name,
++      `proceeding over local modifications (--allow-dirty):\n${files}`,
++    );
++  }
++
++  // Fetch now, in preflight, so "the target commit doesn't exist on this host" is a preflight
++  // failure rather than something discovered after two other hosts have already been restarted.
++  //
++  // This runs on a dry run too. A fetch writes remote-tracking refs and objects into .git; it does
++  // not touch the working tree and it does not touch a running service, so it is inside what
++  // "changes nothing that runs" promises. Skipping it made `--dry-run` actively misleading: without
++  // the target commit present, the diff below cannot resolve, every host escalated to a full
++  // deploy, and the printed plan was the pessimistic one rather than the real one.
++  await run({
++    argv: ["git", "fetch", "--quiet", "--tags", "origin"],
++    timeoutMs: TIMEOUTS.git,
++    label: "fetch",
++  });
++  const hasTarget = await run({
++    argv: ["git", "cat-file", "-e", `${opts.targetSha}^{commit}`],
++    timeoutMs: TIMEOUTS.probe,
++    label: "check the target commit is present",
++    allowFailure: true,
++  });
++  if (hasTarget.code !== 0) {
++    throw new DeployError(
++      `${host.name}: commit ${short(opts.targetSha)} is not on this host after a fetch — ` +
++        `is it pushed to origin?`,
++    );
++  }
++
++  // Units must exist under the names the inventory claims, before anything is restarted.
++  for (const [id, svc] of Object.entries(host.services)) {
++    if (!svc.unit) continue;
++    const cat = await run({
++      argv: ["systemctl", "cat", "--no-pager", `${svc.unit}.service`],
++      timeoutMs: TIMEOUTS.probe,
++      label: `check unit ${svc.unit}`,
++      allowFailure: true,
++    });
++    if (cat.code !== 0) {
++      throw new DeployError(
++        `${host.name}: service "${id}" is configured as unit "${svc.unit}" but systemd has no such ` +
++          `unit.\nList what it does have:\n` +
++          `  ssh ${host.ssh} systemctl list-units --all 'marquee*' 'backdrop*' --no-pager`,
++      );
++    }
++  }
++
++  // Assets and restarts both need passwordless sudo; find out now rather than at the write.
++  if (hostTakesAssets(host)) {
++    const sudo = await run({
++      argv: ["sudo", "-n", "true"],
++      timeoutMs: TIMEOUTS.probe,
++      label: "check passwordless sudo",
++      allowFailure: true,
++    });
++    if (sudo.code !== 0) {
++      throw new DeployError(
++        `${host.name}: needs passwordless sudo to install units and restart services, but ` +
++          `\`sudo -n true\` failed. Raspberry Pi OS grants this to the default user by default; ` +
++          `check /etc/sudoers.d for this host.`,
++      );
++    }
++  }
++
++  const changed = await diffPaths(host, exec, currentSha, opts);
++  report.ok(
++    host.name,
++    `preflight OK — on ${short(currentSha)}` +
++      (changed === null
++        ? // Say so rather than silently producing a full plan: an unrelated history or a shallow
++          // clone is worth knowing about, and otherwise "deploying everything" looks like a rule
++          // that misfired instead of a deliberate escalation.
++          `, but cannot diff it against ${short(opts.targetSha)} — deploying in full`
++        : `, ${changed.length} path(s) differ from target`),
++  );
++  return { host, currentSha, changed };
++}
++
++/**
++ * Paths differing between the host's commit and the target, or null when that can't be answered —
++ * an unrelated history, a shallow clone, or a first deploy. Null escalates to a full deploy.
++ */
++async function diffPaths(
++  host: Host,
++  exec: Executor,
++  currentSha: string,
++  opts: DeployOptions,
++): Promise<string[] | null> {
++  if (currentSha === opts.targetSha) return [];
++  const diff = await exec.exec(host, {
++    argv: ["git", "diff", "--name-only", currentSha, opts.targetSha],
++    timeoutMs: TIMEOUTS.probe,
++    label: "diff against target",
++    allowFailure: true,
++  });
++  if (diff.code !== 0) return null;
++  return diff.stdout
++    .split("\n")
++    .map((l) => l.trim())
++    .filter(Boolean);
++}
++
++/** The work `host` needs, given the preflight diff and the run options. */
++export function effectsForHost(pre: Preflight, opts: DeployOptions): Effects {
++  const all =
++    opts.full || pre.changed === null ? fullEffects() : effectsFor(pre.changed);
++  return restrictToHost(all, pre.host);
++}
++
++/** Drop the parts of a change set that belong to services this host doesn't run. */
++export function restrictToHost(effects: Effects, host: Host): Effects {
++  const runs = (id: ServiceId) => host.services[id] !== undefined;
++  const build = new Set([...effects.build].filter(runs));
++  const restart = new Set([...effects.restart].filter(runs));
++  return {
++    // An install is only needed where something will be built from the workspace.
++    pnpmInstall: effects.pnpmInstall && build.size > 0,
++    build,
++    restart,
++    pipInstall: effects.pipInstall && runs("stylus"),
++    kioskReload: effects.kioskReload && host.kiosk === true,
++    assets: effects.assets && hostTakesAssets(host),
++    unrecognized: effects.unrecognized,
++  };
++}
++
++// --- per-host deploy -----------------------------------------------------------------------------
++
++export async function deployHost(
++  pre: Preflight,
++  effects: Effects,
++  exec: Executor,
++  opts: DeployOptions,
++  report: Reporter,
++): Promise<HostOutcome> {
++  const host = pre.host;
++  const run = (cmd: Command) => exec.exec(host, cmd);
++  const outcome: HostOutcome = {
++    host: host.name,
++    previousSha: pre.currentSha,
++    effects,
++    convergedAssets: [],
++    warnings: [],
++    rebooted: false,
++  };
++
++  if (isEmpty(effects) && pre.currentSha === opts.targetSha) {
++    report.ok(host.name, `already on ${short(opts.targetSha)}, nothing to do`);
++    return outcome;
++  }
++
++  if (opts.dryRun) {
++    report.info(
++      `${host.name}: would ${describeEffects(effects) || "check out the target commit only"}`,
++    );
++    return outcome;
++  }
++
++  // --- check out the pinned commit --------------------------------------------------------------
++  // Detached on purpose. The host is pinned to a commit, not tracking a branch, and `git status`
++  // saying so is the honest report — a local branch quietly fast-forwarded to a SHA that isn't its
++  // upstream's tip looks identical to one that is. `git switch main` puts it back.
++  report.step(host.name, `checkout ${short(opts.targetSha)}`);
++  await run({
++    argv: ["git", "checkout", "--detach", "--force", opts.targetSha],
++    timeoutMs: TIMEOUTS.git,
++    label: "checkout target commit",
++  });
++  // Everything after this must have happened *after* this instant to count as fresh.
++  const checkoutAt = await hostClock(host, exec, opts);
++
++  // --- dependencies and builds ------------------------------------------------------------------
++  if (effects.pnpmInstall) {
++    report.step(host.name, "pnpm install");
++    await run({
++      // Frozen: the lockfile is committed, so a deploy that would have to change it is a deploy
++      // against a tree that doesn't match what was tested.
++      argv: ["pnpm", "install", "--frozen-lockfile"],
++      timeoutMs: TIMEOUTS.install,
++      label: "pnpm install",
++    });
++  }
++
++  for (const id of buildOrder(effects.build)) {
++    report.step(host.name, `build ${id}`);
++    await run({
++      argv: ["pnpm", "--filter", SERVICE_PACKAGE[id], "build"],
++      timeoutMs: TIMEOUTS.build,
++      label: `build ${id}`,
++    });
++  }
++
++  // The packaged app bundles its own copy of Curator, so on a workstation that runs Marquee.exe the
++  // repo build above is not what will serve :4739 — rebuilding the installer is the actual deploy.
++  if (opts.desktop && host.services.curator) {
++    await buildDesktopInstaller(host, exec, report);
++  }
++
++  if (effects.pipInstall) {
++    // Not optional, and not `-e`: site-packages holds a copy, so this is the only step that makes
++    // the checkout and the running code the same thing (issue #201). Verified below by diff.
++    report.step(host.name, "pip install stylus");
++    await run({
++      argv: [".venv/bin/pip", "install", "--no-deps", "--quiet", "."],
++      cwd: `${host.repo}/packages/stylus`,
++      timeoutMs: TIMEOUTS.pip,
++      label: "pip install stylus",
++    });
++  }
++
++  // --- out-of-tree assets ------------------------------------------------------------------------
++  let unitsChanged = false;
++  const backups = new Map<string, Converged>();
++  if (effects.assets) {
++    for (const asset of assetsFor(host)) {
++      const converged = await convergeAsset(asset, host, exec, opts, report);
++      if (!converged) continue;
++      outcome.convergedAssets.push(asset.id);
++      if (asset.kind === "unit") {
++        unitsChanged = true;
++        backups.set(asset.id, converged);
++      }
++    }
++    if (unitsChanged) {
++      await run({
++        argv: ["sudo", "systemctl", "daemon-reload"],
++        timeoutMs: TIMEOUTS.restart,
++        label: "systemctl daemon-reload",
++      });
++    }
++  }
++
++  // --- restarts ----------------------------------------------------------------------------------
++  for (const id of effects.restart) {
++    const unit = host.services[id]?.unit;
++    if (!unit) continue; // Curator: no unit, handled by the workstation step below.
++    report.step(host.name, `restart ${unit}`);
++    try {
++      await run({
++        argv: ["sudo", "systemctl", "restart", `${unit}.service`],
++        timeoutMs: TIMEOUTS.restart,
++        label: `restart ${unit}`,
++      });
++      await assertActive(host, unit, exec, opts);
++      // Inside the try, not after it. A unit that comes up but reports a start time older than the
++      // checkout is still a failed restart — and if we just rewrote that unit, it is a failed
++      // restart on a *new unit file*, which is precisely the case rollback exists for. Leaving this
++      // outside meant the one failure mode most likely to be caused by a bad rewrite was the one
++      // that skipped the revert.
++      await assertRestartedAfter(host, unit, checkoutAt, exec, opts, report);
++    } catch (err) {
++      // A unit we just rewrote is the most likely reason a restart fails. Put the old one back and
++      // get the service running again before reporting — a failed deploy should not also be an
++      // outage.
++      if (backups.size > 0) {
++        await rollbackUnits(host, backups, exec, report);
++      }
++      throw err;
++    }
++  }
++
++  // --- the kiosk ---------------------------------------------------------------------------------
++  if (effects.kioskReload) {
++    // Chromium holds the SPA in memory and the autostart entry only runs at session start, so there
++    // is no lighter reliable reload: killing the browser leaves a black screen with nothing to
++    // restart it. This is the runbook's `sudo reboot`, made to wait and verify.
++    report.step(host.name, "reboot for the kiosk");
++    await run({
++      argv: ["sudo", "systemctl", "reboot"],
++      timeoutMs: TIMEOUTS.reboot,
++      label: "reboot",
++      // The connection dies with the host; a non-zero exit here is expected, not a failure.
++      allowFailure: true,
++    });
++    outcome.rebooted = true;
++    await waitForHost(host, exec, opts, report);
++  }
++
++  // --- verification ------------------------------------------------------------------------------
++  await verifyHost(host, effects, checkoutAt, exec, opts, report, outcome);
++  return outcome;
++}
++
++/** The host's own clock, so timestamps are compared within one clock rather than across two. */
++async function hostClock(
++  host: Host,
++  exec: Executor,
++  opts: DeployOptions,
++): Promise<number> {
++  if (isLocal(host)) return opts.now();
++  const res = await exec.exec(host, {
++    argv: ["date", "+%s"],
++    timeoutMs: TIMEOUTS.probe,
++    label: "read host clock",
++    allowFailure: true,
++  });
++  const seconds = Number(res.stdout.trim());
++  return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : opts.now();
++}
++
++async function assertActive(
++  host: Host,
++  unit: string,
++  exec: Executor,
++  opts: DeployOptions,
++): Promise<void> {
++  await waitFor(
++    `${host.name}: ${unit} did not reach active`,
++    10,
++    1000,
++    opts.sleep,
++    async () => {
++      const res = await exec.exec(host, {
++        argv: ["systemctl", "is-active", `${unit}.service`],
++        timeoutMs: TIMEOUTS.probe,
++        label: `is-active ${unit}`,
++        allowFailure: true,
++      });
++      return res.stdout.trim() === "active" ? true : null;
++    },
++  );
++}
++
++/**
++ * The check that distinguishes "restarted" from "restarted the new code": a unit whose current run
++ * began before the checkout is running the previous commit, however healthy it looks.
++ */
++async function assertRestartedAfter(
++  host: Host,
++  unit: string,
++  checkoutAt: number,
++  exec: Executor,
++  opts: DeployOptions,
++  report: Reporter,
++): Promise<void> {
++  // systemd prints `Wed 2026-08-13 07:35:12 BST`, which JavaScript's Date.parse reads inconsistently
++  // and, for a named timezone, usually not at all. Hand it to the host's own `date` instead: the
++  // answer comes back as an epoch, in the same clock domain as `hostClock`, with no parsing here.
++  const res = await exec.exec(host, {
++    argv: [
++      "sh",
++      "-c",
++      // The unit name goes through a shell variable rather than being interpolated into the script
++      // text, so it is quoted exactly once and the rest of the line can't be re-read as syntax.
++      // Same discipline as `toRemoteScript`; this call site needs a real shell only for the `$(…)`.
++      `u=${shellQuote(unit)}; date -d "$(systemctl show --property=ActiveEnterTimestamp --value "$u".service)" +%s`,
++    ],
++    timeoutMs: TIMEOUTS.probe,
++    label: `restart time of ${unit}`,
++    allowFailure: true,
++  });
++  const seconds = Number(res.stdout.trim());
++  if (res.code !== 0 || !Number.isFinite(seconds) || seconds <= 0) {
++    // A unit that has never activated reports an empty timestamp, which `date` rejects. Warn rather
++    // than fail: `assertActive` has already established the unit is running, and a deployer that
++    // refuses to finish over a missing timestamp is worse than one that says it couldn't check.
++    report.warn(
++      host.name,
++      `could not read ${unit}'s start time, so the restart was not independently verified`,
++    );
++    return;
++  }
++  const startedAt = seconds * 1000;
++  // Two seconds of slack: the timestamp has second resolution and the two readings are separate
++  // round trips, so an exact comparison would flag a genuinely fresh restart about half the time.
++  if (startedAt + 2000 < checkoutAt) {
++    throw new DeployError(
++      `${host.name}: ${unit} has been running since ${new Date(startedAt).toISOString()}, which is ` +
++        `before this deploy checked out ${short(opts.targetSha)} — it is serving the previous ` +
++        `commit. The restart did not take.`,
++    );
++  }
++}
++
++async function waitForHost(
++  host: Host,
++  exec: Executor,
++  opts: DeployOptions,
++  report: Reporter,
++): Promise<void> {
++  report.step(host.name, "waiting for the host to come back");
++  // A Pi 5 reboots in well under a minute; five gives room for a fsck without waiting forever.
++  await waitFor(
++    `${host.name} did not come back after the reboot`,
++    60,
++    5000,
++    opts.sleep,
++    async () => {
++      const res = await exec.exec(host, {
++        argv: ["true"],
++        timeoutMs: TIMEOUTS.probe,
++        label: "ping host",
++        allowFailure: true,
++      });
++      return res.code === 0 ? true : null;
++    },
++  );
++  report.ok(host.name, "back up");
++}
++
++// --- assets ---------------------------------------------------------------------------------------
++
++interface Converged {
++  /**
++   * Where the previous copy was saved, or null if there wasn't one.
++   *
++   * Null is reachable even though preflight proves the unit exists: `systemctl cat` finds a unit
++   * anywhere on the unit path, including `/lib/systemd/system`, while this deployer always writes
++   * the `/etc/systemd/system` override. Rolling back a file that had no previous version means
++   * *removing* it, not restoring nothing — otherwise a failed restart leaves the broken new unit
++   * shadowing the working packaged one.
++   */
++  backupPath: string | null;
++  dest: string;
++}
++
++/**
++ * Bring one asset's installed copy in line with the repo. Returns null when it already matched —
++ * the common case, and the one that must be silent enough to leave the interesting output visible.
++ */
++async function convergeAsset(
++  asset: Asset,
++  host: Host,
++  exec: Executor,
++  opts: DeployOptions,
++  report: Reporter,
++): Promise<Converged | null> {
++  const dest = destFor(asset, host);
++  // From the target commit, never from the working tree — see `readAssetSource`.
++  const source = await opts.readAssetSource(asset.source);
++  if (source === null) {
++    // Not tracked at this commit. Leave the host's copy alone and say so — silently skipping would
++    // let a rollback quietly stop managing a file the operator believes is being converged.
++    report.warn(
++      host.name,
++      `${asset.source} does not exist at ${short(opts.targetSha)}, so ${dest} is left as-is ` +
++        `(it is not managed at that commit)`,
++    );
++    return null;
++  }
++  const wanted = render(source, host);
++  const wantedHash = sha256(wanted);
++
++  const current = await exec.exec(host, {
++    argv: ["sha256sum", "--", dest],
++    timeoutMs: TIMEOUTS.probe,
++    label: `hash ${dest}`,
++    allowFailure: true,
++  });
++  const currentHash =
++    current.code === 0 ? current.stdout.trim().split(/\s+/)[0] : null;
++
++  if (currentHash === wantedHash) return null;
++
++  report.step(
++    host.name,
++    currentHash === null
++      ? `install ${dest} (missing) — ${asset.why}`
++      : `update ${dest} (differs from repo) — ${asset.why}`,
++  );
++
++  const sudo = asset.kind === "unit";
++  const backupPath =
++    currentHash === null ? null : `${dest}.bak-${short(opts.targetSha)}`;
++  if (backupPath !== null) {
++    await exec.exec(host, {
++      argv: [...(sudo ? ["sudo"] : []), "cp", "-p", "--", dest, backupPath],
++      timeoutMs: TIMEOUTS.file,
++      label: `back up ${dest}`,
++    });
++  }
++
++  // `tee` rather than a redirect: the redirect is performed by the *calling* shell, which for a
++  // sudo-owned path is the unprivileged one, so `sudo echo > /etc/...` fails on permission while
++  // looking like it should work.
++  await exec.exec(host, {
++    argv: [
++      ...(sudo ? ["sudo"] : []),
++      "install",
++      "-D",
++      "-m",
++      asset.mode,
++      "/dev/stdin",
++      dest,
++    ],
++    timeoutMs: TIMEOUTS.file,
++    label: `write ${dest}`,
++    stdin: wanted,
++  });
++
++  return { backupPath, dest };
++}
++
++async function rollbackUnits(
++  host: Host,
++  backups: Map<string, Converged>,
++  exec: Executor,
++  report: Reporter,
++): Promise<void> {
++  report.warn(host.name, "restart failed — restoring the previous unit files");
++  for (const [id, { backupPath, dest }] of backups) {
++    await exec.exec(host, {
++      // No backup means this deploy *created* the file — most likely an /etc override shadowing a
++      // unit that ships elsewhere on the unit path. Undoing that is a removal; restoring nothing
++      // would leave the broken new unit winning.
++      argv: backupPath
++        ? ["sudo", "cp", "-p", "--", backupPath, dest]
++        : ["sudo", "rm", "-f", "--", dest],
++      timeoutMs: TIMEOUTS.file,
++      label: backupPath
++        ? `restore ${id}`
++        : `remove the ${id} file this deploy created`,
++      allowFailure: true,
++    });
++  }
++  await exec.exec(host, {
++    argv: ["sudo", "systemctl", "daemon-reload"],
++    timeoutMs: TIMEOUTS.restart,
++    label: "daemon-reload after rollback",
++    allowFailure: true,
++  });
++}
++
++function sha256(text: string): string {
++  return createHash("sha256").update(text, "utf8").digest("hex");
++}
++
++// --- verification -----------------------------------------------------------------------------------
++
++async function verifyHost(
++  host: Host,
++  effects: Effects,
++  checkoutAt: number,
++  exec: Executor,
++  opts: DeployOptions,
++  report: Reporter,
++  outcome: HostOutcome,
++): Promise<void> {
++  const run = (cmd: Command) => exec.exec(host, cmd);
++
++  // 1. The checkout is what we asked for.
++  const head = await run({
++    argv: ["git", "rev-parse", "HEAD"],
++    timeoutMs: TIMEOUTS.probe,
++    label: "verify commit",
++  });
++  const landed = head.stdout.trim();
++  if (landed !== opts.targetSha) {
++    throw new DeployError(
++      `${host.name}: expected ${short(opts.targetSha)} after deploy but the checkout is ${short(landed)}`,
++    );
++  }
++  report.ok(host.name, `on ${short(opts.targetSha)}`);
++
++  // 2. Stylus's installed copy is the checkout. The runbook's `diff -rq`, which is the only thing
++  //    that tells "restarted" apart from "restarted the new code" for a non-editable install.
++  if (host.services.stylus) {
++    const diff = await run({
++      argv: [
++        "sh",
++        "-c",
++        // The repo path goes through a shell variable, quoted once, so a path containing a space
++        // can't word-split the comparison into two wrong paths — which would fail the diff and
++        // surface as the very misleading "running stale code" error below.
++        //
++        // A real shell is unavoidable here: `python*` has to glob, because the venv's directory
++        // carries the interpreter's minor version (python3.13 today). That glob is the one thing
++        // deliberately left outside the quotes.
++        `d=${shellQuote(host.repo)}; ` +
++          `diff -rq -x __pycache__ "$d/packages/stylus/stylus/" ` +
++          `"$d"/packages/stylus/.venv/lib/python*/site-packages/stylus/`,
++      ],
++      timeoutMs: TIMEOUTS.probe,
++      label: "verify the installed Stylus copy",
++      allowFailure: true,
++    });
++    if (diff.code !== 0 || diff.stdout.trim() !== "") {
++      throw new DeployError(
++        `${host.name}: the installed Stylus copy differs from the checkout — the service is running ` +
++          `stale code (issue #201):\n${diff.stdout.trim() || diff.stderr.trim()}`,
++      );
++    }
++    report.ok(host.name, "installed Stylus copy matches the checkout");
++  }
++
++  // 3. Every unit is active, and — where it was restarted — was restarted after the checkout.
++  for (const [id, svc] of Object.entries(host.services)) {
++    if (!svc.unit) continue;
++    await assertActive(host, svc.unit, exec, opts);
++    if (effects.restart.has(id as ServiceId) || outcome.rebooted) {
++      await assertRestartedAfter(
++        host,
++        svc.unit,
++        checkoutAt,
++        exec,
++        opts,
++        report,
++      );
++    }
++    report.ok(host.name, `${svc.unit} active`);
++  }
++
++  // 4. Health, over loopback *on the host*. Deliberately not from the workstation: the runbook is
++  //    explicit that mDNS resolves for ssh from Windows but not reliably for curl/undici, so a
++  //    check run from here would fail for reasons that have nothing to do with the deploy.
++  for (const [id, svc] of Object.entries(host.services)) {
++    // Curator has no unit and no /healthz worth polling for this purpose — what matters is whether
++    // the *running* process is serving this build, which needs a different question entirely.
++    if (id === "curator") {
++      await reportCurator(host, opts.repoRoot, svc.port, exec, report);
++      continue;
++    }
++    const status = await waitFor(
++      `${host.name}: ${id} /healthz never answered`,
++      12,
++      2500,
++      opts.sleep,
++      async () => {
++        const res = await run({
++          argv: [
++            "curl",
++            "-s",
++            "-o",
++            "/dev/null",
++            "-w",
++            "%{http_code}",
++            "--max-time",
++            "5",
++            `http://127.0.0.1:${svc.port}/healthz`,
++          ],
++          timeoutMs: TIMEOUTS.probe,
++          label: `health check ${id}`,
++          allowFailure: true,
++        });
++        const code = res.stdout.trim();
++        return code === "000" || code === "" ? null : code;
++      },
++    );
++
++    if (status === "200") {
++      report.ok(host.name, `${id} healthy (200)`);
++      continue;
++    }
++    // Backdrop's 503 is a specific, documented, non-fatal state: the backend is fine and no browser
++    // is attached. It is the most useful signal after a Backdrop deploy precisely because a stale or
++    // crashed Chromium is invisible from `systemctl status`.
++    if (id === "backdrop" && status === "503") {
++      const message =
++        "Backdrop is up but no browser is attached (/healthz 503) — the TV is showing nothing. " +
++        "Check the kiosk: `ssh " +
++        host.ssh +
++        " cat /tmp/kiosk.log`, or reboot the Pi.";
++      report.warn(host.name, message);
++      outcome.warnings.push(message);
++      continue;
++    }
++    throw new DeployError(
++      `${host.name}: ${id} /healthz returned ${status}, expected 200`,
++    );
++  }
++}
++
++/** One line describing what a change set will do, for dry runs and the summary. */
++export function describeEffects(e: Effects): string {
++  const parts: string[] = [];
++  if (e.pnpmInstall) parts.push("pnpm install");
++  if (e.build.size) parts.push(`build ${[...e.build].join(", ")}`);
++  if (e.pipInstall) parts.push("pip install stylus");
++  if (e.assets) parts.push("converge assets");
++  if (e.restart.size) parts.push(`restart ${[...e.restart].join(", ")}`);
++  if (e.kioskReload) parts.push("reboot for the kiosk");
++  return parts.join("; ");
++}
++
++// --- the run -----------------------------------------------------------------------------------------
++
++export async function deploy(
++  hosts: Host[],
++  exec: Executor,
++  opts: DeployOptions,
++  report: Reporter,
++): Promise<DeployResult> {
++  report.info(
++    `Deploying ${short(opts.targetSha)} (${opts.targetRef}) to: ${hosts.map((h) => h.name).join(", ")}`,
++  );
++
++  // Total preflight before any mutation — see the note at the top of this file.
++  const preflights: Preflight[] = [];
++  for (const host of hosts) {
++    preflights.push(await preflight(host, exec, opts, report));
++  }
++
++  const unrecognized = new Set<string>();
++  for (const pre of preflights) {
++    for (const path of effectsForHost(pre, opts).unrecognized)
++      unrecognized.add(path);
++  }
++  if (unrecognized.size > 0) {
++    report.warn(
++      "plan",
++      `these changed paths match no rule, so every host is being deployed in full:\n  ` +
++        [...unrecognized].slice(0, 20).join("\n  ") +
++        `\nAdd a rule for them in packages/deploy/src/changes.ts.`,
++    );
++  }
++
++  const outcomes: HostOutcome[] = [];
++  for (const pre of preflights) {
++    const effects = effectsForHost(pre, opts);
++    outcomes.push(await deployHost(pre, effects, exec, opts, report));
++  }
++
++  return {
++    targetSha: opts.targetSha,
++    hosts: outcomes,
++    warnings: outcomes.flatMap((o) => o.warnings),
++  };
++}
++
++export { noEffects };
++export type { Effects };
++export { CommandFailed };
+diff --git a/packages/deploy/test/assets.test.ts b/packages/deploy/test/assets.test.ts
+new file mode 100644
+index 0000000..9f4146a
+--- /dev/null
++++ b/packages/deploy/test/assets.test.ts
+@@ -0,0 +1,225 @@
++// Guards on the manifest of files that live outside the checkout.
++//
++// The whole point of the manifest is that these files drift silently — a repo-side edit that never
++// reaches the Pi looks exactly like a repo-side edit that did. So the tests here are mostly about
++// the manifest telling the truth: every source exists, every destination is the one the docs name,
++// and the templating leaves a stock install byte-identical to what a human would `cp`.
++import { describe, it, expect } from "vitest";
++import { existsSync, readFileSync } from "node:fs";
++import { join } from "node:path";
++import {
++  ASSETS,
++  CANONICAL_HOME,
++  CANONICAL_REPO,
++  assetsFor,
++  destFor,
++  hostTakesAssets,
++  render,
++} from "../src/assets.js";
++import { parseConfig, type Host } from "../src/hosts.js";
++
++const repoRoot = join(import.meta.dirname, "..", "..", "..");
++
++const [pi5, pizero, workstation] = parseConfig({
++  hosts: {
++    pi5: {
++      ssh: "pi@backdrop.local",
++      repo: "/home/pi/Marquee",
++      kiosk: true,
++      services: {
++        conductor: { unit: "marquee-conductor", port: 4737 },
++        backdrop: { unit: "backdrop", port: 4740 },
++        amp: { unit: "marquee-amp", port: 4741 },
++      },
++    },
++    pizero: {
++      ssh: "pi@marquee-pizero.local",
++      repo: "/home/pi/Marquee",
++      services: { stylus: { unit: "marquee-stylus", port: 4741 } },
++    },
++    workstation: {
++      repo: "C:/dev/Marquee",
++      user: "dylan",
++      services: { curator: { port: 4739 } },
++    },
++  },
++}) as [Host, Host, Host];
++
++describe("every asset the manifest claims", () => {
++  it.each(ASSETS.map((a) => [a.id, a.source] as const))(
++    "%s exists at %s",
++    (_id, source) => {
++      // A manifest entry pointing at a path that was moved or renamed fails at deploy time, on a Pi,
++      // halfway through. Here it fails in CI, for free.
++      expect(existsSync(join(repoRoot, source))).toBe(true);
++    },
++  );
++
++  it("gives the kiosk launcher the execute bit and everything else 644", () => {
++    // A 644 kiosk.sh fails at boot with an *empty* /tmp/kiosk.log — the script never runs far enough
++    // to open its own log, so the one diagnostic the launcher provides is missing too.
++    const byId = Object.fromEntries(ASSETS.map((a) => [a.id, a.mode]));
++    expect(byId["kiosk-launcher"]).toBe("755");
++    expect(
++      ASSETS.filter((a) => a.id !== "kiosk-launcher").every(
++        (a) => a.mode === "644",
++      ),
++    ).toBe(true);
++  });
++
++  it("gives every unit asset a service, and every user asset a home path", () => {
++    for (const asset of ASSETS) {
++      if (asset.kind === "unit") expect(asset.service).toBeDefined();
++      else expect(asset.homePath).toBeDefined();
++    }
++  });
++});
++
++describe("which host takes which asset", () => {
++  it("gives the Pi 5 its three units plus the kiosk assets", () => {
++    expect(
++      assetsFor(pi5)
++        .map((a) => a.id)
++        .sort(),
++    ).toEqual([
++      "amp-unit",
++      "backdrop-unit",
++      "compositor-override",
++      "conductor-unit",
++      "kiosk-autostart",
++      "kiosk-launcher",
++    ]);
++  });
++
++  it("gives the Pi Zero only the Stylus unit — it drives no display", () => {
++    expect(assetsFor(pizero).map((a) => a.id)).toEqual(["stylus-unit"]);
++  });
++
++  it("gives the workstation nothing", () => {
++    // Curator has no unit and no kiosk, and the install path pipes to `sudo tee` over SSH — which a
++    // local Windows host has neither of.
++    expect(assetsFor(workstation)).toEqual([]);
++    expect(hostTakesAssets(workstation)).toBe(false);
++    expect(hostTakesAssets(pi5)).toBe(true);
++  });
++});
++
++describe("destinations", () => {
++  it("names a unit file after the unit that host actually runs, not after the repo file", () => {
++    // The Backdrop split, which is the reason units are configuration at all: this host installed
++    // `backdrop`, so the repo's marquee-backdrop.service must land as backdrop.service. Writing it
++    // under the repo's name would leave two units fighting over port 4740.
++    const backdrop = ASSETS.find((a) => a.id === "backdrop-unit")!;
++    expect(destFor(backdrop, pi5)).toBe("/etc/systemd/system/backdrop.service");
++  });
++
++  it("puts user assets under the owning account's home", () => {
++    const kiosk = ASSETS.find((a) => a.id === "kiosk-launcher")!;
++    const autostart = ASSETS.find((a) => a.id === "kiosk-autostart")!;
++    expect(destFor(kiosk, pi5)).toBe("/home/pi/kiosk.sh");
++    expect(destFor(autostart, pi5)).toBe(
++      "/home/pi/.config/autostart/backdrop-kiosk.desktop",
++    );
++  });
++
++  it("refuses to place a unit on a host that doesn't run that service", () => {
++    const amp = ASSETS.find((a) => a.id === "amp-unit")!;
++    expect(() => destFor(amp, pizero)).toThrow(/does not run/);
++  });
++});
++
++describe("rendering for a host", () => {
++  it("leaves a stock install byte-identical to the file in the repo", () => {
++    // This is what keeps the documented `cp ~/Marquee/packages/backdrop/deploy/kiosk.sh ~/kiosk.sh`
++    // honest for anyone installing by hand: on the standard layout the deployer writes exactly the
++    // bytes that are checked in, so a `diff` between them is silence.
++    for (const asset of assetsFor(pi5)) {
++      const source = readFileSync(join(repoRoot, asset.source), "utf8");
++      expect(render(source, pi5)).toBe(source);
++    }
++  });
++
++  it("rewrites the repo path before the home path", () => {
++    // Home is a prefix of repo, so replacing the shorter one first turns /home/pi/Marquee into
++    // <home>/Marquee and silently ignores a configured repo location.
++    const host: Host = {
++      ...pi5,
++      repo: "/srv/marquee",
++      home: "/var/lib/marquee",
++      user: "mq",
++    };
++    expect(render(`${CANONICAL_REPO}/packages/amp/dist/server.js`, host)).toBe(
++      "/srv/marquee/packages/amp/dist/server.js",
++    );
++    expect(render(`${CANONICAL_HOME}/kiosk.sh`, host)).toBe(
++      "/var/lib/marquee/kiosk.sh",
++    );
++  });
++
++  it("rewrites every canonical path in a real unit file", () => {
++    const host: Host = {
++      ...pi5,
++      repo: "/srv/marquee",
++      home: "/var/lib/marquee",
++      user: "mq",
++    };
++    const amp = ASSETS.find((a) => a.id === "amp-unit")!;
++    const rendered = render(
++      readFileSync(join(repoRoot, amp.source), "utf8"),
++      host,
++    );
++    expect(rendered).not.toContain(CANONICAL_REPO);
++    expect(rendered).toContain("/srv/marquee/packages/amp/dist/server.js");
++  });
++});
++
++describe("the units this repo now tracks", () => {
++  // These existed only as prose to copy-paste out of three different documents, which is how the
++  // Backdrop unit came to have two names. Tracking them is what lets the deployer converge them; a
++  // unit that regressed to a relative ExecStart or lost its restart policy would be a silent outage.
++  const unitText = (id: string) =>
++    readFileSync(
++      join(repoRoot, ASSETS.find((a) => a.id === id)!.source),
++      "utf8",
++    );
++
++  it.each(["conductor-unit", "backdrop-unit", "amp-unit", "stylus-unit"])(
++    "%s restarts on failure and logs to journald",
++    (id) => {
++      const text = unitText(id);
++      expect(text).toMatch(/^Restart=(always|on-failure)$/m);
++      // A log file on the SD card grows forever and wears the card out.
++      expect(text).toMatch(/^StandardOutput=journal$/m);
++      expect(text).toMatch(/^WantedBy=multi-user\.target$/m);
++    },
++  );
++
++  it.each(["conductor-unit", "backdrop-unit", "amp-unit"])(
++    "%s waits for the network before starting",
++    (id) => {
++      // The Pi regularly finishes booting before the LAN is routable; without this the first
++      // requests after every reboot fail against an unreachable bridge or an unroutable LAN.
++      expect(unitText(id)).toMatch(/^After=network-online\.target$/m);
++      expect(unitText(id)).toMatch(/^Wants=network-online\.target$/m);
++    },
++  );
++
++  it.each(["conductor-unit", "backdrop-unit", "amp-unit"])(
++    "%s starts node by absolute path",
++    (id) => {
++      // systemd does not search PATH, and a relative ExecStart only works by accident of
++      // WorkingDirectory. Being explicit is what makes the file safe to render for another layout.
++      expect(unitText(id)).toMatch(
++        /^ExecStart=\/usr\/bin\/node \/home\/pi\/Marquee\//m,
++      );
++    },
++  );
++
++  it("keeps the kiosk autostart entry a launcher and nothing more", () => {
++    // Every Chromium flag belongs in kiosk.sh, where deploy-assets.test.ts can see it. A flag added
++    // here instead would be invisible to that guard.
++    const entry = unitText("kiosk-autostart");
++    expect(entry).toContain("kiosk.sh");
++    expect(entry).not.toContain("chromium");
++  });
++});
+diff --git a/packages/deploy/test/changes.test.ts b/packages/deploy/test/changes.test.ts
+new file mode 100644
+index 0000000..91b94c5
+--- /dev/null
++++ b/packages/deploy/test/changes.test.ts
+@@ -0,0 +1,259 @@
++// The rule table is the deployer's judgement, so it gets tested the way judgement should be: every
++// row of docs/runbook.md's "What actually needs what" table, asserted against the rule that claims
++// to implement it, plus the escalation that catches everything the table doesn't cover.
++import { describe, it, expect } from "vitest";
++import {
++  RULES,
++  buildOrder,
++  effectsFor,
++  fullEffects,
++  isEmpty,
++  noEffects,
++  ruleFor,
++} from "../src/changes.js";
++
++const ids = (s: Set<string>) => [...s].sort();
++
++describe("the runbook's table, row by row", () => {
++  it("backdrop/src rebuilds and restarts Backdrop, and nothing else", () => {
++    const e = effectsFor(["packages/backdrop/src/server.ts"]);
++    expect(ids(e.build)).toEqual(["backdrop"]);
++    expect(ids(e.restart)).toEqual(["backdrop"]);
++    expect(e.kioskReload).toBe(false);
++  });
++
++  it("backdrop/public reloads the kiosk and builds nothing", () => {
++    // "No build — it's vanilla JS/CSS loaded as file:// straight from the working tree… But
++    // Chromium already has the old copy in memory: reload the browser."
++    const e = effectsFor(["packages/backdrop/public/index.html"]);
++    expect(e.kioskReload).toBe(true);
++    expect(ids(e.build)).toEqual([]);
++    expect(ids(e.restart)).toEqual([]);
++  });
++
++  it("hue-conductor/src rebuilds and restarts Conductor", () => {
++    const e = effectsFor(["packages/hue-conductor/src/server.ts"]);
++    expect(ids(e.build)).toEqual(["conductor"]);
++    expect(ids(e.restart)).toEqual(["conductor"]);
++  });
++
++  it("stylus needs a pip install and a restart, but never a build", () => {
++    // The core is stdlib-only Python (ADR 0016), so there is nothing to compile — but the install is
++    // non-editable, so the checkout is not what runs (issue #201).
++    const e = effectsFor(["packages/stylus/stylus/state_machine.py"]);
++    expect(e.pipInstall).toBe(true);
++    expect(ids(e.restart)).toEqual(["stylus"]);
++    expect(ids(e.build)).toEqual([]);
++  });
++
++  it("contracts rebuilds every Node service, including ones with no source change", () => {
++    // The fan-out the runbook warns about in bold: "Rebuild all three even when only one has source
++    // changes." Each service's `tsc -b` follows a project reference to contracts and no other path
++    // carries the change.
++    const e = effectsFor(["packages/contracts/schemas/scan-event.schema.json"]);
++    expect(ids(e.build)).toEqual(["amp", "backdrop", "conductor", "curator"]);
++  });
++
++  it("contracts also reinstalls Stylus, which the runbook's table omits", () => {
++    // Stylus compiles nothing, so the table's "rebuild every Node service" leaves it out — but it
++    // hand-builds payloads to match these schemas, and a new scan-URI kind is exactly the case where
++    // a stale reader emits a shape the freshly-built services reject.
++    const e = effectsFor(["packages/contracts/schemas/scan-event.schema.json"]);
++    expect(e.pipInstall).toBe(true);
++    expect(e.restart.has("stylus")).toBe(true);
++  });
++
++  it("a lockfile change installs and rebuilds everything", () => {
++    // "Any package.json / lockfile → pnpm install before building, or the build fails on a missing dep"
++    const e = effectsFor(["pnpm-lock.yaml"]);
++    expect(e.pnpmInstall).toBe(true);
++    expect(ids(e.build)).toEqual(["amp", "backdrop", "conductor", "curator"]);
++  });
++
++  it("Curator-side changes touch nothing on the Pi", () => {
++    // "Curator-side only (palette, prompts, video ingest, the UI) → Nothing on the Pi."
++    const e = effectsFor([
++      "packages/curator/src/server.ts",
++      "packages/palette-press/src/extract.ts",
++    ]);
++    expect(ids(e.build)).toEqual(["curator"]);
++    expect(ids(e.restart)).toEqual(["curator"]);
++    expect(e.kioskReload).toBe(false);
++    expect(e.pipInstall).toBe(false);
++  });
++
++  it("the desktop shell counts as Curator, because it serves Curator's UI", () => {
++    expect(ids(effectsFor(["packages/desktop/src/main.ts"]).build)).toEqual([
++      "curator",
++    ]);
++  });
++});
++
++describe("out-of-tree assets", () => {
++  it("a kiosk launcher change converges assets and reloads the kiosk", () => {
++    // ~/kiosk.sh is a *copy*; `git pull` never updates it, and the change only takes effect when the
++    // session restarts.
++    const e = effectsFor(["packages/backdrop/deploy/kiosk.sh"]);
++    expect(e.assets).toBe(true);
++    expect(e.kioskReload).toBe(true);
++    expect(ids(e.build)).toEqual([]);
++  });
++
++  it("a unit-file change converges assets and restarts that one service", () => {
++    const e = effectsFor(["packages/amp/deploy/marquee-amp.service"]);
++    expect(e.assets).toBe(true);
++    expect(ids(e.restart)).toEqual(["amp"]);
++    expect(ids(e.build)).toEqual([]);
++  });
++
++  it("a Backdrop unit change restarts Backdrop instead of rebooting the Pi", () => {
++    // Backdrop's deploy/ holds two unrelated kinds of file. The unit sits beside kiosk.sh, so the
++    // directory-wide rule alone would reboot the Pi for a unit edit and — worse — never restart
++    // Backdrop onto the unit that just changed.
++    const e = effectsFor(["packages/backdrop/deploy/marquee-backdrop.service"]);
++    expect(e.assets).toBe(true);
++    expect(ids(e.restart)).toEqual(["backdrop"]);
++    expect(e.kioskReload).toBe(false);
++  });
++
++  it("the Stylus unit is matched at its package root, where DEPLOY.md has always pointed", () => {
++    const e = effectsFor(["packages/stylus/marquee-stylus.service"]);
++    expect(e.assets).toBe(true);
++    expect(ids(e.restart)).toEqual(["stylus"]);
++    // Specifically *not* a pip install: the unit is not part of the Python package.
++    expect(e.pipInstall).toBe(false);
++  });
++});
++
++describe("changes that must do nothing", () => {
++  it.each([
++    ["docs/runbook.md", "documentation"],
++    ["packages/backdrop/DEPLOY.md", "a doc inside a service package"],
++    ["packages/amp/test/store.test.ts", "tests"],
++    ["packages/stylus/tests/test_state_machine.py", "Python tests"],
++    [".github/workflows/ci.yml", "CI config"],
++    ["review-agents/orchestrator.mjs", "the review harness"],
++    ["packages/fakes/fake-spotify/src/index.ts", "a test double"],
++    ["packages/deploy/src/run.ts", "the deployer itself"],
++    ["packages/curator/config.example.toml", "an example config"],
++    ["spikes/desk-audio/notes.md", "a spike"],
++  ])("%s (%s) is a no-op", (path) => {
++    expect(isEmpty(effectsFor([path]))).toBe(true);
++  });
++
++  it("an empty change set is empty", () => {
++    expect(isEmpty(effectsFor([]))).toBe(true);
++  });
++
++  it("a package's own DEPLOY.md doesn't trip that package's rule", () => {
++    // Ordering: the markdown rule has to come before the per-package rules, or a doc edit rebuilds
++    // and restarts a service for nothing. This is the assertion that pins that ordering.
++    expect(isEmpty(effectsFor(["packages/backdrop/DEPLOY.md"]))).toBe(true);
++    expect(isEmpty(effectsFor(["packages/stylus/DEPLOY.md"]))).toBe(true);
++  });
++});
++
++describe("an unrecognized path escalates rather than being skipped", () => {
++  // The property that makes it safe to skip work at all. Adding a package, renaming a directory or
++  // introducing a file nobody anticipated must over-build, never silently leave a service stale.
++  it("forces a full deploy and names what caused it", () => {
++    const e = effectsFor(["packages/brand-new-service/src/index.ts"]);
++    expect(e.unrecognized).toEqual(["packages/brand-new-service/src/index.ts"]);
++    expect(ids(e.build)).toEqual(["amp", "backdrop", "conductor", "curator"]);
++    expect(e.pipInstall).toBe(true);
++    expect(e.assets).toBe(true);
++    expect(e.kioskReload).toBe(true);
++  });
++
++  it("escalates even when every other path in the set was recognised", () => {
++    const e = effectsFor(["docs/runbook.md", "some/unknown/thing.bin"]);
++    expect(e.unrecognized).toEqual(["some/unknown/thing.bin"]);
++    expect(isEmpty(e)).toBe(false);
++  });
++
++  it("a recognised set leaves `unrecognized` empty", () => {
++    expect(effectsFor(["packages/amp/src/server.ts"]).unrecognized).toEqual([]);
++  });
++});
++
++describe("the rule table itself", () => {
++  it("has no rule that can never match, because an earlier one shadows it", () => {
++    // A shadowed rule is dead code that reads as coverage — the failure mode where the table looks
++    // complete and one of its rows has never once been applied. A rule is shadowed when no path in
++    // SAMPLES resolves to it, so SAMPLES has to carry a discriminating path for every rule; a new
++    // rule with no sample fails here, which is the prompt to add one.
++    const shadowed = RULES.filter(
++      (_rule, i) =>
++        !SAMPLES.some((s) => RULES.findIndex((r) => r.test.test(s)) === i),
++    ).map((r) => String(r.test));
++    expect(shadowed).toEqual([]);
++  });
++
++  it("matches paths against forward slashes, the way git reports them on every platform", () => {
++    // `git diff --name-only` emits forward slashes on Windows too. A rule written with a backslash
++    // would pass a Windows-authored test and never match in production.
++    for (const rule of RULES) {
++      expect(String(rule.test)).not.toContain("\\\\");
++    }
++  });
++
++  it("gives every rule a reason", () => {
++    for (const rule of RULES) expect(rule.why.length).toBeGreaterThan(0);
++  });
++});
++
++/** One discriminating path per rule, for the shadowing check above. */
++const SAMPLES = [
++  "docs/x.md",
++  "packages/amp/README.md",
++  ".github/workflows/ci.yml",
++  "packages/fakes/fake-spotify/src/i.ts",
++  "packages/deploy/src/run.ts",
++  "packages/amp/test/x.test.ts",
++  "packages/stylus/tests/x.py",
++  "packages/amp/config.example.toml",
++  ".gitignore",
++  "pnpm-lock.yaml",
++  "packages/amp/package.json",
++  "packages/contracts/src/i.ts",
++  "packages/observability/src/i.ts",
++  "packages/palette-press/src/i.ts",
++  "packages/backdrop/public/i.html",
++  "packages/backdrop/deploy/marquee-backdrop.service",
++  "packages/backdrop/deploy/kiosk.sh",
++  "packages/backdrop/src/server.ts",
++  "packages/hue-conductor/deploy/marquee-conductor.service",
++  "packages/hue-conductor/src/server.ts",
++  "packages/amp/deploy/marquee-amp.service",
++  "packages/amp/src/server.ts",
++  "packages/stylus/marquee-stylus.service",
++  "packages/stylus/stylus/x.py",
++  "packages/curator/src/server.ts",
++];
++
++describe("helpers", () => {
++  it("fullEffects does everything", () => {
++    const e = fullEffects();
++    expect(isEmpty(e)).toBe(false);
++    expect(e.pnpmInstall && e.pipInstall && e.kioskReload && e.assets).toBe(
++      true,
++    );
++  });
++
++  it("noEffects does nothing", () => {
++    expect(isEmpty(noEffects())).toBe(true);
++  });
++
++  it("ruleFor returns the first matching rule", () => {
++    expect(ruleFor("packages/backdrop/DEPLOY.md")?.outcome).toBe("ignore");
++    expect(ruleFor("nothing/claims/this")).toBeUndefined();
++  });
++
++  it("buildOrder is stable and drops what wasn't asked for", () => {
++    expect(buildOrder(new Set(["curator", "conductor"]))).toEqual([
++      "conductor",
++      "curator",
++    ]);
++    expect(buildOrder(new Set())).toEqual([]);
++  });
++});
+diff --git a/packages/deploy/test/cli.test.ts b/packages/deploy/test/cli.test.ts
+new file mode 100644
+index 0000000..2b024e1
+--- /dev/null
++++ b/packages/deploy/test/cli.test.ts
+@@ -0,0 +1,178 @@
++// Argument parsing. Small, but every one of these flags changes what happens to real hardware, and
++// an option silently ignored because it was misspelled is the worst outcome available — the deploy
++// runs, reports success, and did something other than what was asked.
++import { describe, it, expect } from "vitest";
++import { main, parseArgs } from "../src/cli.js";
++import { ConfigError } from "../src/hosts.js";
++import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { afterAll } from "vitest";
++
++const dirs: string[] = [];
++afterAll(() => {
++  for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
++});
++
++describe("defaults", () => {
++  it("deploys origin/main to every host with no flags", () => {
++    const args = parseArgs([]);
++    expect(args.ref).toBe("origin/main");
++    expect(args.only).toBeNull();
++    expect(args.full).toBe(false);
++    expect(args.dryRun).toBe(false);
++    expect(args.desktop).toBe(false);
++    expect(args.allowDirty).toBe(false);
++  });
++
++  it("defaults to the safe side of every risky flag", () => {
++    // --allow-dirty discards work and --full is slow; neither should ever be reached by accident.
++    const args = parseArgs([]);
++    expect(args.allowDirty).toBe(false);
++    expect(args.dryRun).toBe(false);
++  });
++});
++
++describe("options", () => {
++  it("takes a ref, which is also how a rollback is expressed", () => {
++    expect(parseArgs(["--ref", "53b39d3"]).ref).toBe("53b39d3");
++    expect(parseArgs(["--ref", "v1.2.0"]).ref).toBe("v1.2.0");
++  });
++
++  it("splits --only on commas and trims", () => {
++    expect(parseArgs(["--only", "pi5, pizero"]).only).toEqual([
++      "pi5",
++      "pizero",
++    ]);
++  });
++
++  it("ignores empty entries in --only rather than looking for a host named ''", () => {
++    expect(parseArgs(["--only", "pi5,,"]).only).toEqual(["pi5"]);
++  });
++
++  it.each([
++    [["--full"], "full"],
++    [["--dry-run"], "dryRun"],
++    [["--desktop"], "desktop"],
++    [["--allow-dirty"], "allowDirty"],
++    [["--help"], "help"],
++    [["-h"], "help"],
++  ])("%s sets %s", (argv, key) => {
++    expect(parseArgs(argv)[key as keyof ReturnType<typeof parseArgs>]).toBe(
++      true,
++    );
++  });
++
++  it("combines flags", () => {
++    const args = parseArgs([
++      "--ref",
++      "abc123",
++      "--only",
++      "pi5",
++      "--full",
++      "--dry-run",
++    ]);
++    expect(args).toMatchObject({
++      ref: "abc123",
++      only: ["pi5"],
++      full: true,
++      dryRun: true,
++    });
++  });
++});
++
++describe("rejections", () => {
++  it("rejects an unknown option instead of ignoring it", () => {
++    // A typo'd flag that parses as "no flag" is the failure this test exists for: the deploy runs
++    // and does something other than what was asked, reporting success either way.
++    expect(() => parseArgs(["--dryrun"])).toThrow(ConfigError);
++    expect(() => parseArgs(["--dryrun"])).toThrow(/unknown option/);
++  });
++
++  it("prints the usage alongside an unknown option", () => {
++    expect(() => parseArgs(["--nope"])).toThrow(/--dry-run/);
++  });
++
++  it.each(["--ref", "--only", "--hosts"])(
++    "rejects %s with no value",
++    (flag) => {
++      expect(() => parseArgs([flag])).toThrow(/needs a value/);
++    },
++  );
++});
++
++describe("main", () => {
++  it("prints usage and exits 0 for --help, touching no host", async () => {
++    const printed: string[] = [];
++    const log = console.log;
++    console.log = (m: string) => printed.push(m);
++    try {
++      expect(await main(["--help"])).toBe(0);
++    } finally {
++      console.log = log;
++    }
++    expect(printed.join("\n")).toMatch(/--dry-run/);
++  });
++
++  it("exits 1 with the fix, not a stack trace, when there is no inventory", async () => {
++    // The first thing a new operator hits. It has to name the file and the command that creates it.
++    const printed: string[] = [];
++    const error = console.error;
++    console.error = (m: string) => printed.push(m);
++    try {
++      expect(
++        await main(["--hosts", "definitely-not-a-real-inventory.json"]),
++      ).toBe(1);
++    } finally {
++      console.error = error;
++    }
++    expect(printed.join("\n")).toMatch(/hosts\.example\.json/);
++  }, 30_000);
++});
++
++describe("main --only", () => {
++  // The lookup against the loaded inventory, which parseArgs never sees: it only splits the string.
++  // A typo'd host name has to stop the run *before* the fetch, or the deploy silently covers fewer
++  // hosts than asked for and still reports success.
++  const inventory = (hosts: Record<string, unknown>) => {
++    const dir = mkdtempSync(join(tmpdir(), "deploy-cli-"));
++    dirs.push(dir);
++    const path = join(dir, "hosts.json");
++    writeFileSync(path, JSON.stringify({ hosts }));
++    return path;
++  };
++
++  const pi5 = {
++    ssh: "pi@backdrop.local",
++    repo: "/home/pi/Marquee",
++    services: { backdrop: { unit: "backdrop", port: 4740 } },
++  };
++
++  it("exits 1 and lists the known hosts when --only names one that isn't there", async () => {
++    const printed: string[] = [];
++    const error = console.error;
++    console.error = (m: string) => printed.push(m);
++    try {
++      expect(
++        await main(["--hosts", inventory({ pi5 }), "--only", "pi-5"]),
++      ).toBe(1);
++    } finally {
++      console.error = error;
++    }
++    const out = printed.join("\n");
++    expect(out).toMatch(/pi-5/);
++    expect(out).toMatch(/Known hosts: pi5/);
++  }, 30_000);
++
++  it("names every unknown host, not just the first", async () => {
++    const printed: string[] = [];
++    const error = console.error;
++    console.error = (m: string) => printed.push(m);
++    try {
++      await main(["--hosts", inventory({ pi5 }), "--only", "nope,also-nope"]);
++    } finally {
++      console.error = error;
++    }
++    expect(printed.join("\n")).toMatch(/nope, also-nope/);
++  }, 30_000);
++});
+diff --git a/packages/deploy/test/curator.test.ts b/packages/deploy/test/curator.test.ts
+new file mode 100644
+index 0000000..236f591
+--- /dev/null
++++ b/packages/deploy/test/curator.test.ts
+@@ -0,0 +1,207 @@
++// The workstation's staleness oracle.
++//
++// Curator has no unit, so none of the restart checks apply to it — and `localhost:4739` is usually
++// the packaged Marquee.exe serving its own bundled copy, so a green `git checkout` and a green build
++// can both be true while nothing about what is running has changed. The one exact signal available
++// is the bundle name, because Vite renames it on every build and Curator enumerates `dist-ui` once
++// at startup (the mechanism behind issue #183, used here as a check rather than suffered as a bug).
++import { describe, it, expect, afterAll } from "vitest";
++import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import {
++  buildDesktopInstaller,
++  curatorState,
++  entryBundle,
++  reportCurator,
++  CuratorStaleError,
++} from "../src/curator.js";
++import { parseConfig, type Host } from "../src/hosts.js";
++import { FakeExecutor, RecordingReporter } from "./fakes.js";
++
++const [workstation] = parseConfig({
++  hosts: {
++    workstation: {
++      repo: "C:/dev/Marquee",
++      user: "dylan",
++      services: { curator: { port: 4739 } },
++    },
++  },
++}) as [Host];
++
++const dirs: string[] = [];
++afterAll(() => {
++  for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
++});
++
++/** A repo root whose built index.html names `bundle`, or no dist-ui at all when null. */
++function repoWithBuild(bundle: string | null): string {
++  const root = mkdtempSync(join(tmpdir(), "curator-deploy-"));
++  dirs.push(root);
++  if (bundle !== null) {
++    const uiDir = join(root, "packages", "curator", "dist-ui");
++    mkdirSync(uiDir, { recursive: true });
++    writeFileSync(
++      join(uiDir, "index.html"),
++      `<!doctype html><html><head><script type="module" crossorigin src="${bundle}"></script></head><body><div id="root"></div></body></html>`,
++    );
++  }
++  return root;
++}
++
++const serving = (html: string) =>
++  new FakeExecutor([[/curl/, { stdout: html }]]);
++
++describe("entryBundle", () => {
++  it("finds the hashed entry bundle Vite writes", () => {
++    expect(entryBundle('<script src="/assets/index-D4f9Xa2b.js">')).toBe(
++      "/assets/index-D4f9Xa2b.js",
++    );
++  });
++
++  it("ignores other hashed assets", () => {
++    // Only the entry bundle is renamed in a way that identifies the build in `index.html`.
++    expect(entryBundle('<link href="/assets/style-A1b2C3.css">')).toBeNull();
++  });
++
++  it("returns null for a page with no bundle at all", () => {
++    // What the SPA fallback used to serve: index.html handed back for a missing asset request.
++    expect(entryBundle("<html><body>nothing here</body></html>")).toBeNull();
++  });
++});
++
++describe("curatorState", () => {
++  it("reports fresh when the running server names the bundle that was just built", async () => {
++    const root = repoWithBuild("/assets/index-NEW1234.js");
++    const exec = serving('<script src="/assets/index-NEW1234.js"></script>');
++    expect(await curatorState(workstation, root, 4739, exec)).toEqual({
++      kind: "fresh",
++      bundle: "/assets/index-NEW1234.js",
++    });
++  });
++
++  it("reports stale when the running server is still on the previous bundle", async () => {
++    const root = repoWithBuild("/assets/index-NEW1234.js");
++    const exec = serving('<script src="/assets/index-OLD9999.js"></script>');
++    expect(await curatorState(workstation, root, 4739, exec)).toEqual({
++      kind: "stale",
++      running: "/assets/index-OLD9999.js",
++      built: "/assets/index-NEW1234.js",
++    });
++  });
++
++  it("reports not-running when nothing answers", async () => {
++    // A workstation with Curator closed is a perfectly fine end state — the next launch picks the
++    // build up on its own — so this must not read as a failure.
++    const root = repoWithBuild("/assets/index-NEW1234.js");
++    const exec = new FakeExecutor([[/curl/, { code: 7 }]]);
++    expect(await curatorState(workstation, root, 4739, exec)).toEqual({
++      kind: "not-running",
++    });
++  });
++
++  it("reports unknown rather than failing when there is no build to compare against", async () => {
++    const exec = serving('<script src="/assets/index-OLD9999.js"></script>');
++    const state = await curatorState(
++      workstation,
++      repoWithBuild(null),
++      4739,
++      exec,
++    );
++    expect(state.kind).toBe("unknown");
++  });
++});
++
++describe("reportCurator", () => {
++  it("fails the deploy when Curator is demonstrably serving the previous commit", async () => {
++    // A hard failure on purpose: every other signal — git rev-parse, a green build, a 200 — looks
++    // right, so this is the one an operator would otherwise shrug off.
++    const root = repoWithBuild("/assets/index-NEW1234.js");
++    const exec = serving('<script src="/assets/index-OLD9999.js"></script>');
++    await expect(
++      reportCurator(workstation, root, 4739, exec, new RecordingReporter()),
++    ).rejects.toThrow(CuratorStaleError);
++  });
++
++  it("says both ways to restart, including that the packaged app bundles its own copy", async () => {
++    const root = repoWithBuild("/assets/index-NEW1234.js");
++    const exec = serving('<script src="/assets/index-OLD9999.js"></script>');
++    const err = await reportCurator(
++      workstation,
++      root,
++      4739,
++      exec,
++      new RecordingReporter(),
++    ).catch((e: Error) => e);
++    expect(err.message).toMatch(/Marquee\.exe/);
++    expect(err.message).toMatch(/--desktop/);
++    expect(err.message).toMatch(/pnpm curator/);
++  });
++
++  it("passes quietly when Curator is serving this build", async () => {
++    const report = new RecordingReporter();
++    const root = repoWithBuild("/assets/index-NEW1234.js");
++    await reportCurator(
++      workstation,
++      root,
++      4739,
++      serving('<script src="/assets/index-NEW1234.js">'),
++      report,
++    );
++    expect(report.warnings).toEqual([]);
++    expect(report.oks.join("\n")).toMatch(/serving this build/);
++  });
++
++  it("passes when Curator isn't running, and says how to start it", async () => {
++    const report = new RecordingReporter();
++    const root = repoWithBuild("/assets/index-NEW1234.js");
++    await reportCurator(
++      workstation,
++      root,
++      4739,
++      new FakeExecutor([[/curl/, { code: 7 }]]),
++      report,
++    );
++    expect(report.oks.join("\n")).toMatch(/pnpm app/);
++  });
++});
++
++describe("buildDesktopInstaller", () => {
++  it("builds the installer and stops there, rather than running it", async () => {
++    // Installing replaces the app the operator is currently using and puts an NSIS UI on screen.
++    // That is their call; the deploy's job ends at the artifact.
++    const report = new RecordingReporter();
++    const exec = new FakeExecutor();
++    await buildDesktopInstaller(workstation, exec, report);
++
++    expect(exec.ran(/pnpm --filter @marquee\/desktop dist/)).toBe(true);
++    expect(exec.ran(/release.*\.exe/)).toBe(false);
++    expect(report.oks.join("\n")).toMatch(/packages\/desktop\/release/);
++  });
++
++  it("warns that the artifact is unsigned, because SmartScreen will", async () => {
++    const report = new RecordingReporter();
++    await buildDesktopInstaller(workstation, new FakeExecutor(), report);
++    expect(report.oks.join("\n")).toMatch(/unsigned|SmartScreen/);
++  });
++
++  it("bounds the build, long as it is", async () => {
++    // electron-builder plus two esbuild bundles plus native deps is the slowest step in the system;
++    // it still must not be able to park a deploy forever.
++    let timeout = 0;
++    const exec = new FakeExecutor();
++    const spy = { ...exec, exec: exec.exec.bind(exec) };
++    await buildDesktopInstaller(
++      workstation,
++      {
++        exec: async (host, cmd) => {
++          timeout = cmd.timeoutMs;
++          return spy.exec(host, cmd);
++        },
++      },
++      new RecordingReporter(),
++    );
++    expect(timeout).toBeGreaterThan(0);
++    expect(Number.isFinite(timeout)).toBe(true);
++  });
++});
+diff --git a/packages/deploy/test/exec.test.ts b/packages/deploy/test/exec.test.ts
+new file mode 100644
+index 0000000..19014d9
+--- /dev/null
++++ b/packages/deploy/test/exec.test.ts
+@@ -0,0 +1,250 @@
++// The command layer: quoting, and the bound.
++//
++// The timeout tests are the ones worth having. A deploy drives subprocesses and the network on an
++// always-on system, and the repo's standing rule is that anything doing either gets a cap — a
++// `pnpm install` against an unreachable registry has to fail the deploy rather than park it forever
++// with no output. These run the real spawn path, because a mocked timer would prove nothing about
++// whether the child is actually killed.
++import { describe, it, expect } from "vitest";
++import {
++  RealExecutor,
++  SSH_OPTIONS,
++  TIMEOUTS,
++  shellQuote,
++  sshArgv,
++  toRemoteScript,
++  CommandFailed,
++} from "../src/exec.js";
++import type { Command } from "../src/exec.js";
++import type { Host } from "../src/hosts.js";
++
++const localHost: Host = {
++  name: "local",
++  repo: process.cwd(),
++  services: {},
++  user: "test",
++  home: process.cwd(),
++};
++
++describe("shell quoting", () => {
++  it.each([
++    ["plain", "'plain'"],
++    ["with space", "'with space'"],
++    ["semi;colon", "'semi;colon'"],
++    ["$(rm -rf /)", "'$(rm -rf /)'"],
++    ["back`tick`", "'back`tick`'"],
++    ["C:/Users/dylan/dev", "'C:/Users/dylan/dev'"],
++  ])("quotes %s", (input, expected) => {
++    expect(shellQuote(input)).toBe(expected);
++  });
++
++  it("survives the one character single quotes can't contain", () => {
++    // `it's` must close the quote, escape the apostrophe, and reopen — the only correct form, and
++    // the one thing a naive `'${x}'` gets wrong.
++    expect(shellQuote("it's")).toBe(`'it'\\''s'`);
++  });
++
++  it("keeps an injected command inert", () => {
++    const script = toRemoteScript(
++      ["echo", "; rm -rf /home/pi"],
++      "/home/pi/Marquee",
++    );
++    expect(script).toBe(`cd '/home/pi/Marquee' && 'echo' '; rm -rf /home/pi'`);
++  });
++
++  it("omits the cd when there is no cwd", () => {
++    expect(toRemoteScript(["true"])).toBe("'true'");
++  });
++});
++
++describe("the remote argv", () => {
++  // Regression: the first real run against the Pi 5 reported "fatal: not a git repository" for a
++  // host whose checkout was present and healthy. The cause is that `ssh` does not preserve argv
++  // boundaries — it joins everything after the target with single spaces and hands the resulting
++  // *string* to the remote login shell. Passing ["sh", "-c", script] therefore did not run
++  // `sh -c "<script>"`: the remote shell re-split it, `sh -c` got only the script's first word
++  // (`cd`), and the real command ran in the home directory.
++  //
++  // These tests reproduce ssh's joining rather than trusting the argv, which is the only way to see
++  // that class of bug from a unit test.
++  const remote: Host = {
++    name: "pi5",
++    ssh: "pi@192.168.86.59",
++    repo: "/home/pi/Marquee",
++    services: {},
++    user: "pi",
++    home: "/home/pi",
++  };
++  const cmd = (argv: string[], cwd?: string): Command => ({
++    argv,
++    timeoutMs: 1000,
++    label: "test",
++    ...(cwd ? { cwd } : {}),
++  });
++
++  /** What the remote login shell actually receives: everything after `--`, joined with spaces. */
++  const asRemoteShellSees = (argv: string[]) =>
++    argv.slice(argv.indexOf("--") + 1).join(" ");
++
++  it("puts the script in exactly one argument", () => {
++    // The whole bug in one assertion. More than one argument here means the remote shell re-splits.
++    const argv = sshArgv(
++      remote,
++      cmd(["git", "rev-parse", "HEAD"]),
++      remote.repo,
++    );
++    expect(argv.slice(argv.indexOf("--") + 1)).toHaveLength(1);
++  });
++
++  it("never wraps the script in its own sh -c", () => {
++    const argv = sshArgv(remote, cmd(["git", "status"]), remote.repo);
++    expect(argv).not.toContain("-c");
++  });
++
++  it("keeps the cd bound to the command the remote shell runs", () => {
++    const argv = sshArgv(
++      remote,
++      cmd(["git", "rev-parse", "HEAD"]),
++      remote.repo,
++    );
++    expect(asRemoteShellSees(argv)).toBe(
++      `cd '/home/pi/Marquee' && 'git' 'rev-parse' 'HEAD'`,
++    );
++  });
++
++  it("honours a per-command cwd over the host's repo", () => {
++    // The Stylus pip install runs in packages/stylus, not the repo root.
++    const argv = sshArgv(
++      remote,
++      cmd(
++        [".venv/bin/pip", "install", "."],
++        "/home/pi/Marquee/packages/stylus",
++      ),
++      "/home/pi/Marquee/packages/stylus",
++    );
++    expect(asRemoteShellSees(argv)).toContain(
++      `cd '/home/pi/Marquee/packages/stylus'`,
++    );
++  });
++
++  it("passes a genuinely nested sh -c through as data", () => {
++    // The restart-time probe needs a real nested shell for its `$(...)`. It survives because the
++    // script quotes it, rather than because ssh preserved the boundary.
++    const script = `date -d "$(systemctl show --property=ActiveEnterTimestamp --value amp.service)" +%s`;
++    const seen = asRemoteShellSees(
++      sshArgv(remote, cmd(["sh", "-c", script]), remote.repo),
++    );
++    expect(seen).toContain(`'sh' '-c'`);
++    expect(seen).toContain("ActiveEnterTimestamp");
++  });
++
++  it("keeps an injected command inert after the remote shell parses it", () => {
++    const seen = asRemoteShellSees(
++      sshArgv(remote, cmd(["echo", "; sudo rm -rf /"]), remote.repo),
++    );
++    // Quoted as one word, so the remote shell hands it to echo rather than running it.
++    expect(seen).toContain(`'echo' '; sudo rm -rf /'`);
++  });
++
++  it("targets the host and keeps the hardening options", () => {
++    const argv = sshArgv(remote, cmd(["true"]), remote.repo);
++    expect(argv).toContain("pi@192.168.86.59");
++    expect(argv).toContain("BatchMode=yes");
++    expect(argv.indexOf("pi@192.168.86.59")).toBeLessThan(argv.indexOf("--"));
++  });
++});
++
++describe("ssh options", () => {
++  it("uses BatchMode so a missing key fails instead of prompting", () => {
++    // Without it, a host with no key drops to an interactive password prompt against a stdin that is
++    // closed or carrying a file, and the deploy stalls with no output at all.
++    expect(SSH_OPTIONS).toContain("BatchMode=yes");
++  });
++
++  it("bounds the connection attempt", () => {
++    expect(SSH_OPTIONS.join(" ")).toMatch(/ConnectTimeout=\d+/);
++  });
++});
++
++describe("every operation is bounded", () => {
++  it("gives every step a positive, finite timeout", () => {
++    for (const [name, ms] of Object.entries(TIMEOUTS)) {
++      expect(Number.isFinite(ms), name).toBe(true);
++      expect(ms, name).toBeGreaterThan(0);
++    }
++  });
++
++  it("kills a child that outruns its timeout, and says which command", async () => {
++    const exec = new RealExecutor();
++    const started = Date.now();
++    await expect(
++      exec.exec(localHost, {
++        argv: ["node", "-e", "setTimeout(() => {}, 60000)"],
++        timeoutMs: 700,
++        label: "a command that hangs",
++      }),
++    ).rejects.toThrow(/timed out after 700ms/);
++    // Proves the kill happened rather than the promise resolving on its own after 60s.
++    expect(Date.now() - started).toBeLessThan(20_000);
++  }, 30_000);
++});
++
++describe("failures", () => {
++  it("throws with the exit code and the tail of the output", async () => {
++    const exec = new RealExecutor();
++    const err = await exec
++      .exec(localHost, {
++        argv: [
++          "node",
++          "-e",
++          "console.error('the real error'); process.exit(3)",
++        ],
++        timeoutMs: 15_000,
++        label: "a failing command",
++      })
++      .catch((e: Error) => e);
++    expect(err).toBeInstanceOf(CommandFailed);
++    expect(err.message).toMatch(/exit 3/);
++    expect(err.message).toMatch(/the real error/);
++    expect(err.message).toMatch(/a failing command/);
++  }, 20_000);
++
++  it("returns a non-zero exit as data when the caller opted in", async () => {
++    const exec = new RealExecutor();
++    const result = await exec.exec(localHost, {
++      argv: ["node", "-e", "process.exit(1)"],
++      timeoutMs: 15_000,
++      label: "a probe",
++      allowFailure: true,
++    });
++    expect(result.code).toBe(1);
++  }, 20_000);
++
++  it("reports a missing binary as a run failure, not a crash", async () => {
++    const exec = new RealExecutor();
++    await expect(
++      exec.exec(localHost, {
++        argv: ["definitely-not-a-real-binary-xyz"],
++        timeoutMs: 15_000,
++        label: "missing binary",
++      }),
++    ).rejects.toThrow(/could not run/);
++  }, 20_000);
++});
++
++describe("stdin", () => {
++  it("delivers content to the command, which is how assets are written", async () => {
++    const exec = new RealExecutor();
++    const result = await exec.exec(localHost, {
++      argv: [
++        "node",
++        "-e",
++        "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(s.toUpperCase()))",
++      ],
++      timeoutMs: 15_000,
++      label: "echo stdin",
++      stdin: "unit file contents",
++    });
++    expect(result.stdout).toBe("UNIT FILE CONTENTS");
++  }, 20_000);
++});
+diff --git a/packages/deploy/test/fakes.ts b/packages/deploy/test/fakes.ts
+new file mode 100644
+index 0000000..dde26de
+--- /dev/null
++++ b/packages/deploy/test/fakes.ts
+@@ -0,0 +1,159 @@
++// A scripted host, so the deploy — including its failure and rollback paths — runs in unit tests
++// with no Raspberry Pi switched on.
++//
++// It reproduces `RealExecutor`'s one behavioural contract rather than just recording calls: a
++// non-zero exit throws unless the command opted into `allowFailure`. Getting that wrong in the fake
++// would make every "does it stop when a step fails?" test pass vacuously.
++import { createHash } from "node:crypto";
++import { readFileSync } from "node:fs";
++import { join } from "node:path";
++import { assetsFor, destFor, render } from "../src/assets.js";
++import {
++  CommandFailed,
++  type Command,
++  type CommandResult,
++  type Executor,
++} from "../src/exec.js";
++import type { Host } from "../src/hosts.js";
++import type { Reporter } from "../src/run.js";
++
++export type Reply =
++  | Partial<CommandResult>
++  | ((cmd: Command, host: Host) => Partial<CommandResult>);
++export type Route = [RegExp, Reply];
++
++export class FakeExecutor implements Executor {
++  /** Every command run, as `host: argv`, in order. */
++  readonly calls: string[] = [];
++
++  constructor(private readonly routes: Route[] = []) {}
++
++  /** Routes added later win — tests state the interesting case first and inherit the rest. */
++  route(pattern: RegExp, reply: Reply): this {
++    this.routes.unshift([pattern, reply]);
++    return this;
++  }
++
++  async exec(host: Host, cmd: Command): Promise<CommandResult> {
++    const line = cmd.argv.join(" ");
++    this.calls.push(`${host.name}: ${line}`);
++
++    let reply: Partial<CommandResult> = {};
++    for (const [pattern, r] of this.routes) {
++      if (pattern.test(line)) {
++        reply = typeof r === "function" ? r(cmd, host) : r;
++        break;
++      }
++    }
++    const result: CommandResult = { code: 0, stdout: "", stderr: "", ...reply };
++    if (result.code !== 0 && !cmd.allowFailure)
++      throw new CommandFailed(host.name, cmd, result);
++    return result;
++  }
++
++  /** Commands matching `pattern`, for asserting on what ran and in what order. */
++  matching(pattern: RegExp): string[] {
++    return this.calls.filter((c) => pattern.test(c));
++  }
++
++  ran(pattern: RegExp): boolean {
++    return this.calls.some((c) => pattern.test(c));
++  }
++
++  /** Index of the first matching call, or -1 — for asserting that A happened before B. */
++  indexOf(pattern: RegExp): number {
++    return this.calls.findIndex((c) => pattern.test(c));
++  }
++}
++
++export interface FakeOptions {
++  /** What every host reports as its current commit. */
++  currentSha: string;
++  /** What `git diff --name-only` returns. */
++  changed: string[];
++  /** The host clock, in ms. Units report starting 5s after this unless overridden. */
++  clock: number;
++}
++
++/**
++ * The happy path: a reachable, clean host on `currentSha`, whose units all exist, are active, and
++ * report having restarted after the checkout, and whose services answer 200.
++ */
++export function happyRoutes(opts: FakeOptions): Route[] {
++  const startedAt = Math.floor(opts.clock / 1000) + 5;
++
++  // The one piece of state a useful fake needs: a checkout moves the host's HEAD. Without it,
++  // `verifyHost`'s "is the checkout what I asked for?" check can never pass, and — worse — a test
++  // asserting that the deploy *catches* a checkout that didn't take would pass for the wrong reason.
++  const head = new Map<string, string>();
++  const shaOf = (host: Host) => head.get(host.name) ?? opts.currentSha;
++
++  return [
++    [
++      /^git checkout --detach --force (\w+)$/,
++      (cmd, host) => {
++        head.set(host.name, cmd.argv[cmd.argv.length - 1]!);
++        return {};
++      },
++    ],
++    [/^git rev-parse HEAD$/, (_cmd, host) => ({ stdout: `${shaOf(host)}\n` })],
++    [/^git status/, { stdout: "" }],
++    [/^git diff --name-only/, { stdout: opts.changed.join("\n") }],
++    [/^date \+%s$/, { stdout: `${Math.floor(opts.clock / 1000)}\n` }],
++    [/^systemctl is-active/, { stdout: "active\n" }],
++    // The restart-time probe: `date -d "$(systemctl show …)" +%s`.
++    [/^sh -c date -d/, { stdout: `${startedAt}\n` }],
++    [/healthz/, { stdout: "200" }],
++    [/diff -rq/, { stdout: "" }],
++    // No installed copy yet, so every asset converges. A test wanting "already matches" routes
++    // sha256sum to `installedHashes(host, repoRoot)`.
++    [/^sha256sum/, { code: 1, stderr: "No such file or directory\n" }],
++  ];
++}
++
++/**
++ * `sha256sum` replies that make every asset on `host` look already-converged.
++ *
++ * The hash has to be computed the way the deployer computes it — read the source, render it for the
++ * host, hash the result — or "already matches" would be a claim the test makes rather than one it
++ * establishes.
++ */
++export function installedHashes(host: Host, repoRoot: string): Reply {
++  const byDest = new Map<string, string>();
++  for (const asset of assetsFor(host)) {
++    const rendered = render(
++      readFileSync(join(repoRoot, asset.source), "utf8"),
++      host,
++    );
++    byDest.set(
++      destFor(asset, host),
++      createHash("sha256").update(rendered, "utf8").digest("hex"),
++    );
++  }
++  return (cmd) => {
++    const dest = cmd.argv[cmd.argv.length - 1] ?? "";
++    const hash = byDest.get(dest);
++    return hash ? { stdout: `${hash}  ${dest}\n` } : { code: 1 };
++  };
++}
++
++/** A reporter that keeps what it was told, so tests can assert on operator-facing output. */
++export class RecordingReporter implements Reporter {
++  readonly steps: string[] = [];
++  readonly oks: string[] = [];
++  readonly warnings: string[] = [];
++  readonly infos: string[] = [];
++
++  step(host: string, message: string): void {
++    this.steps.push(`${host}: ${message}`);
++  }
++  ok(host: string, message: string): void {
++    this.oks.push(`${host}: ${message}`);
++  }
++  warn(host: string, message: string): void {
++    this.warnings.push(`${host}: ${message}`);
++  }
++  info(message: string): void {
++    this.infos.push(message);
++  }
++}
+diff --git a/packages/deploy/test/hosts.test.ts b/packages/deploy/test/hosts.test.ts
+new file mode 100644
+index 0000000..f697274
+--- /dev/null
++++ b/packages/deploy/test/hosts.test.ts
+@@ -0,0 +1,178 @@
++// The inventory is the one place a deploy can be misconfigured, and most of the ways it can be wrong
++// are silent on a good day and destructive on a bad one — a wrong unit name restarts nothing, a
++// service listed twice makes "deployed" ambiguous. Every rejection here is a failure that would
++// otherwise surface partway through a deploy, with services already restarted.
++import { describe, it, expect } from "vitest";
++import { readFileSync } from "node:fs";
++import { join } from "node:path";
++import {
++  ConfigError,
++  HOST_ORDER,
++  hostFor,
++  isLocal,
++  parseConfig,
++} from "../src/hosts.js";
++
++const pi5 = {
++  ssh: "pi@backdrop.local",
++  repo: "/home/pi/Marquee",
++  kiosk: true,
++  services: {
++    conductor: { unit: "marquee-conductor", port: 4737 },
++    backdrop: { unit: "backdrop", port: 4740 },
++  },
++};
++const workstation = {
++  repo: "C:/dev/Marquee",
++  user: "dylan",
++  services: { curator: { port: 4739 } },
++};
++
++const config = (hosts: Record<string, unknown>) => parseConfig({ hosts });
++
++describe("parsing an inventory", () => {
++  it("accepts the tracked example file", () => {
++    // The example is what every operator starts from; if it doesn't parse, the first run of the
++    // deployer fails on a file this repo shipped.
++    const example = JSON.parse(
++      readFileSync(
++        join(import.meta.dirname, "..", "hosts.example.json"),
++        "utf8",
++      ),
++    );
++    const hosts = parseConfig(example);
++    expect(hosts.map((h) => h.name)).toEqual(["pi5", "pizero", "workstation"]);
++  });
++
++  it("infers the account from the ssh target", () => {
++    const [host] = config({ pi5 });
++    expect(host!.user).toBe("pi");
++    expect(host!.home).toBe("/home/pi");
++  });
++
++  it("lets an explicit user override the inferred one", () => {
++    const [host] = config({ pi5: { ...pi5, user: "marquee" } });
++    expect(host!.user).toBe("marquee");
++    expect(host!.home).toBe("/home/marquee");
++  });
++
++  it("knows root's home isn't /home/root", () => {
++    const [host] = config({ pi5: { ...pi5, ssh: "root@backdrop.local" } });
++    expect(host!.home).toBe("/root");
++  });
++
++  it("treats a host with no ssh as local", () => {
++    const [host] = config({ workstation });
++    expect(isLocal(host!)).toBe(true);
++  });
++
++  it("finds the host running a given service", () => {
++    const hosts = config({ pi5, workstation });
++    expect(hostFor(hosts, "backdrop")?.name).toBe("pi5");
++    expect(hostFor(hosts, "curator")?.name).toBe("workstation");
++    expect(hostFor(hosts, "stylus")).toBeUndefined();
++  });
++});
++
++describe("deploy order", () => {
++  it("puts the Pis before the workstation however the file is written", () => {
++    // Not cosmetic: Curator is the only service that pushes, and ADR 0073 has it push entries an
++    // older Backdrop rejects outright with a 400. A workstation deployed first is a runtime that
++    // looks updated and cannot be synced to.
++    const pizero = {
++      ssh: "pi@marquee-pizero.local",
++      repo: "/home/pi/Marquee",
++      services: { stylus: { unit: "marquee-stylus", port: 4741 } },
++    };
++    const hosts = config({ workstation, pizero, pi5 });
++    expect(hosts.map((h) => h.name)).toEqual(["pi5", "pizero", "workstation"]);
++  });
++
++  it("puts a host the order doesn't name after the ones it does", () => {
++    const hosts = config({
++      spare: {
++        ssh: "pi@spare",
++        repo: "/home/pi/Marquee",
++        services: { amp: { unit: "a", port: 1 } },
++      },
++      pi5,
++    });
++    expect(hosts.map((h) => h.name)).toEqual(["pi5", "spare"]);
++  });
++
++  it("names the hosts it orders", () => {
++    expect(HOST_ORDER).toEqual(["pi5", "pizero", "workstation"]);
++  });
++});
++
++describe("rejections", () => {
++  const rejects = (hosts: Record<string, unknown>, match: RegExp) =>
++    expect(() => config(hosts)).toThrow(match);
++
++  it("rejects a service with no unit name", () => {
++    // The Backdrop-naming trap: guessing here gives `Unit marquee-backdrop.service not found`
++    // partway through a restart that already touched the other units.
++    rejects(
++      { pi5: { ...pi5, services: { backdrop: { port: 4740 } } } },
++      /needs a "unit"/,
++    );
++  });
++
++  it("says how to find the real unit name when one is missing", () => {
++    expect(() =>
++      config({ pi5: { ...pi5, services: { backdrop: { port: 4740 } } } }),
++    ).toThrow(/systemctl list-units/);
++  });
++
++  it("lets Curator omit a unit, because it has none", () => {
++    expect(() => config({ workstation })).not.toThrow();
++  });
++
++  it("rejects an unknown service id", () => {
++    rejects(
++      { pi5: { ...pi5, services: { conducter: { unit: "x", port: 1 } } } },
++      /unknown service "conducter"/,
++    );
++  });
++
++  it("rejects the same service on two hosts", () => {
++    // Otherwise "is backdrop deployed?" has two answers, which is precisely what this tool exists
++    // to stop being a question.
++    rejects(
++      {
++        pi5,
++        other: {
++          ssh: "pi@b",
++          repo: "/r",
++          services: { backdrop: { unit: "b", port: 4740 } },
++        },
++      },
++      /configured on both/,
++    );
++  });
++
++  it.each([
++    [{ pi5: { ...pi5, repo: undefined } }, /needs a "repo"/],
++    [{ pi5: { ...pi5, services: {} } }, /lists no services/],
++    [
++      { pi5: { ...pi5, services: { amp: { unit: "a" } } } },
++      /needs an integer "port"/,
++    ],
++    [
++      { pi5: { ...pi5, services: { amp: { unit: "a", port: "4741" } } } },
++      /needs an integer "port"/,
++    ],
++    [
++      { pi5: { repo: "/r", services: { amp: { unit: "a", port: 1 } } } },
++      /needs a "user"/,
++    ],
++  ])("rejects a malformed host (%#)", (hosts, match) => {
++    rejects(hosts as Record<string, unknown>, match);
++  });
++
++  it("rejects a config with no hosts at all", () => {
++    expect(() => parseConfig({ hosts: {} })).toThrow(/no hosts/);
++    expect(() => parseConfig({})).toThrow(/"hosts" object/);
++    expect(() => parseConfig(null)).toThrow(ConfigError);
++  });
++});
+diff --git a/packages/deploy/test/run.test.ts b/packages/deploy/test/run.test.ts
+new file mode 100644
+index 0000000..d2ffbb1
+--- /dev/null
++++ b/packages/deploy/test/run.test.ts
+@@ -0,0 +1,696 @@
++// The deploy end to end, against a scripted host.
++//
++// The tests that matter most here are the ones about what the deployer *refuses* to do: finish over
++// a service it couldn't prove restarted, touch a second host after the first failed, or leave a
++// rewritten unit file in place when the service won't come up on it. Those are the properties that
++// make a green deploy mean something, and each of them is a failure that would otherwise be found
++// on the hardware, at night, with the lights off.
++import { describe, it, expect, beforeEach } from "vitest";
++import { readFileSync } from "node:fs";
++import { join } from "node:path";
++import {
++  deploy,
++  deployHost,
++  describeEffects,
++  effectsForHost,
++  preflight,
++  restrictToHost,
++  DeployError,
++  type DeployOptions,
++} from "../src/run.js";
++import { CuratorStaleError } from "../src/curator.js";
++import { effectsFor, fullEffects } from "../src/changes.js";
++import { parseConfig, type Host } from "../src/hosts.js";
++import {
++  FakeExecutor,
++  RecordingReporter,
++  happyRoutes,
++  installedHashes,
++} from "./fakes.js";
++
++const repoRoot = join(import.meta.dirname, "..", "..", "..");
++const OLD = "a".repeat(40);
++const TARGET = "b".repeat(40);
++const CLOCK = 1_760_000_000_000;
++
++const inventory = parseConfig({
++  hosts: {
++    pi5: {
++      ssh: "pi@backdrop.local",
++      repo: "/home/pi/Marquee",
++      kiosk: true,
++      services: {
++        conductor: { unit: "marquee-conductor", port: 4737 },
++        backdrop: { unit: "backdrop", port: 4740 },
++        amp: { unit: "marquee-amp", port: 4741 },
++      },
++    },
++    pizero: {
++      ssh: "pi@marquee-pizero.local",
++      repo: "/home/pi/Marquee",
++      services: { stylus: { unit: "marquee-stylus", port: 4741 } },
++    },
++  },
++});
++const [pi5, pizero] = inventory as [Host, Host];
++
++let report: RecordingReporter;
++beforeEach(() => {
++  report = new RecordingReporter();
++});
++
++function options(over: Partial<DeployOptions> = {}): DeployOptions {
++  return {
++    targetRef: "origin/main",
++    targetSha: TARGET,
++    full: false,
++    dryRun: false,
++    allowDirty: false,
++    desktop: false,
++    now: () => CLOCK,
++    // Tests must never actually wait; the bounded polls would otherwise take minutes.
++    sleep: async () => {},
++    repoRoot,
++    // Default to the working tree, which is what the fixtures on disk represent. The test below
++    // proves the deployer uses *this* hook rather than reading the tree itself.
++    readAssetSource: async (path: string) =>
++      readFileSync(join(repoRoot, path), "utf8"),
++    ...over,
++  };
++}
++
++const fake = (changed: string[], currentSha = OLD) =>
++  new FakeExecutor(happyRoutes({ currentSha, changed, clock: CLOCK }));
++
++async function run(
++  host: Host,
++  changed: string[],
++  exec = fake(changed),
++  opts = options(),
++) {
++  const pre = await preflight(host, exec, opts, report);
++  return deployHost(pre, effectsForHost(pre, opts), exec, opts, report);
++}
++
++describe("a normal deploy", () => {
++  it("checks out the pinned commit and restarts only what changed", async () => {
++    const exec = fake(["packages/amp/src/server.ts"]);
++    await run(pi5, ["packages/amp/src/server.ts"], exec);
++
++    expect(
++      exec.ran(new RegExp(`git checkout --detach --force ${TARGET}`)),
++    ).toBe(true);
++    expect(exec.ran(/pnpm --filter @marquee\/amp build/)).toBe(true);
++    expect(exec.ran(/sudo systemctl restart marquee-amp\.service/)).toBe(true);
++    // Conductor and Backdrop had no change and no shared-dependency change.
++    expect(exec.ran(/restart marquee-conductor/)).toBe(false);
++    expect(exec.ran(/restart backdrop\.service/)).toBe(false);
++  });
++
++  it("restarts the Backdrop unit under the name that host actually installed", async () => {
++    // This inventory says `backdrop`, not `marquee-backdrop`. Assuming the repo's preferred name
++    // gives `Unit marquee-backdrop.service not found` after the other units are already restarted.
++    const exec = fake(["packages/backdrop/src/server.ts"]);
++    await run(pi5, ["packages/backdrop/src/server.ts"], exec);
++    expect(exec.ran(/sudo systemctl restart backdrop\.service/)).toBe(true);
++    expect(exec.ran(/marquee-backdrop/)).toBe(false);
++  });
++
++  it("rebuilds all three services when contracts changed, though two have no source change", async () => {
++    const exec = fake(["packages/contracts/schemas/scan-event.schema.json"]);
++    await run(pi5, ["packages/contracts/schemas/scan-event.schema.json"], exec);
++    for (const pkg of ["hue-conductor", "backdrop", "amp"]) {
++      expect(exec.ran(new RegExp(`pnpm --filter @marquee/${pkg} build`))).toBe(
++        true,
++      );
++    }
++  });
++
++  it("does nothing at all when the host is already on the target", async () => {
++    const exec = fake([], TARGET);
++    const outcome = await run(pi5, [], exec, options());
++    expect(exec.ran(/git checkout/)).toBe(false);
++    expect(exec.ran(/systemctl restart/)).toBe(false);
++    expect(describeEffects(outcome.effects)).toBe("");
++  });
++
++  it("installs dependencies before building", async () => {
++    const exec = fake(["pnpm-lock.yaml"]);
++    await run(pi5, ["pnpm-lock.yaml"], exec);
++    expect(exec.indexOf(/pnpm install --frozen-lockfile/)).toBeLessThan(
++      exec.indexOf(/pnpm --filter .* build/),
++    );
++  });
++
++  it("uses a frozen lockfile, so a deploy can't quietly resolve different dependencies", async () => {
++    const exec = fake(["pnpm-lock.yaml"]);
++    await run(pi5, ["pnpm-lock.yaml"], exec);
++    expect(exec.ran(/pnpm install --frozen-lockfile/)).toBe(true);
++  });
++});
++
++describe("Stylus, whose checkout is not what runs", () => {
++  it("reinstalls the package rather than trusting the checkout", async () => {
++    const exec = fake(["packages/stylus/stylus/state_machine.py"]);
++    await run(pizero, ["packages/stylus/stylus/state_machine.py"], exec);
++    // Non-editable install: site-packages holds a copy `git pull` never touches (issue #201).
++    expect(exec.ran(/\.venv\/bin\/pip install --no-deps --quiet \./)).toBe(
++      true,
++    );
++    expect(exec.ran(/sudo systemctl restart marquee-stylus\.service/)).toBe(
++      true,
++    );
++  });
++
++  it("fails if the installed copy still differs from the checkout", async () => {
++    // The exact shape of #201: the service is active, the logs are clean, and it is running code
++    // four days old. The diff is the only thing that can tell.
++    const exec = fake(["packages/stylus/stylus/state_machine.py"]).route(
++      /diff -rq/,
++      {
++        stdout:
++          "Files stylus/state_machine.py and .../site-packages/stylus/state_machine.py differ\n",
++      },
++    );
++    await expect(
++      run(pizero, ["packages/stylus/stylus/state_machine.py"], exec),
++    ).rejects.toThrow(/running stale code/);
++  });
++
++  it("never tries to build Stylus", async () => {
++    const exec = fake(["packages/stylus/stylus/state_machine.py"]);
++    await run(pizero, ["packages/stylus/stylus/state_machine.py"], exec);
++    expect(exec.ran(/pnpm --filter stylus/)).toBe(false);
++  });
++});
++
++describe("proving a restart actually happened", () => {
++  it("fails when a unit has been running since before the checkout", async () => {
++    // "Restarted" and "restarted the new code" are different claims, and `systemctl status` makes
++    // the same face for both. The unit here reports having started an hour before the checkout.
++    const stale = Math.floor(CLOCK / 1000) - 3600;
++    const exec = fake(["packages/amp/src/server.ts"]).route(
++      /ActiveEnterTimestamp/,
++      {
++        stdout: `${stale}\n`,
++      },
++    );
++    await expect(
++      run(pi5, ["packages/amp/src/server.ts"], exec),
++    ).rejects.toThrow(/serving the previous commit/);
++  });
++
++  it("accepts a restart a second either side of the checkout", async () => {
++    // The timestamp has second resolution and the two readings are separate round trips, so an
++    // exact comparison would flag a genuinely fresh restart about half the time.
++    const exec = fake(["packages/amp/src/server.ts"]).route(
++      /ActiveEnterTimestamp/,
++      {
++        stdout: `${Math.floor(CLOCK / 1000) - 1}\n`,
++      },
++    );
++    await expect(
++      run(pi5, ["packages/amp/src/server.ts"], exec),
++    ).resolves.toBeDefined();
++  });
++
++  it("warns rather than fails when the start time can't be read", async () => {
++    const exec = fake(["packages/amp/src/server.ts"]).route(
++      /ActiveEnterTimestamp/,
++      {
++        code: 1,
++      },
++    );
++    await run(pi5, ["packages/amp/src/server.ts"], exec);
++    expect(report.warnings.join("\n")).toMatch(/not independently verified/);
++  });
++
++  it("fails if a unit never reaches active", async () => {
++    const exec = fake(["packages/amp/src/server.ts"]).route(
++      /^systemctl is-active/,
++      {
++        stdout: "failed\n",
++      },
++    );
++    await expect(
++      run(pi5, ["packages/amp/src/server.ts"], exec),
++    ).rejects.toThrow(/did not reach active/);
++  });
++});
++
++describe("the two probes that need a real remote shell", () => {
++  // `assertRestartedAfter` needs `$(…)` and the Stylus check needs `python*` to glob, so both build
++  // a script rather than an argv. That makes them the only places in this file where a configured
++  // value could land in shell syntax, so both route it through a quoted shell variable instead.
++  it("quotes the unit name in the restart-time probe", async () => {
++    const exec = fake(["packages/amp/src/server.ts"]);
++    await run(pi5, ["packages/amp/src/server.ts"], exec);
++    const probe = exec.matching(/sh -c u=/)[0] ?? "";
++    expect(probe).toContain("u='marquee-amp'");
++    // The bare interpolation this replaced.
++    expect(probe).not.toContain("--value marquee-amp.service");
++  });
++
++  it("survives a repo path containing a space", async () => {
++    // Not hypothetical enough to ignore: an unquoted path splits the diff into two wrong operands,
++    // which fails and surfaces as "running stale code" — an alarming, entirely wrong diagnosis.
++    const spaced = parseConfig({
++      hosts: {
++        pizero: {
++          ssh: "pi@zero",
++          repo: "/home/pi/My Marquee",
++          services: { stylus: { unit: "marquee-stylus", port: 4741 } },
++        },
++      },
++    })[0]!;
++    const exec = fake(["packages/stylus/stylus/state_machine.py"]);
++    await run(spaced, ["packages/stylus/stylus/state_machine.py"], exec);
++
++    const diff = exec.matching(/sh -c d=/)[0] ?? "";
++    expect(diff).toContain("d='/home/pi/My Marquee'");
++    // The two operands stay single words via "$d", and the glob stays outside the quotes.
++    expect(diff).toContain('"$d/packages/stylus/stylus/"');
++    expect(diff).toContain('"$d"/packages/stylus/.venv/lib/python*/');
++  });
++
++  it("keeps the python* glob unquoted, since the venv carries the interpreter version", async () => {
++    const exec = fake(["packages/stylus/stylus/state_machine.py"]);
++    await run(pizero, ["packages/stylus/stylus/state_machine.py"], exec);
++    const diff = exec.matching(/sh -c d=/)[0] ?? "";
++    expect(diff).toMatch(/python\*/);
++    expect(diff).not.toContain("'python*'");
++  });
++});
++
++describe("health checks", () => {
++  it("runs them on the host over loopback, never across the LAN", async () => {
++    // The runbook is explicit that mDNS resolves for ssh from Windows but not reliably for
++    // curl/undici — a check run from the workstation fails for reasons unrelated to the deploy.
++    const exec = fake(["packages/amp/src/server.ts"]);
++    await run(pi5, ["packages/amp/src/server.ts"], exec);
++    expect(exec.ran(/curl .*http:\/\/127\.0\.0\.1:4741\/healthz/)).toBe(true);
++    expect(exec.ran(/backdrop\.local\/healthz/)).toBe(false);
++  });
++
++  it("fails on an unhealthy service", async () => {
++    const exec = fake(["packages/amp/src/server.ts"]).route(/healthz/, {
++      stdout: "500",
++    });
++    await expect(
++      run(pi5, ["packages/amp/src/server.ts"], exec),
++    ).rejects.toThrow(/returned 500/);
++  });
++
++  it("treats Backdrop's 503 as a warning about the kiosk, not a dead backend", async () => {
++    // 503 means the backend is fine and no browser is attached — the most useful signal after a
++    // Backdrop deploy, because a crashed Chromium is invisible from `systemctl status`.
++    const exec = fake(["packages/amp/src/server.ts"]).route(
++      /127\.0\.0\.1:4740\/healthz/,
++      {
++        stdout: "503",
++      },
++    );
++    const outcome = await run(pi5, ["packages/amp/src/server.ts"], exec);
++    expect(outcome.warnings.join("\n")).toMatch(/no browser is attached/);
++  });
++
++  it("does not treat any other service's 503 as acceptable", async () => {
++    const exec = fake(["packages/amp/src/server.ts"]).route(
++      /127\.0\.0\.1:4737\/healthz/,
++      {
++        stdout: "503",
++      },
++    );
++    await expect(
++      run(pi5, ["packages/amp/src/server.ts"], exec),
++    ).rejects.toThrow(/returned 503/);
++  });
++});
++
++describe("the kiosk", () => {
++  it("reboots and waits for the host when the SPA changed", async () => {
++    const exec = fake(["packages/backdrop/public/index.html"]);
++    const outcome = await run(
++      pi5,
++      ["packages/backdrop/public/index.html"],
++      exec,
++    );
++    expect(exec.ran(/sudo systemctl reboot/)).toBe(true);
++    expect(outcome.rebooted).toBe(true);
++    // No build: the SPA is vanilla JS loaded as file:// straight from the working tree.
++    expect(exec.ran(/pnpm --filter .* build/)).toBe(false);
++  });
++
++  it("does not reboot for a backend-only change", async () => {
++    const exec = fake(["packages/backdrop/src/server.ts"]);
++    await run(pi5, ["packages/backdrop/src/server.ts"], exec);
++    expect(exec.ran(/reboot/)).toBe(false);
++  });
++
++  it("gives up rather than hanging if the host never comes back", async () => {
++    const exec = fake(["packages/backdrop/public/index.html"]).route(/^true$/, {
++      code: 255,
++    });
++    await expect(
++      run(pi5, ["packages/backdrop/public/index.html"], exec),
++    ).rejects.toThrow(/did not come back/);
++  });
++});
++
++describe("out-of-tree assets", () => {
++  const changed = ["packages/backdrop/deploy/kiosk.sh"];
++
++  it("installs a missing asset with the right mode and destination", async () => {
++    const exec = fake(changed);
++    const outcome = await run(pi5, changed, exec);
++    expect(
++      exec.ran(/install -D -m 755 \/dev\/stdin \/home\/pi\/kiosk\.sh/),
++    ).toBe(true);
++    expect(outcome.convergedAssets).toContain("kiosk-launcher");
++  });
++
++  it("writes unit files through sudo and reloads systemd once", async () => {
++    const exec = fake(changed);
++    await run(pi5, changed, exec);
++    expect(
++      exec.ran(
++        /sudo install -D -m 644 \/dev\/stdin \/etc\/systemd\/system\/backdrop\.service/,
++      ),
++    ).toBe(true);
++    expect(exec.matching(/sudo systemctl daemon-reload/)).toHaveLength(1);
++  });
++
++  it("leaves an already-matching asset alone", async () => {
++    // The common case, and the one that has to stay quiet or the interesting output is buried.
++    const exec = fake(changed).route(
++      /^sha256sum/,
++      installedHashes(pi5, repoRoot),
++    );
++    const outcome = await run(pi5, changed, exec);
++    expect(outcome.convergedAssets).toEqual([]);
++    expect(exec.ran(/install -D/)).toBe(false);
++    expect(exec.ran(/daemon-reload/)).toBe(false);
++  });
++
++  it("backs up an existing file before overwriting it", async () => {
++    const exec = fake(changed).route(/^sha256sum/, {
++      stdout: `${"f".repeat(64)}  x\n`,
++    });
++    await run(pi5, changed, exec);
++    expect(
++      exec.ran(/cp -p -- \/home\/pi\/kiosk\.sh \/home\/pi\/kiosk\.sh\.bak-/),
++    ).toBe(true);
++  });
++
++  it("restores the previous unit and reloads when the service won't start on the new one", async () => {
++    // A deploy that fails is acceptable; a deploy that fails *and* leaves the stand dead is not.
++    // Driven by a unit-file change, which is the case that both rewrites a unit and restarts onto it.
++    const unitChange = ["packages/backdrop/deploy/marquee-backdrop.service"];
++    const exec = fake(unitChange)
++      .route(/^sha256sum/, { stdout: `${"f".repeat(64)}  x\n` })
++      .route(/sudo systemctl restart backdrop\.service/, {
++        code: 1,
++        stderr: "Job failed\n",
++      });
++
++    await expect(run(pi5, unitChange, exec)).rejects.toThrow();
++    expect(
++      exec.ran(
++        /sudo cp -p -- \/etc\/systemd\/system\/backdrop\.service\.bak-\w+ \/etc\/systemd\/system\/backdrop\.service/,
++      ),
++    ).toBe(true);
++    // Two reloads: one for the install, one for the rollback.
++    expect(exec.matching(/daemon-reload/).length).toBeGreaterThanOrEqual(2);
++  });
++
++  it("removes a unit file it created, rather than restoring a backup that never existed", async () => {
++    // Reachable even though preflight proves the unit exists: `systemctl cat` finds a unit anywhere
++    // on the unit path, while this deployer always writes the /etc override. Rolling that back is a
++    // removal — restoring nothing would leave the broken new file shadowing the working one.
++    const unitChange = ["packages/backdrop/deploy/marquee-backdrop.service"];
++    const exec = fake(unitChange)
++      .route(/^sha256sum/, { code: 1, stderr: "No such file\n" })
++      .route(/sudo systemctl restart backdrop\.service/, { code: 1 });
++
++    await expect(run(pi5, unitChange, exec)).rejects.toThrow();
++    expect(
++      exec.ran(/sudo rm -f -- \/etc\/systemd\/system\/backdrop\.service/),
++    ).toBe(true);
++    expect(exec.ran(/sudo cp -p -- .*\.bak-/)).toBe(false);
++  });
++
++  it("takes asset content from the target commit, not the working tree", async () => {
++    // Found by the first real deploy, and the most expensive bug in this package's short life.
++    // Deploying `origin/main` from a feature branch based on an older commit, the deployer compared
++    // the Pi's installed `marquee-stylus.service` against the *branch's* copy — where main had
++    // changed it from `Type=simple` to `Type=notify` + `WatchdogSec=30`. They matched, nothing was
++    // converged, and the Pi ran the new watchdog-sending code under a unit that arms no watchdog.
++    // Every check passed. The fix reads assets via `git show <targetSha>:<path>`.
++    //
++    // The fake returns content that exists in NO file on disk, so a deployer that reads the working
++    // tree cannot produce it.
++    const fromCommit =
++      "[Unit]\nDescription=only in the target commit\nType=notify\n";
++    const exec = fake(["packages/stylus/marquee-stylus.service"]).route(
++      /^sha256sum/,
++      { stdout: `${"f".repeat(64)}  x\n` },
++    );
++
++    let written: string | undefined;
++    exec.route(/install -D -m 644 \/dev\/stdin/, (cmd) => {
++      written = cmd.stdin;
++      return {};
++    });
++
++    await run(
++      pizero,
++      ["packages/stylus/marquee-stylus.service"],
++      exec,
++      options({ readAssetSource: async () => fromCommit }),
++    );
++
++    expect(written).toBe(fromCommit);
++    expect(written).toContain("Type=notify");
++  });
++
++  it("leaves an asset alone when it doesn't exist at the target commit, and says so", async () => {
++    // What makes rollback work. The manifest lists assets this repo tracks *now*; deploying a commit
++    // from before one was tracked must leave the host's copy alone rather than failing on a `git
++    // show` for a path that isn't in that tree. Real case: three of the four units are added by the
++    // same change that added this deployer, so any commit before it has no such file.
++    const exec = fake(["packages/stylus/marquee-stylus.service"]);
++    const outcome = await run(
++      pizero,
++      ["packages/stylus/marquee-stylus.service"],
++      exec,
++      options({ readAssetSource: async () => null }),
++    );
++
++    expect(outcome.convergedAssets).toEqual([]);
++    expect(exec.ran(/install -D/)).toBe(false);
++    expect(report.warnings.join("\n")).toMatch(
++      /does not exist at .* left as-is/s,
++    );
++  });
++
++  it("gives the Pi Zero no kiosk assets", async () => {
++    const exec = fake(["packages/stylus/marquee-stylus.service"]);
++    const outcome = await run(
++      pizero,
++      ["packages/stylus/marquee-stylus.service"],
++      exec,
++    );
++    expect(outcome.convergedAssets).toEqual(["stylus-unit"]);
++    expect(exec.ran(/kiosk\.sh/)).toBe(false);
++  });
++});
++
++describe("preflight refuses before it breaks anything", () => {
++  it("refuses a dirty tree rather than discarding the work", async () => {
++    const exec = fake([]).route(/^git status/, {
++      stdout: " M packages/amp/src/server.ts\n",
++    });
++    await expect(preflight(pi5, exec, options(), report)).rejects.toThrow(
++      /local modifications/,
++    );
++    expect(exec.ran(/git checkout/)).toBe(false);
++  });
++
++  it("proceeds over a dirty tree with --allow-dirty, but says so", async () => {
++    const exec = fake([]).route(/^git status/, {
++      stdout: " M packages/amp/src/server.ts\n",
++    });
++    await preflight(pi5, exec, options({ allowDirty: true }), report);
++    expect(report.warnings.join("\n")).toMatch(/local modifications/);
++  });
++
++  it("fails when a configured unit doesn't exist, and says how to find the real name", async () => {
++    const exec = fake([]).route(/^systemctl cat --no-pager backdrop/, {
++      code: 1,
++    });
++    await expect(preflight(pi5, exec, options(), report)).rejects.toThrow(
++      /systemctl list-units/,
++    );
++  });
++
++  it("fails when the target commit isn't on the host after a fetch", async () => {
++    const exec = fake([]).route(/^git cat-file/, { code: 1 });
++    await expect(preflight(pi5, exec, options(), report)).rejects.toThrow(
++      /is it pushed to origin/,
++    );
++  });
++
++  it("fails when the repo path isn't a checkout", async () => {
++    const exec = fake([]).route(/^git rev-parse HEAD/, {
++      code: 128,
++      stderr: "not a git repository",
++    });
++    await expect(preflight(pi5, exec, options(), report)).rejects.toThrow(
++      /no git checkout/,
++    );
++  });
++
++  it("fails when passwordless sudo isn't available", async () => {
++    const exec = fake([]).route(/^sudo -n true/, { code: 1 });
++    await expect(preflight(pi5, exec, options(), report)).rejects.toThrow(
++      /passwordless sudo/,
++    );
++  });
++});
++
++describe("the run as a whole", () => {
++  it("preflights every host before mutating any of them", async () => {
++    // The property that stops a typo in the Pi Zero's hostname from being discovered after the
++    // Pi 5 has already restarted three services.
++    const exec = fake(["packages/contracts/src/index.ts"]);
++    await deploy(inventory, exec, options(), report);
++
++    const firstMutation = exec.indexOf(/git checkout/);
++    const lastPreflight = exec.calls.reduce(
++      (last, call, i) => (/systemctl cat|sudo -n true/.test(call) ? i : last),
++      -1,
++    );
++    expect(lastPreflight).toBeLessThan(firstMutation);
++  });
++
++  it("stops before the second host when the first fails", async () => {
++    const exec = fake(["packages/contracts/src/index.ts"]).route(
++      /sudo systemctl restart marquee-conductor/,
++      { code: 1, stderr: "Job for marquee-conductor.service failed\n" },
++    );
++    await expect(deploy(inventory, exec, options(), report)).rejects.toThrow();
++    expect(exec.ran(/pizero: sudo systemctl restart/)).toBe(false);
++  });
++
++  it("deploys the Pis in order", async () => {
++    const exec = fake(["packages/contracts/src/index.ts"]);
++    await deploy(inventory, exec, options(), report);
++    expect(exec.indexOf(/^pi5: git checkout/)).toBeLessThan(
++      exec.indexOf(/^pizero: git checkout/),
++    );
++  });
++
++  it("warns once, at plan time, when an unrecognized path forced a full deploy", async () => {
++    const exec = fake(["packages/something-new/src/x.ts"]);
++    await deploy(inventory, exec, options(), report);
++    expect(report.warnings.join("\n")).toMatch(/match no rule/);
++    expect(report.warnings.join("\n")).toMatch(
++      /packages\/something-new\/src\/x\.ts/,
++    );
++  });
++
++  it("changes nothing that runs on a dry run", async () => {
++    const exec = fake(["packages/amp/src/server.ts"]);
++    await deploy(inventory, exec, options({ dryRun: true }), report);
++    for (const forbidden of [
++      /git checkout/,
++      /systemctl restart/,
++      /install -D/,
++      /pnpm/,
++      /pip install/,
++      /reboot/,
++    ]) {
++      expect(exec.ran(forbidden)).toBe(false);
++    }
++  });
++
++  it("still fetches on a dry run, so the plan is the real one", async () => {
++    // Found by running it: without the fetch the hosts don't have the target commit, `git diff`
++    // can't resolve, and every host escalates to a full deploy — so --dry-run printed the
++    // pessimistic plan rather than what a deploy would actually do. A fetch writes refs and objects
++    // into .git and touches neither the working tree nor a running service.
++    const exec = fake(["packages/amp/src/server.ts"]);
++    await deploy(inventory, exec, options({ dryRun: true }), report);
++    expect(exec.ran(/git fetch/)).toBe(true);
++    expect(exec.ran(/git diff --name-only/)).toBe(true);
++  });
++
++  it("--full rebuilds everything regardless of the diff", async () => {
++    const exec = fake(["docs/runbook.md"]);
++    await deploy(inventory, exec, options({ full: true }), report);
++    expect(exec.ran(/pnpm --filter @marquee\/amp build/)).toBe(true);
++    expect(exec.ran(/pip install --no-deps/)).toBe(true);
++  });
++});
++
++describe("restricting a change set to one host", () => {
++  it("drops services the host doesn't run", () => {
++    const e = restrictToHost(fullEffects(), pizero);
++    expect([...e.build]).toEqual([]);
++    expect([...e.restart]).toEqual(["stylus"]);
++    expect(e.kioskReload).toBe(false);
++    expect(e.pipInstall).toBe(true);
++  });
++
++  it("skips the install when the host will build nothing", () => {
++    // A `pnpm install` on the Pi Zero for a lockfile change is minutes of native compilation for a
++    // service that is Python and builds nothing.
++    expect(
++      restrictToHost(effectsFor(["pnpm-lock.yaml"]), pizero).pnpmInstall,
++    ).toBe(false);
++    expect(
++      restrictToHost(effectsFor(["pnpm-lock.yaml"]), pi5).pnpmInstall,
++    ).toBe(true);
++  });
++
++  it("keeps the kiosk reload only for the host that drives the display", () => {
++    const changed = effectsFor(["packages/backdrop/public/index.html"]);
++    expect(restrictToHost(changed, pi5).kioskReload).toBe(true);
++    expect(restrictToHost(changed, pizero).kioskReload).toBe(false);
++  });
++});
++
++describe("describeEffects", () => {
++  it("summarises a change set in the order the work happens", () => {
++    expect(describeEffects(effectsFor(["pnpm-lock.yaml"]))).toMatch(
++      /^pnpm install; build .*; pip install stylus; converge assets; restart /,
++    );
++  });
++
++  it("is empty for an empty change set", () => {
++    expect(describeEffects(effectsFor(["docs/x.md"]))).toBe("");
++  });
++});
++
++describe("errors are the actionable kind", () => {
++  it("names the host, the unit and the fix when a restart is stale", async () => {
++    const exec = fake(["packages/amp/src/server.ts"]).route(
++      /ActiveEnterTimestamp/,
++      {
++        stdout: `${Math.floor(CLOCK / 1000) - 3600}\n`,
++      },
++    );
++    const err = await run(pi5, ["packages/amp/src/server.ts"], exec).catch(
++      (e: Error) => e,
++    );
++    expect(err).toBeInstanceOf(DeployError);
++    expect((err as Error).message).toContain("pi5");
++    expect((err as Error).message).toContain("marquee-amp");
++  });
++
++  it("distinguishes a stale Curator from a deploy failure", () => {
++    // Different class, because the fix is different: nothing on a Pi is wrong, and the operator has
++    // to restart an app rather than re-run anything.
++    expect(new CuratorStaleError("x")).not.toBeInstanceOf(DeployError);
++  });
++});
+diff --git a/packages/deploy/tsconfig.json b/packages/deploy/tsconfig.json
+new file mode 100644
+index 0000000..4b1980d
+--- /dev/null
++++ b/packages/deploy/tsconfig.json
+@@ -0,0 +1,9 @@
++{
++  "extends": "../../tsconfig.base.json",
++  "compilerOptions": {
++    "outDir": "./dist",
++    "rootDir": "./src",
++    "types": ["node"]
++  },
++  "include": ["src/**/*"]
++}
+diff --git a/packages/hue-conductor/deploy/marquee-conductor.service b/packages/hue-conductor/deploy/marquee-conductor.service
+new file mode 100644
+index 0000000..951fa24
+--- /dev/null
++++ b/packages/hue-conductor/deploy/marquee-conductor.service
+@@ -0,0 +1,23 @@
++[Unit]
++Description=Marquee Hue Conductor — lighting driver
++Documentation=https://github.com/dylanleatham/Marquee/blob/main/docs/runbook.md
++# The Pi can finish booting before the LAN is routable, and Conductor talks to the Hue bridge over
++# it from the first request. Without network-online the first scans after a reboot fail against an
++# unreachable bridge and read as a pairing problem.
++After=network-online.target
++Wants=network-online.target
++
++[Service]
++Type=simple
++User=pi
++WorkingDirectory=/home/pi/Marquee/packages/hue-conductor
++ExecStart=/usr/bin/node /home/pi/Marquee/packages/hue-conductor/dist/server.js
++Restart=on-failure
++RestartSec=3
++# Journald is bounded and rotates; a log file on the SD card grows forever and wears the card out.
++StandardOutput=journal
++StandardError=journal
++SyslogIdentifier=marquee-conductor
++
++[Install]
++WantedBy=multi-user.target
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index d6bf8f5..4521aff 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -219,6 +219,21 @@ importers:
+         specifier: ^2
+         version: 2.9.0
+ 
++  packages/deploy:
++    devDependencies:
++      '@types/node':
++        specifier: ^22.7.5
++        version: 22.20.1
++      tsx:
++        specifier: ^4.19.1
++        version: 4.23.0
++      typescript:
++        specifier: ^5.6.2
++        version: 5.9.3
++      vitest:
++        specifier: ^2.1.3
++        version: 2.1.9(@types/node@22.20.1)(jsdom@25.0.1)
++
+   packages/desktop:
+     devDependencies:
+       '@types/node':
