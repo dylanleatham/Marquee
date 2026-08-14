@@ -1,6 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
+import {
+  readdirSync,
+  readFileSync,
+  existsSync,
+  statSync,
+  mkdtempSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { globToRegExp, matchesAny, mapWithConcurrency } from "./util.mjs";
@@ -18,6 +26,7 @@ import {
   resolveConcurrency,
   resolveSamples,
   runSpecialist,
+  spawnOnce,
 } from "./claude.mjs";
 import { summarizeRun, silentWarning, foldSamples } from "./outcome.mjs";
 import { composePrompt, repairPrompt } from "./prompt.mjs";
@@ -1405,4 +1414,69 @@ test("foldSamples: one surviving sample is a verdict, and the failures are count
   assert.equal(folded.status, "ran");
   assert.equal(folded.findings.length, 1);
   assert.equal(folded.failedSamples, 2);
+});
+
+// --- the prompt must arrive intact (the truncation hypothesis, refuted 2026-08-14) --------------
+
+/**
+ * A throwaway .mjs helper. Real invocations pass a script *path*, never `node -e`, because under
+ * `shell: true` on Windows cmd.exe mangles an inline script's quotes and braces — which is itself
+ * a small lesson about how much the shell flag changes.
+ */
+function helper(body) {
+  const dir = mkdtempSync(join(tmpdir(), "spawn-once-"));
+  const file = join(dir, "h.mjs");
+  writeFileSync(file, body);
+  return file;
+}
+
+test("spawnOnce: a prompt larger than any real one arrives byte-identical", async () => {
+  // `null-result` scored 0/9 and then 16/20 with no change to its prompt, and the leading suspect
+  // was that the old `spawnSync(..., { shell: true })` path truncated large stdin on Windows —
+  // null-result has the longest composed prompt on the roster at ~11,900 chars. Probing both paths
+  // at 1KB…128KB showed byte-identical delivery, so that explanation is dead.
+  //
+  // The test stays because the property is worth holding regardless: a specialist handed a
+  // truncated prompt answers `[]`, which is indistinguishable from a clean review. If delivery ever
+  // does start clipping, this fails loudly instead of quietly halving the roster's recall.
+  const sink = helper(
+    "let n=0;process.stdin.on('data',c=>n+=c.length);" +
+      "process.stdin.on('end',()=>process.stdout.write(String(n)))",
+  );
+  const prompt = "review this diff; ".repeat(8000); // ~144KB, an order over the real thing
+  const res = await spawnOnce("node", [sink], {
+    input: prompt,
+    timeout: 30_000,
+    maxBuffer: 32 * 1024 * 1024,
+    shell: process.platform === "win32",
+  });
+  assert.equal(res.error, undefined, `spawn failed: ${res.error}`);
+  assert.equal(res.status, 0, `stderr: ${res.stderr}`);
+  assert.equal(Number(res.stdout), Buffer.byteLength(prompt));
+});
+
+test("spawnOnce: a child that outruns maxBuffer errors rather than returning a clipped reply", async () => {
+  // `spawn` has no maxBuffer of its own, so this is enforced by hand — and it has to fail rather
+  // than hand back a clipped reply, which would parse as findings the specialist never finished.
+  const noisy = helper("process.stdout.write('x'.repeat(50000))");
+  const res = await spawnOnce("node", [noisy], {
+    input: "",
+    timeout: 30_000,
+    maxBuffer: 1000,
+    shell: process.platform === "win32",
+  });
+  assert.match(String(res.error), /maxBuffer/);
+});
+
+test("spawnOnce: a child that overruns its budget reports ETIMEDOUT, so RA-2 can retry it", async () => {
+  // `spawn`'s own `timeout` kills without setting this code, and the retry rule is written against
+  // it — lose the code and a transient overrun stops being retried.
+  const slow = helper("setTimeout(() => {}, 10000)");
+  const res = await spawnOnce("node", [slow], {
+    input: "",
+    timeout: 500,
+    maxBuffer: 1000,
+    shell: process.platform === "win32",
+  });
+  assert.equal(res.error?.code, "ETIMEDOUT");
 });

@@ -104,7 +104,7 @@ export function resolveSamples(env = process.env) {
  * written against. Both are therefore enforced here, and the result is normalised back to the
  * `spawnSync` shape so `interpret` and every retry test keep working unchanged.
  */
-function spawnOnce(bin, args, { input, timeout, maxBuffer, shell }) {
+export function spawnOnce(bin, args, { input, timeout, maxBuffer, shell }) {
   return new Promise((resolve) => {
     let child;
     try {

@@ -139,23 +139,29 @@ On 2026-08-14 the baseline was recorded at `--repeat 5`, and the same four cases
 same examples, same config.
 
 So the earlier conclusion was wrong, and this section previously stated it as established fact. What
-replaced it is not a better conclusion but a live question. Two candidates:
+replaced it is not a better conclusion but a live question. Two candidates were considered, and **the mechanical one has been tested and refuted.**
 
-1. **Run-to-run variance is far larger than assumed.** Nine runs sounded like enough. If the true
-   rate is 80%, nine consecutive misses has probability 0.2⁹ ≈ 5×10⁻⁷, so this would have to mean
-   something correlated the runs — time of day, load, an upstream model change — rather than
-   independent sampling.
-2. **The spawn rewrite ([ADR 0087](../../docs/adrs/0087-specialists-run-concurrently-under-a-cap.md)).**
-   Every 0/9 measurement predates it and used `spawnSync` with `shell: true`; every measurement
-   since uses `spawn` with an explicit `stdin.end()`. `null-result`'s composed prompt is the largest
-   on the roster (11,887 chars against `runtime`'s 8,273), so if the old path truncated or raced
-   large stdin on Windows, this reviewer would be the first to lose its examples — and a specialist
-   handed a truncated prompt would answer `[]` exactly as observed.
+1. **The spawn rewrite ([ADR 0087](../../docs/adrs/0087-specialists-run-concurrently-under-a-cap.md))
+   — ruled out.** Every 0/9 measurement predates it and used `spawnSync` with `shell: true`; every
+   measurement since uses `spawn` with an explicit `stdin.end()`. Since `null-result` has the longest
+   composed prompt on the roster (11,887 chars against `runtime`'s 8,273), a path that clipped large
+   stdin would have starved this reviewer first, and a specialist handed a truncated prompt answers
+   `[]` exactly as observed.
 
-Candidate 2 is testable and worth testing, because if it is right then **every measurement in this
-suite taken before ADR 0087 is suspect**, including the 33–50% detection rate that
-[ADR 0088](../../docs/adrs/0088-a-review-samples-each-specialist-and-unions-the-findings.md) was
-argued from.
+   Both paths were probed head to head at 1KB, 4KB, 8KB, 11,887 (the real size), 16KB, 32KB, 64KB
+   and 128KB, comparing byte length and SHA-256 of what actually arrived. **Every size delivered
+   identically on both paths.** Nothing was being truncated. Kept as three regression tests on
+   `spawnOnce` in `lib/lib.test.mjs`, because the property is worth holding even though it was never
+   the culprit.
+
+2. **Something correlated the runs, on a timescale of about a day.** This is what is left, and it is
+   not a satisfying answer. Nine consecutive misses against a true rate of 80% has probability
+   0.2⁹ ≈ 5×10⁻⁷, so the runs cannot have been independent draws from today's distribution. Load,
+   time of day, or an upstream change to the model or CLI between 2026-08-13 and 2026-08-14 would
+   all produce this shape, and none of them is something this repo can pin.
+
+   Note the one fact that argues against a blanket upstream shift: `runtime` measured 50% on both
+   days, unchanged. Whatever moved did not move everything.
 
 The methodological point stands regardless: this suite is the only reason any of this is visible,
 and it has now caught its own earlier conclusion being wrong. A number from nine runs is not a fact.
