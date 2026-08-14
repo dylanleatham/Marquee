@@ -11,6 +11,7 @@ const DEFAULT_TIMEOUT_MS = 90_000; // per-specialist budget (dev-harness §6 fai
 const DEFAULT_RETRIES = 1; // extra attempts on a *timeout* only (RA-2)
 const DEFAULT_REPAIR_TIMEOUT_MS = 60_000; // a reformat carries no diff (RA-4)
 const DEFAULT_CONCURRENCY = 3; // sessions in flight at once
+const DEFAULT_SAMPLES = 3; // runs per specialist, findings unioned (ADR 0088)
 const IS_WIN = process.platform === "win32";
 
 export const isMock = () => process.env.REVIEW_MOCK === "1";
@@ -75,6 +76,23 @@ export function resolveRepairTimeoutMs(env = process.env) {
  */
 export function resolveConcurrency(env = process.env) {
   return positiveInt(env.REVIEW_CONCURRENCY) ?? DEFAULT_CONCURRENCY;
+}
+
+/**
+ * How many times each triggered specialist runs, with the findings unioned (`REVIEW_SAMPLES`,
+ * default 3).
+ *
+ * Because one run is not what these reviewers are. Measured across the case set, detection sits at
+ * 33–50% *per run*, and the cases land at 2/5 and 4/5 rather than at 0/5 — they recognise the bug
+ * and simply fail to mention it most of the time. Scored as a union of five runs instead of a
+ * majority, `runtime`'s recall on the same sessions goes from 1/4 to **4/4**, with false positives
+ * unchanged at 0/2.
+ *
+ * Three rather than five: the measured gain is mostly in the first extra samples, and this
+ * multiplies the token cost of every review. `REVIEW_SAMPLES=1` restores single-sampling.
+ */
+export function resolveSamples(env = process.env) {
+  return positiveInt(env.REVIEW_SAMPLES) ?? DEFAULT_SAMPLES;
 }
 
 /**

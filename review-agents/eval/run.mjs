@@ -10,6 +10,7 @@
 //     --write-baseline    record this run as the new baseline
 //     --no-cache          ignore cached results
 //     --show              print what each specialist actually said
+//     --aggregate <mode>  majority (default) | union — how N runs collapse into one verdict
 //     --json              machine-readable output
 //   Env: REVIEW_MOCK=1 / REVIEW_MOCK_OUTPUT to exercise the pipeline without tokens.
 //
@@ -39,7 +40,9 @@ import {
   validateCase,
   filesFromPatch,
   scoreCase,
-  majorityOutcome,
+  aggregate,
+  outcomeFromCounts,
+  AGGREGATES,
   cacheKey,
   cachePolicy,
   gatePolicy,
@@ -68,7 +71,14 @@ const opts = {
   noCache: has("--no-cache"),
   show: has("--show"),
   json: has("--json"),
+  aggregate: val("--aggregate") ?? "majority",
 };
+if (!AGGREGATES.includes(opts.aggregate)) {
+  console.error(
+    `review-agents eval: --aggregate must be one of ${AGGREGATES.join(" | ")}`,
+  );
+  process.exit(1);
+}
 
 /** Load every case directory, failing loudly on a malformed one. */
 function loadCases() {
@@ -191,7 +201,8 @@ async function main() {
   console.log(
     `review-agents eval: ${cases.length} case(s) × ${opts.repeat} run(s)` +
       (isMock() ? " [MOCK]" : "") +
-      `${opts.noCache ? " [no cache]" : ""}`,
+      `${opts.noCache ? " [no cache]" : ""}` +
+      (opts.aggregate === "union" ? " [union]" : ""),
   );
 
   const results = [];
@@ -231,7 +242,16 @@ async function main() {
     });
     const cached = readCache(key);
     if (cached) {
-      results.push({ ...base, ...cached, cached: true });
+      // Re-scored, not replayed: the cache holds hits/runs, so an aggregate mode chosen after the
+      // sessions were spent is exact rather than approximate.
+      const outcome =
+        cached.runs > 0
+          ? outcomeFromCounts(cached, {
+              mode: opts.aggregate,
+              kind: testCase.kind,
+            })
+          : cached.outcome;
+      results.push({ ...base, ...cached, outcome, cached: true });
       console.log(
         `  ✓ ${testCase.id}: ${cached.outcome} (${cached.hits}/${cached.runs}) [cached]`,
       );
@@ -264,8 +284,11 @@ async function main() {
       results.push({ ...base, outcome: "error", hits: 0, runs: 0 });
       continue;
     }
-    const verdict = majorityOutcome(outcomes);
-    writeCache(key, verdict);
+    const verdict = aggregate(outcomes, {
+      mode: opts.aggregate,
+      kind: testCase.kind,
+    });
+    writeCache(key, { hits: verdict.hits, runs: verdict.runs });
     results.push({ ...base, ...verdict });
     console.log(
       `  ✓ ${testCase.id}: ${verdict.outcome} (${verdict.hits}/${verdict.runs})`,

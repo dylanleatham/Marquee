@@ -9,12 +9,14 @@
 //     --reviewer <id>      run a single specialist
 //     --explain            print the context sent to each specialist
 //     --fast               only the blocking specialists — the mid-session check
+//     --samples <n>        runs per specialist, findings unioned (default 3; REVIEW_SAMPLES)
 //     --triage             judge the last report's findings into review-agents/ledger.jsonl
 //     --stats              print per-specialist volume + precision from the ledger
 //   Env: REVIEW_MOCK=1 (skip real Claude calls), CLAUDE_CODE_PATH (binary override),
 //        REVIEW_TIMEOUT_MS (per-specialist spawn budget in ms, default 90000),
 //        REVIEW_TIMEOUT_RETRIES (extra attempts on a timeout, default 1),
-//        REVIEW_CONCURRENCY (sessions in flight at once, default 3)
+//        REVIEW_CONCURRENCY (sessions in flight at once, default 3),
+//        REVIEW_SAMPLES (runs per specialist, unioned, default 3)
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -31,10 +33,11 @@ import {
   runSpecialist,
   resolveRepairTimeoutMs,
   resolveConcurrency,
+  resolveSamples,
   isMock,
 } from "./lib/claude.mjs";
 import { mapWithConcurrency } from "./lib/util.mjs";
-import { summarizeRun, silentWarning } from "./lib/outcome.mjs";
+import { summarizeRun, silentWarning, foldSamples } from "./lib/outcome.mjs";
 import { composePrompt, repairPrompt } from "./lib/prompt.mjs";
 import {
   parseWithRepair,
@@ -73,6 +76,7 @@ const opts = {
   reviewer: val("--reviewer"),
   explain: has("--explain"),
   fast: has("--fast"),
+  samples: val("--samples"),
   triage: has("--triage"),
   stats: has("--stats"),
 };
@@ -168,11 +172,21 @@ async function main() {
   if (opts.fast) relevant = relevant.filter((s) => s.blocking);
 
   const concurrency = resolveConcurrency();
+  const samples = resolveSamples(
+    opts.samples ? { REVIEW_SAMPLES: opts.samples } : process.env,
+  );
+  // One entry per (specialist, sample) so the concurrency cap counts actual sessions, not reviewers.
+  const work = relevant.flatMap((config) =>
+    Array.from({ length: samples }, () => config),
+  );
   console.log(
     `review-agents: ${files.length} file(s) changed; running ${relevant.length}/${specialists.length} specialist(s)` +
       (isMock() ? " [MOCK]" : "") +
       (opts.fast ? " [FAST]" : "") +
-      `\n  base=${base.slice(0, 12)} sha=${sha.slice(0, 12)} concurrency=${concurrency}`,
+      `\n  base=${base.slice(0, 12)} sha=${sha.slice(0, 12)} concurrency=${concurrency}` +
+      (samples > 1
+        ? ` samples=${samples} (${work.length} sessions, findings unioned)`
+        : ""),
   );
   if (skippedByFast.length)
     console.log(
@@ -180,8 +194,8 @@ async function main() {
         `${skippedByFast.map((s) => s.id).join(", ")}. Run without --fast before the PR.`,
     );
 
-  const runs = await mapWithConcurrency(
-    relevant,
+  const sampled = await mapWithConcurrency(
+    work,
     concurrency,
     async (config) => {
       const started = Date.now();
@@ -275,9 +289,11 @@ async function main() {
         specialist: config.id,
         blocking: !!config.blocking,
       });
-      console.log(
-        `  ✓ ${config.id}: ${findings.length} finding(s) in ${durationMs}ms`,
-      );
+      // With sampling on, the per-sample line is noise — the union line below is the result.
+      if (samples === 1)
+        console.log(
+          `  ✓ ${config.id}: ${findings.length} finding(s) in ${durationMs}ms`,
+        );
       return {
         id: config.id,
         blocking: !!config.blocking,
@@ -288,6 +304,22 @@ async function main() {
       };
     },
   );
+
+  // Union each specialist's samples, then dedupe across specialists as before.
+  const runs = relevant.map((config) =>
+    foldSamples(
+      config.id,
+      !!config.blocking,
+      sampled.filter((r) => r.id === config.id),
+      dedupe,
+    ),
+  );
+  for (const r of runs)
+    if (r.samples > 1 && (r.status === "ran" || r.status === "no-findings"))
+      console.log(
+        `  = ${r.id}: ${r.findings.length} finding(s) unioned from ${r.samples} sample(s)` +
+          (r.failedSamples ? `, ${r.failedSamples} failed` : ""),
+      );
 
   const all = dedupe(runs.flatMap((r) => r.findings));
   return finish(runs, all);

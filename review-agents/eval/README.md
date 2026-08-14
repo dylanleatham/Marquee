@@ -13,6 +13,7 @@ node review-agents/eval/run.mjs --reviewer runtime # one specialist's cases
 node review-agents/eval/run.mjs --repeat 1         # cheaper, noisier (default 3)
 node review-agents/eval/run.mjs --write-baseline   # record this run as the new baseline
 node review-agents/eval/run.mjs --no-cache         # ignore cached results
+node review-agents/eval/run.mjs --aggregate union  # score N runs as a union, not a majority
 ```
 
 `pnpm run review:eval` is the same thing.

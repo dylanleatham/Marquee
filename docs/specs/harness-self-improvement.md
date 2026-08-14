@@ -4,13 +4,13 @@ How the review harness learns. Extends [dev-harness.md](dev-harness.md) §6 (the
 §11 (observability of the harness itself) and §12 (iteration) — read those first; this document
 does not repeat them.
 
-Status: **Phases 1–4 built (2026-08-13); Phases 5–6 proposed.** Sections 1–5 are the design; §6 is
+Status: **Phases 1–5 built (2026-08-13); Phase 6 proposed.** Sections 1–5 are the design; §6 is
 the implementation plan and carries the per-phase status; §7 records what is deliberately out of
 scope.
 
 §4.1 (the ledger), §4.2 (the eval gate), §4.3 (the two new specialists) and §4.4 (latency) describe
-shipped behaviour. **§4.5 (refute-or-promote) and §4.6 (the retro) do not.** Note that §4.5's premise
-has since been contradicted by measurement — see the note there before building it.
+shipped behaviour. **§4.5 (refute-or-promote) was measured and rejected** — sampling-and-union
+shipped in its place, see the note there and ADR 0088. **§4.6 (the retro) is not built.**
 
 ---
 
@@ -577,7 +577,21 @@ result, and a suite built on synchronous fakes cannot see it.
 **ADR:** _specialists run concurrently under a cap_ — the sequential choice was deliberate and
 documented, so reversing it is a recorded decision, with the measured numbers in the consequences.
 
-### Phase 5 — hermeticity and refute-or-promote
+### Phase 5 — hermeticity and sampling — **shipped 2026-08-13**
+
+Refute-or-promote was **not built**. Its premise did not survive measurement, and its own acceptance
+criterion — "no recall loss and a measurable FP drop" — was unsatisfiable, because the measured
+false-positive rate is zero and there is nothing below zero. What shipped instead is the inverse
+intervention on the same evidence: each specialist is **sampled `REVIEW_SAMPLES` times per review
+and its findings unioned**, taking `runtime`'s recall from 1/4 to 4/4 on the same cached sessions.
+[ADR 0088](../adrs/0088-a-review-samples-each-specialist-and-unions-the-findings.md).
+
+The `test-auditor` half was smaller than planned: the prompt already carried two of the five
+hermeticity rules (#244 literal dates, #32 ambient state), so only the network, fixed shared paths
+and inter-test order dependence were genuinely missing. Worth reading a prompt before proposing an
+extension to it.
+
+### Phase 5 (as originally planned) — hermeticity and refute-or-promote
 
 **Goal:** raise blocking-finding precision; close the test-hermeticity class.
 

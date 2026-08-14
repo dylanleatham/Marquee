@@ -19,6 +19,48 @@ const NO_VERDICT = new Set(["unavailable", "error"]);
  *   `clean` is true only when there is nothing to act on *and* every blocking specialist actually
  *   reviewed the diff — the one condition under which "no findings" is an honest thing to say.
  */
+/**
+ * Fold a specialist's N sampled runs into the single result the report and the gate see.
+ *
+ * The findings are **unioned**, not voted on: at a measured 33–50% detection per run, a majority
+ * would throw away exactly the findings this exists to recover — one run noticing the bug is the
+ * whole point (ADR 0088). `dedupe` collapses the overlap and keeps a blocking duplicate over an
+ * info one, so a finding raised once as blocking still blocks.
+ *
+ * A specialist counts as having run if *any* sample did. All samples failing is `unavailable`,
+ * which is what RA-3 gates on — a dimension that produced no verdict is a hole in the review, and
+ * sampling must not turn that into a quiet pass just because one attempt of three came back empty.
+ */
+export function foldSamples(id, blocking, samples, dedupe) {
+  const usable = samples.filter(
+    (s) => s.status === "ran" || s.status === "no-findings",
+  );
+  const durationMs = samples.reduce((n, s) => n + (s.durationMs ?? 0), 0);
+  if (!usable.length) {
+    return {
+      ...samples[0],
+      id,
+      blocking,
+      durationMs,
+      samples: samples.length,
+      findings: [],
+    };
+  }
+  const findings = dedupe(usable.flatMap((s) => s.findings));
+  return {
+    id,
+    blocking,
+    status: findings.length ? "ran" : "no-findings",
+    repaired: samples.some((s) => s.repaired),
+    unformattedSamples: samples.filter((s) => s.status === "unformatted")
+      .length,
+    failedSamples: samples.length - usable.length,
+    samples: samples.length,
+    durationMs,
+    findings,
+  };
+}
+
 export function summarizeRun(runs = [], findings = []) {
   const blocking = findings.filter((f) => f.severity === "blocking");
   const silent = runs

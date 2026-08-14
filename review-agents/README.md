@@ -72,11 +72,31 @@ pnpm run review --staged            # review staged changes
 pnpm run review --reviewer security # run one specialist
 pnpm run review --explain           # also print the context sent to each specialist
 pnpm run review --fast              # only the blocking specialists — the mid-session check
+pnpm run review --samples 1         # one run per specialist instead of the default 3
 pnpm run review --ci                # hook mode: write report, exit 1 on blocking findings
 pnpm run review --triage            # judge the last report's findings into the ledger
 pnpm run review:stats               # what the ledger adds up to
 pnpm run review:eval                # score the reviewers against the frozen case set
 ```
+
+## Sampling — why a review runs each specialist three times
+
+Measured across the frozen case set, a specialist detects a real bug **33–50% of the time per run**,
+and the misses are not blindness: cases land at 2/5 and 4/5, never 0/5. They recognise the bug and
+fail to mention it. So a review runs each triggered specialist `REVIEW_SAMPLES` times (default 3)
+and **unions** the findings — one sample noticing something is enough for it to reach the report
+([ADR 0088](../docs/adrs/0088-a-review-samples-each-specialist-and-unions-the-findings.md)).
+
+Scored on the same cached sessions, `runtime`'s recall goes from **1/4** (majority) to **4/4**
+(union), with false positives unchanged at 0/2.
+
+It costs 3× the sessions, which is why the header prints the session count. `--samples 1` or
+`REVIEW_SAMPLES=1` restores single-sampling. A finding raised as blocking by even one sample still
+blocks; a specialist counts as unavailable only if _every_ sample failed.
+
+The honest caveat: union collects each run's false positives as well as its findings, and the
+zero-FP evidence rests on three clean cases. Widening that side of
+[the case set](eval/README.md) is the prerequisite for trusting this.
 
 ## The ledger — what this harness remembers
 
@@ -108,7 +128,8 @@ applies to this instrument as much as to the ones it watches.
 Commit the ledger with your PR. `.gitattributes` marks it `merge=union` so two branches that both
 triaged a review keep both sides' records.
 
-Env: `REVIEW_CONCURRENCY` (sessions in flight, default `3` — drop it to `1` for the old
+Env: `REVIEW_SAMPLES` (runs per specialist, findings unioned, default `3` — see below),
+`REVIEW_CONCURRENCY` (sessions in flight, default `3` — drop it to `1` for the old
 strictly-sequential behaviour on a loaded machine),
 `CLAUDE_CODE_PATH` (binary override, default `claude`), `REVIEW_MOCK=1` (skip real calls —
 used by tests/CI to exercise the pipeline without tokens; `REVIEW_MOCK_OUTPUT` supplies a

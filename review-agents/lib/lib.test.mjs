@@ -16,9 +16,10 @@ import {
   resolveRepairTimeoutMs,
   resolveRetries,
   resolveConcurrency,
+  resolveSamples,
   runSpecialist,
 } from "./claude.mjs";
-import { summarizeRun, silentWarning } from "./outcome.mjs";
+import { summarizeRun, silentWarning, foldSamples } from "./outcome.mjs";
 import { composePrompt, repairPrompt } from "./prompt.mjs";
 import {
   normalizeMessage,
@@ -35,6 +36,7 @@ import {
   runIdOf,
 } from "./ledger.mjs";
 import { runTriage, renderFinding, CHOICES } from "./triage.mjs";
+import { unionOutcome, majorityOutcome, outcomeFromCounts } from "./eval.mjs";
 import { loadSpecialists } from "./specialists.mjs";
 
 test("globToRegExp: ** spans directories, * does not", () => {
@@ -1232,4 +1234,175 @@ test("runSpecialist: a rejected spawn is a failure, not an unhandled rejection",
   await assert.rejects(() =>
     runSpecialist({ prompt: "p" }, { spawn, retries: 0 }),
   );
+});
+
+// --- union aggregation (ADR 0088) --------------------------------------------------------------
+
+test("unionOutcome: one run finding it is enough, because a union is not a vote", () => {
+  // The measured shape: cases land at 2/5, not 0/5. A majority throws away exactly the findings a
+  // sampled review would surface, which is the whole reason this mode exists.
+  assert.equal(
+    unionOutcome(["miss", "miss", "hit", "miss", "miss"]).outcome,
+    "hit",
+  );
+  assert.equal(unionOutcome(["miss", "miss", "miss"]).outcome, "miss");
+  assert.deepEqual(unionOutcome(["hit", "miss", "miss"]), {
+    outcome: "hit",
+    hits: 1,
+    runs: 3,
+  });
+});
+
+test("unionOutcome: a must-not-find case is clean only if every run stayed quiet", () => {
+  // The other half of the trade, and the reason union is not free: a union collects each run's
+  // false positives too. Scoring it any other way would advertise the recall and hide the cost.
+  const kind = "must-not-find";
+  assert.equal(unionOutcome(["hit", "hit", "hit"], { kind }).outcome, "hit");
+  assert.equal(unionOutcome(["hit", "miss", "hit"], { kind }).outcome, "miss");
+  // Under majority that same case would have passed, 2 of 3.
+  assert.equal(majorityOutcome(["hit", "miss", "hit"]).outcome, "hit");
+});
+
+test("unionOutcome: a structural outcome still cannot be voted away", () => {
+  assert.equal(unionOutcome(["not-triggered"]).outcome, "not-triggered");
+  assert.equal(unionOutcome(["hit", "not-installed"]).outcome, "not-installed");
+  assert.equal(unionOutcome([]).outcome, "miss");
+});
+
+test("outcomeFromCounts: aggregation is a pure function of hits and runs", () => {
+  // This is what lets `--aggregate union` re-score a cached run exactly rather than re-running it —
+  // the cache stores the measurement, not the verdict, so the mode is chosen after the sessions are
+  // spent. The cache key must therefore not include the mode.
+  assert.equal(
+    outcomeFromCounts({ hits: 2, runs: 5 }, { mode: "majority" }),
+    "miss",
+  );
+  assert.equal(
+    outcomeFromCounts({ hits: 2, runs: 5 }, { mode: "union" }),
+    "hit",
+  );
+  assert.equal(
+    outcomeFromCounts({ hits: 3, runs: 5 }, { mode: "majority" }),
+    "hit",
+  );
+  assert.equal(
+    outcomeFromCounts(
+      { hits: 4, runs: 5 },
+      { mode: "union", kind: "must-not-find" },
+    ),
+    "miss",
+  );
+  assert.equal(
+    outcomeFromCounts(
+      { hits: 5, runs: 5 },
+      { mode: "union", kind: "must-not-find" },
+    ),
+    "hit",
+  );
+  assert.equal(outcomeFromCounts({ hits: 0, runs: 0 }), "miss");
+});
+
+test("outcomeFromCounts: reproduces the measured 1/4 → 4/4 on the real baseline numbers", () => {
+  // The four runtime must-find cases as actually measured at --repeat 5: 2, 2, 2 and 4 hits.
+  const measured = [2, 2, 2, 4];
+  const byMajority = measured.filter(
+    (hits) =>
+      outcomeFromCounts({ hits, runs: 5 }, { mode: "majority" }) === "hit",
+  ).length;
+  const byUnion = measured.filter(
+    (hits) => outcomeFromCounts({ hits, runs: 5 }, { mode: "union" }) === "hit",
+  ).length;
+  assert.equal(byMajority, 1);
+  assert.equal(byUnion, 4);
+});
+
+test("resolveSamples: three by default, overridable, bad input falls back", () => {
+  assert.equal(resolveSamples({}), 3);
+  assert.equal(resolveSamples({ REVIEW_SAMPLES: "1" }), 1);
+  assert.equal(resolveSamples({ REVIEW_SAMPLES: "5" }), 5);
+  for (const bad of ["0", "-1", "many", "2.5", ""])
+    assert.equal(resolveSamples({ REVIEW_SAMPLES: bad }), 3);
+});
+
+// --- folding samples into one specialist result -------------------------------------------------
+
+const sample = (over = {}) => ({
+  id: "runtime",
+  blocking: true,
+  status: "ran",
+  durationMs: 1000,
+  findings: [],
+  ...over,
+});
+const f = (message, over = {}) => ({
+  specialist: "runtime",
+  severity: "info",
+  file: "a.ts",
+  line: 1,
+  message,
+  ...over,
+});
+
+test("foldSamples: findings are unioned across samples, not voted on", () => {
+  const folded = foldSamples(
+    "runtime",
+    true,
+    [
+      sample({ findings: [f("no timeout")] }),
+      sample({ findings: [], status: "no-findings" }),
+      sample({ findings: [f("unbounded retry")] }),
+    ],
+    dedupe,
+  );
+  assert.equal(folded.findings.length, 2);
+  assert.equal(folded.status, "ran");
+  assert.equal(folded.samples, 3);
+  assert.equal(folded.durationMs, 3000, "cost is the sum of the samples");
+});
+
+test("foldSamples: the same finding twice collapses, and blocking survives the collapse", () => {
+  const folded = foldSamples(
+    "runtime",
+    true,
+    [
+      sample({ findings: [f("no timeout")] }),
+      sample({ findings: [f("no timeout", { severity: "blocking" })] }),
+    ],
+    dedupe,
+  );
+  assert.equal(folded.findings.length, 1);
+  // A finding raised as blocking by even one sample must still block.
+  assert.equal(folded.findings[0].severity, "blocking");
+});
+
+test("foldSamples: every sample failing is unavailable, not a quiet pass", () => {
+  // RA-3's rule survives sampling: a dimension that produced no verdict is a hole in the review.
+  // Sampling must not let two failures and one empty reply read as "reviewed and found nothing".
+  const folded = foldSamples(
+    "runtime",
+    true,
+    [
+      sample({ status: "unavailable", reason: "timeout", findings: [] }),
+      sample({ status: "unavailable", reason: "timeout", findings: [] }),
+    ],
+    dedupe,
+  );
+  assert.equal(folded.status, "unavailable");
+  assert.equal(folded.findings.length, 0);
+});
+
+test("foldSamples: one surviving sample is a verdict, and the failures are counted", () => {
+  const folded = foldSamples(
+    "runtime",
+    true,
+    [
+      sample({ status: "unavailable", reason: "timeout", findings: [] }),
+      sample({ findings: [f("no timeout")] }),
+      sample({ status: "unavailable", reason: "timeout", findings: [] }),
+    ],
+    dedupe,
+  );
+  assert.equal(folded.status, "ran");
+  assert.equal(folded.findings.length, 1);
+  assert.equal(folded.failedSamples, 2);
 });

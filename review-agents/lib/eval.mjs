@@ -162,6 +162,63 @@ export function scoreCase(def, findings) {
  * whose specialist was never triggered or never installed reports that instead, since repeating it
  * cannot change the answer.
  */
+export const AGGREGATES = ["majority", "union"];
+
+/**
+ * Score N executions the way a **unioned review** would see them.
+ *
+ * A review that samples a specialist N times and unions the findings does not take a vote: one run
+ * noticing the bug is enough for it to reach the report. So a `must-find` case is a hit if *any*
+ * run hit — and, symmetrically, a `must-not-find` case is clean only if *every* run stayed quiet,
+ * because a union collects each run's false positives too.
+ *
+ * That asymmetry is the entire trade, and scoring it any other way would hide it: union buys recall
+ * with false positives, and the only honest way to decide whether it is worth it is to measure both
+ * halves under the same rule.
+ */
+export function unionOutcome(outcomes, { kind = "must-find" } = {}) {
+  return aggregate(outcomes, { mode: "union", kind });
+}
+
+/**
+ * The verdict for a case, from nothing but the hit and run counts.
+ *
+ * Both aggregations are pure functions of those two numbers, which is what lets an aggregate mode be
+ * chosen *after* the sessions were spent: the cache stores the measurement (`hits`, `runs`), not the
+ * verdict, so `--aggregate union` re-scores a cached run exactly rather than re-running it. The
+ * cache key therefore does not — and must not — include the mode.
+ */
+export function outcomeFromCounts(
+  { hits = 0, runs = 0 } = {},
+  { mode = "majority", kind = "must-find" } = {},
+) {
+  if (!runs) return "miss";
+  if (mode !== "union") return hits * 2 > runs ? "hit" : "miss";
+  return kind === "must-not-find"
+    ? hits === runs // every run quiet, or the union carries the noise
+      ? "hit"
+      : "miss"
+    : hits >= 1 // one run finding it is enough to reach the report
+      ? "hit"
+      : "miss";
+}
+
+/** Collapse N executions of one case under the requested aggregation. */
+export function aggregate(outcomes, { mode = "majority", kind } = {}) {
+  if (!outcomes.length) return { outcome: "miss", hits: 0, runs: 0 };
+  const structural = outcomes.find(
+    (o) => o === "not-triggered" || o === "not-installed",
+  );
+  if (structural)
+    return { outcome: structural, hits: 0, runs: outcomes.length };
+  const hits = outcomes.filter((o) => o === "hit").length;
+  return {
+    outcome: outcomeFromCounts({ hits, runs: outcomes.length }, { mode, kind }),
+    hits,
+    runs: outcomes.length,
+  };
+}
+
 export function majorityOutcome(outcomes) {
   if (!outcomes.length) return { outcome: "miss", hits: 0, runs: 0 };
   const structural = outcomes.find(
