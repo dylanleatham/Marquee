@@ -114,6 +114,33 @@ Two shapes need `--forward` instead of reversal:
 - **must-not-find cases.** A clean merged feature already _is_ the case. Reversing it would produce
   a revert, which is a different change with different risks.
 
+### A single diagnostic run does not validate a case
+
+`contract-guardian`'s case hit 1/1 on its diagnostic run, with a finding that named issue #287
+unprompted and worked out that Palette Press can still emit values the picker no longer offers. On
+the strength of that it went into the baseline. It then scored **0/5**, and a further `--no-cache`
+run scored 0/1 — six consecutive misses, same case, same prompt, same afternoon.
+
+It is tempting to read that as the `null-result` phenomenon below. It is not, and the difference
+matters. Nine consecutive misses against a true rate of 80% is 5×10⁻⁷; that needed an explanation.
+One hit in seven attempts is exactly what a **true rate near 14%** looks like, and needs none. The
+first run was a lucky draw, and it was over-read.
+
+So the lesson is about method, not about the model. A one-run diagnostic answers _"can this case hit
+at all?"_ — it rules out an `expect` that matches nothing, which is a real failure mode and worth
+ruling out. It does **not** answer _"does this reviewer find it reliably?"_, and the two questions
+look identical when the answer to the first is yes.
+
+For `security` (4/5) and `spec-adherence` (5/5) the diagnostic held up. For `contract-guardian` it
+did not, and nothing about the three runs distinguished them beforehand.
+
+The 0/5 stands in the baseline, because it is what was measured. What it does not yet tell us is
+whether the case is **hard** or **wrongly shaped**: it is a consumer quietly diverging from an
+unchanged contract, while the reviewer's brief leads with breaking schema changes and their
+consumers. Those may be different questions. A second `contract-guardian` case in the classic shape —
+a schema field changed, a consumer left behind — would separate them, and until one exists this row
+is a number without a diagnosis.
+
 ### `null-result` measured 0/9, then 16/20, and nothing about it changed
 
 The most important number in this directory is one that moved without a cause.
