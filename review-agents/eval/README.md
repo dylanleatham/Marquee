@@ -208,6 +208,37 @@ The general rule: **write the case so a reader with only the reviewer's inputs c
 verdict.** If you have to consult the repo to know the finding is correct, so would the reviewer, and
 it cannot.
 
+### Five repeats is a floor, not an adjudicator
+
+When [ADR 0090](../../docs/adrs/0090-context-is-selected-by-section-not-by-the-first-16kb.md) changed
+what four reviewers read, `test-auditor` moved 4/5 → 3/5. That looked like it might be a cost. Ten
+fresh samples settled it:
+
+|                    | rate        | 95% CI |
+| ------------------ | ----------- | ------ |
+| before the change  | 4/5 = 80%   | 38–96% |
+| after (3/5 + 7/10) | 10/15 = 67% | 42–85% |
+
+The intervals overlap almost entirely. **There is no evidence the change cost anything**, and there
+was never enough evidence at n=5 to suggest otherwise — a single reviewer's 4/5 admits any true rate
+from 38% to 96%.
+
+This is the second time the answer has been "n=5 cannot tell" (the first was `contract-guardian`
+scoring 1/1 and then 0/5). So it is worth stating as a property of the suite rather than rediscovering
+it a third time:
+
+- **`--repeat 5` catches a collapse, not a shift.** A reviewer going from 80% to 0% moves far outside
+  the tolerance and the gate fires. A reviewer going from 80% to 60% does not, and cannot at this
+  sample size.
+- **Raising the baseline's repeats is not the fix.** Twenty-one cases at `--repeat 10` is 210 real
+  sessions, and it would still not separate 60% from 80%.
+- **The fix is targeted, after the fact.** When one row moves and the movement matters, re-run _that
+  reviewer_ with more repeats. Ten samples cost about fifteen minutes and roughly halve the
+  uncertainty; a bigger baseline costs hours and buys less.
+
+Treat a baseline row as a floor to notice collapses against. Treat any specific comparison — before
+and after a change, one reviewer against another — as needing its own samples.
+
 ### A single diagnostic run does not validate a case
 
 `contract-guardian`'s case hit 1/1 on its diagnostic run, with a finding that named issue #287
