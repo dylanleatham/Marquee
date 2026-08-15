@@ -3,6 +3,15 @@
   "blocking": false,
   "model": "sonnet",
   "timeoutMs": 300000,
-  "triggerGlobs": ["packages/**/src/**", "packages/stylus/stylus/**"],
+  "triggerGlobs": [
+    "packages/**/src/**",
+    "packages/stylus/stylus/**",
+    "review-agents/*.mjs",
+    "review-agents/lib/*.mjs",
+    "review-agents/eval/*.mjs",
+    "scripts/**/*.mjs",
+    "contract-tests/**/*.mjs",
+    "e2e/**/*.mjs"
+  ],
   "includePackageSpecs": true
 }

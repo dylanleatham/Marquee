@@ -1,4 +1,5 @@
 import { test } from "node:test";
+import { execFileSync } from "node:child_process";
 import assert from "node:assert/strict";
 import {
   readdirSync,
@@ -46,7 +47,7 @@ import {
 } from "./ledger.mjs";
 import { runTriage, renderFinding, CHOICES } from "./triage.mjs";
 import { unionOutcome, majorityOutcome, outcomeFromCounts } from "./eval.mjs";
-import { loadSpecialists } from "./specialists.mjs";
+import { loadSpecialists, buildContext, specsFor } from "./specialists.mjs";
 
 test("globToRegExp: ** spans directories, * does not", () => {
   assert.match(
@@ -131,6 +132,123 @@ for (const id of ["test-auditor", "spec-adherence", "runtime", "consistency"]) {
     );
   });
 }
+
+// --- issue #327: first-party source is not only under packages/ ------------------------------
+
+/**
+ * Every tracked first-party source file outside `packages/`, discovered from git rather than listed.
+ *
+ * `review-agents/`, `scripts/` and `contract-tests/` are as much this project's code as `packages/`
+ * is — `review-agents/lib` alone exports 95 symbols — and a reviewer that claims to cover
+ * first-party source and cannot see them is claiming something untrue.
+ */
+function nonPackageSource() {
+  return execFileSync(
+    "git",
+    ["ls-files", "review-agents", "scripts", "contract-tests"],
+    {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+      timeout: 20_000,
+    },
+  )
+    .split("\n")
+    .filter((f) => /\.(mjs|cjs|js|ts|tsx)$/.test(f) && !/\.test\./.test(f));
+}
+
+test("test-auditor triggers on first-party source outside packages/ (#327)", () => {
+  // The blind spot this closes: test-auditor is what CLAUDE.md's "new surface ⇒ test in the same
+  // change" rule names as its enforcer, and it could not see the harness's own code. A reviewer
+  // that is never *triggered* emits no findings and no [GAP] warning, so the run prints
+  // "No findings 🎵" — RA-5 (#192) in a different tree.
+  const { triggerGlobs } = specialistConfig("test-auditor");
+  const source = nonPackageSource();
+  assert.ok(source.length > 20, "there is real source outside packages/");
+  const missed = source.filter((f) => !matchesAny(f, triggerGlobs));
+  assert.deepEqual(
+    missed,
+    [],
+    `test-auditor would not run on ${missed.length} first-party source file(s): ${missed.slice(0, 5).join(", ")}`,
+  );
+});
+
+test("test-auditor still ignores what is not source", () => {
+  // Widening a trigger surface is only safe if it stays a surface. A reviewer that fires on every
+  // fixture, lockfile and frozen eval patch is a reviewer whose findings get skimmed.
+  const { triggerGlobs } = specialistConfig("test-auditor");
+  for (const notSource of [
+    "review-agents/eval/cases/runtime-no-liveness-proof/diff.patch",
+    "review-agents/ledger.jsonl",
+    "review-agents/README.md",
+    "docs/specs/curator-spec.md",
+    "pnpm-lock.yaml",
+    "packages/curator/test/media.test.ts",
+  ]) {
+    assert.equal(
+      matchesAny(notSource, triggerGlobs),
+      false,
+      `${notSource} is not new production surface`,
+    );
+  }
+});
+
+// --- issue #327, second half: spec-adherence over the harness's own code ----------------------
+
+test("spec-adherence triggers on first-party source outside packages/ (#327)", () => {
+  // Same blind spot test-auditor had. Held back from the first fix because triggering alone would
+  // have been worse than not triggering: a reviewer asked to check code against a spec it was never
+  // given produces confident nonsense.
+  const { triggerGlobs } = specialistConfig("spec-adherence");
+  const source = nonPackageSource();
+  assert.ok(source.length > 20, "there is real source outside packages/");
+  const missed = source.filter((f) => !matchesAny(f, triggerGlobs));
+  assert.deepEqual(
+    missed,
+    [],
+    `spec-adherence would not run on: ${missed.slice(0, 5).join(", ")}`,
+  );
+});
+
+test("specsFor: the harness's own code has specs, and they are loaded", () => {
+  // The half that makes the trigger worth having. `review-agents/` is specified by dev-harness §6
+  // and harness-self-improvement.md; without this mapping the reviewer gets the diff and nothing to
+  // check it against.
+  assert.deepEqual(specsFor(["review-agents/lib/ledger.mjs"]).sort(), [
+    "docs/specs/dev-harness.md",
+    "docs/specs/harness-self-improvement.md",
+  ]);
+  assert.deepEqual(specsFor(["scripts/check-adr-numbers.mjs"]), [
+    "docs/specs/dev-harness.md",
+  ]);
+  assert.deepEqual(specsFor(["contract-tests/schemas.test.mjs"]).sort(), [
+    "docs/specs/integration-contract.md",
+    "docs/specs/testing-strategy.md",
+  ]);
+});
+
+test("specsFor: packages still map by package name, unchanged", () => {
+  assert.deepEqual(specsFor(["packages/curator/src/server.ts"]).sort(), [
+    "docs/specs/album-onboarding-workflow.md",
+    "docs/specs/curator-spec.md",
+    "docs/specs/roadie-spec.md",
+  ]);
+  assert.deepEqual(specsFor(["packages/backdrop/src/x.ts"]), [
+    "docs/specs/backdrop-spec.md",
+  ]);
+  assert.deepEqual(specsFor(["README.md"]), []);
+});
+
+test("spec-adherence reviewing harness code is handed dev-harness.md", () => {
+  // End to end through the real buildContext, because the mapping is only useful if it survives
+  // the trip into the prompt.
+  const spec = loadSpecialists().find((s) => s.id === "spec-adherence");
+  const context = buildContext(spec, {
+    files: ["review-agents/lib/ledger.mjs"],
+    diff: "+export function fingerprint(specialist, message) {}",
+  });
+  assert.match(context, /# Context: docs\/specs\/dev-harness\.md/);
+  assert.match(context, /# Context: docs\/specs\/harness-self-improvement\.md/);
+});
 
 test("every specialist directory has the three files the README documents", () => {
   for (const dir of readdirSync(AGENTS_DIR)) {

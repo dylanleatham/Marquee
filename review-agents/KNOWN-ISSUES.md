@@ -15,6 +15,41 @@ _None currently._
 
 ### Resolved
 
+- **RA-7 — `test-auditor` could not see the harness's own code.** Fixed 2026-08-15
+  ([issue #327](https://github.com/dylanleatham/Marquee/issues/327)). Its `triggerGlobs` were
+  `packages/**/src/**` and `packages/stylus/stylus/**`, which excluded `review-agents/` (22 source
+  files, **95 exports** in `lib` alone), `scripts/` (6) and `contract-tests/` (4) — three trees that
+  `consistency` and `runtime` both already claimed. So the **blocking** reviewer that CLAUDE.md's
+  "new surface ⇒ test in the same change" rule names as its enforcer was blind to the code of the
+  harness enforcing it.
+  This is RA-5 in a different tree, and invisible the same way: a reviewer that is never _triggered_
+  emits no findings and no `[GAP]` warning. Measured on the branch that became #324 — a 12-file diff
+  adding `lib/ledger.mjs` (13 exports) and `lib/triage.mjs` (5) reported `running 3/6 specialist(s)`
+  and printed "No findings 🎵".
+  Fixed by widening the globs, but the glob is the instance and not the fix. The durable half is a
+  test that derives the trigger surface from `git ls-files` over `review-agents/`, `scripts/` and
+  `contract-tests/`, so the next file added outside `packages/` cannot silently reopen the hole — and
+  a second test asserting the surface stays a _surface_, since a reviewer that fires on every fixture
+  and lockfile is one whose findings get skimmed. The prompt also gained a short section on the
+  harness's own conventions (`node:test`, colocated `lib/*.test.mjs`), because it was written
+  assuming HTTP endpoints and Roadie state transitions.
+  The eval case `test-auditor-harness-surface-untested` was written **before** the fix and scored
+  `not-triggered` — the outcome added in ADR 0086 precisely to tell a routing bug from a prompt one.
+  Regression tests: `test-auditor triggers on first-party source outside packages/ (#327)` and
+  `test-auditor still ignores what is not source` in `lib/lib.test.mjs`.
+  `spec-adherence` had the identical globs and the identical gap, and is fixed in the same change —
+  but only after the thing that made it safe. Its `includePackageSpecs` maps `packages/<name>` to
+  specs, so `review-agents/` had no entry and widening its triggers alone would have handed a
+  reviewer a diff with no spec to check it against, which is worse than not triggering: a reviewer
+  asked to find drift against nothing produces confident nonsense. `TREE_SPECS` maps the non-package
+  trees — `review-agents/` to dev-harness §6 and harness-self-improvement.md, `scripts/` to
+  dev-harness, `contract-tests/` and `e2e/` to the integration contract and testing strategy — and
+  `specsFor()` is one function over both maps so a caller cannot consult half of it.
+  Regression tests: `spec-adherence triggers on first-party source outside packages/ (#327)`,
+  the three `specsFor:` cases, and `spec-adherence reviewing harness code is handed dev-harness.md`,
+  which goes through the real `buildContext` because a mapping that does not survive the trip into
+  the prompt is not a mapping.
+
 - **RA-6 — the ledger counted two reviews of one commit as one run.** Fixed 2026-08-13, the day the
   ledger shipped, by using it. `--staged` and `--base HEAD~3` both write `report-<sha>.json` for the
   same `HEAD`, so the second review overwrites the first's report — and `runTriage` keyed the run

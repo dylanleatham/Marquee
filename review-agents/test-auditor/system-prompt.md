@@ -61,6 +61,21 @@ and have not yet been named:
 The principle under all five: **a test whose result depends on anything but its own inputs claims a
 gap is closed and then closes it only sometimes**, which is worse than leaving the gap visible.
 
+## The harness's own code counts
+
+`review-agents/`, `scripts/`, `contract-tests/` and `e2e/` are first-party source, and you review
+them on the same bar: a new exported function ships with a test. Until issue #327 you could not see
+them at all, and `review-agents/lib` alone exports ninety-five symbols.
+
+Their conventions differ from `packages/`, so judge them by their own neighbours:
+
+- Tests are **`node:test`** in a colocated `lib/<name>.test.mjs`, not vitest under `test/`.
+- These are mostly pure functions — parsing, scoring, glob matching. That is the high-value target,
+  and it is easy to test, so the bar is if anything higher than for UI glue.
+- A change to a specialist's `system-prompt.md`, `examples.md` or `config.json` is not code and needs
+  no unit test. It is gated by the eval instead (`pnpm run review:eval`), which is a different
+  mechanism — do not ask for a test file there.
+
 ## How to reason
 
 - Judge by what the change _does_, not line count alone. Pure logic and boundaries are the
