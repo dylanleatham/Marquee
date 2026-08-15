@@ -89,6 +89,38 @@ export function changedPackages(files) {
 }
 
 /**
+ * Specs for the first-party trees that are not packages (issue #327).
+ *
+ * `PACKAGE_SPECS` is keyed by package name, derived from `packages/<name>/`, so it can say nothing
+ * about `review-agents/` or `scripts/` — and those are as much this project's code as `packages/`
+ * is. `review-agents/` is specified by dev-harness §6 and harness-self-improvement.md; nothing else
+ * described it, which is why widening `spec-adherence`'s triggers without this would have handed a
+ * reviewer a diff and no spec to check it against.
+ */
+export const TREE_SPECS = {
+  "review-agents": ["dev-harness.md", "harness-self-improvement.md"],
+  scripts: ["dev-harness.md"],
+  "contract-tests": ["integration-contract.md", "testing-strategy.md"],
+  e2e: ["testing-strategy.md"],
+};
+
+/**
+ * Every spec a change should be checked against, repo-relative — packages by name, other first-party
+ * trees by their top directory. One function so a caller cannot consult half the mapping.
+ */
+export function specsFor(files = []) {
+  const specs = new Set();
+  for (const pkg of changedPackages(files))
+    for (const spec of PACKAGE_SPECS[pkg] ?? [])
+      specs.add(`docs/specs/${spec}`);
+  for (const file of files) {
+    const tree = String(file).split("/")[0];
+    for (const spec of TREE_SPECS[tree] ?? []) specs.add(`docs/specs/${spec}`);
+  }
+  return [...specs];
+}
+
+/**
  * What one specialist reads: the changed-file list, the diff, and whatever its `contextGlobs` /
  * `includePackageSpecs` pull in.
  *
@@ -120,10 +152,7 @@ export function buildContext(config, { files, diff, root = ROOT }) {
 
   const ctxFiles = new Set(filesMatching(root, config.contextGlobs ?? []));
   if (config.includePackageSpecs) {
-    for (const pkg of changedPackages(files)) {
-      for (const spec of PACKAGE_SPECS[pkg] ?? [])
-        ctxFiles.add(`docs/specs/${spec}`);
-    }
+    for (const spec of specsFor(files)) ctxFiles.add(spec);
     ctxFiles.add("docs/specs/runtime-overview.md");
   }
   // Keywords from the change itself, so a large spec is cut to the sections it is about rather than

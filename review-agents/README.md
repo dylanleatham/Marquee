@@ -18,8 +18,8 @@ the free plan nothing enforces a report anyway). Design: `docs/specs/dev-harness
 | Specialist            | Blocking? | Watches                             | Catches                                                     |
 | --------------------- | --------- | ----------------------------------- | ----------------------------------------------------------- |
 | **contract-guardian** | ✅        | `packages/contracts/**` + importers | breaking schema changes, unupdated consumers                |
-| **test-auditor**      | ✅        | production `src/**`                 | new endpoints/functions/transitions without tests           |
-| **spec-adherence**    | info      | `src/**`                            | code ↔ spec drift (either direction)                        |
+| **test-auditor**      | ✅        | all first-party source              | new endpoints/functions/transitions without tests           |
+| **spec-adherence**    | info      | all first-party source              | code ↔ spec drift (either direction)                        |
 | **consistency**       | info      | code files                          | naming / error / log / structure drift                      |
 | **runtime**           | ✅        | code files                          | missing timeouts, throws in async chains, leaks, races      |
 | **security**          | ✅        | all changes                         | hardcoded secrets, injection, path traversal, disabled auth |
