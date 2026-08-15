@@ -268,6 +268,20 @@ test("cacheKey: editing what the reviewer reads voids the cache", () => {
   assert.notEqual(base, keyFor({ blocking: false }));
 });
 
+test("cacheKey: the assembled context is part of the key (#325)", () => {
+  // Everything else in the key is a proxy for what the reviewer reads. Without the context itself,
+  // changing how context is selected — as #325 did for four specialists — leaves the key unmoved,
+  // and the eval replays verdicts for inputs it never saw. A gate reporting green about a reviewer
+  // that no longer exists is the failure this whole harness is about.
+  const base = { caseJson: { id: "c" }, patch: "diff", repeats: 3, specialist };
+  assert.notEqual(
+    cacheKey({ ...base, context: "# Context: the first 16KB" }),
+    cacheKey({ ...base, context: "# Context: the relevant 16KB" }),
+  );
+  // Absent context is its own value, so old entries stay coherent rather than colliding.
+  assert.equal(cacheKey(base), cacheKey({ ...base, context: null }));
+});
+
 test("cacheKey: an unrelated field does not, or the suite would never reuse anything", () => {
   // The point of the cache is that editing one reviewer does not re-run every other reviewer's
   // cases. A key that moved on any change at all would make the suite as expensive as --no-cache.

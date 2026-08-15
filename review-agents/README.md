@@ -170,6 +170,17 @@ it auto-discovers any dir containing a `config.json`.
 one), `contextGlobs` (string[] — files to load into context), `includePackageSpecs` (bool —
 auto-load the spec(s) for changed packages), `contextRelated` (object — context found by search).
 
+**Context is selected by section, not by the first 16KB**
+([ADR 0090](../docs/adrs/0090-context-is-selected-by-section-not-by-the-first-16kb.md)). A file that
+fits the budget arrives whole. A larger one is split into heading blocks, each scored against
+keywords from the diff, and the best are kept until the budget runs out — in document order, with
+`… N section(s) omitted …` where the gaps are, and a subsection's parent heading carried even when
+its body is not.
+
+This replaces taking the front of the file, which for `curator-spec.md` meant 7% of it and dropped
+`## 8. HTTP API` — the section a reviewer of `server.ts` actually needs (issue #325). The budget is
+unchanged at 16KB; only the choice of which 16KB is different.
+
 **`contextRelated`** exists for a reviewer whose context cannot be named in advance
 ([ADR 0086](../docs/adrs/0086-a-specialist-may-be-given-context-found-by-search.md)). `doc-coherence`
 asks "which other copies of this fact are now wrong?", and the answer is whichever of 80-plus ADRs

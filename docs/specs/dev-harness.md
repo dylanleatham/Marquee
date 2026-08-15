@@ -356,6 +356,13 @@ Eight specialists, each with a defined scope, prompt, and blocking behavior. (Si
 
 _The roster is eight, not the six this section originally described._
 
+_Context, updated 2026-08-15 ([ADR 0090](../adrs/0090-context-is-selected-by-section-not-by-the-first-16kb.md)):
+a specialist's `contextGlobs` / `includePackageSpecs` files are cut to the **sections related to the
+change**, not to their first 16KB. Taking the front of `curator-spec.md` gave a reviewer 7% of it and
+dropped §8 HTTP API — the part a change to `server.ts` has to be checked against
+([#325](https://github.com/dylanleatham/Marquee/issues/325)). Same budget, different sixteen
+kilobytes._
+
 ### Orchestration
 
 _Updated 2026-08-13, [ADR 0087](../adrs/0087-specialists-run-concurrently-under-a-cap.md):
