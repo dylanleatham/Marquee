@@ -242,13 +242,19 @@ export function majorityOutcome(outcomes) {
  * unrelated and it stands, which is what makes re-running the suite after a one-reviewer edit cheap
  * enough to actually do.
  */
-export function cacheKey({ caseJson, patch, specialist, repeats }) {
+export function cacheKey({ caseJson, patch, specialist, repeats, context }) {
   return createHash("sha256")
     .update(
       JSON.stringify({
         caseJson,
         patch,
         repeats,
+        // The assembled context, when the caller has it. Everything else here is a *proxy* for what
+        // the reviewer reads; this is the thing itself. Without it, a change to how context is
+        // selected (issue #325 moved four specs from "first 16KB" to "relevant 16KB") is invisible
+        // to the key, and the eval replays cached verdicts for inputs it never saw — a gate
+        // reporting green about a reviewer that no longer exists.
+        context: context ?? null,
         systemPrompt: specialist?.systemPrompt ?? "",
         examples: specialist?.examples ?? "",
         model: specialist?.model ?? "",

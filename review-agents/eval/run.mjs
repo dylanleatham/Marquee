@@ -237,6 +237,12 @@ async function main() {
         files: undefined,
       },
       patch: testCase.patch,
+      // What this specialist will actually be handed. buildContext is deterministic, so hashing its
+      // output makes the key exact rather than a proxy — see cacheKey.
+      context: buildContext(specialist, {
+        files: testCase.files,
+        diff: testCase.patch,
+      }),
       specialist,
       repeats: opts.repeat,
     });

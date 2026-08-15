@@ -13,7 +13,12 @@ import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { matchesAny, filesMatching, readTruncated } from "./util.mjs";
-import { resolveContextRelated } from "./related.mjs";
+import {
+  resolveContextRelated,
+  extractKeywords,
+  keywordsFromPaths,
+} from "./related.mjs";
+import { selectSections } from "./sections.mjs";
 
 const HERE = dirname(dirname(fileURLToPath(import.meta.url))); // review-agents/
 const ROOT = dirname(HERE); // repo root
@@ -93,6 +98,12 @@ export function changedPackages(files) {
  */
 export const TRUNCATION_MARKER = "… (file truncated)";
 
+/** How much of a context file is read before choosing sections from it. */
+export const CONTEXT_READ_BYTES = 400_000; // curator-spec.md is 228KB and is the largest
+
+/** How much of it reaches the prompt. Unchanged — this fix spends the budget better, not more. */
+export const CONTEXT_BUDGET_BYTES = 16_000;
+
 /** Context files that were cut short on the last `buildContext` call, by specialist id. */
 const truncatedBySpecialist = new Map();
 
@@ -115,15 +126,26 @@ export function buildContext(config, { files, diff, root = ROOT }) {
     }
     ctxFiles.add("docs/specs/runtime-overview.md");
   }
+  // Keywords from the change itself, so a large spec is cut to the sections it is about rather than
+  // to its first 16KB (issue #325). Same budget, relevant content.
+  const contextKeywords = [
+    ...new Set([...extractKeywords(diff), ...keywordsFromPaths(files)]),
+  ].sort();
+
   for (const rel of ctxFiles) {
-    const body = readTruncated(join(root, rel));
-    if (!body) continue;
+    // Read generously, then select down — the cap has to apply after the choosing, or the choosing
+    // only ever sees the front of the file, which is the bug.
+    const whole = readTruncated(join(root, rel), CONTEXT_READ_BYTES);
+    if (!whole) continue;
+    const body = selectSections(whole, contextKeywords, {
+      maxBytes: CONTEXT_BUDGET_BYTES,
+    });
     // `readTruncated` caps at 16KB by default and says so only inside the string it returns, where
     // nothing reads it. Several specs are far larger — curator-spec.md is 230KB, so a reviewer
     // handed it sees the first 7% — and the reviewer cannot tell it is looking at a fragment. That
     // is a review quietly covering less than it claims (dev-harness §11), so it is at least
     // reported here. See truncatedContext() for what the caller does with it.
-    if (body.endsWith(TRUNCATION_MARKER)) truncated.push(rel);
+    if (body.length < whole.length) truncated.push(rel);
     parts.push(`# Context: ${rel}\n\`\`\`\n${body}\n\`\`\``);
   }
 
