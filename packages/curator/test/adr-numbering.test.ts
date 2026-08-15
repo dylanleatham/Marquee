@@ -110,6 +110,29 @@ describe("ADR numbering", () => {
     expect([...scanned].some((f) => f.includes("node_modules"))).toBe(false);
   });
 
+  // The one exclusion, asserted so it can't quietly widen. `review-agents/eval/cases/*/diff.patch`
+  // files are frozen historical diffs, held byte-for-byte because they are what an eval run feeds a
+  // reviewer — edit one and you change what is being measured. The ADR links inside them are not
+  // citations this repo makes; they record what some file said at some commit, and were correct
+  // relative to where that file lived. A renumber sweep must not rewrite them, which is the same
+  // reason the guard must not require them to resolve. Everything else under eval/ is still scanned.
+  it("skips frozen eval fixtures, but nothing else under review-agents/eval", () => {
+    const repoRoot = join(adrDir, "..", "..");
+    const scanned = new Set(citingSources(repoRoot));
+    const patches = [...scanned].filter(
+      (f) => f.includes("eval") && f.endsWith(".patch"),
+    );
+    expect(patches).toEqual([]);
+    expect(scanned).toContain(
+      join(repoRoot, "review-agents", "eval", "README.md"),
+    );
+    expect(
+      [...scanned].some((f) =>
+        f.endsWith(join("cases", "clean-needs-chip", "case.json")),
+      ),
+    ).toBe(true);
+  });
+
   // `driftFromBaseIn` is deliberately *not* run against the real origin/main here. CI checks out at
   // depth 1 and has no such ref, so this suite could only skip the check — and a gate that skips
   // itself is the failure mode #316 was. The hook runs it where the ref exists by construction (you

@@ -8,19 +8,20 @@
 //     --base <ref>         diff against an explicit base
 //     --reviewer <id>      run a single specialist
 //     --explain            print the context sent to each specialist
+//     --fast               only the blocking specialists — the mid-session check
+//     --samples <n>        runs per specialist, findings unioned (default 3; REVIEW_SAMPLES)
+//     --triage             judge the last report's findings into review-agents/ledger.jsonl
+//     --stats              print per-specialist volume + precision from the ledger
 //   Env: REVIEW_MOCK=1 (skip real Claude calls), CLAUDE_CODE_PATH (binary override),
 //        REVIEW_TIMEOUT_MS (per-specialist spawn budget in ms, default 90000),
-//        REVIEW_TIMEOUT_RETRIES (extra attempts on a timeout, default 1)
+//        REVIEW_TIMEOUT_RETRIES (extra attempts on a timeout, default 1),
+//        REVIEW_CONCURRENCY (sessions in flight at once, default 3),
+//        REVIEW_SAMPLES (runs per specialist, unioned, default 3)
 
-import {
-  readFileSync,
-  readdirSync,
-  existsSync,
-  mkdirSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { createInterface } from "node:readline/promises";
 import {
   currentSha,
   resolveBase,
@@ -31,9 +32,12 @@ import {
   claudeAvailable,
   runSpecialist,
   resolveRepairTimeoutMs,
+  resolveConcurrency,
+  resolveSamples,
   isMock,
 } from "./lib/claude.mjs";
-import { summarizeRun, silentWarning } from "./lib/outcome.mjs";
+import { mapWithConcurrency } from "./lib/util.mjs";
+import { summarizeRun, silentWarning, foldSamples } from "./lib/outcome.mjs";
 import { composePrompt, repairPrompt } from "./lib/prompt.mjs";
 import {
   parseWithRepair,
@@ -41,7 +45,19 @@ import {
   normalizeFindings,
   dedupe,
 } from "./lib/findings.mjs";
-import { matchesAny, filesMatching, readTruncated } from "./lib/util.mjs";
+import {
+  loadSpecialists,
+  isTriggered,
+  buildContext,
+  truncatedContext,
+} from "./lib/specialists.mjs";
+import {
+  loadLedger,
+  appendRecords,
+  computeStats,
+  formatStats,
+} from "./lib/ledger.mjs";
+import { resolveReport, runTriage } from "./lib/triage.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
@@ -59,90 +75,74 @@ const opts = {
   base: val("--base"),
   reviewer: val("--reviewer"),
   explain: has("--explain"),
+  fast: has("--fast"),
+  samples: val("--samples"),
+  triage: has("--triage"),
+  stats: has("--stats"),
 };
 
-// Which specs to hand a specialist when a given package changes (dev-harness §6).
-const PACKAGE_SPECS = {
-  curator: [
-    "curator-spec.md",
-    "roadie-spec.md",
-    "album-onboarding-workflow.md",
-  ],
-  "palette-press": ["palette-press-spec.md", "integration-contract.md"],
-  "hue-conductor": ["hue-conductor-spec.md", "integration-contract.md"],
-  backdrop: ["backdrop-spec.md"],
-  stylus: ["stylus-spec.md"],
-  contracts: ["integration-contract.md"],
-};
+const REPORT_DIR = join(ROOT, ".review-agents");
+const LEDGER_PATH = join(HERE, "ledger.jsonl");
 
-function loadSpecialists() {
-  const out = [];
-  for (const dir of readdirSync(HERE)) {
-    const cfgPath = join(HERE, dir, "config.json");
-    if (!existsSync(cfgPath)) continue;
-    const config = JSON.parse(readFileSync(cfgPath, "utf8"));
-    config.systemPrompt =
-      readTruncated(join(HERE, dir, "system-prompt.md"), 40_000) ?? "";
-    config.examples =
-      readTruncated(join(HERE, dir, "examples.md"), 20_000) ?? "";
-    out.push(config);
-  }
-  return out;
+/** `--stats`: what the ledger knows. Read-only; never runs a specialist. */
+function printStats() {
+  const { records, skipped } = loadLedger(LEDGER_PATH);
+  console.log(formatStats(computeStats(records), { skipped }));
 }
 
-function isTriggered(config, files) {
-  if (!files.length) return false;
-  if (config.triggerAll) return true;
-  if (
-    config.triggerGlobs &&
-    files.some((f) => matchesAny(f, config.triggerGlobs))
-  )
-    return true;
-  if (config.triggerImports?.length) {
-    // Only scan real source files — not lockfiles, docs, or generated output.
-    const sourceFiles = files.filter((f) =>
-      /\.(ts|tsx|mjs|cjs|js|py)$/.test(f),
+/** `--triage`: judge the last report's findings and append the verdicts to the ledger. */
+async function triage() {
+  const resolved = resolveReport(REPORT_DIR, currentSha());
+  if (!resolved) {
+    console.error(
+      "review-agents: no report to triage. Run `pnpm run review` first.",
     );
-    for (const f of sourceFiles) {
-      const src = readTruncated(join(ROOT, f), 40_000);
-      if (src && config.triggerImports.some((imp) => src.includes(imp)))
-        return true;
+    process.exit(1);
+  }
+  if (!resolved.forCurrentSha) {
+    console.log(
+      `review-agents: no report for the current commit — triaging the most recent one instead\n` +
+        `  ${resolved.path} (sha ${String(resolved.report.sha).slice(0, 12)})`,
+    );
+  }
+  // Interactive by design, so it must never hang waiting on a stdin nobody is typing into: a
+  // --triage that wedges a hook or a CI job would be a far worse harness bug than an unmeasured
+  // reviewer.
+  if (!process.stdin.isTTY) {
+    console.error(
+      "review-agents: --triage is interactive and stdin is not a terminal.\n" +
+        "Run it from a shell, not from a hook, a pipe, or CI.",
+    );
+    process.exit(1);
+  }
+
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const { records } = loadLedger(LEDGER_PATH);
+    const result = await runTriage({
+      report: resolved.report,
+      records,
+      ask: (q) => rl.question(q),
+      append: (recs) => appendRecords(LEDGER_PATH, recs),
+    });
+    if (result.judged || result.skipped) {
+      console.log(
+        `\nreview-agents: ${result.judged} judged, ${result.skipped} skipped` +
+          (result.quit ? " (stopped early)" : "") +
+          `. Ledger: review-agents/ledger.jsonl — commit it.\n` +
+          `Run \`pnpm run review:stats\` to see what it adds up to.`,
+      );
     }
+  } finally {
+    rl.close();
   }
-  return false;
-}
-
-function changedPackages(files) {
-  const pkgs = new Set();
-  for (const f of files) {
-    const m = f.match(/^packages\/([^/]+)\//);
-    if (m) pkgs.add(m[1]);
-  }
-  return pkgs;
-}
-
-function buildContext(config, { files, diff }) {
-  const parts = [
-    `# Changed files\n${files.map((f) => `- ${f}`).join("\n")}`,
-    `# Diff\n\`\`\`diff\n${diff}\n\`\`\``,
-  ];
-
-  const ctxFiles = new Set(filesMatching(ROOT, config.contextGlobs ?? []));
-  if (config.includePackageSpecs) {
-    for (const pkg of changedPackages(files)) {
-      for (const spec of PACKAGE_SPECS[pkg] ?? [])
-        ctxFiles.add(`docs/specs/${spec}`);
-    }
-    ctxFiles.add("docs/specs/runtime-overview.md");
-  }
-  for (const rel of ctxFiles) {
-    const body = readTruncated(join(ROOT, rel));
-    if (body) parts.push(`# Context: ${rel}\n\`\`\`\n${body}\n\`\`\``);
-  }
-  return parts.join("\n\n");
 }
 
 async function main() {
+  // Both verbs read what past runs recorded; neither spends a token or needs a diff.
+  if (opts.stats) return printStats();
+  if (opts.triage) return triage();
+
   const base = resolveBase(opts.base);
   const files = changedFiles({ base, staged: opts.staged });
   const sha = currentSha();
@@ -164,23 +164,57 @@ async function main() {
   if (opts.reviewer)
     specialists = specialists.filter((s) => s.id === opts.reviewer);
 
-  const relevant = specialists.filter((s) => isTriggered(s, files));
+  let relevant = specialists.filter((s) => isTriggered(s, files));
+  // --fast: the mid-session check. Only the reviewers that can actually stop a push, so the loop is
+  // short enough to run while the change is still in your head — which is what CLAUDE.md asks for
+  // and what the full roster's wall clock made unrealistic. The full set still runs before the PR.
+  const skippedByFast = opts.fast ? relevant.filter((s) => !s.blocking) : [];
+  if (opts.fast) relevant = relevant.filter((s) => s.blocking);
+
+  const concurrency = resolveConcurrency();
+  const samples = resolveSamples(
+    opts.samples ? { REVIEW_SAMPLES: opts.samples } : process.env,
+  );
+  // One entry per (specialist, sample) so the concurrency cap counts actual sessions, not reviewers.
+  const work = relevant.flatMap((config) =>
+    Array.from({ length: samples }, () => config),
+  );
   console.log(
     `review-agents: ${files.length} file(s) changed; running ${relevant.length}/${specialists.length} specialist(s)` +
       (isMock() ? " [MOCK]" : "") +
-      `\n  base=${base.slice(0, 12)} sha=${sha.slice(0, 12)}`,
+      (opts.fast ? " [FAST]" : "") +
+      `\n  base=${base.slice(0, 12)} sha=${sha.slice(0, 12)} concurrency=${concurrency}` +
+      (samples > 1
+        ? ` samples=${samples} (${work.length} sessions, findings unioned)`
+        : ""),
   );
+  if (skippedByFast.length)
+    console.log(
+      `  --fast skipped ${skippedByFast.length} informational specialist(s): ` +
+        `${skippedByFast.map((s) => s.id).join(", ")}. Run without --fast before the PR.`,
+    );
 
-  const runs = await Promise.all(
-    relevant.map(async (config) => {
+  const sampled = await mapWithConcurrency(
+    work,
+    concurrency,
+    async (config) => {
       const started = Date.now();
       const context = buildContext(config, { files, diff });
+      const cut = truncatedContext(config.id);
+      if (cut.length) {
+        // Not a warning about this run so much as about the roster: a reviewer reading a fragment
+        // of the spec it checks against is reviewing less than it claims to. curator-spec.md is
+        // 230KB against a 16KB cap.
+        console.warn(
+          `  [CTX  ] ${config.id}: context truncated at 16KB — ${cut.join(", ")}`,
+        );
+      }
       if (opts.explain) {
         console.log(
           `\n──── context for ${config.id} ────\n${context.slice(0, 4000)}\n────────────────`,
         );
       }
-      const res = runSpecialist({
+      const res = await runSpecialist({
         prompt: composePrompt(config, context),
         model: config.model,
         timeoutMs: config.timeoutMs,
@@ -199,7 +233,7 @@ async function main() {
       }
       // One translation round before falling back to prose (issue #117). A repair carries no diff,
       // so it is cheap; it re-uses the specialist's own model so the wording stays theirs.
-      const { raw, outcome } = parseWithRepair(res.text, {
+      const { raw, outcome } = await parseWithRepair(res.text, {
         repair: (text) =>
           runSpecialist({
             prompt: repairPrompt(text),
@@ -255,9 +289,11 @@ async function main() {
         specialist: config.id,
         blocking: !!config.blocking,
       });
-      console.log(
-        `  ✓ ${config.id}: ${findings.length} finding(s) in ${durationMs}ms`,
-      );
+      // With sampling on, the per-sample line is noise — the union line below is the result.
+      if (samples === 1)
+        console.log(
+          `  ✓ ${config.id}: ${findings.length} finding(s) in ${durationMs}ms`,
+        );
       return {
         id: config.id,
         blocking: !!config.blocking,
@@ -266,8 +302,24 @@ async function main() {
         durationMs,
         findings,
       };
-    }),
+    },
   );
+
+  // Union each specialist's samples, then dedupe across specialists as before.
+  const runs = relevant.map((config) =>
+    foldSamples(
+      config.id,
+      !!config.blocking,
+      sampled.filter((r) => r.id === config.id),
+      dedupe,
+    ),
+  );
+  for (const r of runs)
+    if (r.samples > 1 && (r.status === "ran" || r.status === "no-findings"))
+      console.log(
+        `  = ${r.id}: ${r.findings.length} finding(s) unioned from ${r.samples} sample(s)` +
+          (r.failedSamples ? `, ${r.failedSamples} failed` : ""),
+      );
 
   const all = dedupe(runs.flatMap((r) => r.findings));
   return finish(runs, all);
@@ -299,10 +351,9 @@ async function main() {
       unformatted: runSummaries.filter((r) => r.status === "unformatted")
         .length,
     };
-    const reportDir = join(ROOT, ".review-agents");
-    mkdirSync(reportDir, { recursive: true });
+    mkdirSync(REPORT_DIR, { recursive: true });
     writeFileSync(
-      join(reportDir, `report-${sha}.json`),
+      join(REPORT_DIR, `report-${sha}.json`),
       JSON.stringify(report, null, 2),
     );
 
@@ -325,6 +376,14 @@ async function main() {
         (silent.length ? `, ${silent.length} specialist(s) did not run` : "") +
         ").",
     );
+    // The verdict is only cheap while the diff is still in your head, so ask for it now rather
+    // than hoping the verb is remembered later. This is the whole input to dev-harness §12's
+    // "track the ratio" — untriaged, the run leaves no trace once the report is discarded.
+    if (findings.length && !opts.ci) {
+      console.log(
+        "Judge these into the ledger while they're fresh: `pnpm run review --triage`",
+      );
+    }
   }
 }
 

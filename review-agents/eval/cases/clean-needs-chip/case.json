@@ -1,0 +1,7 @@
+{
+  "id": "clean-needs-chip",
+  "source": "commit:6d1f4c4 (forward)",
+  "kind": "must-not-find",
+  "specialist": "runtime",
+  "notes": "A small clean UI merge, tests included, as it actually landed."
+}

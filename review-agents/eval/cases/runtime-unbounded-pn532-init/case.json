@@ -1,0 +1,12 @@
+{
+  "id": "runtime-unbounded-pn532-init",
+  "source": "commit:352a3cc (reversed)",
+  "kind": "must-find",
+  "specialist": "runtime",
+  "expect": {
+    "matches": [
+      "hang|unbounded|no timeout|without a timeout|never return|block\\w* (forever|indefinitely)"
+    ]
+  },
+  "notes": "Reverse of #307/#309: drops bounded.py and calls create_pn532_reader with no init timeout. A wedged PN532 then leaves the unit 'active (running)' forever, which systemd cannot restart. runtime's whole brief is 'anything that drives a subprocess, the network, or hardware gets a bound'."
+}

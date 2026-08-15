@@ -1,0 +1,12 @@
+{
+  "id": "null-result-turbo-strips-fork-cap",
+  "source": "commit:048ddf1 (reversed)",
+  "kind": "must-find",
+  "specialist": "null-result",
+  "expect": {
+    "matches": [
+      "strict env|turbo\\.json|declared?|never reach|silently|quietly|no effect|strip"
+    ]
+  },
+  "notes": "Reverse of #223/#224: ci.yml sets VITEST_MAX_FORKS, and turbo.json no longer declares it. Turbo's strict env mode drops any variable turbo.json does not declare, so the cap never reaches vitest and the leg quietly runs the default pool. Green the whole time."
+}

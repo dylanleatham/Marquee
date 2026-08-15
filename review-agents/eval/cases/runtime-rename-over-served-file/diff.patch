@@ -1,0 +1,134 @@
+diff --git b/packages/curator/src/albums/actions.ts a/packages/curator/src/albums/actions.ts
+index 35c97a2..0f36d5f 100644
+--- b/packages/curator/src/albums/actions.ts
++++ a/packages/curator/src/albums/actions.ts
+@@ -1,7 +1,13 @@
+ // The human-driven onboarding actions (step 7): mark a prompt copied, redraft a prompt, attach /
+ // detach a video or card art, approve or reject a preview. Each validates the album's state and
+ // throws a typed error the server maps to a status code. Kept out of server.ts to keep routes thin.
+-import { mkdirSync, existsSync, rmSync, readFileSync } from "node:fs";
++import {
++  mkdirSync,
++  existsSync,
++  rmSync,
++  renameSync,
++  readFileSync,
++} from "node:fs";
+ import { writeFile } from "node:fs/promises";
+ import { randomUUID } from "node:crypto";
+ import {
+@@ -21,7 +27,6 @@ import {
+   type CardArtRefusal,
+   type VideoClip,
+ } from "./asset.js";
+-import { replaceFile } from "../media/replace-file.js";
+ import { ValidationError, type PaletteGenerator } from "./add-manual.js";
+ import type { TagObject } from "../tags/flipper-nfc.js";
+ import {
+@@ -1707,12 +1712,8 @@ const basenameOnly = (name: string): string =>
+ /**
+  * Move a raw upload with no curatorId into /incoming/ for a later claim (curator-spec §9). The bytes
+  * are already streamed to `srcPath` (a temp in /incoming/), so this is a same-directory rename rather
+- * than a re-copy of a potentially multi-GB file (issue #16). Overwrites any prior file of that name.
+- *
+- * Through `replaceFile` since issue #255. This used to unlink the destination first, unconditionally,
+- * with a comment that a bare rename onto an existing path "throws on Windows" — half right: it throws
+- * only when something has the destination **open**. The helper keeps the atomic rename for the
+- * common case and unlinks only when it has to.
++ * than a re-copy of a potentially multi-GB file (issue #16). Overwrites any prior file of that name,
++ * matching the previous write-through behavior (renameSync onto an existing path throws on Windows).
+  */
+ export function saveIncoming(
+   store: AssetStore,
+@@ -1722,6 +1723,7 @@ export function saveIncoming(
+   const name = basenameOnly(originalFilename) || `upload-${Date.now()}`;
+   mkdirSync(store.paths.incoming, { recursive: true });
+   const dest = store.paths.incomingFile(name);
+-  replaceFile(srcPath, dest);
++  rmSync(dest, { force: true });
++  renameSync(srcPath, dest);
+   return { name };
+ }
+diff --git b/packages/curator/src/media/replace-file.ts a/packages/curator/src/media/replace-file.ts
+deleted file mode 100644
+index 42f3149..0000000
+--- b/packages/curator/src/media/replace-file.ts
++++ /dev/null
+@@ -1,52 +0,0 @@
+-// Replacing a file Curator might also be serving (issue #255).
+-//
+-// Curator's write-then-swap pattern is to build the new bytes beside the destination and rename on a
+-// clean finish, so a half-written file never masquerades as a whole one. On Windows that rename
+-// fails when the destination has an open handle — and Curator itself holds one, because `sendFile`
+-// streams media with `createReadStream` and the record page plays the attached visualizer on a loop.
+-// So replacing a clip while looking at it produced:
+-//
+-//   EPERM: operation not permitted, rename '…\visualizers\<id>.mp4.tmp-…' -> '…\visualizers\<id>.mp4'
+-//
+-// POSIX allows renaming over an open file, which is why Ubuntu CI never saw it.
+-//
+-// Measured, not assumed — with an open read stream on the destination:
+-//
+-//   renameSync(src, dest)   EPERM        ← the only one that fails
+-//   copyFileSync(src, dest) OK
+-//   rmSync(dest)            OK
+-//   writeFileSync(dest)     OK
+-//
+-// libuv opens with share-delete, so unlinking a file someone is reading is legal on Windows too: the
+-// reader keeps its handle to the now-unlinked inode and the name is free. That is what makes the
+-// fallback below work, and it is why the family is exactly one operation.
+-import { renameSync, rmSync } from "node:fs";
+-
+-/** The Windows codes that mean "something else has this file open", rather than a real fault. */
+-const LOCKED = new Set(["EPERM", "EACCES", "EBUSY"]);
+-
+-/**
+- * Move `src` onto `dest`, replacing it — the last step of every write-then-swap in Curator.
+- *
+- * Tries the plain rename first, which is atomic and is what happens on POSIX and on a Windows
+- * destination nobody is reading. Only when that fails with a locked-file code does it unlink the
+- * destination and rename onto the free name.
+- *
+- * **The fallback is deliberately not the default.** It opens a window — after the unlink and before
+- * the rename — where the destination does not exist, so a crash inside it leaves no visualizer where
+- * there used to be an old one. Paying that only when the atomic path is impossible keeps the window
+- * off the common case entirely, rather than trading a real guarantee for uniform code.
+- */
+-export function replaceFile(src: string, dest: string): void {
+-  try {
+-    renameSync(src, dest);
+-    return;
+-  } catch (err) {
+-    const code = (err as NodeJS.ErrnoException).code ?? "";
+-    // A genuine failure — no such file, no permission on the directory, a cross-device move — is not
+-    // ours to paper over, and retrying it a different way would only obscure it.
+-    if (!LOCKED.has(code)) throw err;
+-  }
+-  rmSync(dest, { force: true });
+-  renameSync(src, dest);
+-}
+diff --git b/packages/curator/src/media/video.ts a/packages/curator/src/media/video.ts
+index 5e9ad7d..405c7a9 100644
+--- b/packages/curator/src/media/video.ts
++++ a/packages/curator/src/media/video.ts
+@@ -2,8 +2,7 @@
+ // visualizers/. The prober is an interface so tests inject a fake and never shell out to ffmpeg
+ // (same pattern as the Spotify/palette fakes); production uses FfmpegProber over the real binaries.
+ import { spawn, spawnSync } from "node:child_process";
+-import { mkdirSync, copyFileSync, rmSync } from "node:fs";
+-import { replaceFile } from "./replace-file.js";
++import { mkdirSync, copyFileSync, rmSync, renameSync } from "node:fs";
+ import { randomUUID } from "node:crypto";
+ import { resolve } from "node:path";
+ import type { Paths } from "../store/paths.js";
+@@ -264,9 +263,7 @@ export async function ingestVideo(
+     const tmp = `${dest}.tmp-${randomUUID()}`;
+     try {
+       await deps.prober.normalize(args.srcPath, tmp, info);
+-      // `replaceFile`, not a bare rename: the record page may be streaming the clip being replaced,
+-      // and Windows refuses to rename over an open handle (issue #255).
+-      replaceFile(tmp, dest);
++      renameSync(tmp, dest);
+     } catch (err) {
+       rmSync(tmp, { force: true });
+       throw err;

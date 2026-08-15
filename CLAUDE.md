@@ -54,6 +54,41 @@ the same session, not a gate that bounces the PR. Only genuinely-debatable calls
 review. The bar is **no blocking findings and no _repeat_ class**, not zero findings (chasing zero is
 gold-plating).
 
+"Repeat class" stopped being something you have to remember on 2026-08-13. After a review, judge what
+it said — `pnpm run review --triage` — and `pnpm run review:stats` prints the repeat-class table
+along with each reviewer's precision. Commit `review-agents/ledger.jsonl` with your PR; it is the
+only evidence the harness keeps about its own reviewers, and the only input to
+[dev-harness §12](docs/specs/dev-harness.md)'s "delete checks when they generate more noise than
+signal." A class that keeps being **accepted** is a missing gate — close it. A class that keeps being
+**wrong** is a prompt to fix. See
+[harness-self-improvement.md](docs/specs/harness-self-improvement.md) §4.1.
+
+The loop, concretely:
+
+```bash
+pnpm run review --fast      # mid-session, blocking reviewers only (~1-2 min)
+pnpm run review             # before the PR, all eight (~10 min — it samples 3x)
+pnpm run review --triage    # judge what it said, while it is still fresh
+git add review-agents/ledger.jsonl
+```
+
+**If the PR touches `review-agents/`, also run `pnpm run review:eval`.** A prompt, an `examples.md`
+or a `config.json` is behaviour, and that is the only thing standing between an edit that improves a
+reviewer and one that quietly costs it recall
+([ADR 0085](docs/adrs/0085-a-harness-edit-is-validated-against-a-frozen-case-set.md)). It cannot run
+in CI — a GitHub runner has no `claude` binary — so nothing enforces it. It happens because you
+remember, or it does not happen.
+
+Every week or two, `pnpm run review:retro` reads the ledger and the eval and writes a proposal file.
+It changes nothing; you decide, and anything you change from it goes back through `review:eval`. It
+also says when the baseline has gone stale — re-recording is ~35 real sessions, so treat that as a
+deliberate sit-down.
+
+A full review samples each reviewer three times and unions the findings, because measured detection
+is 33–80% _per run_ ([ADR 0088](docs/adrs/0088-a-review-samples-each-specialist-and-unions-the-findings.md)).
+That is where the recall comes from and also why it takes ten minutes. `REVIEW_SAMPLES=1` restores
+the fast, lossier behaviour.
+
 Three checks close most of what otherwise slips through — each is the durable fix for a finding that
 has recurred:
 
@@ -82,8 +117,16 @@ doc-reconcile pass), don't just fix the instance.
   `main` isn't hard-protected (free plan) — the git hooks are the gate; don't commit product code
   straight to `main`.
 - **Review agents** run on demand: `pnpm run review` — run it early and iteratively, not just before
-  the PR (see "Definition of done" above); not in pre-push. See
+  the PR (see "Definition of done" above); not in pre-push. `--fast` is the mid-session tier. Then
+  `--triage` what it found, and commit the ledger. See
   [review-agents/README.md](review-agents/README.md) and `review-agents/KNOWN-ISSUES.md`.
+- **The workflow rules above have mechanisms**, in [.claude/](.claude/README.md): `/fix-bug` walks
+  the bug-fix procedure including the _watch it fail_ step, `/new-adr` takes the number from
+  `origin/main` rather than `ls`, and a Stop hook says so when source changed and the reviewers never
+  ran. Prose is a suggestion; these are the executed version. Four ADR collisions shipped while
+  `check:adrs` existed and was correct, which is the size of that gap.
+- **`pnpm run review:retro`** reads the ledger and the eval and proposes what to change next. It
+  never edits a prompt — see [ADR 0089](docs/adrs/0089-the-retro-proposes-and-a-human-accepts.md).
 - **Bugs** are tracked as GitHub issues; the fixing PR `Closes #<n>`. See the bug-fix workflow above.
 - `gh` CLI is installed at `C:\Program Files\GitHub CLI\gh.exe` (authed as `dylanleatham`), but not
   yet on the shell PATH — call it by full path, or use PR links / the Actions tab.

@@ -1,0 +1,95 @@
+diff --git b/.github/workflows/ci.yml a/.github/workflows/ci.yml
+index ecea01d..7d3e1c8 100644
+--- b/.github/workflows/ci.yml
++++ a/.github/workflows/ci.yml
+@@ -47,26 +47,6 @@ jobs:
+           node-version-file: .nvmrc
+           cache: pnpm
+       - run: pnpm install --frozen-lockfile
+-      # Curator's real-binary tests (`test/video-ffmpeg-integration.test.ts`, and the ffmpeg half of
+-      # `test/card-art-print.test.ts`) skip themselves when ffmpeg is absent — and nothing here ever
+-      # installed it, so on CI they were *always* skipped, which reads identically to passing. Two
+-      # defects shipped straight through that hole: #180 (no `-f mp4`, so every real encode died on
+-      # the muxer) and #217 (the downscale emitted odd dimensions and libx264 refused them). Both
+-      # were invisible to the faked-prober tests, which assert argv as a string and cannot watch
+-      # ffmpeg reject it.
+-      #
+-      # This runs on `test:integration` rather than `test:unit` on purpose. `test:unit` fans out
+-      # across the whole monorepo, and a real encode competing for a 2-core runner is exactly what
+-      # once starved Backdrop's timing-sensitive server/ws tests into a flake (see the note on
+-      # `makeOverBudgetClip`). Curator is the only package with a `test:integration` script, so this
+-      # leg has the runner to itself and that contention cannot arise. `test:unit` still runs the
+-      # same files — with no ffmpeg they skip there, as before, and locally they run in full.
+-      #
+-      # Linux only: the class being caught is codec/muxer behaviour, not path handling, so the
+-      # Windows leg would pay 2x billing for a second copy of the same signal.
+-      - name: Install ffmpeg
+-        if: matrix.task == 'test:integration' && runner.os == 'Linux'
+-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+       - run: pnpm turbo run ${{ matrix.task }} ${{ matrix.turboFlags }}
+         env:
+           # Unset on every other leg: matrix.vitestForks is undefined there, which renders as the
+@@ -74,13 +54,6 @@ jobs:
+           # absent. Linux keeps its default pool sizing.
+           VITEST_MAX_FORKS: ${{ matrix.vitestForks }}
+           VITEST_MIN_FORKS: ${{ matrix.vitestForks }}
+-          # Installing ffmpeg closes the gap today; this is what keeps it closed. On the leg that
+-          # installed it, a missing binary becomes a hard failure instead of a silent skip, so a
+-          # broken apt step or a changed runner image goes red rather than quietly green — see
+-          # `packages/curator/test/ffmpeg-gate.ts`. Empty elsewhere, which the gate reads as absent.
+-          # Declared in turbo.json's `test:integration` env, without which turbo's strict env mode
+-          # strips it before vitest ever sees it.
+-          MARQUEE_REQUIRE_FFMPEG: ${{ matrix.task == 'test:integration' && '1' || '' }}
+ 
+   # Formatting is a root-level script, not a turbo task, so the matrix above never ran it — which is
+   # how 28 files drifted unnoticed (issue #97). `pnpm run validate` covered it, but only for whoever
+diff --git b/packages/curator/package.json a/packages/curator/package.json
+index 247025b..04dfdc9 100644
+--- b/packages/curator/package.json
++++ a/packages/curator/package.json
+@@ -15,7 +15,6 @@
+     "type-check": "tsc --noEmit && tsc --noEmit -p ui/tsconfig.json",
+     "test": "vitest run",
+     "test:unit": "vitest run",
+-    "test:integration": "vitest run video-ffmpeg-integration card-art-print",
+     "lint": "echo \"(no linter configured yet)\""
+   },
+   "dependencies": {
+diff --git b/turbo.json a/turbo.json
+index 1c5ef7a..084bcc1 100644
+--- b/turbo.json
++++ a/turbo.json
+@@ -13,30 +13,18 @@
+     "type-check": {
+       "dependsOn": ["^build"]
+     },
+-    // FFMPEG_PATH/FFPROBE_PATH are declared on the local-facing test tasks for the same reason as on
+-    // test:integration below: strict env mode strips them otherwise, so a workstation that keeps
+-    // ffmpeg off PATH and points at it by variable — the arrangement the desktop app uses — silently
+-    // skipped every real-binary test at pre-push, which is the same blind spot in miniature.
+     "test": {
+       "dependsOn": ["^build"],
+-      "outputs": ["coverage/**"],
+-      "env": ["MARQUEE_REQUIRE_FFMPEG", "FFMPEG_PATH", "FFPROBE_PATH"]
++      "outputs": ["coverage/**"]
+     },
+     "test:unit": {
+-      "dependsOn": ["^build"],
+-      "env": ["MARQUEE_REQUIRE_FFMPEG", "FFMPEG_PATH", "FFPROBE_PATH"]
++      "dependsOn": ["^build"]
+     },
+     "test:contracts": {
+       "dependsOn": ["^build"]
+     },
+     "test:integration": {
+-      "dependsOn": ["^build"],
+-      // turbo runs in strict env mode, so a variable the workflow sets but nobody declares here is
+-      // stripped before vitest ever sees it. MARQUEE_REQUIRE_FFMPEG is what makes a missing ffmpeg
+-      // fail the build instead of skipping quietly (see test/ffmpeg-gate.ts), so an undeclared one
+-      // would restore the exact silence this task exists to end. FFMPEG_PATH/FFPROBE_PATH are here
+-      // for the same reason: they're how a machine without ffmpeg on PATH points at its binaries.
+-      "env": ["MARQUEE_REQUIRE_FFMPEG", "FFMPEG_PATH", "FFPROBE_PATH"]
++      "dependsOn": ["^build"]
+     }
+   }
+ }

@@ -2,8 +2,16 @@
 
 Specialist Claude Code reviewers that read a diff and surface things worth thinking about. You
 run them **on demand** with `pnpm run review` — typically right before opening a PR. They are
-deliberately NOT in the pre-push hook (6 real Claude sessions add 1–2 min to every push, and on
+deliberately NOT in the pre-push hook (8 real Claude sessions add minutes to every push, and on
 the free plan nothing enforces a report anyway). Design: `docs/specs/dev-harness.md §6`.
+
+> **Editing a specialist's prompt, examples or config is a change under test.** Run
+> `pnpm run review:eval` before you merge it — it scores every reviewer against
+> [frozen cases](eval/README.md) and fails if recall drops or false positives rise
+> ([ADR 0085](../docs/adrs/0085-a-harness-edit-is-validated-against-a-frozen-case-set.md)). Nothing
+> enforces this: the eval needs a real `claude` session, so it cannot run on a CI runner. It is a
+> discipline, and the [ledger](#the-ledger--what-this-harness-remembers) is what tells you whether
+> the discipline is working.
 
 ## The roster
 
@@ -15,9 +23,18 @@ the free plan nothing enforces a report anyway). Design: `docs/specs/dev-harness
 | **consistency**       | info      | code files                          | naming / error / log / structure drift                      |
 | **runtime**           | ✅        | code files                          | missing timeouts, throws in async chains, leaks, races      |
 | **security**          | ✅        | all changes                         | hardcoded secrets, injection, path traversal, disabled auth |
+| **null-result**       | ✅        | workflows, manifests, task config   | a new check that no-ops into a green tick (see ⚠ below)     |
+| **doc-coherence**     | info      | docs, and any file citing an ADR    | the copy of a fact nobody updated                           |
 
 Only findings a **blocking** specialist explicitly marks `"blocking"` fail the push. Everything
 else is informational.
+
+> ⚠ **`null-result` measured 0/9, then 16/20, with no change to its prompt or config.** It is the
+> best-scoring reviewer on the board today (80% per-run detection, 4/4 cases) and it was scored at
+> zero four days' work earlier. Nothing about the reviewer changed in between. Until that is
+> explained, treat _every_ per-reviewer number here as less settled than it looks — including the
+> good ones. Details:
+> [eval/README.md](eval/README.md#null-result-measured-09-then-1620-and-nothing-about-it-changed).
 
 ## How it works
 
@@ -26,9 +43,12 @@ else is informational.
 1. Resolves the diff base (`origin/main` merge-base for a branch; `--staged` or `--base` to override).
 2. Computes changed files + a capped unified diff.
 3. Routes: each specialist's `config.json` declares what triggers it and what context to load.
-4. Runs each relevant specialist via Claude Code headless (`claude -p --output-format json`). The
-   call is a blocking `spawnSync`, so specialists run **one at a time** — gentler on a loaded
-   machine than N concurrent sessions. A specialist that overruns its budget retries once (RA-2).
+4. Runs each relevant specialist via Claude Code headless (`claude -p --output-format json`), at
+   most `REVIEW_CONCURRENCY` (default **3**) at a time
+   ([ADR 0087](../docs/adrs/0087-specialists-run-concurrently-under-a-cap.md)). A cap rather than
+   `Promise.all`: each slot is a full Claude Code session, and a laptop also running the dev
+   services should not have eight opened on it. A specialist that overruns its budget retries once
+   (RA-2). Lines print as each finishes, so the order is completion order, not roster order.
 5. Parses each reply into findings. A reply that isn't the JSON array gets **one reformat round** —
    the specialist is asked to translate its own reply into the contract shape, with no diff attached,
    so structure (file, line, severity) survives instead of collapsing into one unstructured info
@@ -51,10 +71,67 @@ pnpm run review                     # review this branch vs origin/main
 pnpm run review --staged            # review staged changes
 pnpm run review --reviewer security # run one specialist
 pnpm run review --explain           # also print the context sent to each specialist
+pnpm run review --fast              # only the blocking specialists — the mid-session check
+pnpm run review --samples 1         # one run per specialist instead of the default 3
 pnpm run review --ci                # hook mode: write report, exit 1 on blocking findings
+pnpm run review --triage            # judge the last report's findings into the ledger
+pnpm run review:stats               # what the ledger adds up to
+pnpm run review:eval                # score the reviewers against the frozen case set
 ```
 
-Env: `CLAUDE_CODE_PATH` (binary override, default `claude`), `REVIEW_MOCK=1` (skip real calls —
+## Sampling — why a review runs each specialist three times
+
+Measured across the frozen case set, a specialist detects a real bug **33–50% of the time per run**,
+and the misses are not blindness: cases land at 2/5 and 4/5, never 0/5. They recognise the bug and
+fail to mention it. So a review runs each triggered specialist `REVIEW_SAMPLES` times (default 3)
+and **unions** the findings — one sample noticing something is enough for it to reach the report
+([ADR 0088](../docs/adrs/0088-a-review-samples-each-specialist-and-unions-the-findings.md)).
+
+Scored on the same cached sessions, `runtime`'s recall goes from **1/4** (majority) to **4/4**
+(union), with false positives unchanged at 0/2.
+
+It costs 3× the sessions, which is why the header prints the session count. `--samples 1` or
+`REVIEW_SAMPLES=1` restores single-sampling. A finding raised as blocking by even one sample still
+blocks; a specialist counts as unavailable only if _every_ sample failed.
+
+The honest caveat: union collects each run's false positives as well as its findings, and the
+zero-FP evidence rests on three clean cases. Widening that side of
+[the case set](eval/README.md) is the prerequisite for trusting this.
+
+## The ledger — what this harness remembers
+
+Reports (`.review-agents/report-<sha>.json`) are gitignored run artifacts, so on their own every run
+is amnesiac. `--triage` walks the findings of the most recent report and records a verdict for each
+into **`review-agents/ledger.jsonl`, which is committed**. Design and rationale:
+[harness-self-improvement.md](../docs/specs/harness-self-improvement.md) §4.1.
+
+| verdict        | meaning                                        | counts toward         |
+| -------------- | ---------------------------------------------- | --------------------- |
+| `[a] accepted` | real, and I changed the code                   | precision numerator   |
+| `[w] wrong`    | not a real problem — the reviewer was mistaken | precision denominator |
+| `[x] wont-fix` | real, but deliberately not acting on it        | **neither**           |
+
+The `wrong` / `wont-fix` split is the point. A reviewer with ten `wont-fix` findings is calibrated
+and unlucky in what it notices; a reviewer with ten `wrong` findings needs its prompt changed or
+needs retiring under dev-harness §12. One number cannot tell those apart. Only `wrong` is asked for
+a reason, because that is the reason a prompt fix gets argued from.
+
+Triage appends after **every** verdict, so quitting halfway keeps what you judged and re-running it
+asks only about the rest. It is interactive and refuses to run when stdin is not a terminal — never
+put it in a hook or a CI job.
+
+`review:stats` prints volume, fire rate, precision and the repeat-class table. Below **n=8** judged
+findings it prints `insufficient data (n=…)` rather than a percentage: a ratio from two data points
+is a number, not a measurement, and dev-harness §11's rule against checks that measure nothing
+applies to this instrument as much as to the ones it watches.
+
+Commit the ledger with your PR. `.gitattributes` marks it `merge=union` so two branches that both
+triaged a review keep both sides' records.
+
+Env: `REVIEW_SAMPLES` (runs per specialist, findings unioned, default `3` — see below),
+`REVIEW_CONCURRENCY` (sessions in flight, default `3` — drop it to `1` for the old
+strictly-sequential behaviour on a loaded machine),
+`CLAUDE_CODE_PATH` (binary override, default `claude`), `REVIEW_MOCK=1` (skip real calls —
 used by tests/CI to exercise the pipeline without tokens; `REVIEW_MOCK_OUTPUT` supplies a
 canned findings array), `REVIEW_TIMEOUT_MS` (default spawn budget in ms, default
 `90000` — bump it on a slow/loaded machine if a specialist gets marked unavailable),
@@ -91,7 +168,23 @@ it auto-discovers any dir containing a `config.json`.
 `REVIEW_TIMEOUT_MS`), and any of `triggerAll` (bool),
 `triggerGlobs` (string[]), `triggerImports` (string[] — run if a changed file's text contains
 one), `contextGlobs` (string[] — files to load into context), `includePackageSpecs` (bool —
-auto-load the spec(s) for changed packages).
+auto-load the spec(s) for changed packages), `contextRelated` (object — context found by search).
+
+**`contextRelated`** exists for a reviewer whose context cannot be named in advance
+([ADR 0086](../docs/adrs/0086-a-specialist-may-be-given-context-found-by-search.md)). `doc-coherence`
+asks "which other copies of this fact are now wrong?", and the answer is whichever of 80-plus ADRs
+and 17 specs happen to mention what the diff touched — a search, not a glob. Files are scored by how
+many distinct keywords from the change they contain, and appear in the prompt under
+`# Possibly related`, deliberately worded so the reviewer treats them as a lead rather than as
+authority.
+
+```jsonc
+"contextRelated": { "over": ["docs/**/*.md"], "maxFiles": 6, "maxBytes": 100000 }
+```
+
+Bounded on four axes (candidates scanned, bytes per file, files returned, total bytes) and
+deterministic — the eval caches on a specialist's config, so context that reshuffled between runs
+would make a cached result meaningless. See `lib/related.mjs`.
 
 **Write source globs as `packages/**/src/**`, never `packages/*/src/**`.** A single `*` matches one
 path segment, and not every package keeps its source one level down — `packages/curator/ui/src/` and

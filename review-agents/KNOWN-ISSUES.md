@@ -15,6 +15,29 @@ _None currently._
 
 ### Resolved
 
+- **RA-6 — the ledger counted two reviews of one commit as one run.** Fixed 2026-08-13, the day the
+  ledger shipped, by using it. `--staged` and `--base HEAD~3` both write `report-<sha>.json` for the
+  same `HEAD`, so the second review overwrites the first's report — and `runTriage` keyed the run
+  record on `sha`, decided the run was already recorded, and skipped it. The findings of the second
+  review were recorded against a run record describing the first.
+  The measured result was an instrument contradicting itself: `consistency` printed `FIRED=0`
+  alongside an accepted finding, and `spec-adherence` printed `RUNS=0` while having triaged one.
+  That is the §11 failure in its purest form — the table looked exactly like a confident,
+  well-measured one.
+  Fixed by `runIdOf(report)`: a run is identified by the report's `createdAt`, which is stamped per
+  review, falling back to `sha|base` for reports written before the field existed (sha alone would
+  recreate the bug for them). Both record kinds carry `runId`; findings written before it are still
+  counted, since the verdict is what precision is made of.
+  The ledger was **repaired by appending** the missing run record — the second review genuinely
+  happened and its report was still on disk — rather than by rewriting the file. It is append-only;
+  a correction is a new record, not an edit.
+  Regression tests: `runTriage: two reviews of the same commit are two runs, not one`,
+  `runTriage: re-triaging the same report still does not duplicate its run`, `runIdOf: a report with
+no createdAt still distinguishes runs by its base`, and `computeStats: findings recorded before
+runId existed still count` in `lib/lib.test.mjs`.
+  No GitHub issue: it never reached `main`. The bug-fix workflow's issue-and-branch ceremony is for
+  defects that escaped, and dogfooding on the feature branch is where this was supposed to be caught.
+
 - **RA-5 — `test-auditor` never ran on Curator's React UI.** Fixed 2026-07-31
   ([issue #192](https://github.com/dylanleatham/Marquee/issues/192)). Its `triggerGlobs` were
   `packages/*/src/**`, and a single `*` matches exactly one path segment — so it saw

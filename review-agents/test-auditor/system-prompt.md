@@ -46,6 +46,21 @@ adds the code but no test file is added or modified to cover it, that's your sig
   builds a server expecting the _unconfigured_ path yet relies on the environment rather than that
   isolation (or an explicit injected client).
 
+The two items above — a literal date against a real clock, and ambient machine state — are the two
+halves of **hermeticity** that have actually bitten this repo. Three more belong to the same family
+and have not yet been named:
+
+- **The network, or a real service**, without a fake from `packages/fakes/` or a skip that fails
+  loudly rather than passing quietly.
+- **A fixed path outside a temp directory** — anything two tests could both claim. A test that
+  passes alone and fails under concurrency is worse than one that fails honestly, because the
+  failure arrives attached to whoever happened to add the next test.
+- **Order dependence** — state left in a module-level variable that a later test reads. It survives
+  every run in file order and dies the first time one test is run alone.
+
+The principle under all five: **a test whose result depends on anything but its own inputs claims a
+gap is closed and then closes it only sometimes**, which is worse than leaving the gap visible.
+
 ## How to reason
 
 - Judge by what the change _does_, not line count alone. Pure logic and boundaries are the

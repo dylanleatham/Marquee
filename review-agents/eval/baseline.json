@@ -1,0 +1,118 @@
+{
+  "generatedAt": "2026-08-14T16:47:11.677Z",
+  "repeats": 5,
+  "specialists": {
+    "consistency": {
+      "mustFind": {
+        "hit": 0,
+        "total": 0,
+        "hits": 0,
+        "runs": 0
+      },
+      "mustNotFind": {
+        "fp": 0,
+        "total": 1,
+        "fpRuns": 0,
+        "runs": 5
+      }
+    },
+    "contract-guardian": {
+      "mustFind": {
+        "hit": 0,
+        "total": 1,
+        "hits": 0,
+        "runs": 5
+      },
+      "mustNotFind": {
+        "fp": 0,
+        "total": 1,
+        "fpRuns": 0,
+        "runs": 5
+      }
+    },
+    "doc-coherence": {
+      "mustFind": {
+        "hit": 1,
+        "total": 2,
+        "hits": 5,
+        "runs": 10
+      },
+      "mustNotFind": {
+        "fp": 0,
+        "total": 0,
+        "fpRuns": 0,
+        "runs": 0
+      }
+    },
+    "null-result": {
+      "mustFind": {
+        "hit": 4,
+        "total": 4,
+        "hits": 16,
+        "runs": 20
+      },
+      "mustNotFind": {
+        "fp": 0,
+        "total": 0,
+        "fpRuns": 0,
+        "runs": 0
+      }
+    },
+    "runtime": {
+      "mustFind": {
+        "hit": 1,
+        "total": 4,
+        "hits": 10,
+        "runs": 20
+      },
+      "mustNotFind": {
+        "fp": 0,
+        "total": 2,
+        "fpRuns": 0,
+        "runs": 10
+      }
+    },
+    "security": {
+      "mustFind": {
+        "hit": 1,
+        "total": 1,
+        "hits": 4,
+        "runs": 5
+      },
+      "mustNotFind": {
+        "fp": 0,
+        "total": 1,
+        "fpRuns": 0,
+        "runs": 5
+      }
+    },
+    "spec-adherence": {
+      "mustFind": {
+        "hit": 1,
+        "total": 1,
+        "hits": 5,
+        "runs": 5
+      },
+      "mustNotFind": {
+        "fp": 0,
+        "total": 1,
+        "fpRuns": 0,
+        "runs": 5
+      }
+    },
+    "test-auditor": {
+      "mustFind": {
+        "hit": 1,
+        "total": 1,
+        "hits": 4,
+        "runs": 5
+      },
+      "mustNotFind": {
+        "fp": 0,
+        "total": 0,
+        "fpRuns": 0,
+        "runs": 0
+      }
+    }
+  }
+}

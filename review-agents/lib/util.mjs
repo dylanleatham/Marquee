@@ -61,6 +61,32 @@ export function filesMatching(root, patterns = []) {
   return out;
 }
 
+/**
+ * Map over `items` with at most `limit` callbacks in flight, preserving input order in the result.
+ *
+ * `Promise.all(items.map(fn))` starts everything at once; this is the bounded version. The cap is
+ * the point — each in-flight item here is a full Claude Code session, and the original sequential
+ * design was chosen to be "gentler on a loaded machine than N concurrent sessions". A pool keeps
+ * that while removing the part nobody wanted, which was waiting for eight of them end to end.
+ *
+ * A rejection propagates, as with `Promise.all`; callers that must not lose the other results catch
+ * per item inside `fn`.
+ */
+export async function mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (true) {
+      const index = next++;
+      if (index >= items.length) return;
+      results[index] = await fn(items[index], index);
+    }
+  };
+  const width = Math.max(1, Math.min(limit, items.length));
+  await Promise.all(Array.from({ length: width }, worker));
+  return results;
+}
+
 export function readTruncated(absPath, maxBytes = 16_000) {
   try {
     const s = readFileSync(absPath, "utf8");

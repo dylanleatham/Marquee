@@ -21,3 +21,8 @@
 *.ttf  binary
 *.otf  binary
 *.pdf  binary
+
+# The review-agent ledger is an append-only log (docs/specs/harness-self-improvement.md §4.1).
+# Two branches that both triage a review conflict on its last line every time; union is the
+# correct merge for an append-only file — keep both sides' records, drop neither.
+review-agents/ledger.jsonl merge=union

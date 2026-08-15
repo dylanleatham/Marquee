@@ -1,0 +1,712 @@
+diff --git a/packages/curator/src/albums/actions.ts b/packages/curator/src/albums/actions.ts
+index b713f39..b0588cf 100644
+--- a/packages/curator/src/albums/actions.ts
++++ b/packages/curator/src/albums/actions.ts
+@@ -1401,7 +1401,7 @@ export function approvePreview(
+ ): AlbumAsset {
+   const now = clock(deps);
+   // Read-mutate-save in one `update` rather than load/…/save. Both are synchronous here, so they
+-  // are equivalent today — but the four needs are explicitly done in any order now, and the rule
++  // are equivalent today — but the needs are explicitly done in any order now, and the rule
+   // that keeps a slow action from clobbering a concurrent write (#38) is worth not having to
+   // re-derive from "does this function await anything?" every time it is edited.
+   const saved = deps.store.update(curatorId, (a) => {
+@@ -1622,10 +1622,10 @@ export function verifyTags(deps: ActionDeps, curatorId: string): AlbumAsset {
+ 
+ /**
+  * Move the machine as far along the linear human path as the **asset** says it may go, and no
+- * further. The one place the four-needs model and the linear machine meet
++ * further. The one place the needs model and the linear machine meet
+  * ([ADR 0063](../../../../docs/adrs/0063-the-machine-is-settled-from-the-asset-not-driven-by-the-button.md)).
+  *
+- * The four needs are done in any order (ADR 0052) but `HUMAN_TRANSITIONS` is a line. Rather than
++ * The needs are done in any order (ADR 0052) but `HUMAN_TRANSITIONS` is a line. Rather than
+  * each button driving its own edge — which is what made both the tag step (#261) and the lights
+  * sign-off (#263) unreachable when the needs before them were outstanding — every step here is
+  * gated on the **evidence on the asset**, not on which control was pressed. So it settles the same
+diff --git a/packages/curator/ui/src/collection.ts b/packages/curator/ui/src/collection.ts
+index d0ce9c1..421bab3 100644
+--- a/packages/curator/ui/src/collection.ts
++++ b/packages/curator/ui/src/collection.ts
+@@ -6,12 +6,50 @@ import type { AlbumSummary } from "./api";
+ import {
+   NEED_LABEL,
+   NEED_ORDER,
++  outstandingNeeds,
+   recordState,
+   type Need,
+   type RecordState,
+ } from "./needs";
+ 
+-export type CollectionFilter = "all" | "needs" | "ready";
++/**
++ * The four states a record can be in, as the chips name them.
++ *
++ * These are the `RecordState` kinds spelled exactly — not a parallel vocabulary that has to be kept
++ * in step. `visibleTiles` leans on that directly (`t.state.kind === filter`), and a test pins it, so
++ * a fifth state cannot be added without the chip row gaining one too.
++ */
++export type StateFilter = RecordState["kind"];
++
++/**
++ * What the collection can be narrowed to: everything, one state, or one outstanding need (ADR 0070).
++ *
++ * A `Need` here means **every record that still owes that thing**, not the records it happens to be
++ * first for — see `visibleTiles`.
++ */
++export type CollectionFilter = "all" | StateFilter | Need;
++
++const FILTERS: readonly CollectionFilter[] = [
++  "all",
++  "needs",
++  ...NEED_ORDER,
++  "ready",
++  "roadie",
++  "stuck",
++];
++
++const isNeedFilter = (f: CollectionFilter): f is Need =>
++  (NEED_ORDER as readonly string[]).includes(f);
++
++/**
++ * Total, because the value round-trips through the URL and can come back as anything at all —
++ * `?filter=banana` must land on the whole collection rather than on an empty grid with every chip
++ * unpressed. Same discipline as `step()` below.
++ */
++export const parseFilter = (raw: string | null): CollectionFilter =>
++  (FILTERS as readonly string[]).includes(raw ?? "")
++    ? (raw as CollectionFilter)
++    : "all";
+ 
+ /** One record as the grid draws it — the summary plus the state it reads as. */
+ export interface Tile {
+@@ -70,8 +108,21 @@ export const matchesQuery = (a: AlbumSummary, query: string): boolean => {
+ /**
+  * The tiles a given filter and query put on screen, in shuffled order.
+  *
+- * `needs` and `ready` both exclude the records Roadie is still holding: neither is true of them yet,
+- * and a record that appears under "not complete" but offers nothing to do is a dead end.
++ * **A need filter asks "does this record still owe a card?", not "is a card the first thing it
++ * owes?"** (ADR 0070). The needs are independent predicates and the whole point is that you may do
++ * them in any order; first-need semantics would have hidden a record that wants a card behind the
++ * visualizer it also wants, so an afternoon of making cards would clear the chip only to have it
++ * refill from records that were owing one the whole time. The cost is that the per-need chips sum to
++ * more than NOT COMPLETE — deliberate, and why the groups under NOT COMPLETE stay first-need so that
++ * view still shows each record exactly once.
++ *
++ * A tile matched this way is **relabelled to the need you asked for**, so a grid under NEEDS CARD
++ * never contains a tile reading NEEDS VISUALIZER. Under every other filter the tile keeps its own
++ * first-outstanding label.
++ *
++ * Every work filter excludes the records Roadie is still holding and the ones that are stuck: you
++ * can't make a card for a record that failed to download, and a tile offering nothing to do is a
++ * dead end in a list you are working down. Both have chips of their own instead.
+  */
+ export function visibleTiles(
+   albums: readonly AlbumSummary[],
+@@ -81,14 +132,19 @@ export function visibleTiles(
+     seed,
+   }: { filter: CollectionFilter; query: string; seed: number },
+ ): Tile[] {
+-  return seededShuffle(albums, seed)
++  const tiles = seededShuffle(albums, seed)
+     .filter((a) => matchesQuery(a, query))
+-    .map((album) => ({ album, state: recordState(album) }))
+-    .filter((t) => {
+-      if (filter === "needs") return t.state.kind === "needs";
+-      if (filter === "ready") return t.state.kind === "ready";
+-      return true;
+-    });
++    .map((album) => ({ album, state: recordState(album) }));
++  if (filter === "all") return tiles;
++  if (isNeedFilter(filter))
++    return tiles
++      .filter(
++        (t) =>
++          t.state.kind === "needs" &&
++          outstandingNeeds(t.album).includes(filter),
++      )
++      .map(({ album }) => ({ album, state: { kind: "needs", need: filter } }));
++  return tiles.filter((t) => t.state.kind === filter);
+ }
+ 
+ export interface NeedGroup {
+@@ -122,19 +178,25 @@ export interface CollectionCounts {
+   /** Roadie hasn't got to them yet — counted apart from "not complete", which implies you can act. */
+   notStarted: number;
+   stuck: number;
+-  /** How many records each need is the *first* outstanding one for. */
++  /** How many records each need is the *first* outstanding one for — what the groups hold. */
+   byNeed: Record<Need, number>;
++  /**
++   * How many records still owe each need **at all**. Adds up to more than `notComplete`, because a
++   * record missing both a visualizer and a card is counted under both — this is what the per-need
++   * chips say, and it matches what clicking one shows you.
++   */
++  byOutstanding: Record<Need, number>;
+ }
+ 
++/** Built from `NEED_ORDER` rather than written out, so a new need cannot be missed here. */
++const zeroPerNeed = (): Record<Need, number> =>
++  Object.fromEntries(NEED_ORDER.map((n) => [n, 0])) as Record<Need, number>;
++
+ export function collectionCounts(
+   albums: readonly AlbumSummary[],
+ ): CollectionCounts {
+-  const byNeed: Record<Need, number> = {
+-    lights: 0,
+-    visualizer: 0,
+-    card: 0,
+-    tags: 0,
+-  };
++  const byNeed = zeroPerNeed();
++  const byOutstanding = zeroPerNeed();
+   let notComplete = 0;
+   let ready = 0;
+   let notStarted = 0;
+@@ -144,6 +206,7 @@ export function collectionCounts(
+     if (s.kind === "needs") {
+       notComplete++;
+       byNeed[s.need]++;
++      for (const n of outstandingNeeds(a)) byOutstanding[n]++;
+     } else if (s.kind === "ready") ready++;
+     else if (s.kind === "roadie") notStarted++;
+     else stuck++;
+@@ -155,9 +218,41 @@ export function collectionCounts(
+     notStarted,
+     stuck,
+     byNeed,
++    byOutstanding,
+   };
+ }
+ 
++/** One chip in the filter bar. `count === null` means the chip carries no number. */
++export interface FilterChip {
++  value: CollectionFilter;
++  label: string;
++  count: number | null;
++}
++
++/**
++ * The filter bar, in order: everything, the outstanding work narrowed from broad to specific, then
++ * the three states you can't act on.
++ *
++ * EVERYTHING carries no count because the search placeholder already says how many records there
++ * are, and STUCK is dropped entirely when nothing is stuck — the other chips are the standing
++ * vocabulary of the collection and read fine at zero, but a permanent STUCK · 0 offers a category of
++ * failure to a collection that has none.
++ */
++export const filterChips = (c: CollectionCounts): FilterChip[] => [
++  { value: "all", label: "EVERYTHING", count: null },
++  { value: "needs", label: "NOT COMPLETE", count: c.notComplete },
++  ...NEED_ORDER.map((n) => ({
++    value: n,
++    label: NEED_LABEL[n],
++    count: c.byOutstanding[n],
++  })),
++  { value: "ready", label: "READY", count: c.ready },
++  { value: "roadie", label: "NOT STARTED", count: c.notStarted },
++  ...(c.stuck
++    ? [{ value: "stuck" as const, label: "STUCK", count: c.stuck }]
++    : []),
++];
++
+ const WORDS = [
+   "no",
+   "one",
+@@ -178,6 +273,9 @@ const spell = (n: number): string => WORDS[n] ?? String(n);
+ /**
+  * The one-line detail under NOT COMPLETE — the biggest single thing standing between the collection
+  * and the stand, as a sentence. Ties break in reading order, which is what NEED_ORDER already is.
++ *
++ * Counted first-need (`byNeed`), not `byOutstanding`, because it sits directly under the NOT
++ * COMPLETE total: a detail line claiming more records than the number above it reads as a bug.
+  */
+ export function notCompleteDetail(counts: CollectionCounts): string {
+   if (!counts.notComplete) return "nothing outstanding";
+@@ -185,10 +283,8 @@ export function notCompleteDetail(counts: CollectionCounts): string {
+     counts.byNeed[n] > counts.byNeed[best] ? n : best,
+   );
+   const n = counts.byNeed[biggest];
+-  // Same rule as NEED_LABEL: name the act, not the artifact. "still need lights" read as "have no
+-  // lights", which is false the moment Roadie finishes — they have a palette and want your eyes.
++  // Same rule as NEED_LABEL: name the act, not the artifact.
+   const what = {
+-    lights: "a look",
+     visualizer: "a visualizer",
+     card: "a card",
+     tags: "signing off",
+diff --git a/packages/curator/ui/src/components/ReadyToast.tsx b/packages/curator/ui/src/components/ReadyToast.tsx
+index e0daa67..6fe6934 100644
+--- a/packages/curator/ui/src/components/ReadyToast.tsx
++++ b/packages/curator/ui/src/components/ReadyToast.tsx
+@@ -42,8 +42,9 @@ export function ReadyToast({ albums }: { albums: AlbumSummary[] | null }) {
+       )}
+       <span className="toast__body">
+         <span className="toast__title">{album.title} is ready</span>
++        {/* Names the needs, and only the needs — the lights stopped being one in ADR 0069. */}
+         <span className="toast__sub">
+-          Lights, visualizer, card and tags — all done. Tap to watch it.
++          Visualizer, card and tags — all done. Tap to watch it.
+         </span>
+       </span>
+     </button>
+diff --git a/packages/curator/ui/src/needs.ts b/packages/curator/ui/src/needs.ts
+index a62f442..71f7128 100644
+--- a/packages/curator/ui/src/needs.ts
++++ b/packages/curator/ui/src/needs.ts
+@@ -1,16 +1,16 @@
+ // What a record still needs (ADR 0052) — the model the collection and the record page share.
+ //
+ // The old UI read `roadie.state` and showed the machine's word for it ("awaiting review"). That
+-// asserted an order the system does not have: nothing requires lights before a visualizer before a
+-// card. Here the four needs are **independent predicates over the asset**, so "do them in any order"
+-// is true by construction rather than by promise.
++// asserted an order the system does not have: nothing requires a visualizer before a card. Here the
++// needs are **independent predicates over the asset**, so "do them in any order" is true by
++// construction rather than by promise.
+ //
+ // Pure, no React, no DOM — the derivation is the load-bearing part, so it is unit-tested directly.
+ import type { AlbumAsset, AlbumSummary, LastError, RoadieState } from "./api";
+ import { isProcessing } from "./format";
+ 
+-/** The four things a record can still need, plus the two conditions that aren't needs at all. */
+-export type Need = "lights" | "visualizer" | "card" | "tags";
++/** The three things a record can still need, plus the conditions that aren't needs at all. */
++export type Need = "visualizer" | "card" | "tags";
+ 
+ export type RecordState =
+   | { kind: "ready" }
+@@ -24,59 +24,55 @@ export type RecordState =
+  * Reading order, not a dependency order. A record shows only its **first** outstanding need — never
+  * a count, never "+1" — so this is the tie-break when more than one is missing.
+  */
+-export const NEED_ORDER: Need[] = ["lights", "visualizer", "card", "tags"];
++export const NEED_ORDER: Need[] = ["visualizer", "card", "tags"];
+ 
+ /**
+  * The vocabulary, settled with the user over three rounds of review (see the design handoff). These
+  * words are not cosmetic: "wants you", "fully lit", "awaiting verification" were all rejected.
+  *
+  * **Each label names the act you still have to perform, never the artifact.** `visualizer` and `card`
+- * happen to read as the artifact because there genuinely isn't one yet. The other two don't:
+- * `tags` reads as NEEDS SIGN-OFF because the outstanding act is checking the tags, not burning them,
+- * and `lights` reads as NEEDS A LOOK because the palette has existed since seconds after the record
+- * landed — what's outstanding is watching it in the room.
+- *
+- * `lights` was NEEDS LIGHTS until 2026-08-07 and it actively misled: on a 500-record collection it
+- * reads as "Roadie never derived a palette", which sent this project's own user looking for a broken
+- * pipeline that had in fact finished (ADR 0056). 458 of the 482 records carrying that label had a
+- * full four-colour palette at the time.
++ * happen to read as the artifact because there genuinely isn't one yet. `tags` doesn't: it reads as
++ * NEEDS SIGN-OFF because the outstanding act is checking the stickers, not burning them.
+  */
+ export const NEED_LABEL: Record<Need, string> = {
+-  lights: "NEEDS A LOOK",
+   visualizer: "NEEDS VISUALIZER",
+   card: "NEEDS CARD",
+   tags: "NEEDS SIGN-OFF",
+ };
+ 
+-/** The same four, as the record page's tabs name them. */
++/** The same three, as the record page's tabs name them. */
+ export const NEED_TAB_LABEL: Record<Need, string> = {
+-  lights: "Lights",
+   visualizer: "A visualizer",
+   card: "A card",
+   tags: "Tags",
+ };
+ 
+ /**
+- * The record page's tab strip is the four needs **plus** the demo cut (ADR 0058) — the first tab
+- * that is not a need.
++ * The record page's tab strip is the three needs **plus** the two sections that are not needs:
++ * the lights (ADR 0069) and the demo cut (ADR 0058).
+  *
+  * The distinction is load-bearing, not cosmetic. A `Need` is something every record must have before
+  * it goes on the shelf; the strip's heading says so, the tiles label the first outstanding one, and
+- * `outstandingNeeds` is what makes "any order" true by construction. A demo cut is a preference most
+- * records never express — counting it would put a permanent NEEDS DEMO CUT on 500 records that are
+- * finished. So it is a *section* here and never a `Need` anywhere, and the two types stay separate
+- * rather than one type with a flag.
++ * `outstandingNeeds` is what makes "any order" true by construction. The other two fail that test in
++ * the same way from opposite ends: a demo cut is a preference most records never express, and the
++ * lights are set by Roadie and used automatically, so both would put a permanent outstanding item on
++ * records that are in fact finished. So they are *sections* here and never a `Need` anywhere, and the
++ * two types stay separate rather than one type with a flag.
++ *
++ * Lights lead the strip because they are the first thing you look at on a record, not because
++ * anything waits on them.
+  */
+-export type RecordSection = Need | "demo";
++export type RecordSection = Need | "lights" | "demo";
+ 
+-export const SECTION_ORDER: RecordSection[] = [...NEED_ORDER, "demo"];
++export const SECTION_ORDER: RecordSection[] = ["lights", ...NEED_ORDER, "demo"];
+ 
+ export const SECTION_TAB_LABEL: Record<RecordSection, string> = {
+   ...NEED_TAB_LABEL,
++  lights: "Lights",
+   demo: "A demo cut",
+ };
+ 
+-/** Is this section one of the four things a record can still need? */
++/** Is this section one of the things a record can still need? */
+ export const isNeedSection = (s: RecordSection): s is Need =>
+   NEED_ORDER.includes(s as Need);
+ 
+@@ -118,7 +114,6 @@ export function failureSentence(err: LastError | null): string {
+  */
+ export interface NeedFacts {
+   state: RoadieState;
+-  previewApprovedAt?: string | null;
+   physicallyVerifiedAt?: string | null;
+   hasVideo: boolean;
+   hasCardArt: boolean;
+@@ -128,7 +123,6 @@ export interface NeedFacts {
+ /** The same facts, read off a full asset — the server's `summary()` in reverse. */
+ export const needFactsOfAsset = (a: AlbumAsset): NeedFacts => ({
+   state: a.roadie.state,
+-  previewApprovedAt: a.verification?.previewApprovedAt ?? null,
+   physicallyVerifiedAt: a.verification?.physicallyVerifiedAt ?? null,
+   hasVideo: Boolean(a.visualizer),
+   hasCardArt: Boolean(a.cardArt),
+@@ -136,16 +130,6 @@ export const needFactsOfAsset = (a: AlbumAsset): NeedFacts => ({
+   tagsWritten: Boolean(a.tag?.sleeve?.written && a.tag?.card?.written),
+ });
+ 
+-/**
+- * Is this record's lights business finished?
+- *
+- * Sign-off is the test, not "has a palette" — every record has a palette within seconds of being
+- * added, and approving one means having watched it in the room. That is the whole reason the room
+- * screen owns the approve button.
+- */
+-const lightsDone = (a: NeedFacts): boolean =>
+-  Boolean(a.previewApprovedAt) || a.state === "verified";
+-
+ /**
+  * Are the tags done? Written **and** checked. Verification stays a distinct step because it catches
+  * real bugs — a sticker that opens the wrong record looks identical to one that works until you tap
+@@ -154,10 +138,18 @@ const lightsDone = (a: NeedFacts): boolean =>
+ const tagsDone = (a: NeedFacts): boolean =>
+   Boolean(a.physicallyVerifiedAt) || (a.tagsWritten && a.state === "verified");
+ 
+-/** Every outstanding need, in reading order. Empty means the record is ready for the stand. */
++/**
++ * Every outstanding need, in reading order. Empty means the record is ready for the stand.
++ *
++ * The lights are deliberately absent (ADR 0069). They used to be a fourth need, gated on signing the
++ * preview off in the room — but Roadie pulls a palette within seconds of a record landing and the
++ * system uses it without asking, so the only records that genuinely have no lights are the ones
++ * Roadie has not reached yet, which read as `roadie` anyway. The need was therefore outstanding on
++ * every record nobody had happened to sit and watch, which is nearly all of them. Signing off still
++ * exists on the room screen; it just no longer holds a record back.
++ */
+ export function outstandingNeeds(a: NeedFacts): Need[] {
+   const missing: Record<Need, boolean> = {
+-    lights: !lightsDone(a),
+     visualizer: !a.hasVideo,
+     card: !a.hasCardArt,
+     tags: !tagsDone(a),
+diff --git a/packages/curator/ui/src/pages/Collection.tsx b/packages/curator/ui/src/pages/Collection.tsx
+index 25fdd52..a6a79b6 100644
+--- a/packages/curator/ui/src/pages/Collection.tsx
++++ b/packages/curator/ui/src/pages/Collection.tsx
+@@ -6,11 +6,12 @@ import {
+   collectionCounts,
+   densityColumns,
+   densityLabel,
++  filterChips,
+   groupByNeed,
+   notCompleteDetail,
++  parseFilter,
+   stuckTiles,
+   visibleTiles,
+-  type CollectionFilter,
+   type Tile,
+ } from "../collection";
+ import { statsFor, type Stat } from "../collectionStats";
+@@ -197,9 +198,7 @@ export function Collection({
+     Math.floor(Math.random() * 5),
+   );
+ 
+-  const raw = params.get("filter");
+-  const filter: CollectionFilter =
+-    raw === "needs" || raw === "ready" ? raw : "all";
++  const filter = parseFilter(params.get("filter"));
+   const query = params.get("q") ?? "";
+   const density = Number(params.get("density") ?? 1);
+ 
+@@ -238,6 +237,14 @@ export function Collection({
+     );
+ 
+   const grouped = filter === "needs";
++  /**
++   * The stuck row shows up in two situations, drawn the same way both times: under the groups while
++   * you work through NOT COMPLETE — where it would otherwise be invisible, since no work chip
++   * includes a failed record — and as the entire page when you pick STUCK. It is a sentence and a way
++   * out rather than a tile, which is why STUCK doesn't just fall through to the grid.
++   */
++  const stuckOnly = filter === "stuck";
++  const stuckRow = stuckOnly ? tiles : grouped ? stuck : [];
+   const columns = `repeat(${densityColumns(density)}, minmax(0, 1fr))`;
+   const stat = stats.length ? stats[statOffset % stats.length]! : null;
+ 
+@@ -271,13 +278,7 @@ export function Collection({
+       </section>
+ 
+       <div className="filterbar">
+-        {(
+-          [
+-            ["all", "EVERYTHING"],
+-            ["needs", `NOT COMPLETE · ${counts.notComplete}`],
+-            ["ready", `READY · ${counts.ready}`],
+-          ] as Array<[CollectionFilter, string]>
+-        ).map(([value, label]) => (
++        {filterChips(counts).map(({ value, label, count }) => (
+           <button
+             key={value}
+             type="button"
+@@ -285,7 +286,7 @@ export function Collection({
+             aria-pressed={filter === value}
+             onClick={() => set("filter", value === "all" ? null : value)}
+           >
+-            {label}
++            {count === null ? label : `${label} · ${count}`}
+           </button>
+         ))}
+         <div className="filterbar__tools">
+@@ -314,24 +315,31 @@ export function Collection({
+         </div>
+       </div>
+ 
++      {/* Three different empties, because "try a different name" is useless advice when you haven't
++          typed one — an empty NEEDS CARD means you have cleared it, not that you mistyped. */}
+       {tiles.length === 0 && (
+         <div className="pp-empty">
+           <p className="pp-empty__title">
+             {counts.total === 0
+               ? "Your collection is empty"
+-              : "Nothing matches that"}
++              : query
++                ? "Nothing matches that"
++                : "Nothing here right now"}
+           </p>
+           <p>
+             {counts.total === 0 ? (
+               <Link to="/add">Add your first record</Link>
+-            ) : (
++            ) : query ? (
+               "Try a different name, or clear the search."
++            ) : (
++              "No record is waiting on this — try another chip."
+             )}
+           </p>
+         </div>
+       )}
+ 
+       {tiles.length > 0 &&
++        !stuckOnly &&
+         (grouped ? (
+           <div>
+             {groupByNeed(tiles).map((group) => (
+@@ -362,28 +370,27 @@ export function Collection({
+           </div>
+         ))}
+ 
+-      {/* Stuck sits below the groups and keeps its own heading: it isn't a missing asset, it's a
+-          failure, and it reads as a sentence with a way out rather than as an error code. */}
+-      {grouped &&
+-        stuck.map(({ album, state }, i) => (
+-          <div className="stuck" key={album.curatorId}>
+-            <span className="pp-label pp-label--accent">
+-              {i === 0 ? `STUCK · ${stuck.length}` : ""}
+-            </span>
+-            <span className="stuck__mark" aria-hidden="true">
+-              ?
+-            </span>
+-            <div className="stuck__body">
+-              <p className="stuck__title">{album.title || "Untitled"}</p>
+-              <p className="stuck__why">
+-                {state.kind === "stuck" ? state.sentence : ""}
+-              </p>
+-            </div>
+-            <Link to={`/albums/${album.curatorId}`} className="pp-btn">
+-              FIX IT
+-            </Link>
++      {/* Stuck keeps its own heading wherever it appears: it isn't a missing asset, it's a failure,
++          and it reads as a sentence with a way out rather than as an error code. */}
++      {stuckRow.map(({ album, state }, i) => (
++        <div className="stuck" key={album.curatorId}>
++          <span className="pp-label pp-label--accent">
++            {i === 0 ? `STUCK · ${stuckRow.length}` : ""}
++          </span>
++          <span className="stuck__mark" aria-hidden="true">
++            ?
++          </span>
++          <div className="stuck__body">
++            <p className="stuck__title">{album.title || "Untitled"}</p>
++            <p className="stuck__why">
++              {state.kind === "stuck" ? state.sentence : ""}
++            </p>
+           </div>
+-        ))}
++          <Link to={`/albums/${album.curatorId}`} className="pp-btn">
++            FIX IT
++          </Link>
++        </div>
++      ))}
+ 
+       <RoadieLog status={status} />
+     </main>
+diff --git a/packages/curator/ui/src/pages/Record.tsx b/packages/curator/ui/src/pages/Record.tsx
+index 5016ca3..d751b9b 100644
+--- a/packages/curator/ui/src/pages/Record.tsx
++++ b/packages/curator/ui/src/pages/Record.tsx
+@@ -1,4 +1,4 @@
+-import { useCallback, useMemo, useState } from "react";
++import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+ import { Link, useNavigate, useParams } from "react-router-dom";
+ import { api, type AlbumAsset, type AlbumSummary } from "../api";
+ import { usePoll } from "../hooks";
+@@ -6,6 +6,7 @@ import {
+   SECTION_ORDER,
+   SECTION_TAB_LABEL,
+   isNeedSection,
++  needFactsOfAsset,
+   outstandingNeeds,
+   recordState,
+   roadieNarration,
+@@ -14,6 +15,7 @@ import {
+ } from "../needs";
+ import { artworkSrc } from "../components/common";
+ import { errorMessage } from "../errors";
++import { showReadyToast } from "../readyToast";
+ import { LightsPanel } from "../components/LightsPanel";
+ import { VisualizerPanel } from "../components/VisualizerPanel";
+ import { CardPanel } from "../components/CardPanel";
+@@ -22,7 +24,7 @@ import { DemoPanel } from "../components/DemoPanel";
+ import type { Run } from "../run";
+ 
+ /**
+- * The record (ADR 0052) — one page listing the four things a record still needs, done in any order.
++ * The record (ADR 0052) — one page listing the three things a record still needs, done in any order.
+  *
+  * It replaces the five-station rail (Look → Video → Card → Preview → Ship), which asserted an order
+  * the system does not have. There is no stepper, no machine-state name, and no readiness gate: every
+@@ -30,8 +32,9 @@ import type { Run } from "../run";
+  *
+  * Preview is not a tab. Signing the lights off means having watched them, so that lives in the room.
+  *
+- * **One tab is not a need**: the demo cut (ADR 0058), set apart at the end of the strip. The heading
+- * still names the four, because a record with no demo cut is finished — see `RecordSection`.
++ * **Two tabs are not needs**: the lights (ADR 0069) and the demo cut (ADR 0058), which bracket the
++ * strip. The heading still names only the needs, because a record with lights it has never sat and
++ * watched — or with no demo cut — is finished. See `RecordSection`.
+  */
+ const isSection = (s: string | undefined): s is RecordSection =>
+   SECTION_ORDER.includes(s as RecordSection);
+@@ -64,6 +67,30 @@ export function Record({ albums }: { albums: AlbumSummary[] | null }) {
+     [refresh],
+   );
+ 
++  /**
++   * "<Title> is ready" fires from here, because this is where the last need is cleared (ADR 0069).
++   *
++   * It used to fire from the room, off the sign-off button — the only need that screen could clear.
++   * Now that the lights are not a need, the three that remain are all cleared by the panels below,
++   * and they reach the same funnel: every one of them ends in `refresh()`, which lands here as a new
++   * `asset`. So this watches the record rather than any one action, and picks up a card attached in
++   * another tab just as readily.
++   *
++   * The transition is what fires it, never the state: the first `asset` seen only seeds the ref, so
++   * opening a record that was already finished stays quiet. Keying the ref by id rather than
++   * resetting it on navigation means stepping PREV/NEXT onto a ready record can't celebrate it
++   * either.
++   */
++  const seen = useRef<{ id: string; left: number } | null>(null);
++  useEffect(() => {
++    if (!asset) return;
++    const left = outstandingNeeds(needFactsOfAsset(asset)).length;
++    const before = seen.current;
++    seen.current = { id: curatorId, left };
++    if (before?.id === curatorId && before.left > 0 && left === 0)
++      showReadyToast(curatorId);
++  }, [asset, curatorId]);
++
+   /**
+    * The neighbours, in the order `GET /api/albums` returns them (newest first).
+    *
+diff --git a/packages/curator/ui/src/pages/Room.tsx b/packages/curator/ui/src/pages/Room.tsx
+index 21b3678..0d03ffc 100644
+--- a/packages/curator/ui/src/pages/Room.tsx
++++ b/packages/curator/ui/src/pages/Room.tsx
+@@ -15,13 +15,11 @@ import {
+   type PatternType,
+ } from "../api";
+ import { usePoll } from "../hooks";
+-import { needFactsOfAsset, outstandingNeeds } from "../needs";
+ import { relativeTime } from "../format";
+ import { artworkSrc } from "../components/common";
+ import { errorMessage } from "../errors";
+ import { paletteWash } from "../components/VisualizerPanel";
+ import { setRoomArm, useRoomArm } from "../roomArm";
+-import { showReadyToast } from "../readyToast";
+ 
+ /**
+  * The room (ADR 0052) — one screen where bench preview and the real thing used to be two.
+@@ -348,9 +346,11 @@ export function Room({ albums }: { albums: AlbumSummary[] | null }) {
+   /**
+    * Sign-off asks about the **record**, not about the machine (ADR 0063). The old gate was
+    * `state === "awaiting_preview"`, whose only entrance is attaching a visualizer — so on a record
+-   * with no visualizer the button was permanently dead and the lights need could never be marked
+-   * done (#263). The two live reasons it can be off are both about this record: you have already
+-   * done it, or there are no lights to look at yet.
++   * with no visualizer the button was permanently dead (#263). The two live reasons it can be off
++   * are both about this record: you have already done it, or there are no lights to look at yet.
++   *
++   * Since ADR 0069 this records that you watched the lights and liked them; it no longer clears a
++   * need, because the lights stopped being one.
+    */
+   const approvedAt = asset.verification?.previewApprovedAt;
+   const lit = (asset.palette?.colors.length ?? 0) > 0;
+@@ -360,31 +360,18 @@ export function Room({ albums }: { albums: AlbumSummary[] | null }) {
+     : "Roadie hasn't pulled the lights for this record yet.";
+ 
+   /**
+-   * Signing off **confirms in place**. It used to return to the collection and fire the ready toast
+-   * unconditionally — so the only evidence you had signed anything off was a toast claiming all four
+-   * needs were done, on a record that usually still needed three of them (#263).
+-   *
+-   * The toast keeps its meaning by being fired only when it is true: this was the last outstanding
+-   * need. Then the collection is where you want to be, because this record is finished.
++   * Signing off **confirms in place** — it does not navigate, and it does not celebrate.
+    *
+-   * The other three needs are read from the polled asset, which can be up to 5s stale — so a card
+-   * attached in another tab a moment ago means the toast is skipped, not that it fires wrongly. That
+-   * is the right way round: the collection tile says READY on its next tick either way, and a missed
+-   * celebration costs nothing where a false "all done" is the bug this replaced.
++   * It used to return to the collection and fire the ready toast when sign-off cleared the last
++   * outstanding need (#263). Since ADR 0069 the lights are not a need, so approving one can never be
++   * what finishes a record: the check could only ever have passed on a record that was already
++   * complete, which would have thrown a "ready!" toast at a no-op and then walked you off the screen.
++   * The toast now fires from the record page, where the needs that remain are actually cleared.
+    */
+   const approve = () =>
+     void drive(async () => {
+-      const done = await api.approvePreview(curatorId);
++      await api.approvePreview(curatorId);
+       refresh();
+-      const left = outstandingNeeds({
+-        ...needFactsOfAsset(asset),
+-        state: done.state,
+-        previewApprovedAt: done.previewApprovedAt,
+-      });
+-      if (left.length === 0) {
+-        showReadyToast(curatorId);
+-        navigate("/");
+-      }
+     });
+ 
+   const roomName =

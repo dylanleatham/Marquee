@@ -1,9 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
+import {
+  readdirSync,
+  readFileSync,
+  existsSync,
+  statSync,
+  mkdtempSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { globToRegExp, matchesAny } from "./util.mjs";
+import { globToRegExp, matchesAny, mapWithConcurrency } from "./util.mjs";
 import {
   extractJsonArray,
   salvageProse,
@@ -15,10 +23,30 @@ import {
   resolveTimeoutMs,
   resolveRepairTimeoutMs,
   resolveRetries,
+  resolveConcurrency,
+  resolveSamples,
   runSpecialist,
+  spawnOnce,
 } from "./claude.mjs";
-import { summarizeRun, silentWarning } from "./outcome.mjs";
+import { summarizeRun, silentWarning, foldSamples } from "./outcome.mjs";
 import { composePrompt, repairPrompt } from "./prompt.mjs";
+import {
+  normalizeMessage,
+  fingerprint,
+  readLedger,
+  serializeRecords,
+  pendingFindings,
+  findingRecord,
+  runRecord,
+  computeStats,
+  formatStats,
+  MIN_SAMPLE,
+  VERDICTS,
+  runIdOf,
+} from "./ledger.mjs";
+import { runTriage, renderFinding, CHOICES } from "./triage.mjs";
+import { unionOutcome, majorityOutcome, outcomeFromCounts } from "./eval.mjs";
+import { loadSpecialists } from "./specialists.mjs";
 
 test("globToRegExp: ** spans directories, * does not", () => {
   assert.match(
@@ -230,40 +258,40 @@ test("resolveRetries: default 1, env override, fallback on bad input", () => {
   assert.equal(resolveRetries({ REVIEW_TIMEOUT_RETRIES: "1.5" }), 1);
 });
 
-test("runSpecialist: retries once on a timeout, then succeeds (RA-2)", () => {
+test("runSpecialist: retries once on a timeout, then succeeds (RA-2)", async () => {
   let calls = 0;
-  const spawn = () => {
+  const spawn = async () => {
     calls++;
     // First attempt times out; second returns a clean JSON reply.
     if (calls === 1)
       return { error: Object.assign(new Error("t"), { code: "ETIMEDOUT" }) };
     return { status: 0, stdout: '{"result":"[]"}' };
   };
-  const res = runSpecialist({ prompt: "p" }, { spawn, retries: 1 });
+  const res = await runSpecialist({ prompt: "p" }, { spawn, retries: 1 });
   assert.equal(calls, 2);
   assert.equal(res.ok, true);
   assert.equal(res.text, "[]");
 });
 
-test("runSpecialist: gives up after retries are exhausted on repeated timeouts", () => {
+test("runSpecialist: gives up after retries are exhausted on repeated timeouts", async () => {
   let calls = 0;
-  const spawn = () => {
+  const spawn = async () => {
     calls++;
     return { error: Object.assign(new Error("t"), { code: "ETIMEDOUT" }) };
   };
-  const res = runSpecialist({ prompt: "p" }, { spawn, retries: 1 });
+  const res = await runSpecialist({ prompt: "p" }, { spawn, retries: 1 });
   assert.equal(calls, 2); // initial + 1 retry
   assert.equal(res.ok, false);
   assert.equal(res.timedOut, true);
 });
 
-test("runSpecialist: does NOT retry a non-timeout failure", () => {
+test("runSpecialist: does NOT retry a non-timeout failure", async () => {
   let calls = 0;
-  const spawn = () => {
+  const spawn = async () => {
     calls++;
     return { status: 1, stderr: "boom" };
   };
-  const res = runSpecialist({ prompt: "p" }, { spawn, retries: 3 });
+  const res = await runSpecialist({ prompt: "p" }, { spawn, retries: 3 });
   assert.equal(calls, 1); // a real failure isn't retried
   assert.equal(res.ok, false);
   assert.match(res.reason, /exited 1/);
@@ -321,15 +349,18 @@ test("resolveTimeoutMs: a specialist's own timeoutMs wins over the env default (
   );
 });
 
-test("runSpecialist: passes the specialist's budget through to spawn (RA-3)", () => {
+test("runSpecialist: passes the specialist's budget through to spawn (RA-3)", async () => {
   let seen;
-  const spawn = (_bin, _args, o) => {
+  const spawn = async (_bin, _args, o) => {
     seen = o.timeout;
     return { status: 0, stdout: '{"result":"[]"}' };
   };
-  runSpecialist({ prompt: "p", timeoutMs: 300_000 }, { spawn, retries: 0 });
+  await runSpecialist(
+    { prompt: "p", timeoutMs: 300_000 },
+    { spawn, retries: 0 },
+  );
   assert.equal(seen, 300_000);
-  runSpecialist({ prompt: "p" }, { spawn, retries: 0 });
+  await runSpecialist({ prompt: "p" }, { spawn, retries: 0 });
   assert.equal(seen, 90_000); // no declared budget -> the default
 });
 
@@ -437,9 +468,9 @@ const PROSE =
   "I found one blocking issue: the upload handler has no timeout, so a stalled client wedges " +
   "the event loop. Wrap the read in AbortSignal.timeout(5000).";
 
-test("parseWithRepair: a well-formed reply is used as-is, with no repair call", () => {
+test("parseWithRepair: a well-formed reply is used as-is, with no repair call", async () => {
   let called = 0;
-  const out = parseWithRepair('[{"severity":"info","message":"m"}]', {
+  const out = await parseWithRepair('[{"severity":"info","message":"m"}]', {
     repair: () => {
       called++;
       return { ok: true, text: "[]" };
@@ -450,8 +481,8 @@ test("parseWithRepair: a well-formed reply is used as-is, with no repair call", 
   assert.equal(out.raw.length, 1);
 });
 
-test("parseWithRepair: prose is recovered as structured findings, keeping severity", () => {
-  const out = parseWithRepair(PROSE, {
+test("parseWithRepair: prose is recovered as structured findings, keeping severity", async () => {
+  const out = await parseWithRepair(PROSE, {
     repair: (text) => {
       // The repair is a translation, so it must be handed the original reply.
       assert.match(text, /wedges the event loop/);
@@ -469,9 +500,9 @@ test("parseWithRepair: prose is recovered as structured findings, keeping severi
   assert.equal(out.raw[0].line, 4);
 });
 
-test("parseWithRepair: a repair that also replies in prose falls through, it doesn't loop", () => {
+test("parseWithRepair: a repair that also replies in prose falls through, it doesn't loop", async () => {
   let calls = 0;
-  const out = parseWithRepair(PROSE, {
+  const out = await parseWithRepair(PROSE, {
     repair: () => {
       calls++;
       return { ok: true, text: "Sorry — here is the summary again in words." };
@@ -482,15 +513,15 @@ test("parseWithRepair: a repair that also replies in prose falls through, it doe
   assert.equal(out.raw, null);
 });
 
-test("parseWithRepair: a failed or throwing repair is never worse than not trying", () => {
+test("parseWithRepair: a failed or throwing repair is never worse than not trying", async () => {
   assert.deepEqual(
-    parseWithRepair(PROSE, {
+    await parseWithRepair(PROSE, {
       repair: () => ({ ok: false, reason: "timeout" }),
     }),
     { raw: null, outcome: "unrepaired" },
   );
   assert.deepEqual(
-    parseWithRepair(PROSE, {
+    await parseWithRepair(PROSE, {
       repair: () => {
         throw new Error("spawn failed");
       },
@@ -498,15 +529,15 @@ test("parseWithRepair: a failed or throwing repair is never worse than not tryin
     { raw: null, outcome: "unrepaired" },
   );
   // No repair injected at all (the mock path) still degrades to prose salvage.
-  assert.deepEqual(parseWithRepair(PROSE), {
+  assert.deepEqual(await parseWithRepair(PROSE), {
     raw: null,
     outcome: "unrepaired",
   });
 });
 
-test("parseWithRepair: an empty findings array is a clean answer, not something to repair", () => {
+test("parseWithRepair: an empty findings array is a clean answer, not something to repair", async () => {
   let called = 0;
-  const out = parseWithRepair("[]", {
+  const out = await parseWithRepair("[]", {
     repair: () => {
       called++;
       return { ok: true, text: "[]" };
@@ -577,4 +608,875 @@ test("resolveRepairTimeoutMs: its own knob, following the same idiom as the revi
     resolveRepairTimeoutMs({ REVIEW_TIMEOUT_MS: "300000" }),
     DEFAULT,
   );
+});
+
+// --- ledger (docs/specs/harness-self-improvement.md §4.1) ---------------------------------------
+
+test("fingerprint: the same finding class in a different file, line and package is one class", () => {
+  // The point of the bar CLAUDE.md sets ("no _repeat_ class") is that the *second* occurrence is
+  // the signal, and the second occurrence is almost never in the same file at the same line.
+  const a = fingerprint(
+    "runtime",
+    "`packages/curator/src/roomArm.ts` line 88 spawns ffmpeg with no timeout.",
+  );
+  const b = fingerprint(
+    "runtime",
+    '"packages/amp/src/player.ts" line 214 spawns ffmpeg with no timeout.',
+  );
+  assert.equal(a, b);
+
+  // Backticked and bare spellings of the same path must not fork the class either.
+  assert.equal(
+    fingerprint("runtime", "`scripts/idle-audit.mjs` has an unbounded loop."),
+    fingerprint("runtime", "scripts/idle-audit.mjs has an unbounded loop."),
+  );
+});
+
+test("fingerprint: genuinely different findings stay different classes", () => {
+  const timeout = fingerprint("runtime", "The upload handler has no timeout.");
+  const leak = fingerprint("runtime", "The watcher is never unsubscribed.");
+  assert.notEqual(timeout, leak);
+  // Same sentence, different reviewer, is a different class — the reviewer is what gets retired.
+  assert.notEqual(
+    fingerprint("runtime", "The upload handler has no timeout."),
+    fingerprint("security", "The upload handler has no timeout."),
+  );
+});
+
+test("normalizeMessage: strips paths and numbers, keeps the identifiers that carry meaning", () => {
+  assert.equal(
+    normalizeMessage(
+      "`addAlbumsBatch` in packages/curator/ui/src/api.ts:42 retries 3 times.",
+    ),
+    "addalbumsbatch in <path>:<n> retries <n> times.",
+  );
+});
+
+test("readLedger: a half-written final line is reported, never silently dropped", () => {
+  // What a crash or a kill mid-append leaves behind. Dropping it quietly would mean the ledger
+  // could lose history while still printing a confident table — the silent-green class
+  // dev-harness §11 exists to forbid.
+  const text =
+    '{"kind":"run","sha":"a"}\n' +
+    '{"kind":"finding","sha":"a","verdict":"accepted"}\n' +
+    '{"kind":"finding","sha":"a","verd';
+  const { records, skipped } = readLedger(text);
+  assert.equal(records.length, 2);
+  assert.equal(skipped, 1);
+});
+
+test("readLedger: blank lines and a missing trailing newline are not corruption", () => {
+  // merge=union can leave blank lines behind; a hand-edited file may lack a final newline.
+  const { records, skipped } = readLedger(
+    '{"kind":"run","sha":"a"}\n\n\n{"kind":"run","sha":"b"}',
+  );
+  assert.equal(records.length, 2);
+  assert.equal(skipped, 0);
+  assert.deepEqual(readLedger("").records, []);
+  assert.deepEqual(readLedger(undefined).records, []);
+});
+
+test("serializeRecords: every line is newline-terminated so appends cannot fuse two records", () => {
+  const out = serializeRecords([{ a: 1 }, { b: 2 }]);
+  assert.ok(out.endsWith("\n"));
+  assert.equal(
+    readLedger(out + serializeRecords([{ c: 3 }])).records.length,
+    3,
+  );
+  assert.equal(serializeRecords([]), ""); // an empty append must not write a stray newline
+});
+
+const finding = (over = {}) => ({
+  specialist: "runtime",
+  severity: "blocking",
+  file: "packages/curator/src/a.ts",
+  line: 10,
+  message: "No timeout.",
+  ...over,
+});
+
+const ledgerOf = (verdicts, specialist = "runtime") =>
+  verdicts.map((verdict, i) =>
+    findingRecord({
+      sha: "abc",
+      finding: finding({ specialist, line: i, message: `Finding ${i}.` }),
+      verdict,
+      ts: "2026-08-13T00:00:00Z",
+    }),
+  );
+
+test("computeStats: wont-fix is excluded from both sides of precision", () => {
+  // The distinction is the whole reason the ledger types its dismissals: a real finding you chose
+  // not to act on says nothing about whether the reviewer is calibrated. Counting it as a miss
+  // would punish a correct reviewer; counting it as a hit would flatter a wrong one.
+  const verdicts = [
+    ...Array(6).fill("accepted"),
+    ...Array(2).fill("wrong"),
+    ...Array(9).fill("wont-fix"),
+  ];
+  const { specialists } = computeStats(ledgerOf(verdicts));
+  const runtime = specialists.find((s) => s.id === "runtime");
+  assert.equal(runtime.triaged, 17);
+  assert.equal(runtime.judged, 8); // 6 + 2, not 17
+  assert.equal(runtime.wontFix, 9);
+  assert.equal(runtime.precision, 6 / 8);
+});
+
+test("computeStats: below the sample threshold there is no ratio, only null", () => {
+  // dev-harness §11 applied to this instrument: "100% precision (n=1)" is a confident nothing.
+  const thin = computeStats(ledgerOf(["accepted"]));
+  assert.equal(thin.specialists[0].precision, null);
+  assert.equal(thin.specialists[0].judged, 1);
+
+  const enough = computeStats(ledgerOf(Array(MIN_SAMPLE).fill("accepted")));
+  assert.equal(enough.specialists[0].precision, 1);
+
+  // A ledger of nothing but wont-fix has no judged findings at all — still null, never 0/0 = NaN.
+  const abstained = computeStats(ledgerOf(Array(20).fill("wont-fix")));
+  assert.equal(abstained.specialists[0].precision, null);
+});
+
+test("formatStats: an unmeasured specialist reads as 'insufficient data', never as a percentage", () => {
+  const text = formatStats(computeStats(ledgerOf(["accepted", "wrong"])));
+  assert.match(text, /insufficient data \(n=2\)/);
+  assert.ok(!/\d+%/.test(text.split("PRECISION is")[0]));
+});
+
+test("formatStats: an empty ledger says so and says what to run, rather than printing zeroes", () => {
+  const text = formatStats(computeStats([]));
+  assert.match(text, /no triaged findings yet/);
+  assert.match(text, /--triage/);
+});
+
+test("formatStats: unparseable lines are surfaced above the numbers they undermine", () => {
+  const text = formatStats(computeStats(ledgerOf(["accepted"])), {
+    skipped: 3,
+  });
+  assert.match(text, /\[WARN \] 3 unparseable ledger line\(s\)/);
+});
+
+test("computeStats: repeat classes are counted across files, with their verdicts", () => {
+  const records = ["accepted", "accepted", "wrong"].map((verdict, i) =>
+    findingRecord({
+      sha: "abc",
+      finding: finding({
+        file: `packages/curator/src/file${i}.ts`,
+        line: i,
+        message: `Line ${i} spawns ffmpeg with no timeout.`,
+      }),
+      verdict,
+      ts: "2026-08-13T00:00:00Z",
+    }),
+  );
+  const { repeats } = computeStats(records);
+  assert.equal(repeats.length, 1); // three files, one class
+  assert.equal(repeats[0].count, 3);
+  assert.equal(repeats[0].accepted, 2);
+  assert.equal(repeats[0].wrong, 1);
+});
+
+test("computeStats: run records supply the denominator, including specialists that found nothing", () => {
+  // A reviewer that never fires is as interesting as one that fires wrongly — §12 retires both.
+  const emptyRun = {
+    sha: "abc",
+    specialists: [
+      { id: "runtime", status: "ran", durationMs: 80_000 },
+      { id: "security", status: "no-findings", durationMs: 10_000 },
+    ],
+    findings: [finding()],
+  };
+  const { specialists } = computeStats([
+    runRecord({ report: emptyRun, ts: "2026-08-13T00:00:00Z" }),
+  ]);
+  const security = specialists.find((s) => s.id === "security");
+  assert.equal(security.runs, 1);
+  assert.equal(security.fired, 0);
+  assert.equal(security.triaged, 0);
+  assert.equal(security.precision, null);
+  assert.equal(specialists.find((s) => s.id === "runtime").fired, 1);
+});
+
+// --- triage --------------------------------------------------------------------------------------
+
+const triageReport = {
+  sha: "abc",
+  base: "def",
+  specialists: [{ id: "runtime", status: "ran", durationMs: 1000 }],
+  findings: [finding({ line: 1 }), finding({ line: 2 }), finding({ line: 3 })],
+};
+
+/** Drive runTriage with a scripted set of keystrokes, collecting what it appends. */
+async function triageWith(keys, { records = [] } = {}) {
+  const appended = [];
+  const queue = [...keys];
+  const result = await runTriage({
+    report: triageReport,
+    records,
+    ask: async () => queue.shift() ?? "q",
+    append: (recs) => appended.push(...recs),
+    now: () => "2026-08-13T00:00:00Z",
+    log: () => {},
+  });
+  return { result, appended, leftover: queue };
+}
+
+test("runTriage: appends after every verdict, so an interrupted pass keeps what it judged", async () => {
+  // The failure this guards against is a triage that batches to the end: quit halfway through a
+  // twelve-finding run and the harness remembers nothing, which is the state we started in.
+  const { result, appended } = await triageWith(["a", "q"]);
+  assert.equal(result.judged, 1);
+  assert.ok(result.quit);
+  const findings = appended.filter((r) => r.kind === "finding");
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].verdict, "accepted");
+});
+
+test("runTriage: the run record is written once, before any verdict", async () => {
+  const { appended } = await triageWith(["q"]);
+  const runs = appended.filter((r) => r.kind === "run");
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].sha, "abc");
+  // It carries the fire count per specialist, which findings alone cannot supply.
+  assert.equal(runs[0].specialists[0].findings, 3);
+
+  // A second triage of the same report must not double-count the run.
+  const { appended: again } = await triageWith(["q"], { records: appended });
+  assert.equal(again.filter((r) => r.kind === "run").length, 0);
+});
+
+test("runTriage: resumes, asking only about findings not already in the ledger", async () => {
+  const { appended } = await triageWith(["a", "q"]);
+  const { result, leftover } = await triageWith(
+    ["w", "because it is guarded upstream", "q"],
+    { records: appended },
+  );
+  assert.equal(result.alreadyDone, 1);
+  assert.equal(result.judged, 1);
+  assert.equal(leftover.length, 0); // the note prompt was consumed — 'wrong' asks why
+});
+
+test("runTriage: only 'wrong' is asked for a reason", async () => {
+  // The reason is what a prompt fix gets argued from; asking on every verdict would slow the
+  // common case, and a triage nobody runs measures nothing.
+  const { appended } = await triageWith([
+    "w",
+    "the helper already bounds this",
+    "q",
+  ]);
+  const rec = appended.find((r) => r.kind === "finding");
+  assert.equal(rec.verdict, "wrong");
+  assert.equal(rec.note, "the helper already bounds this");
+
+  const { appended: acc } = await triageWith(["a", "q"]);
+  assert.equal(acc.find((r) => r.kind === "finding").note, "");
+});
+
+test("runTriage: an unrecognised key skips instead of guessing a verdict", async () => {
+  // A mistyped verdict in an append-only log is worse than being asked again next time.
+  const { result, appended } = await triageWith(["z", "s", "x"]);
+  assert.equal(result.skipped, 2);
+  assert.equal(result.judged, 1);
+  assert.equal(
+    appended.filter((r) => r.kind === "finding")[0].verdict,
+    "wont-fix",
+  );
+});
+
+test("runTriage: a report with no findings still records that the run happened", async () => {
+  const appended = [];
+  const result = await runTriage({
+    report: { ...triageReport, findings: [] },
+    records: [],
+    ask: async () => "q",
+    append: (recs) => appended.push(...recs),
+    now: () => "2026-08-13T00:00:00Z",
+    log: () => {},
+  });
+  assert.equal(result.judged, 0);
+  assert.equal(appended.length, 1);
+  assert.equal(appended[0].kind, "run");
+});
+
+test("pendingFindings: identity spans specialist, file, line and message", () => {
+  const records = [
+    findingRecord({
+      sha: "abc",
+      finding: finding({ line: 2 }),
+      verdict: "accepted",
+      ts: "t",
+    }),
+  ];
+  const pending = pendingFindings(triageReport, records);
+  assert.deepEqual(
+    pending.map((f) => f.line),
+    [1, 3],
+  );
+  // The same message at the same line of a *different* sha is a fresh finding, not a duplicate.
+  assert.equal(
+    pendingFindings({ ...triageReport, sha: "zzz" }, records).length,
+    3,
+  );
+});
+
+test("renderFinding: severity is spelled out, and a null line degrades to the file alone", () => {
+  const text = renderFinding(finding({ line: null }), 0, 2);
+  assert.match(text, /\[blocking\]/);
+  assert.match(text, /packages\/curator\/src\/a\.ts/);
+  assert.ok(!text.includes("a.ts:null"));
+  assert.match(text, /1\/2/);
+});
+
+test("every verdict the ledger defines is reachable from a triage keystroke", () => {
+  // A verdict with no key can never be recorded, so its category would read as empty in the stats
+  // rather than as unreachable — a check that measures nothing, in miniature (dev-harness §11).
+  assert.deepEqual([...CHOICES.values()].sort(), [...VERDICTS].sort());
+});
+
+test("runTriage: end of input quits instead of throwing on a half-finished pass", async () => {
+  // Ctrl+D closes stdin and readline answers with nothing. Everything judged so far is already on
+  // disk by then; losing the session to a stack trace would be the worst moment for one.
+  const appended = [];
+  const answers = ["a", undefined];
+  const result = await runTriage({
+    report: triageReport,
+    records: [],
+    ask: async () => answers.shift(),
+    append: (recs) => appended.push(...recs),
+    now: () => "2026-08-13T00:00:00Z",
+    log: () => {},
+  });
+  assert.equal(result.judged, 1);
+  assert.ok(result.quit);
+  assert.equal(appended.filter((r) => r.kind === "finding").length, 1);
+});
+
+test("runTriage: two reviews of the same commit are two runs, not one", async () => {
+  // Found by dogfooding on 2026-08-13, before this ever reached main. `--staged` and
+  // `--base HEAD~3` both write `report-<sha>.json` for the *same* HEAD, so the second review
+  // overwrites the first's report — but the run record was keyed on sha alone, so triage decided
+  // the run was already recorded and skipped it. The observed result was a stats table that
+  // contradicted itself: `consistency` showed FIRED=0 next to an accepted finding, and
+  // `spec-adherence` showed RUNS=0 while having triaged one. An instrument whose whole job is
+  // honest measurement must not do that (dev-harness §11).
+  const runA = {
+    sha: "abc",
+    base: "abc",
+    createdAt: "2026-08-13T21:00:14.975Z",
+    specialists: [
+      { id: "consistency", status: "no-findings", durationMs: 23185 },
+    ],
+    findings: [],
+  };
+  const runB = {
+    sha: "abc", // same commit …
+    base: "HEAD~3", // … different diff, so a different review
+    createdAt: "2026-08-13T21:05:48.215Z",
+    specialists: [
+      { id: "consistency", status: "ran", durationMs: 30000 },
+      { id: "spec-adherence", status: "ran", durationMs: 40000 },
+    ],
+    findings: [finding({ specialist: "spec-adherence", line: 20 })],
+  };
+
+  const appended = [];
+  const drive = async (report, keys) => {
+    const queue = [...keys];
+    await runTriage({
+      report,
+      records: [...appended],
+      ask: async () => queue.shift() ?? "q",
+      append: (recs) => appended.push(...recs),
+      now: () => "2026-08-13T00:00:00Z",
+      log: () => {},
+    });
+  };
+
+  await drive(runA, ["q"]);
+  await drive(runB, ["a"]);
+
+  const runs = appended.filter((r) => r.kind === "run");
+  assert.equal(runs.length, 2, "the second review must record its own run");
+  assert.deepEqual(
+    runs.map((r) => r.runId),
+    [runA.createdAt, runB.createdAt],
+  );
+
+  // And the table that comes out of it is now internally consistent: the specialist that fired
+  // is counted as having fired, and the one that only ran in the second review is not at zero runs.
+  const { specialists } = computeStats(appended);
+  const specAdherence = specialists.find((s) => s.id === "spec-adherence");
+  assert.equal(specAdherence.runs, 1);
+  assert.equal(specAdherence.fired, 1);
+  assert.equal(specAdherence.triaged, 1);
+});
+
+test("runTriage: re-triaging the same report still does not duplicate its run", async () => {
+  // The resume path depends on this: quit halfway, come back, and the run must not be recorded
+  // twice or every duration and fire count is double-counted.
+  const appended = [];
+  const drive = async (keys) => {
+    const queue = [...keys];
+    await runTriage({
+      report: triageReport,
+      records: [...appended],
+      ask: async () => queue.shift() ?? "q",
+      append: (recs) => appended.push(...recs),
+      now: () => "2026-08-13T00:00:00Z",
+      log: () => {},
+    });
+  };
+  await drive(["a", "q"]);
+  await drive(["a", "q"]);
+  assert.equal(appended.filter((r) => r.kind === "run").length, 1);
+});
+
+test("runIdOf: a report with no createdAt still distinguishes runs by its base", () => {
+  // Reports written before runId existed have no createdAt. Falling back to sha alone would
+  // recreate the exact bug for them, so the fallback carries the base too.
+  assert.notEqual(
+    runIdOf({ sha: "abc", base: "abc" }),
+    runIdOf({ sha: "abc", base: "HEAD~3" }),
+  );
+  assert.equal(
+    runIdOf({ sha: "abc", base: "abc" }),
+    runIdOf({ sha: "abc", base: "abc" }),
+  );
+  // createdAt wins when present — it identifies the run exactly.
+  assert.equal(runIdOf({ sha: "abc", base: "x", createdAt: "T" }), "T");
+});
+
+test("computeStats: findings recorded before runId existed still count", () => {
+  // The ledger is append-only, so the two real findings triaged on 2026-08-13 keep their original
+  // shape. They must not be dropped or crash the stats just because they predate the field.
+  const legacy = {
+    kind: "finding",
+    sha: "abc",
+    specialist: "consistency",
+    severity: "info",
+    file: "packages/deploy/src/exec.ts",
+    line: 33,
+    message: "Naming drift.",
+    fingerprint: "2077ebaa2d95",
+    verdict: "accepted",
+    note: "",
+  };
+  const { specialists } = computeStats([legacy]);
+  assert.equal(specialists[0].triaged, 1);
+  assert.equal(specialists[0].accepted, 1);
+});
+
+// --- issue #192, applied to a new trigger surface (null-result) ---------------------------------
+
+/** Every CI workflow on disk, discovered rather than listed. */
+function workflowFiles() {
+  const dir = join(REPO_ROOT, ".github", "workflows");
+  return existsSync(dir)
+    ? readdirSync(dir)
+        .filter((f) => /\.ya?ml$/.test(f))
+        .map((f) => `.github/workflows/${f}`)
+    : [];
+}
+
+/** Every package.json that declares a test script — the things whose runner can go quiet. */
+function testScriptManifests() {
+  const out = [];
+  const walk = (rel) => {
+    for (const entry of readdirSync(join(REPO_ROOT, rel || "."))) {
+      if (
+        ["node_modules", "dist", ".turbo", ".git", "coverage"].includes(entry)
+      )
+        continue;
+      const childRel = rel ? `${rel}/${entry}` : entry;
+      const abs = join(REPO_ROOT, childRel);
+      if (statSync(abs).isDirectory()) walk(childRel);
+      else if (entry === "package.json") {
+        const pkg = JSON.parse(readFileSync(abs, "utf8"));
+        if (Object.keys(pkg.scripts ?? {}).some((s) => s.startsWith("test")))
+          out.push(childRel);
+      }
+    }
+  };
+  walk("");
+  return out;
+}
+
+test("null-result triggers on every workflow and test-script manifest on disk (#192)", () => {
+  // RA-5's lesson applied to a new reviewer rather than re-learned on it: a *blocking* specialist
+  // that is never triggered emits no findings and no [GAP] warning, so the run reads as a clean
+  // pass. The globs are checked against what is actually in the tree, so the next workflow or
+  // package cannot silently fall outside them.
+  const { triggerGlobs } = specialistConfig("null-result");
+  const surface = [...workflowFiles(), ...testScriptManifests(), "turbo.json"];
+  assert.ok(
+    surface.length > 5,
+    "the discovered trigger surface must not be empty",
+  );
+  const missed = surface.filter((f) => !matchesAny(f, triggerGlobs));
+  assert.deepEqual(
+    missed,
+    [],
+    `null-result would not run on: ${missed.join(", ")}`,
+  );
+});
+
+test("null-result does not trigger on ordinary product source", () => {
+  // The other half of routing: a reviewer that fires on everything is a reviewer whose findings
+  // get skimmed. Its brief is checks, not code.
+  const { triggerGlobs } = specialistConfig("null-result");
+  for (const notItsJob of [
+    "packages/curator/src/server.ts",
+    "packages/curator/ui/src/pages/Room.tsx",
+    "packages/stylus/stylus/reader.py",
+    "docs/specs/dev-harness.md",
+  ]) {
+    assert.equal(
+      matchesAny(notItsJob, triggerGlobs),
+      false,
+      `${notItsJob} is not a check`,
+    );
+  }
+});
+
+test("doc-coherence triggers on docs anywhere, and on files that cite an ADR", () => {
+  // Two routes on purpose. The glob catches documentation; `triggerImports` catches the #236 shape,
+  // where six *source* files carried a comment citing the wrong ADR — a doc problem living in .ts.
+  const config = specialistConfig("doc-coherence");
+  for (const doc of [
+    "docs/specs/curator-spec.md",
+    "docs/adrs/0085-a-harness-edit-is-validated-against-a-frozen-case-set.md",
+    "CLAUDE.md",
+    "packages/stylus/README.md",
+    "review-agents/eval/README.md",
+  ]) {
+    assert.equal(
+      matchesAny(doc, config.triggerGlobs),
+      true,
+      `${doc} is documentation`,
+    );
+  }
+  assert.ok(
+    config.triggerImports?.length,
+    "doc-coherence needs the import route for ADR citations in source",
+  );
+});
+
+// --- concurrency (ADR 0087) --------------------------------------------------------------------
+
+test("resolveConcurrency: three by default, overridable, bad input falls back", () => {
+  // Not unbounded. Each slot is a full Claude Code session, and the sequential design this replaces
+  // was chosen to be "gentler on a loaded machine than N concurrent sessions" — a cap keeps that.
+  assert.equal(resolveConcurrency({}), 3);
+  assert.equal(resolveConcurrency({ REVIEW_CONCURRENCY: "6" }), 6);
+  assert.equal(resolveConcurrency({ REVIEW_CONCURRENCY: "1" }), 1);
+  for (const bad of ["0", "-2", "nope", "1.5", ""])
+    assert.equal(resolveConcurrency({ REVIEW_CONCURRENCY: bad }), 3);
+});
+
+test("mapWithConcurrency: never exceeds the cap", async () => {
+  // The property the cap exists for. Without it this is Promise.all, which opens every session at
+  // once — eight concurrent Claude processes on a laptop that is also running the dev servers.
+  let inFlight = 0;
+  let peak = 0;
+  const items = Array.from({ length: 12 }, (_, i) => i);
+  await mapWithConcurrency(items, 3, async () => {
+    inFlight++;
+    peak = Math.max(peak, inFlight);
+    await new Promise((r) => setTimeout(r, 5));
+    inFlight--;
+  });
+  assert.equal(peak, 3);
+});
+
+test("mapWithConcurrency: results keep input order, not completion order", async () => {
+  // The orchestrator zips runs back to specialists positionally, and the eval scores per case —
+  // both break silently if a slow item's result lands in a fast item's slot.
+  const delays = [30, 1, 20, 2];
+  const out = await mapWithConcurrency(delays, 2, async (ms, i) => {
+    await new Promise((r) => setTimeout(r, ms));
+    return i;
+  });
+  assert.deepEqual(out, [0, 1, 2, 3]);
+});
+
+test("mapWithConcurrency: a cap wider than the work does not spin idle workers", async () => {
+  let started = 0;
+  await mapWithConcurrency([1, 2], 16, async () => {
+    started++;
+  });
+  assert.equal(started, 2);
+  assert.deepEqual(await mapWithConcurrency([], 4, async () => 1), []);
+});
+
+test("mapWithConcurrency: one slow item does not hold up the ones behind it", async () => {
+  // With a sequential runner, `runtime`'s 300s budget delayed everything after it. The point of the
+  // pool is that a slow specialist occupies one slot rather than the whole run.
+  const order = [];
+  await mapWithConcurrency([50, 1, 1], 3, async (ms, i) => {
+    await new Promise((r) => setTimeout(r, ms));
+    order.push(i);
+  });
+  assert.deepEqual(order, [1, 2, 0], "the fast items finish first");
+});
+
+test("--fast selects exactly the triggered blocking specialists", () => {
+  // The tier is defined by what can stop a push, so it must be derived from `blocking` rather than
+  // from a hand-maintained list that would drift the next time a reviewer changes severity.
+  const roster = loadSpecialists();
+  const blocking = roster.filter((s) => s.blocking).map((s) => s.id);
+  const info = roster.filter((s) => !s.blocking).map((s) => s.id);
+  assert.ok(blocking.length >= 4, "the fast tier must not be empty");
+  assert.ok(info.length >= 2, "and must actually skip something");
+  // The two rosters partition it — nothing is in neither, nothing is in both.
+  assert.equal(blocking.length + info.length, roster.length);
+  assert.deepEqual(
+    blocking.filter((id) => info.includes(id)),
+    [],
+  );
+});
+
+test("runSpecialist: a rejected spawn is a failure, not an unhandled rejection", async () => {
+  // A promise-returning spawn can reject where the synchronous one could only return an error
+  // object. Left unhandled that would take down the whole run rather than one specialist.
+  const spawn = async () => {
+    throw Object.assign(new Error("spawn exploded"), { code: "EACCES" });
+  };
+  await assert.rejects(() =>
+    runSpecialist({ prompt: "p" }, { spawn, retries: 0 }),
+  );
+});
+
+// --- union aggregation (ADR 0088) --------------------------------------------------------------
+
+test("unionOutcome: one run finding it is enough, because a union is not a vote", () => {
+  // The measured shape: cases land at 2/5, not 0/5. A majority throws away exactly the findings a
+  // sampled review would surface, which is the whole reason this mode exists.
+  assert.equal(
+    unionOutcome(["miss", "miss", "hit", "miss", "miss"]).outcome,
+    "hit",
+  );
+  assert.equal(unionOutcome(["miss", "miss", "miss"]).outcome, "miss");
+  assert.deepEqual(unionOutcome(["hit", "miss", "miss"]), {
+    outcome: "hit",
+    hits: 1,
+    runs: 3,
+  });
+});
+
+test("unionOutcome: a must-not-find case is clean only if every run stayed quiet", () => {
+  // The other half of the trade, and the reason union is not free: a union collects each run's
+  // false positives too. Scoring it any other way would advertise the recall and hide the cost.
+  const kind = "must-not-find";
+  assert.equal(unionOutcome(["hit", "hit", "hit"], { kind }).outcome, "hit");
+  assert.equal(unionOutcome(["hit", "miss", "hit"], { kind }).outcome, "miss");
+  // Under majority that same case would have passed, 2 of 3.
+  assert.equal(majorityOutcome(["hit", "miss", "hit"]).outcome, "hit");
+});
+
+test("unionOutcome: a structural outcome still cannot be voted away", () => {
+  assert.equal(unionOutcome(["not-triggered"]).outcome, "not-triggered");
+  assert.equal(unionOutcome(["hit", "not-installed"]).outcome, "not-installed");
+  assert.equal(unionOutcome([]).outcome, "miss");
+});
+
+test("outcomeFromCounts: aggregation is a pure function of hits and runs", () => {
+  // This is what lets `--aggregate union` re-score a cached run exactly rather than re-running it —
+  // the cache stores the measurement, not the verdict, so the mode is chosen after the sessions are
+  // spent. The cache key must therefore not include the mode.
+  assert.equal(
+    outcomeFromCounts({ hits: 2, runs: 5 }, { mode: "majority" }),
+    "miss",
+  );
+  assert.equal(
+    outcomeFromCounts({ hits: 2, runs: 5 }, { mode: "union" }),
+    "hit",
+  );
+  assert.equal(
+    outcomeFromCounts({ hits: 3, runs: 5 }, { mode: "majority" }),
+    "hit",
+  );
+  assert.equal(
+    outcomeFromCounts(
+      { hits: 4, runs: 5 },
+      { mode: "union", kind: "must-not-find" },
+    ),
+    "miss",
+  );
+  assert.equal(
+    outcomeFromCounts(
+      { hits: 5, runs: 5 },
+      { mode: "union", kind: "must-not-find" },
+    ),
+    "hit",
+  );
+  assert.equal(outcomeFromCounts({ hits: 0, runs: 0 }), "miss");
+});
+
+test("outcomeFromCounts: reproduces the measured 1/4 → 4/4 on the real baseline numbers", () => {
+  // The four runtime must-find cases as actually measured at --repeat 5: 2, 2, 2 and 4 hits.
+  const measured = [2, 2, 2, 4];
+  const byMajority = measured.filter(
+    (hits) =>
+      outcomeFromCounts({ hits, runs: 5 }, { mode: "majority" }) === "hit",
+  ).length;
+  const byUnion = measured.filter(
+    (hits) => outcomeFromCounts({ hits, runs: 5 }, { mode: "union" }) === "hit",
+  ).length;
+  assert.equal(byMajority, 1);
+  assert.equal(byUnion, 4);
+});
+
+test("resolveSamples: three by default, overridable, bad input falls back", () => {
+  assert.equal(resolveSamples({}), 3);
+  assert.equal(resolveSamples({ REVIEW_SAMPLES: "1" }), 1);
+  assert.equal(resolveSamples({ REVIEW_SAMPLES: "5" }), 5);
+  for (const bad of ["0", "-1", "many", "2.5", ""])
+    assert.equal(resolveSamples({ REVIEW_SAMPLES: bad }), 3);
+});
+
+// --- folding samples into one specialist result -------------------------------------------------
+
+const sample = (over = {}) => ({
+  id: "runtime",
+  blocking: true,
+  status: "ran",
+  durationMs: 1000,
+  findings: [],
+  ...over,
+});
+const f = (message, over = {}) => ({
+  specialist: "runtime",
+  severity: "info",
+  file: "a.ts",
+  line: 1,
+  message,
+  ...over,
+});
+
+test("foldSamples: findings are unioned across samples, not voted on", () => {
+  const folded = foldSamples(
+    "runtime",
+    true,
+    [
+      sample({ findings: [f("no timeout")] }),
+      sample({ findings: [], status: "no-findings" }),
+      sample({ findings: [f("unbounded retry")] }),
+    ],
+    dedupe,
+  );
+  assert.equal(folded.findings.length, 2);
+  assert.equal(folded.status, "ran");
+  assert.equal(folded.samples, 3);
+  assert.equal(folded.durationMs, 3000, "cost is the sum of the samples");
+});
+
+test("foldSamples: the same finding twice collapses, and blocking survives the collapse", () => {
+  const folded = foldSamples(
+    "runtime",
+    true,
+    [
+      sample({ findings: [f("no timeout")] }),
+      sample({ findings: [f("no timeout", { severity: "blocking" })] }),
+    ],
+    dedupe,
+  );
+  assert.equal(folded.findings.length, 1);
+  // A finding raised as blocking by even one sample must still block.
+  assert.equal(folded.findings[0].severity, "blocking");
+});
+
+test("foldSamples: every sample failing is unavailable, not a quiet pass", () => {
+  // RA-3's rule survives sampling: a dimension that produced no verdict is a hole in the review.
+  // Sampling must not let two failures and one empty reply read as "reviewed and found nothing".
+  const folded = foldSamples(
+    "runtime",
+    true,
+    [
+      sample({ status: "unavailable", reason: "timeout", findings: [] }),
+      sample({ status: "unavailable", reason: "timeout", findings: [] }),
+    ],
+    dedupe,
+  );
+  assert.equal(folded.status, "unavailable");
+  assert.equal(folded.findings.length, 0);
+});
+
+test("foldSamples: one surviving sample is a verdict, and the failures are counted", () => {
+  const folded = foldSamples(
+    "runtime",
+    true,
+    [
+      sample({ status: "unavailable", reason: "timeout", findings: [] }),
+      sample({ findings: [f("no timeout")] }),
+      sample({ status: "unavailable", reason: "timeout", findings: [] }),
+    ],
+    dedupe,
+  );
+  assert.equal(folded.status, "ran");
+  assert.equal(folded.findings.length, 1);
+  assert.equal(folded.failedSamples, 2);
+});
+
+// --- the prompt must arrive intact (the truncation hypothesis, refuted 2026-08-14) --------------
+
+/**
+ * A throwaway .mjs helper. Real invocations pass a script *path*, never `node -e`, because under
+ * `shell: true` on Windows cmd.exe mangles an inline script's quotes and braces — which is itself
+ * a small lesson about how much the shell flag changes.
+ */
+function helper(body) {
+  const dir = mkdtempSync(join(tmpdir(), "spawn-once-"));
+  const file = join(dir, "h.mjs");
+  writeFileSync(file, body);
+  return file;
+}
+
+test("spawnOnce: a prompt larger than any real one arrives byte-identical", async () => {
+  // `null-result` scored 0/9 and then 16/20 with no change to its prompt, and the leading suspect
+  // was that the old `spawnSync(..., { shell: true })` path truncated large stdin on Windows —
+  // null-result has the longest composed prompt on the roster at ~11,900 chars. Probing both paths
+  // at 1KB…128KB showed byte-identical delivery, so that explanation is dead.
+  //
+  // The test stays because the property is worth holding regardless: a specialist handed a
+  // truncated prompt answers `[]`, which is indistinguishable from a clean review. If delivery ever
+  // does start clipping, this fails loudly instead of quietly halving the roster's recall.
+  const sink = helper(
+    "let n=0;process.stdin.on('data',c=>n+=c.length);" +
+      "process.stdin.on('end',()=>process.stdout.write(String(n)))",
+  );
+  const prompt = "review this diff; ".repeat(8000); // ~144KB, an order over the real thing
+  const res = await spawnOnce("node", [sink], {
+    input: prompt,
+    timeout: 30_000,
+    maxBuffer: 32 * 1024 * 1024,
+    shell: process.platform === "win32",
+  });
+  assert.equal(res.error, undefined, `spawn failed: ${res.error}`);
+  assert.equal(res.status, 0, `stderr: ${res.stderr}`);
+  assert.equal(Number(res.stdout), Buffer.byteLength(prompt));
+});
+
+test("spawnOnce: a child that outruns maxBuffer errors rather than returning a clipped reply", async () => {
+  // `spawn` has no maxBuffer of its own, so this is enforced by hand — and it has to fail rather
+  // than hand back a clipped reply, which would parse as findings the specialist never finished.
+  const noisy = helper("process.stdout.write('x'.repeat(50000))");
+  const res = await spawnOnce("node", [noisy], {
+    input: "",
+    timeout: 30_000,
+    maxBuffer: 1000,
+    shell: process.platform === "win32",
+  });
+  assert.match(String(res.error), /maxBuffer/);
+});
+
+test("spawnOnce: a child that overruns its budget reports ETIMEDOUT, so RA-2 can retry it", async () => {
+  // `spawn`'s own `timeout` kills without setting this code, and the retry rule is written against
+  // it — lose the code and a transient overrun stops being retried.
+  const slow = helper("setTimeout(() => {}, 10000)");
+  const res = await spawnOnce("node", [slow], {
+    input: "",
+    timeout: 500,
+    maxBuffer: 1000,
+    shell: process.platform === "win32",
+  });
+  assert.equal(res.error?.code, "ETIMEDOUT");
 });

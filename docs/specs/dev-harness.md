@@ -293,7 +293,7 @@ Three principles that make agent review actually valuable rather than noisy:
 
 ### The reviewer roster
 
-Six specialists, each with a defined scope, prompt, and blocking behavior.
+Eight specialists, each with a defined scope, prompt, and blocking behavior. (Six at the time this section was written; `null-result` and `doc-coherence` were added 2026-08-13 — see the end of the list.)
 
 **Contract Guardian** _(blocking)_
 
@@ -339,7 +339,31 @@ Six specialists, each with a defined scope, prompt, and blocking behavior.
 - Prompt loads: just the diff (no context needed for pattern-matching)
 - Behavior: any finding blocks. False positive rate needs to stay very low for this to be trusted; use conservative prompts.
 
+**Null-Result Reviewer** _(blocking)_ — _added 2026-08-13, [ADR 0086](../adrs/0086-a-specialist-may-be-given-context-found-by-search.md)_
+
+- Watches: `.github/workflows/**`, `turbo.json`, every `package.json`, test-runner config, `scripts/**`
+- Job: one question — **what does this check's output look like when it is silently doing nothing, and is that distinguishable from success?** Nothing else about a workflow is its brief.
+- Blocks: a runner that can discover nothing and exit 0; a skip that reads as a pass; a setting dropped before it reaches the process that reads it; a guard removed while what it guarded remains.
+- Exists because §11's standing rule was enforced by three bespoke tests guarding three holes that had already opened (#180/#217, #223, #283), and nothing asked the question of a _new_ check.
+
+**Doc-Coherence Reviewer** _(informational)_ — _added 2026-08-13, [ADR 0086](../adrs/0086-a-specialist-may-be-given-context-found-by-search.md)_
+
+- Watches: `docs/**`, any markdown in the tree, and — via `triggerImports` — any source file citing an ADR
+- Job: one question — **this change edited a fact; which other copies of that fact are now wrong?**
+- Prompt loads: context found by _search_ rather than by glob (`contextRelated`), since the relevant documents are whichever ones mention what the diff touched
+- Informational only for now. Promotion to blocking waits on ledger evidence that its precision holds.
+- Exists because documentation fact-drift is the highest-frequency escaped class in this repo (#236, #260, #282, four ADR collisions), CLAUDE.md states the rule, and `spec-adherence` only watches code↔spec drift in one direction.
+
+_The roster is eight, not the six this section originally described._
+
 ### Orchestration
+
+_Updated 2026-08-13, [ADR 0087](../adrs/0087-specialists-run-concurrently-under-a-cap.md):
+specialists run **concurrently under a cap** (`REVIEW_CONCURRENCY`, default 3), not one at a time.
+The sequential design was deliberate — "gentler on a loaded machine than N concurrent sessions" —
+but that argues for a cap rather than a width of one, and the sum of the roster's budgets is why
+nobody ran the reviewers in the inner loop this document asks for. `--fast` adds a second tier: only
+the triggered blocking specialists, for the mid-session check._
 
 `review-agents/orchestrator.js` runs during the pre-push hook (and from `pnpm run review` locally). It:
 
@@ -411,7 +435,7 @@ Findings return as JSON matching a shared schema (finding severity, file/line, m
 Agents run as a **pre-push hook**. Their findings are written to a report file that gets committed as part of the push; CI verifies the report exists and covers the current commit hash, but doesn't re-run agents itself.
 
 - Setup: `.husky/pre-push` invokes `pnpm run review --ci`. The invocation blocks the push until Claude Code sessions complete.
-- Behavior: every push waits for local agents (typical 30–90 seconds for the full six specialists in parallel). Report is committed as `.review-agents/report-<sha>.json`. CI's `code-review.yml` workflow just checks the report is present and matches the pushed SHA.
+- Behavior: every push waits for local agents (typical 30–90 seconds for the full roster in parallel). Report is committed as `.review-agents/report-<sha>.json`. CI's `code-review.yml` workflow just checks the report is present and matches the pushed SHA.
 - Cost: your existing Claude Code subscription; no per-PR API tokens.
 - Escape hatch: `--no-verify` bypasses the hook for genuine emergencies. Report absence is caught by CI, so bypassed pushes still fail the check.
 
@@ -586,10 +610,10 @@ Every PR that changes behavior should either update a spec or add an ADR (or exp
 The harness needs its own observability so you can trust it. Signals to surface:
 
 - **Per-PR agent runtime** — how long each specialist took. Posted as a PR comment by the orchestrator. Slow specialists suggest either context bloat (too much loaded per prompt) or genuinely hard PRs.
-- **Agent findings dashboard** (later) — how often each reviewer fires, how often findings are respected vs. overridden. Calibrates prompt quality over time.
+- **Agent findings ledger** — how often each reviewer fires, and how often its findings were right. _(Built 2026-08-13. `pnpm run review --triage` records a verdict per finding into the committed `review-agents/ledger.jsonl`; `pnpm run review:stats` prints per-specialist volume, precision and the repeat-class table. It is the instrument §12's delete rule needs — before it, that rule had never been executable. Design: [harness-self-improvement.md](harness-self-improvement.md) §4.1. Not a dashboard: a JSONL file and a printed table, per the note below about not needing dashboards early.)_
 - **Flaky test tracker** — CI logs test durations and failure rates per test. Nightly workflow flags anything with >2% failure rate for investigation.
 - **Cache hit rate** — turbo's cache hit percentage. If it drops below 50%, something's wrong with the cache config.
-- **Prompt regression signals** — periodic re-benchmarks in `review-agents/eval/` catch cases where a prompt change degrades finding quality. Not urgent early; nice to have once agents have been running for a month.
+- **Prompt regression signals** — re-benchmarks in `review-agents/eval/` catch cases where a prompt change degrades finding quality. _(Built 2026-08-13, [ADR 0085](../adrs/0085-a-harness-edit-is-validated-against-a-frozen-case-set.md). `pnpm run review:eval` scores every specialist against frozen cases seeded from this repo's own `fix(...)` commits and compares to a committed baseline; a change under `review-agents/` may not lower recall or raise false positives. Two limits to know: it runs **locally only** — a GitHub runner has no `claude` binary or auth, so an eval job in a workflow could never measure anything — which makes this a human discipline rather than an enforced gate; and coverage starts at eight cases, with `security`, `spec-adherence` and `contract-guardian` at zero. See [review-agents/eval/README.md](../../review-agents/eval/README.md).)_
 
 None of these need dashboards early on. Log to files, spot-check periodically, revisit if signals stay noisy.
 
@@ -630,6 +654,15 @@ The harness isn't a set-and-forget artifact. Two rules for its evolution:
 **Delete checks when they generate more noise than signal.** A reviewer that fires often and is usually wrong is worse than no reviewer. Track the ratio; retire reviewers or refine prompts when the ratio goes bad.
 
 Neither is retrospective work; both happen in the PR that fixes the bug or refines the process. Small, continuous, no dedicated meetings.
+
+_Mechanism, 2026-08-14 ([ADR 0089](../adrs/0089-the-retro-proposes-and-a-human-accepts.md)):
+`pnpm run review:retro` reads the ledger, the escaped-bug commits, the eval baseline and the case set,
+and writes a proposal file to `review-agents/retro/`. It **proposes and never accepts** — a test
+asserts it leaves the tree byte-for-byte unchanged — and anything done from its output still has to
+pass `pnpm run review:eval`. That is the loop this section describes, with a human holding the accept
+step._
+
+_Status note, 2026-08-13: until this date only the first rule had ever run. The second could not be executed at all — the ratio it says to track was recorded nowhere, since reports are per-SHA and gitignored, so every run was amnesiac, and `review-agents/KNOWN-ISSUES.md` tracks harness **defects** rather than finding **quality**. The ledger ([harness-self-improvement.md](harness-self-improvement.md) §4.1) now records it: judge a review with `pnpm run review --triage`, read it back with `pnpm run review:stats`. Two caveats on acting on what it says. First, a precision figure below n=8 is not printed at all, so a reviewer is not "bad" until there is enough evidence to say so. Second, the retirement decision the rule describes still has no safety net — there is no eval gate yet (§4.2), so changing a specialist's prompt in response to what the ledger says is still an unvalidated edit._
 
 ## 13. First-week concrete setup
 

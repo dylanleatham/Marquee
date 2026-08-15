@@ -193,16 +193,21 @@ export function dedupe(findings) {
  * `repair` is injected — it returns the same `{ ok, text }` shape as `runSpecialist` — so this is
  * testable without a Claude call.
  *
- * @returns {{ raw: unknown[]|null, outcome: "clean"|"repaired"|"unrepaired" }}
+ * **Async since the specialists began running concurrently.** `repair` is now a promise-returning
+ * `runSpecialist`, and the previous synchronous version read `second?.ok` off the pending promise —
+ * always `undefined`, so every reply fell through to `unrepaired` and RA-4's whole recovery path
+ * would have been dead while every test still passed.
+ *
+ * @returns {Promise<{ raw: unknown[]|null, outcome: "clean"|"repaired"|"unrepaired" }>}
  */
-export function parseWithRepair(text, { repair } = {}) {
+export async function parseWithRepair(text, { repair } = {}) {
   const first = extractJsonArray(text);
   if (first !== null) return { raw: first, outcome: "clean" };
   if (!repair) return { raw: null, outcome: "unrepaired" };
 
   let second;
   try {
-    second = repair(text);
+    second = await repair(text);
   } catch {
     return { raw: null, outcome: "unrepaired" }; // a failed repair is never worse than not trying
   }

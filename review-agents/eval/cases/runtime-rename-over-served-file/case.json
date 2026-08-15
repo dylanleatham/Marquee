@@ -1,0 +1,16 @@
+{
+  "id": "runtime-rename-over-served-file",
+  "source": "commit:436b1d1 (reversed)",
+  "kind": "must-find",
+  "specialist": "runtime",
+  "expect": {
+    "file": [
+      "packages/curator/src/albums/actions.ts",
+      "packages/curator/src/media/video.ts"
+    ],
+    "matches": [
+      "race|EPERM|EBUSY|in use|still (being )?(served|open|streamed)|unlink|atomic|open handle"
+    ]
+  },
+  "notes": "Reverse of #266: replaces replaceFile() with rmSync-then-renameSync, reopening the window where Curator deletes or renames over a file it may be serving. Two call sites carry the bug (albums/actions.ts and media/video.ts) and a reviewer may legitimately report either, so `file` lists both \u2014 pinning one scored a false miss on the first real run."
+}
