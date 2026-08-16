@@ -442,7 +442,7 @@ Findings return as JSON matching a shared schema (finding severity, file/line, m
 Agents run as a **pre-push hook**. Their findings are written to a report file that gets committed as part of the push; CI verifies the report exists and covers the current commit hash, but doesn't re-run agents itself.
 
 - Setup: `.husky/pre-push` invokes `pnpm run review --ci`. The invocation blocks the push until Claude Code sessions complete.
-- Behavior: every push waits for local agents (typical 30–90 seconds for the full roster in parallel). Report is committed as `.review-agents/report-<sha>.json`. CI's `code-review.yml` workflow just checks the report is present and matches the pushed SHA.
+- Behavior: every push waits for local agents (typical 30–90 seconds for the full roster in parallel). Report is committed as `.review-agents/report-<sha>-<run>.json` (per review, not per commit — issue #330). CI's `code-review.yml` workflow just checks the report is present and matches the pushed SHA.
 - Cost: your existing Claude Code subscription; no per-PR API tokens.
 - Escape hatch: `--no-verify` bypasses the hook for genuine emergencies. Report absence is caught by CI, so bypassed pushes still fail the check.
 

@@ -54,7 +54,10 @@ else is informational.
    so structure (file, line, severity) survives instead of collapsing into one unstructured info
    finding (issue #117). Only if that also comes back as prose does it fall through to surfacing the
    prose itself rather than dropping it (RA-1). Then aggregates and dedupes by file+line+message.
-6. Writes `.review-agents/report-<sha>.json` (gitignored) and prints a summary.
+6. Writes `.review-agents/report-<sha>-<run>.json` (gitignored) and prints a summary. The name
+   carries the **review**, not just the commit, so reviewing one commit twice — which is what the
+   inner loop asks for — leaves two reports rather than overwriting the first
+   ([issue #330](https://github.com/dylanleatham/Marquee/issues/330)).
 7. In `--ci` mode, exits non-zero if there's any blocking finding — **or if a blocking specialist
    produced no verdict at all** (timed out, or returned something unparseable). A dimension that
    went unreviewed is a hole in the review, not a pass; the summary names it, the "No findings"
@@ -100,9 +103,10 @@ zero-FP evidence rests on three clean cases. Widening that side of
 
 ## The ledger — what this harness remembers
 
-Reports (`.review-agents/report-<sha>.json`) are gitignored run artifacts, so on their own every run
-is amnesiac. `--triage` walks the findings of the most recent report and records a verdict for each
-into **`review-agents/ledger.jsonl`, which is committed**. Design and rationale:
+Reports (`.review-agents/report-<sha>-<run>.json`) are gitignored run artifacts, so on their own
+every run is amnesiac. `--triage` walks every review still owing a verdict — oldest first, however
+many rounds you ran — and records one for each into **`review-agents/ledger.jsonl`, which is
+committed**. A findings-free review is walked too: its run is the denominator a fire rate is made of. Design and rationale:
 [harness-self-improvement.md](../docs/specs/harness-self-improvement.md) §4.1.
 
 | verdict        | meaning                                        | counts toward         |

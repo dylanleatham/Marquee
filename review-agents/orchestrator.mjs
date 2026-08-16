@@ -57,7 +57,7 @@ import {
   computeStats,
   formatStats,
 } from "./lib/ledger.mjs";
-import { resolveReport, runTriage } from "./lib/triage.mjs";
+import { resolveReports, reportFileName, runTriage } from "./lib/triage.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
@@ -92,19 +92,23 @@ function printStats() {
 
 /** `--triage`: judge the last report's findings and append the verdicts to the ledger. */
 async function triage() {
-  const resolved = resolveReport(REPORT_DIR, currentSha());
-  if (!resolved) {
+  const { records } = loadLedger(LEDGER_PATH);
+  const skipped = [];
+  const owed = resolveReports(REPORT_DIR, currentSha(), records, (p) =>
+    skipped.push(p),
+  );
+  for (const path of skipped)
     console.error(
-      "review-agents: no report to triage. Run `pnpm run review` first.",
+      `review-agents: skipping unreadable report ${path} — delete it, or keep it if you want to know why.`,
+    );
+
+  if (!owed.length) {
+    console.error(
+      "review-agents: nothing left to triage. Run `pnpm run review` first.",
     );
     process.exit(1);
   }
-  if (!resolved.forCurrentSha) {
-    console.log(
-      `review-agents: no report for the current commit — triaging the most recent one instead\n` +
-        `  ${resolved.path} (sha ${String(resolved.report.sha).slice(0, 12)})`,
-    );
-  }
+
   // Interactive by design, so it must never hang waiting on a stdin nobody is typing into: a
   // --triage that wedges a hook or a CI job would be a far worse harness bug than an unmeasured
   // reviewer.
@@ -116,23 +120,44 @@ async function triage() {
     process.exit(1);
   }
 
+  if (owed.length > 1)
+    console.log(
+      `review-agents: ${owed.length} reviews to judge, oldest first. Every round you ran is here` +
+        ` — reviewing a commit twice no longer overwrites the first (issue #330).`,
+    );
+
   const rl = createInterface({ input: process.stdin, output: process.stdout });
+  let judged = 0;
+  let skippedFindings = 0;
   try {
-    const { records } = loadLedger(LEDGER_PATH);
-    const result = await runTriage({
-      report: resolved.report,
-      records,
-      ask: (q) => rl.question(q),
-      append: (recs) => appendRecords(LEDGER_PATH, recs),
-    });
-    if (result.judged || result.skipped) {
+    for (const [i, resolved] of owed.entries()) {
+      if (!resolved.forCurrentSha)
+        console.log(
+          `
+review-agents: report ${i + 1}/${owed.length} — ${resolved.path}` +
+            ` (sha ${String(resolved.report.sha).slice(0, 12)}, not the current commit)`,
+        );
+      // Re-read the ledger each time: the previous report's verdicts are already on disk, and
+      // `pendingFindings` has to see them or a finding raised by two rounds gets asked twice.
+      const { records: latest } = loadLedger(LEDGER_PATH);
+      const result = await runTriage({
+        report: resolved.report,
+        records: latest,
+        ask: (q) => rl.question(q),
+        append: (recs) => appendRecords(LEDGER_PATH, recs),
+      });
+      judged += result.judged;
+      skippedFindings += result.skipped;
+      if (result.quit) break;
+    }
+    if (judged || skippedFindings)
       console.log(
-        `\nreview-agents: ${result.judged} judged, ${result.skipped} skipped` +
-          (result.quit ? " (stopped early)" : "") +
-          `. Ledger: review-agents/ledger.jsonl — commit it.\n` +
+        `
+review-agents: ${judged} judged, ${skippedFindings} skipped` +
+          `. Ledger: review-agents/ledger.jsonl — commit it.
+` +
           `Run \`pnpm run review:stats\` to see what it adds up to.`,
       );
-    }
   } finally {
     rl.close();
   }
@@ -353,7 +378,7 @@ async function main() {
     };
     mkdirSync(REPORT_DIR, { recursive: true });
     writeFileSync(
-      join(REPORT_DIR, `report-${sha}.json`),
+      join(REPORT_DIR, reportFileName(report)),
       JSON.stringify(report, null, 2),
     );
 

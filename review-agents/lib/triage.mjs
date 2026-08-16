@@ -11,6 +11,7 @@
 // every finding would make the common case slower, and a triage nobody runs measures nothing.
 
 import { readFileSync, readdirSync, existsSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import {
   pendingFindings,
@@ -31,35 +32,101 @@ export const CHOICES = new Map([
 ]);
 
 /**
- * The report to triage: the one for the current commit if it exists, otherwise the most recently
- * written one.
+ * The file a review's report is written to.
  *
- * The fallback matters more than it looks. You review, you fix what it found, you commit — and now
- * `currentSha()` names a commit the report was never written for. Refusing to triage at that point
- * would mean the harness only remembers findings you didn't act on, which inverts the measurement.
+ * Keyed on the **review**, not the commit. `report-${sha}.json` collided whenever one commit was
+ * reviewed twice — which is the normal case, because CLAUDE.md asks you to run the reviewers in the
+ * inner loop and iterate, and a branch with no commits yet resolves to the same base SHA every
+ * time. The second review overwrote the first's findings before anyone could judge them
+ * (issue #330).
  *
- * @returns {{ path: string, report: object, forCurrentSha: boolean } | null}
+ * This is RA-6's other half. That fixed run identity *in the ledger* — `runIdOf` keys on
+ * `createdAt` — and left the file feeding it still colliding, so the input was destroyed before the
+ * ledger ever saw it.
+ *
+ * The run id is hashed rather than pasted in: it is an ISO timestamp, and `:` is not legal in a
+ * Windows filename. The sha stays in the name so the directory is still readable by eye.
  */
-export function resolveReport(reportDir, sha) {
-  if (!existsSync(reportDir)) return null;
-  const exact = join(reportDir, `report-${sha}.json`);
-  if (existsSync(exact))
-    return { path: exact, report: readReport(exact), forCurrentSha: true };
-
-  const reports = readdirSync(reportDir)
-    .filter((f) => /^report-.*\.json$/.test(f))
-    .map((f) => join(reportDir, f))
-    .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs);
-  if (!reports.length) return null;
-  return {
-    path: reports[0],
-    report: readReport(reports[0]),
-    forCurrentSha: false,
-  };
+export function reportFileName(report) {
+  const runId = createHash("sha1")
+    .update(runIdOf(report))
+    .digest("hex")
+    .slice(0, 8);
+  return `report-${report.sha}-${runId}.json`;
 }
 
+/**
+ * Every review still owing a verdict, oldest first.
+ *
+ * A review is owed one if it has findings not yet in the ledger, **or** if its run was never
+ * recorded — a findings-free review is a real data point, and dropping it would bias every
+ * specialist's fire rate upward by removing the quiet runs from the denominator.
+ *
+ * Oldest first because that is the order they happened in, and a triage pass reads as a story of
+ * the branch. Ordering on `createdAt` rather than mtime keeps that true when reports are copied
+ * around (restored from another machine, or rebuilt from a transcript).
+ *
+ * The previous `resolveReport` returned exactly one — the newest — so even reports that survived
+ * the collision above could not all be reached.
+ *
+ * @returns {{ path: string, report: object, forCurrentSha: boolean }[]}
+ */
+export function resolveReports(
+  reportDir,
+  sha,
+  records = [],
+  onSkip = () => {},
+) {
+  if (!existsSync(reportDir)) return [];
+
+  const owed = readdirSync(reportDir)
+    .filter((f) => /^report-.*\.json$/.test(f))
+    .map((f) => {
+      const path = join(reportDir, f);
+      const report = readReport(path);
+      if (!report) {
+        onSkip(path);
+        return null;
+      }
+      return { path, report, mtime: statSync(path).mtimeMs };
+    })
+    .filter(Boolean)
+    .filter(({ report }) => {
+      if (pendingFindings(report, records).length) return true;
+      const runId = runIdOf(report);
+      return !records.some((r) => r.kind === "run" && r.runId === runId);
+    });
+
+  owed.sort(
+    (a, b) =>
+      String(a.report.createdAt ?? "").localeCompare(
+        String(b.report.createdAt ?? ""),
+      ) || a.mtime - b.mtime,
+  );
+
+  return owed.map(({ path, report }) => ({
+    path,
+    report,
+    forCurrentSha: report.sha === sha,
+  }));
+}
+
+/**
+ * Parse one report, or `null` if it cannot be parsed.
+ *
+ * Tolerant because `resolveReports` reads *every* report in the directory: a single truncated file
+ * — what a killed review leaves behind — would otherwise take the whole triage pass down with it,
+ * and the findings you could still have judged with it. Skipped files are reported by the caller
+ * rather than swallowed; a directory quietly losing half its reports is the silent-green failure
+ * dev-harness §11 exists to prevent.
+ */
 function readReport(path) {
-  return JSON.parse(readFileSync(path, "utf8"));
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8"));
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 /** One finding, rendered for a human about to judge it. Severity is spelled out, never a colour. */

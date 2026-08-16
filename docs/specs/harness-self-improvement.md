@@ -28,7 +28,7 @@ written.
 
 The second rule had never once been executed, and could not be. **The ratio was not tracked, and
 nothing in the harness was capable of tracking it.** Every run writes
-`.review-agents/report-<sha>.json` and that directory is gitignored, so each run was amnesiac: there
+a report under `.review-agents/` and that directory is gitignored, so each run was amnesiac: there
 was no record of what a specialist said last week, whether it was right, or whether it had said the
 same wrong thing five times. `KNOWN-ISSUES.md` is a hand-maintained substitute that tracks _harness
 bugs_ — it has never held a single entry about _finding quality_, because no instrument existed that
@@ -178,9 +178,14 @@ that cannot say _what_ was repeated only proves that something was.
 
 `runId` identifies a **review**, not a commit — the report's `createdAt`, falling back to
 `sha|base`. One commit can be reviewed more than once (`--staged` now, `--base HEAD~3` after), and
-both write the same `report-<sha>.json`, so the second overwrites the first. Keying the run record
+both wrote the same `report-<sha>.json`, so the second overwrote the first. Keying the run record
 on `sha` therefore dropped one of them; see RA-6 in
 [KNOWN-ISSUES.md](../../review-agents/KNOWN-ISSUES.md) for what that looked like in the output.
+
+> **2026-08-15 (RA-8, [#330](https://github.com/dylanleatham/Marquee/issues/330)):** the report
+> _file_ kept colliding for another two days, which destroyed the findings before this run record
+> could disagree about them. Reports are now named per review (`report-<sha>-<run>.json`) and
+> `--triage` walks every one still owing a verdict.
 
 `verdict` is one of:
 
@@ -450,10 +455,12 @@ Built as planned, with three decisions the plan left open:
   — an interactive verb that wedges a hook would be a worse harness bug than an unmeasured reviewer.
 - **A note is asked for only on `wrong`.** That is the verdict whose reason is actionable; asking on
   every finding slows the common case, and a triage nobody runs measures nothing.
-- **`resolveReport` falls back to the newest report** when none matches `HEAD`. You review, you fix
-  what it found, you commit — and the report is now for a commit that no longer exists. Refusing
-  there would mean the ledger only ever remembers findings you _didn't_ act on, which inverts the
-  measurement.
+- **`resolveReports` offers every review still owing a verdict**, whatever commit it names. You
+  review, you fix what it found, you commit — and the report is now for a commit that no longer
+  exists. Refusing there would mean the ledger only ever remembers findings you _didn't_ act on,
+  which inverts the measurement. It originally resolved a single report and fell back to the newest,
+  which lost every earlier round of the same branch
+  ([RA-8](../../review-agents/KNOWN-ISSUES.md), [#330](https://github.com/dylanleatham/Marquee/issues/330)).
 
 |                                |                                                                                                                                                                                                                                                                                                                          |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
