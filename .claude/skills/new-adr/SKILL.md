@@ -62,7 +62,7 @@ href are checked, and a label naming a different decision than the file it point
 - **Update the spec the decision amends.** `docs/specs/*.md` is the source of truth; a dated note
   pointing at the ADR is enough. A spec that lies is worse than no spec.
 - **Grep for other copies of what you just changed.** Documentation fact-drift is the
-  highest-frequency escaped defect class in this repo. `doc-coherence` reviews for it, but it detects
-  about half the time, so do the grep.
+  highest-frequency escaped defect class in this repo. `spec-adherence` reviews for it, but it
+  detects about half the time, so do the grep.
 - Run `node scripts/check-adr-numbers.mjs` before pushing. `pre-push` runs it unfiltered and will
   reject a collision against `origin/main`.

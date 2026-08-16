@@ -52,10 +52,7 @@ The defect is half the work. Name what let it through and close it durably:
 - a **test** that would have caught it (you have this already if step 2 went well),
 - a **contract** or type that makes the shape unrepresentable,
 - a **property** rather than an example, or
-- a **reviewer rule** — an entry in a specialist's `examples.md` under `review-agents/`.
-
-If you change a reviewer, that is a change under test: run `pnpm run review:eval` before merging
-([ADR 0085](../../../docs/adrs/0085-a-harness-edit-is-validated-against-a-frozen-case-set.md)).
+- a **reviewer rule** — an entry in a reviewer's `examples.md` under `review-agents/`.
 
 Ask directly: **what would have had to exist for this bug to be impossible, or loud?** If the answer
 is "someone remembering", it is not closed.
@@ -63,13 +60,11 @@ is "someone remembering", it is not closed.
 ## 5. Before the PR
 
 ```bash
-pnpm run review --fast     # the blocking reviewers, mid-session
-pnpm run review            # the full roster, before the PR
-pnpm run review --triage   # judge what it said — this is the harness's only memory
+pnpm run review    # three reviewers, ~1-2 min
 ```
 
-The bar is **no blocking findings and no repeat class**, not zero findings. Commit
-`review-agents/ledger.jsonl` with the PR.
+The bar is **no `[FIX ]` findings left unanswered**, not zero findings. There is nothing to record
+afterwards.
 
 The PR body says `Closes #<n>`, and should contain the red test output from step 2 and one sentence
 naming the blind spot you closed.

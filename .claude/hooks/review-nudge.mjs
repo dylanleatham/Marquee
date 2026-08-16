@@ -67,7 +67,7 @@ try {
   const more = changed.length > 3 ? ` (+${changed.length - 3} more)` : "";
   console.error(
     `\n[review] ${changed.length} reviewable file(s) changed since the last review run: ${shown}${more}\n` +
-      `[review] \`pnpm run review --fast\` for the blocking reviewers, \`pnpm run review\` before the PR.\n` +
+      `[review] \`pnpm run review\` — three reviewers, about a minute.\n` +
       `[review] Not a gate — nothing here is blocking your commit.`,
   );
 } catch {

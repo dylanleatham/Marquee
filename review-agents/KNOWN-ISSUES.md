@@ -1,78 +1,39 @@
 # Review-agents — known issues / follow-ups
 
-The free-plan repo has no enforced issue tracker, so open follow-ups on the review harness
-live here: version-controlled, grep-able, and reviewed in PRs. Per `dev-harness.md §12`,
-each item should end as a **regression test** (in `review-agents/lib/lib.test.mjs`) or a
-**reviewer prompt/config change** — not a lingering note. Delete an item when it's fixed.
+The free-plan repo has no enforced issue tracker, so open follow-ups on the review harness live
+here: version-controlled, grep-able, and reviewed in PRs. Each item should end as a **regression
+test** (in `review-agents/lib/lib.test.mjs`) or a **reviewer prompt/config change** — not a
+lingering note. Delete an item when it is fixed.
 
-To promote any of these to a GitHub issue, the text below is paste-ready.
+> Entries before 2026-08-16 may describe machinery that
+> [ADR 0092](../docs/adrs/0092-the-harness-is-three-reviewers-and-one-command.md) removed — the
+> ledger, triage, the eval set, sampling, and the `consistency` / `runtime` / `security` /
+> `contract-guardian` reviewers. They are kept because the _failure modes_ recur: a reviewer that is
+> never triggered, a reply that is not JSON, an artifact that overwrites its predecessor.
 
 ---
 
 ### Open
 
-- **RA-8 — a second review of the same commit destroys the first one's findings.** The orchestrator
-  writes `.review-agents/report-${sha}.json`, keyed on `currentSha()` alone. On a branch with no
-  commits yet — the normal state while working, and exactly what CLAUDE.md's "run it in the inner
-  loop, iterating to green" asks for — every run resolves to the same base SHA and overwrites the
-  last report. Fix what a review found, run it again, and the evidence that it found anything is
-  gone.
-
-  This is **RA-6's other half**. That entry fixed run _identity_ in the ledger, because `--staged`
-  and `--base HEAD~3` on one commit were being counted as one run; `runIdOf` now keys on
-  `createdAt`, and its doc comment states the collision plainly. The report _file_ was left keyed on
-  sha, so the same collision still deletes the input before the ledger ever sees it.
-
-  Measured on the branch that became the ADR 0091 logo work: four full reviews on an uncommitted
-  branch, findings 2 → 1 → 9 → 0. Only the last survived on disk, so `--triage` had nothing to
-  judge and **12 findings went unrecorded**, including two `accepted` ones that had caught real bugs
-  (a path-command tokenizer that silently dropped unsupported commands, and a `.toUpperCase()` that
-  drew relative curves as absolute). Losing accepted findings biases the ledger in the worst
-  direction available: the verdicts most likely to survive to `review:stats` are the ones nobody
-  acted on, which is the same inversion `resolveReport`'s fallback comment already warns about one
-  layer up.
-
-  **The fix**: name the report for the run, not the commit — `report-${sha}-${hash(runIdOf)}.json`
-  or equivalent — and have `resolveReport` walk _every_ untriaged report rather than only the newest,
-  so an interrupted session can still be judged later. The durable half is a regression test in
-  `lib/lib.test.mjs`: two reports written for one sha with different `base`/`createdAt` must both
-  still be resolvable. Until then the workaround is procedural and easy to forget — triage between
-  rounds, or commit between them.
+_Nothing open._
 
 ### Resolved
 
 - **RA-8 — a second review of the same commit destroyed the first one's findings.** Fixed
-  2026-08-15 ([issue #330](https://github.com/dylanleatham/Marquee/issues/330)). The orchestrator
-  wrote `.review-agents/report-${sha}.json`, keyed on `currentSha()` alone. On a branch with no
-  commits yet — the normal state while working, and exactly what CLAUDE.md's "run it in the inner
-  loop, iterating to green" asks for — every run resolved to the same base SHA and overwrote the
-  last report. `resolveReport` then returned exactly one report, the newest, so even a survivor
-  could not be reached.
-  This was **RA-6's other half**: that fixed run identity _in the ledger_ (`runIdOf` keys on
-  `createdAt`, and its doc comment states the collision plainly) and left the file feeding it still
-  colliding, so the input was destroyed before the ledger ever saw it.
-  Measured on the branch behind [#329](https://github.com/dylanleatham/Marquee/pull/329): four
-  reviews, findings 2 → 1 → 9 → 0, only the last surviving, so `--triage` had nothing to judge and
-  **12 findings went unrecorded** — two of them `accepted` ones that had caught real bugs. The bias
-  ran the wrong way: acting on a finding is what makes you re-run, so the findings you act on are
-  exactly the ones that disappear, and the verdicts most likely to reach `review:stats` are the ones
-  nobody did anything about.
-  Fixed by keying the report file on the **review** rather than the commit (`reportFileName`, a
-  hashed `runIdOf` — the run id is an ISO timestamp and `:` is not legal in a Windows filename), and
-  by replacing `resolveReport` with `resolveReports`, which returns every review still owing a
-  verdict, oldest first. `--triage` walks all of them in one pass, re-reading the ledger between
-  each so a finding raised by two rounds is not asked twice. A findings-free review is still
-  offered, because its run is the denominator that makes a fire rate mean anything.
-  Widened while fixing: `resolveReports` reads _every_ report, so one truncated file — what killing
-  a review mid-write leaves — would have taken down a whole triage pass. `readReport` now returns
-  `null` instead of throwing, and the skipped path is **named** rather than swallowed.
-  Regression tests: `reportFileName: two reviews of one commit are two files, not one`,
-  `resolveReports: every untriaged review is offered, oldest first`,
-  `resolveReports: a review already in the ledger is not offered again`,
-  `resolveReports: a findings-free review is still offered, so its run is counted`,
-  `resolveReports: reports written before this fix are still resolvable`, and
-  `resolveReports: a corrupt report is skipped and named, not fatal` — all in
-  `lib/lib.test.mjs`.
+  2026-08-15 ([issue #330](https://github.com/dylanleatham/Marquee/issues/330)). The report file was
+  keyed on `currentSha()` alone, so on a branch with no commits yet — the normal state while
+  working — every run overwrote the last report. Measured on the branch behind
+  [#329](https://github.com/dylanleatham/Marquee/pull/329): four reviews, findings 2 → 1 → 9 → 0,
+  only the last surviving. Fixed by keying the file on the **review** rather than the commit. The
+  triage pass that consumed those reports is gone (ADR 0092), but the naming rule survives: an
+  artifact keyed on something that does not change per run will silently eat its predecessor.
+
+- **RA-6 — the ledger counted two reviews of one commit as one run.** Fixed 2026-08-13, the day the
+  ledger shipped, by using it. Two reviews of one `HEAD` wrote one report, and the run record keyed
+  on `sha` decided the run was already recorded — so `consistency` printed `FIRED=0` alongside an
+  accepted finding. That is the §11 failure in its purest form: the table looked exactly like a
+  confident, well-measured one. The ledger was removed by ADR 0092; the lesson it taught is why §11
+  now applies to instruments as well as to checks.
 
 - **RA-7 — `test-auditor` could not see the harness's own code.** Fixed 2026-08-15
   ([issue #327](https://github.com/dylanleatham/Marquee/issues/327)). Its `triggerGlobs` were
@@ -101,7 +62,7 @@ To promote any of these to a GitHub issue, the text below is paste-ready.
   specs, so `review-agents/` had no entry and widening its triggers alone would have handed a
   reviewer a diff with no spec to check it against, which is worse than not triggering: a reviewer
   asked to find drift against nothing produces confident nonsense. `TREE_SPECS` maps the non-package
-  trees — `review-agents/` to dev-harness §6 and harness-self-improvement.md, `scripts/` to
+  trees — `review-agents/` to dev-harness §6, `scripts/` to
   dev-harness, `contract-tests/` and `e2e/` to the integration contract and testing strategy — and
   `specsFor()` is one function over both maps so a caller cannot consult half of it.
   Regression tests: `spec-adherence triggers on first-party source outside packages/ (#327)`,
@@ -149,7 +110,8 @@ runId existed still count` in `lib/lib.test.mjs`.
   every `packages/**/src` directory **from disk** and asserts each source-scoped reviewer matches
   it, so the next nested package cannot silently reopen the hole. A second test asserts every
   specialist directory declares some trigger and has the files the README documents.
-  Regression tests: the four `… triggers on every packages/**/src root on disk (#192)` cases, the
+  Regression tests: the `… triggers on every packages/**/src root on disk (#192)` cases (four at the
+  time, two since the roster was cut), the
   nested-`src` assertions in `globToRegExp: …`, and `every specialist directory has the three files
 …` in `lib/lib.test.mjs`.
   The coverage backlog the first UI runs surfaced is tracked in

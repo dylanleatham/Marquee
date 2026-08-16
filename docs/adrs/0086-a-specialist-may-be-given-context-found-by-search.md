@@ -79,7 +79,7 @@ Two constraints on the implementation, both load-bearing:
   would be meaningless and a re-ordering could read as a regression.
 
 `doc-coherence` ships **info**, not blocking. Promotion waits on ledger evidence that its precision
-holds, which is [ADR-less §4.1](../specs/harness-self-improvement.md) paying for itself.
+holds, which is the ledger (ADR-less §4.1) paying for itself.
 
 ## Consequences
 

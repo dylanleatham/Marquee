@@ -63,10 +63,9 @@ Thumbs.db
 # commit an entire working copy of the repo into itself.
 .claude/worktrees/
 
-# Review agent reports are local run artifacts, not source. What survives a run is
-# review-agents/ledger.jsonl — triaged verdicts, committed, because a harness that cannot
-# remember what its reviewers got right cannot act on dev-harness §12's "delete checks when they
-# generate more noise than signal" (docs/specs/harness-self-improvement.md §4.1).
+# Review agent reports are local run artifacts, not source. Nothing survives a run: the findings are
+# printed, and the report exists only so the Stop hook can tell whether the reviewers have seen the
+# current working tree (ADR 0092).
 .review-agents/
 
 # Raw samples from scripts/idle-audit.mjs — machine-specific run artifacts. The numbers that matter

@@ -8,10 +8,18 @@
     "packages/stylus/stylus/**",
     "review-agents/*.mjs",
     "review-agents/lib/*.mjs",
-    "review-agents/eval/*.mjs",
     "scripts/**/*.mjs",
     "contract-tests/**/*.mjs",
-    "e2e/**/*.mjs"
+    "e2e/**/*.mjs",
+    "docs/**/*.md",
+    "*.md",
+    "packages/**/*.md"
   ],
-  "includePackageSpecs": true
+  "triggerImports": ["docs/adrs/", "ADR 00"],
+  "includePackageSpecs": true,
+  "contextRelated": {
+    "over": ["docs/**/*.md", "*.md", "packages/**/*.md"],
+    "maxFiles": 6,
+    "maxBytes": 100000
+  }
 }

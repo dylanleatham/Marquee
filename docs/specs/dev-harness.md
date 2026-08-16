@@ -263,9 +263,8 @@ result.
 
 > **Never built, and superseded.** `.github/workflows/` contains `ci.yml` and `nightly.yml`; there
 > is no `code-review.yml`. The gate it describes cannot exist either, because the report it would
-> check is gitignored and the pre-push hook does not run the agents — see the superseded "CI
-> enforcement mode" block below for the whole design and why it was dropped. The reviewers run **on
-> demand**, and the committed evidence is `review-agents/ledger.jsonl`, not a report file.
+> check is gitignored and the pre-push hook does not run the agents. The reviewers run **on demand**
+> (§6), and nothing about a run is committed.
 
 The design was: verify that the pre-push review agent report exists and matches the current commit SHA. It would not run agents itself (they ran locally on your workstation via the pre-push hook), and would block merge if the report were missing or stale.
 
@@ -285,231 +284,150 @@ cache saves. Revisit if a `main` trigger ever comes back, or if a remote cache b
 
 ## 6. Code review agents
 
-**The novel piece.** Static checks and tests catch mechanical problems; code review agents catch design problems. Not a replacement for your own review — a collaborator that reads every diff before you do and surfaces things worth thinking about.
+**Static checks and tests catch mechanical problems; a reviewer that reads the diff catches design
+problems.** Not a replacement for your own review — a collaborator that reads every diff before you
+do and surfaces things worth thinking about.
 
-Since you've built a multi-agent Claude Code pipeline before, this will be familiar shape: specialized agents with clear responsibilities, an orchestrator that decides who runs, results aggregated for you to act on.
+> **Rewritten 2026-08-16
+> ([ADR 0092](../adrs/0092-the-harness-is-three-reviewers-and-one-command.md)).** This section
+> previously specified eight specialists, three-sample runs, a committed findings ledger, a frozen
+> eval set and a retro command — roughly ten minutes and 24 Claude sessions per review, plus four
+> commands to run afterwards. It was cut to three reviewers and one command. The reasoning, and what
+> was given up, is in the ADR; the deleted machinery is in git history at `af1dde0`.
 
 ### Philosophy
 
-Three principles that make agent review actually valuable rather than noisy:
-
-1. **Specialists, not generalists.** Each agent has one job and knows one thing deeply. A "review this PR" mega-prompt is useless; a "check that this schema change hasn't broken consumers" prompt with the actual consumer code loaded produces real findings.
-2. **Signal over volume.** Every finding an agent posts costs your attention. False positives train you to ignore the tool. Better to have five specialized agents that fire rarely with high-signal comments than one general agent that always writes an essay.
-3. **Blocking vs. informational is a real distinction.** Contract-breaking change → blocking. Missing test on new endpoint → blocking. Style suggestion → informational. Agents self-classify; the workflow enforces the classification.
+1. **Specialists, not generalists.** Each reviewer has one job and knows one thing deeply. A "review
+   this PR" mega-prompt is useless; a "check that this schema change hasn't broken consumers" prompt
+   with the actual consumer code loaded produces real findings.
+2. **Signal over volume.** Every finding costs your attention. False positives train you to ignore
+   the tool.
+3. **Only encode what a general-purpose reviewer can't know.** Generic correctness, security and
+   style review is a solved, maintained thing (`/code-review`, `/security-review`). A bespoke
+   reviewer has to earn its minute by knowing something specific to this repo.
+4. **Blocking vs. informational is a real distinction.** Missing test on a new endpoint → blocking.
+   Spec drift → informational, because the right resolution is a conversation.
 
 ### The reviewer roster
 
-Eight specialists, each with a defined scope, prompt, and blocking behavior. (Six at the time this section was written; `null-result` and `doc-coherence` were added 2026-08-13 — see the end of the list.)
+Three, each built from a class of defect that escaped this repo more than once.
 
-**Contract Guardian** _(blocking)_
+**Null-Result Reviewer** _(blocking)_ — added 2026-08-13
 
-- Watches: `packages/contracts/**`, and any files that import from it
-- Job: detect additive vs. breaking schema changes; verify all consumers of a changed schema have corresponding updates
-- Prompt loads: the diff, the previous schema, the list of consumers, the current test coverage on the affected boundary
-- Blocks: removal or type change of a required field, addition of required field without corresponding consumer updates, enum value removal
-- Ignores: field additions with optional/nullable modifiers, comment changes, formatting
+- Watches: `.github/workflows/**`, `turbo.json`, every `package.json`, test-runner config, `scripts/**`
+- Job: one question — **what does this check's output look like when it is silently doing nothing,
+  and is that distinguishable from success?** Nothing else about a workflow is its brief.
+- Blocks: a runner that can discover nothing and exit 0; a skip that reads as a pass; a setting
+  dropped before it reaches the process that reads it; a guard removed while what it guarded remains.
+- Exists because §11's standing rule was enforced by three bespoke tests guarding three holes that had
+  already opened (#180/#217, #223, #283), and nothing asked the question of a _new_ check.
 
 **Test Auditor** _(blocking)_
 
-- Watches: all production code changes
-- Job: verify new public functions, endpoints, and code paths have corresponding tests
-- Prompt loads: the diff, the tests directory of the affected package, the testing strategy doc as reference
-- Blocks: new HTTP endpoint without integration test; new pure function of >10 lines without unit test; new state transition without test coverage
-- Informational: "consider a property test for X," "this test looks like assertion mirroring"
+- Watches: all first-party source, including `review-agents/` and `scripts/`
+- Job: verify new public functions, endpoints, components and code paths have tests
+- Blocks: new HTTP endpoint without integration test; new pure function of >10 lines without unit
+  test; new state transition without coverage
+- It is what CLAUDE.md's "new surface ⇒ test in the same change" rule leans on
 
-**Spec Adherence Reviewer** _(informational, with block-on-drift option)_
+**Spec Adherence Reviewer** _(informational)_
 
-- Watches: all production code changes
-- Job: check that code changes align with the current specs. Flag divergences either as "spec needs updating" or "code is drifting from spec"
-- Prompt loads: the diff, the relevant spec files (curator-spec.md if curator/ changed, etc.), the runtime overview
-- Behavior: for each divergence, post a comment: "This code adds X, but the spec describes Y. Which should be updated?" Doesn't block by default; you can promote specific findings to blocking via a workflow config.
+- Watches: first-party source **and** `docs/**`, plus any file citing an ADR
+- Job: one question — **this change edited a fact or a behaviour; what else now disagrees?** Both
+  directions of code ↔ spec drift, and doc ↔ doc drift.
+- Loads: the specs for the changed package(s), plus context found by _search_ (`contextRelated`),
+  since the documents that repeat a fact are whichever ones mention what the diff touched
+- Informational by design: the fix is usually "update the spec", and that is the author's call
+- The doc↔doc half was a separate `doc-coherence` reviewer from 2026-08-13 to 2026-08-16. It was
+  merged here because both halves ask the same question and neither needs its own session. Fact-drift
+  is the highest-frequency escaped class in this repo (#236, #260, #282, four ADR collisions).
 
-**Consistency Reviewer** _(informational)_
+_Retired 2026-08-16:_ `contract-guardian` (never fired — its trigger was `packages/contracts/**`
+alone, and its recall measured 0/1), `consistency` (style drift, unmeasurable and low-value),
+`runtime` (missing timeouts/leaks — measured 1/4, and `/code-review` covers the same ground),
+`security` (superseded by `/security-review`). Their prompts are in git history if a class comes
+back.
 
-- Watches: all code changes
-- Job: check that new code matches existing patterns for naming, error handling, log format, file structure
-- Prompt loads: the diff, a "style guide" excerpt of the affected package's conventions
-- Behavior: comments only, non-blocking. Style questions rarely justify blocking a merge on their own; but you'll want to know before merging.
+### Orchestration
 
-**Runtime Reviewer** _(informational, some blocking)_
+`review-agents/orchestrator.mjs` runs from `pnpm run review`. It reads the diff, decides which
+reviewers are triggered by the changed files, runs them **concurrently under a cap**
+(`REVIEW_CONCURRENCY`, default 3 — [ADR 0087](../adrs/0087-specialists-run-concurrently-under-a-cap.md)),
+parses each reply into findings, dedupes by file+line+message, and prints them. With three reviewers
+and a cap of three, a review is one round: about a minute.
 
-- Watches: all Node/Python code changes
-- Job: catch runtime issues that pass tests but bite in production — missing error handling, blocking calls in event loops, resource leaks, obvious race conditions
-- Blocks: `throw` without try/catch in async chains; database/network calls without timeout; obvious infinite loops in tests
-- Informational: potential race conditions, hot-path optimizations
+Each reviewer is a directory of three files — `config.json`, `system-prompt.md`, `examples.md` — and
+the orchestrator auto-discovers any directory containing a `config.json`. There is no routing table
+to register in. Full detail: [review-agents/README.md](../../review-agents/README.md).
 
-**Security Reviewer** _(blocking on findings)_
+**One run per reviewer.** From 2026-08-13 to 2026-08-16 a review ran each reviewer three times and
+unioned the findings, because measured per-run detection was 33–80%
+([ADR 0088](../adrs/0088-a-review-samples-each-specialist-and-unions-the-findings.md)). The
+measurement stands; the default does not. Tripling the token cost and the wall clock of every review
+to recover findings at the margin is the wrong trade for a solo repo whose actual failure mode was
+that the reviewers felt too expensive to run at all. A review is a signal, not a proof — if a change
+warrants more confidence, run it twice.
 
-- Watches: all changes
-- Job: catch the obvious stuff — hardcoded secrets, SQL injection, path traversal, disabled auth, `eval()`, `child_process` with untrusted input
-- Prompt loads: just the diff (no context needed for pattern-matching)
-- Behavior: any finding blocks. False positive rate needs to stay very low for this to be trusted; use conservative prompts.
-
-**Null-Result Reviewer** _(blocking)_ — _added 2026-08-13, [ADR 0086](../adrs/0086-a-specialist-may-be-given-context-found-by-search.md)_
-
-- Watches: `.github/workflows/**`, `turbo.json`, every `package.json`, test-runner config, `scripts/**`
-- Job: one question — **what does this check's output look like when it is silently doing nothing, and is that distinguishable from success?** Nothing else about a workflow is its brief.
-- Blocks: a runner that can discover nothing and exit 0; a skip that reads as a pass; a setting dropped before it reaches the process that reads it; a guard removed while what it guarded remains.
-- Exists because §11's standing rule was enforced by three bespoke tests guarding three holes that had already opened (#180/#217, #223, #283), and nothing asked the question of a _new_ check.
-
-**Doc-Coherence Reviewer** _(informational)_ — _added 2026-08-13, [ADR 0086](../adrs/0086-a-specialist-may-be-given-context-found-by-search.md)_
-
-- Watches: `docs/**`, any markdown in the tree, and — via `triggerImports` — any source file citing an ADR
-- Job: one question — **this change edited a fact; which other copies of that fact are now wrong?**
-- Prompt loads: context found by _search_ rather than by glob (`contextRelated`), since the relevant documents are whichever ones mention what the diff touched
-- Informational only for now. Promotion to blocking waits on ledger evidence that its precision holds.
-- Exists because documentation fact-drift is the highest-frequency escaped class in this repo (#236, #260, #282, four ADR collisions), CLAUDE.md states the rule, and `spec-adherence` only watches code↔spec drift in one direction.
-
-_The roster is eight, not the six this section originally described._
-
-_Context, updated 2026-08-15 ([ADR 0090](../adrs/0090-context-is-selected-by-section-not-by-the-first-16kb.md)):
-a specialist's `contextGlobs` / `includePackageSpecs` files are cut to the **sections related to the
+_Context, 2026-08-15 ([ADR 0090](../adrs/0090-context-is-selected-by-section-not-by-the-first-16kb.md)):
+a reviewer's `contextGlobs` / `includePackageSpecs` files are cut to the **sections related to the
 change**, not to their first 16KB. Taking the front of `curator-spec.md` gave a reviewer 7% of it and
 dropped §8 HTTP API — the part a change to `server.ts` has to be checked against
 ([#325](https://github.com/dylanleatham/Marquee/issues/325)). Same budget, different sixteen
 kilobytes._
 
-### Orchestration
+### Invocation
 
-_Updated 2026-08-13, [ADR 0087](../adrs/0087-specialists-run-concurrently-under-a-cap.md):
-specialists run **concurrently under a cap** (`REVIEW_CONCURRENCY`, default 3), not one at a time.
-The sequential design was deliberate — "gentler on a loaded machine than N concurrent sessions" —
-but that argues for a cap rather than a width of one, and the sum of the roster's budgets is why
-nobody ran the reviewers in the inner loop this document asks for. `--fast` adds a second tier: only
-the triggered blocking specialists, for the mid-session check._
-
-`review-agents/orchestrator.js` runs during the pre-push hook (and from `pnpm run review` locally). It:
-
-1. Reads the PR diff
-2. Determines which files changed and which reviewers are relevant (e.g., no need to run Contract Guardian if `packages/contracts/` is untouched)
-3. Fires the relevant reviewers in parallel
-4. Aggregates findings, groups by file, deduplicates
-5. Posts findings as a single PR review with line comments
-6. Sets check status based on blocking findings
-
-Individual reviewers are just files:
-
-```
-review-agents/
-├── orchestrator.js           # decides who runs, aggregates
-├── contract-guardian/
-│   ├── prompt.md             # system prompt
-│   ├── config.json           # blocking rules, model choice
-│   └── examples/             # few-shot examples of good and bad findings
-├── test-auditor/
-│   ├── prompt.md
-│   └── ...
-└── ... (one dir per reviewer)
+```bash
+pnpm run review                          # this branch vs origin/main
+pnpm run review --staged                 # staged changes only
+pnpm run review --reviewer null-result   # one reviewer
+pnpm run review --explain                # print the context each reviewer got
+pnpm run review --ci                     # exit 1 on blocking findings
 ```
 
-Adding a new reviewer is: create a directory with a prompt and config, register it in the orchestrator's routing table. That's the pattern.
-
-### Implementation — via Claude Code
-
-**Agents run through Claude Code, which you already have installed and authenticated.** Each specialist is a Claude Code session invoked in headless mode with a specialist system prompt, the relevant context (diff, spec files, related tests), and structured-output requirements.
-
-**Why Claude Code specifically.**
-
-- You already use it, know it, have it set up — zero incremental infrastructure
-- Claude via Claude Code has file-reading and command-running capabilities that agents can use judiciously — e.g., the Test Auditor can `pnpm test:unit --filter <pkg>` to verify a test actually runs before commenting on its adequacy
-- Cost lives in your existing Claude subscription for local runs; only CI (if you go with Option A) hits API pricing
-- Output quality is meaningfully higher than local open models, which matters for the subtle finds — Contract Guardian catching a schema-shape breakage that looks additive on the surface, Spec Adherence Reviewer noticing code drift from an obscure spec section
-- Anthropic's own tools are the ones that best understand the schema, format, and structure of Claude's responses; less prompt engineering brittleness
-
-**Shape of each specialist:**
-
-```
-review-agents/
-├── orchestrator.ts               # decides who runs, invokes claude, aggregates
-├── contract-guardian/
-│   ├── system-prompt.md          # specialist role, blocking rules, output schema
-│   ├── context-loader.ts         # gathers relevant files given a diff
-│   └── examples.md               # few-shot: good findings, false positives
-├── test-auditor/
-│   └── ...
-└── (one dir per specialist)
-```
-
-Each specialist's `context-loader.ts` decides what to include in Claude Code's context — the diff, plus targeted files (schemas for Contract Guardian, tests + testing-strategy.md for Test Auditor, spec files for Spec Adherence Reviewer). Keeping context focused per specialist is what makes six agents cheaper than one mega-agent, and lets findings stay high-signal.
-
-The orchestrator invokes Claude Code in headless mode per specialist:
-
-```
-claude --print --system-prompt-file review-agents/contract-guardian/system-prompt.md \
-       --input-file /tmp/pr-context.json
-```
-
-Findings return as JSON matching a shared schema (finding severity, file/line, message, suggested fix). Orchestrator aggregates across specialists, dedupes by file+line, posts a single PR review.
-
-**Setup**: nothing new. You already have Claude Code installed. Configure the workspace to know where Claude Code is (`.env` has `CLAUDE_CODE_PATH`, defaulting to your existing binary location).
-
-### CI enforcement mode — designed, then abandoned
-
-> **Superseded. Not what the harness does.** Recorded because the reasoning still explains the
-> shape of `--ci`, which survives as a flag. Three of this section's claims were false by the time
-> anyone checked ([#330](https://github.com/dylanleatham/Marquee/issues/330) touched the line and
-> found them): `.husky/pre-push` says in its own comment that the review agents are **not** run
-> there, `.review-agents/` is **gitignored** so no report is ever committed, and the
-> `code-review.yml` workflow named below **does not exist**. What is actually true is §4.1's rule —
-> the reviewers run **on demand**, and the only thing committed is `review-agents/ledger.jsonl`.
-
-The design was: agents run as a **pre-push hook**, their findings written to a report file committed as part of the push; CI verifies the report exists and covers the current commit hash, but doesn't re-run agents itself.
-
-- Setup: `.husky/pre-push` invokes `pnpm run review --ci`. The invocation blocks the push until Claude Code sessions complete.
-- Behavior: every push waits for local agents (typical 30–90 seconds for the full roster in parallel). The report was to be committed alongside the push, and CI's `code-review.yml` workflow would check it is present and matches the pushed SHA.
-- Cost: your existing Claude Code subscription; no per-PR API tokens.
-- Escape hatch: `--no-verify` bypasses the hook for genuine emergencies. Report absence is caught by CI, so bypassed pushes still fail the check.
-
-It traded the "agents ran automatically on the merge machine" property for simplicity — no self-hosted runner to maintain, no runner-inherited auth to manage. It was dropped because a hook that fires 4–6 real Claude Code sessions makes every push cost minutes; the pre-push hook says so where it explains what it deliberately does not run.
-
-### Local invocation
-
-`pnpm run review` runs the same agents against staged changes, one at a time or in parallel:
-
-- `pnpm run review` — runs the full set
-- `pnpm run review --reviewer contract-guardian` — one specialist
-- `pnpm run review --explain` — verbose mode showing which context was passed to each specialist (useful for debugging false positives)
-
-Same code path as CI. This is the primary iteration loop during dev — you catch issues locally, address them, then push.
+Run it in the inner loop, before the first commit. It is deliberately **not** in `pre-push`: a hook
+that fires real Claude Code sessions makes every push cost minutes, and this repo already has a
+`--no-verify`-shaped hole waiting for exactly that. A Stop hook in `.claude/` mentions the reviewers
+when reviewable source has changed and they never ran; it never blocks.
 
 ### Failure modes
 
-- **Claude Code not authenticated.** Pre-push hook or workflow fails with a clear message ("Run `claude login`, then retry").
-- **A specialist times out.** Each session has a budget — 90 seconds by default, overridable globally
-  with `REVIEW_TIMEOUT_MS` and **per specialist** via `timeoutMs` in its `config.json`. The budget
-  belongs to the reviewer, not the machine: `runtime` triggers on every source file in the repo and
-  needs minutes, while `security` finishes in seconds. On timeout the specialist retries once, then
-  its slot is marked "specialist unavailable"; the others still run.
+- **Claude Code not authenticated or not installed.** The run **skips without blocking** —
+  unavailable ≠ invalid. That is the harness not running at all, which is visible; it is not the same
+  as a review that silently covered less than it claims.
+- **A reviewer times out.** Each session has a budget — 90 seconds by default, overridable globally
+  with `REVIEW_TIMEOUT_MS` and **per reviewer** via `timeoutMs` in its `config.json`. The budget
+  belongs to the reviewer, not the machine. On timeout it retries once, then its slot is marked
+  unavailable; the others still run.
 
-  A **non-blocking** specialist going missing is reported and doesn't gate. A **blocking** one going
+  A **non-blocking** reviewer going missing is reported and doesn't gate. A **blocking** one going
   missing means that dimension went unreviewed, so the run is reported as _incomplete_ — the summary
-  names the specialists, the clean-review message is suppressed, `--ci` exits non-zero, and the
-  report records `silentBlocking`. _(Changed 2026-07-26, [issue #116](https://github.com/dylanleatham/Marquee/issues/116).
-  This previously read "doesn't block merge (unavailable ≠ invalid)", which let a run where two
-  blocking specialists never started still print "No findings" and "0 blocking". "Didn't review" and
-  "reviewed and found nothing" are different claims, and a gate people trust must not conflate them.
-  Claude Code being unreachable **entirely** is still a skip, not a gate — that's a harness that
-  isn't running, not a review with a hole in it.)_
+  names it, the clean-review message is suppressed, `--ci` exits non-zero, and the report records
+  `silentBlocking`. _(2026-07-26, [issue #116](https://github.com/dylanleatham/Marquee/issues/116):
+  this previously read "doesn't block merge (unavailable ≠ invalid)", which let a run where two
+  blocking reviewers never started still print "No findings" and "0 blocking". "Didn't review" and
+  "reviewed and found nothing" are different claims.)_
 
-- **Malformed model output** — _not_ rare in practice. Every specialist's prompt requires a JSON
-  findings array, and the contract is placed **after** the diff so it sits closest to generation; a
-  reply that still isn't JSON gets one **reformat round** (the specialist translates its own reply,
-  no diff attached) before the orchestrator falls back to surfacing the prose as a single
-  informational finding. The report records `repaired` and `unformatted` counts so the rate is
-  observed rather than assumed. _(Reworked 2026-07-26, [issue #117](https://github.com/dylanleatham/Marquee/issues/117):
-  the original text assumed this was rare and that a salvaged reply was good enough. Neither held —
-  every specialist with something to say was answering in prose, and a salvaged reply loses file,
-  line and severity, so a blocking finding written as a paragraph could not block.)_
-- **False positive that keeps blocking a legitimate PR.** Two escape hatches: (a) admin override with labeled comment `override-review:<reviewer-name>`, logged for audit; (b) the reviewer's prompt gets updated in the same PR to fix the false-positive pattern.
-- **Workstation offline** (Option A only). Runner is offline; PR waits. If you're away for a while, disable the required check temporarily or manually mark the PR as reviewed.
-- **Subscription rate limits.** Very rare in solo dev, but if you hit them, Option B just delays that push; Option A's workflow retries.
+- **Malformed model output** — _not_ rare in practice. Every prompt requires a JSON findings array,
+  and the contract is placed **after** the diff so it sits closest to generation; a reply that still
+  isn't JSON gets one **reformat round** (the reviewer translates its own reply, no diff attached)
+  before the orchestrator falls back to surfacing the prose as a single informational finding. The
+  raw reply is written to `.review-agents/` so the failure is diagnosable.
+  _(2026-07-26, [issue #117](https://github.com/dylanleatham/Marquee/issues/117): the original text
+  assumed this was rare and that a salvaged reply was good enough. Neither held — a salvaged reply
+  loses file, line and severity, so a blocking finding written as a paragraph could not block.)_
+- **A false positive you disagree with.** Say so and move on; the bar is "no blocking findings left
+  unanswered", not zero findings. If the same wrong finding shows up twice, fix the prompt in the PR
+  where it annoyed you.
 
 ### What the agents don't do
 
 - They don't approve merges — humans (you) still hit the button.
 - They don't rewrite code — they find and describe issues, they don't fix them.
-- They don't participate in discussion threads — one-shot review per PR push.
-- They don't have memory across PRs — each PR is a fresh context.
+- They don't have memory across runs — each review is a fresh context, and nothing is recorded
+  between runs. _(From 2026-08-13 to 2026-08-16 a committed `ledger.jsonl` held triaged verdicts on
+  past findings. It was removed with four records in it; see
+  [ADR 0092](../adrs/0092-the-harness-is-three-reviewers-and-one-command.md).)_
 - They don't replace the testing strategy — they catch problems tests wouldn't have caught anyway.
 
 ## 7. Branch protection
@@ -630,13 +548,20 @@ Every PR that changes behavior should either update a spec or add an ADR (or exp
 
 The harness needs its own observability so you can trust it. Signals to surface:
 
-- **Per-PR agent runtime** — how long each specialist took. Posted as a PR comment by the orchestrator. Slow specialists suggest either context bloat (too much loaded per prompt) or genuinely hard PRs.
-- **Agent findings ledger** — how often each reviewer fires, and how often its findings were right. _(Built 2026-08-13. `pnpm run review --triage` records a verdict per finding into the committed `review-agents/ledger.jsonl`; `pnpm run review:stats` prints per-specialist volume, precision and the repeat-class table. It is the instrument §12's delete rule needs — before it, that rule had never been executable. Design: [harness-self-improvement.md](harness-self-improvement.md) §4.1. Not a dashboard: a JSONL file and a printed table, per the note below about not needing dashboards early.)_
+- **Per-reviewer runtime** — the orchestrator prints how long each reviewer took. A slow one suggests
+  either context bloat (too much loaded per prompt) or a genuinely hard diff.
 - **Flaky test tracker** — CI logs test durations and failure rates per test. Nightly workflow flags anything with >2% failure rate for investigation.
 - **Cache hit rate** — turbo's cache hit percentage. If it drops below 50%, something's wrong with the cache config.
-- **Prompt regression signals** — re-benchmarks in `review-agents/eval/` catch cases where a prompt change degrades finding quality. _(Built 2026-08-13, [ADR 0085](../adrs/0085-a-harness-edit-is-validated-against-a-frozen-case-set.md). `pnpm run review:eval` scores every specialist against frozen cases seeded from this repo's own `fix(...)` commits and compares to a committed baseline; a change under `review-agents/` may not lower recall or raise false positives. Two limits to know: it runs **locally only** — a GitHub runner has no `claude` binary or auth, so an eval job in a workflow could never measure anything — which makes this a human discipline rather than an enforced gate; and coverage starts at eight cases, with `security`, `spec-adherence` and `contract-guardian` at zero. See [review-agents/eval/README.md](../../review-agents/eval/README.md).)_
 
 None of these need dashboards early on. Log to files, spot-check periodically, revisit if signals stay noisy.
+
+_Measuring the reviewers themselves, 2026-08-13 to 2026-08-16: a committed findings ledger
+(`--triage` / `review:stats`) recorded a verdict per finding, and a frozen eval set
+(`review:eval`) scored each reviewer's recall against cases seeded from this repo's own `fix(...)`
+commits. Both were removed with four ledger records and one baseline recorded — the measurement cost
+more attention than the reviewers themselves did. See
+[ADR 0092](../adrs/0092-the-harness-is-three-reviewers-and-one-command.md); the code and the case set
+are in git history at `af1dde0` if the roster ever grows enough to need them again._
 
 ### A check that measures nothing must not report green
 
@@ -672,18 +597,24 @@ The harness isn't a set-and-forget artifact. Two rules for its evolution:
 
 **Add checks when a bug ships.** Every escaped defect should either become a test (in the codebase) or a reviewer rule (in the harness). This is how the pyramid grows in the right places — real bugs shape the checks, not theoretical ones.
 
-**Delete checks when they generate more noise than signal.** A reviewer that fires often and is usually wrong is worse than no reviewer. Track the ratio; retire reviewers or refine prompts when the ratio goes bad.
+**Delete checks when they generate more noise than signal.** A reviewer that fires often and is
+usually wrong is worse than no reviewer.
 
 Neither is retrospective work; both happen in the PR that fixes the bug or refines the process. Small, continuous, no dedicated meetings.
 
-_Mechanism, 2026-08-14 ([ADR 0089](../adrs/0089-the-retro-proposes-and-a-human-accepts.md)):
-`pnpm run review:retro` reads the ledger, the escaped-bug commits, the eval baseline and the case set,
-and writes a proposal file to `review-agents/retro/`. It **proposes and never accepts** — a test
-asserts it leaves the tree byte-for-byte unchanged — and anything done from its output still has to
-pass `pnpm run review:eval`. That is the loop this section describes, with a human holding the accept
-step._
+**And a third, learned the expensive way: the machinery that governs a check must cost less than the
+check.** _(2026-08-16, [ADR 0092](../adrs/0092-the-harness-is-three-reviewers-and-one-command.md).)_
+Between 2026-08-13 and 2026-08-16 the delete rule above acquired an apparatus to execute it — a
+committed ledger of judged findings, a frozen eval set, a baseline, a retro command, and about 1,900
+lines of code with 1,500 lines of tests. Three days later it held four records and had never changed
+a decision, while the reviewers it measured had grown to eight specialists sampled three times each:
+ten minutes and 24 Claude sessions per review, which is a review nobody runs. The apparatus was
+removed and the roster cut to three. If the roster ever grows past what one person can hold in their
+head, re-read that history before rebuilding it — the code is at `af1dde0`.
 
-_Status note, 2026-08-13: until this date only the first rule had ever run. The second could not be executed at all — the ratio it says to track was recorded nowhere, since reports are per-SHA and gitignored, so every run was amnesiac, and `review-agents/KNOWN-ISSUES.md` tracks harness **defects** rather than finding **quality**. The ledger ([harness-self-improvement.md](harness-self-improvement.md) §4.1) now records it: judge a review with `pnpm run review --triage`, read it back with `pnpm run review:stats`. Two caveats on acting on what it says. First, a precision figure below n=8 is not printed at all, so a reviewer is not "bad" until there is enough evidence to say so. Second, the retirement decision the rule describes still has no safety net — there is no eval gate yet (§4.2), so changing a specialist's prompt in response to what the ledger says is still an unvalidated edit._
+Applied to this section itself: the rules here should be executable by someone who has read only
+CLAUDE.md. Anything that needs a second document to explain when to run it is a candidate for
+deletion, not for a third document.
 
 ## 13. First-week concrete setup
 

@@ -1,13 +1,8 @@
 // Loading specialists, deciding which ones a change triggers, and assembling what they read.
 //
-// Extracted from orchestrator.mjs when the eval harness arrived
-// (docs/specs/harness-self-improvement.md §4.2). The eval scores a specialist against a frozen
-// diff, and it is only a measurement of the *real* reviewer if it hands that reviewer byte-for-byte
-// the context a real review would. A second, parallel copy of `buildContext` living in the eval
-// would drift, and the eval would keep reporting green about a reviewer that no longer exists —
-// the silent-green class dev-harness §11 is about, aimed this time at the instrument itself.
-//
-// So there is one copy, here, and both callers use it.
+// Extracted from orchestrator.mjs so that what a reviewer reads is testable on its own: a reviewer
+// handed the wrong context reviews something other than the change, and that failure is invisible
+// from the outside — it looks exactly like a clean run.
 
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -93,12 +88,12 @@ export function changedPackages(files) {
  *
  * `PACKAGE_SPECS` is keyed by package name, derived from `packages/<name>/`, so it can say nothing
  * about `review-agents/` or `scripts/` — and those are as much this project's code as `packages/`
- * is. `review-agents/` is specified by dev-harness §6 and harness-self-improvement.md; nothing else
- * described it, which is why widening `spec-adherence`'s triggers without this would have handed a
- * reviewer a diff and no spec to check it against.
+ * is. `review-agents/` is specified by dev-harness §6; nothing else describes it, which is why
+ * widening `spec-adherence`'s triggers without this would have handed a reviewer a diff and no spec
+ * to check it against.
  */
 export const TREE_SPECS = {
-  "review-agents": ["dev-harness.md", "harness-self-improvement.md"],
+  "review-agents": ["dev-harness.md"],
   scripts: ["dev-harness.md"],
   "contract-tests": ["integration-contract.md", "testing-strategy.md"],
   e2e: ["testing-strategy.md"],

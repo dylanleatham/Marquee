@@ -25,34 +25,11 @@ import {
   resolveRepairTimeoutMs,
   resolveRetries,
   resolveConcurrency,
-  resolveSamples,
   runSpecialist,
   spawnOnce,
 } from "./claude.mjs";
-import { summarizeRun, silentWarning, foldSamples } from "./outcome.mjs";
+import { summarizeRun, silentWarning } from "./outcome.mjs";
 import { composePrompt, repairPrompt } from "./prompt.mjs";
-import {
-  normalizeMessage,
-  fingerprint,
-  readLedger,
-  serializeRecords,
-  pendingFindings,
-  findingRecord,
-  runRecord,
-  computeStats,
-  formatStats,
-  MIN_SAMPLE,
-  VERDICTS,
-  runIdOf,
-} from "./ledger.mjs";
-import {
-  runTriage,
-  renderFinding,
-  CHOICES,
-  reportFileName,
-  resolveReports,
-} from "./triage.mjs";
-import { unionOutcome, majorityOutcome, outcomeFromCounts } from "./eval.mjs";
 import { loadSpecialists, buildContext, specsFor } from "./specialists.mjs";
 
 test("globToRegExp: ** spans directories, * does not", () => {
@@ -125,7 +102,7 @@ function specialistConfig(id) {
 // CLAUDE.md's "new surface ⇒ test in the same change" gate leans on, so a source root it cannot
 // see is a silent hole in that gate — which is exactly what `packages/*/src/**` was: one level
 // deep, so all of Curator's React UI under `packages/curator/ui/src/` went unreviewed.
-for (const id of ["test-auditor", "spec-adherence", "runtime", "consistency"]) {
+for (const id of ["test-auditor", "spec-adherence"]) {
   test(`${id} triggers on every packages/**/src root on disk (#192)`, () => {
     const { triggerGlobs } = specialistConfig(id);
     const missed = sourceRoots().filter(
@@ -169,7 +146,7 @@ test("test-auditor triggers on first-party source outside packages/ (#327)", () 
   // "No findings 🎵" — RA-5 (#192) in a different tree.
   const { triggerGlobs } = specialistConfig("test-auditor");
   const source = nonPackageSource();
-  assert.ok(source.length > 20, "there is real source outside packages/");
+  assert.ok(source.length > 10, "there is real source outside packages/");
   const missed = source.filter((f) => !matchesAny(f, triggerGlobs));
   assert.deepEqual(
     missed,
@@ -180,11 +157,10 @@ test("test-auditor triggers on first-party source outside packages/ (#327)", () 
 
 test("test-auditor still ignores what is not source", () => {
   // Widening a trigger surface is only safe if it stays a surface. A reviewer that fires on every
-  // fixture, lockfile and frozen eval patch is a reviewer whose findings get skimmed.
+  // fixture and lockfile is a reviewer whose findings get skimmed.
   const { triggerGlobs } = specialistConfig("test-auditor");
   for (const notSource of [
-    "review-agents/eval/cases/runtime-no-liveness-proof/diff.patch",
-    "review-agents/ledger.jsonl",
+    "fixtures/covers/weezer-blue.jpg",
     "review-agents/README.md",
     "docs/specs/curator-spec.md",
     "pnpm-lock.yaml",
@@ -206,7 +182,7 @@ test("spec-adherence triggers on first-party source outside packages/ (#327)", (
   // given produces confident nonsense.
   const { triggerGlobs } = specialistConfig("spec-adherence");
   const source = nonPackageSource();
-  assert.ok(source.length > 20, "there is real source outside packages/");
+  assert.ok(source.length > 10, "there is real source outside packages/");
   const missed = source.filter((f) => !matchesAny(f, triggerGlobs));
   assert.deepEqual(
     missed,
@@ -216,12 +192,10 @@ test("spec-adherence triggers on first-party source outside packages/ (#327)", (
 });
 
 test("specsFor: the harness's own code has specs, and they are loaded", () => {
-  // The half that makes the trigger worth having. `review-agents/` is specified by dev-harness §6
-  // and harness-self-improvement.md; without this mapping the reviewer gets the diff and nothing to
-  // check it against.
-  assert.deepEqual(specsFor(["review-agents/lib/ledger.mjs"]).sort(), [
+  // The half that makes the trigger worth having. `review-agents/` is specified by dev-harness §6;
+  // without this mapping the reviewer gets the diff and nothing to check it against.
+  assert.deepEqual(specsFor(["review-agents/lib/findings.mjs"]), [
     "docs/specs/dev-harness.md",
-    "docs/specs/harness-self-improvement.md",
   ]);
   assert.deepEqual(specsFor(["scripts/check-adr-numbers.mjs"]), [
     "docs/specs/dev-harness.md",
@@ -249,11 +223,10 @@ test("spec-adherence reviewing harness code is handed dev-harness.md", () => {
   // the trip into the prompt.
   const spec = loadSpecialists().find((s) => s.id === "spec-adherence");
   const context = buildContext(spec, {
-    files: ["review-agents/lib/ledger.mjs"],
+    files: ["review-agents/lib/findings.mjs"],
     diff: "+export function fingerprint(specialist, message) {}",
   });
   assert.match(context, /# Context: docs\/specs\/dev-harness\.md/);
-  assert.match(context, /# Context: docs\/specs\/harness-self-improvement\.md/);
 });
 
 test("every specialist directory has the three files the README documents", () => {
@@ -734,461 +707,6 @@ test("resolveRepairTimeoutMs: its own knob, following the same idiom as the revi
   );
 });
 
-// --- ledger (docs/specs/harness-self-improvement.md §4.1) ---------------------------------------
-
-test("fingerprint: the same finding class in a different file, line and package is one class", () => {
-  // The point of the bar CLAUDE.md sets ("no _repeat_ class") is that the *second* occurrence is
-  // the signal, and the second occurrence is almost never in the same file at the same line.
-  const a = fingerprint(
-    "runtime",
-    "`packages/curator/src/roomArm.ts` line 88 spawns ffmpeg with no timeout.",
-  );
-  const b = fingerprint(
-    "runtime",
-    '"packages/amp/src/player.ts" line 214 spawns ffmpeg with no timeout.',
-  );
-  assert.equal(a, b);
-
-  // Backticked and bare spellings of the same path must not fork the class either.
-  assert.equal(
-    fingerprint("runtime", "`scripts/idle-audit.mjs` has an unbounded loop."),
-    fingerprint("runtime", "scripts/idle-audit.mjs has an unbounded loop."),
-  );
-});
-
-test("fingerprint: genuinely different findings stay different classes", () => {
-  const timeout = fingerprint("runtime", "The upload handler has no timeout.");
-  const leak = fingerprint("runtime", "The watcher is never unsubscribed.");
-  assert.notEqual(timeout, leak);
-  // Same sentence, different reviewer, is a different class — the reviewer is what gets retired.
-  assert.notEqual(
-    fingerprint("runtime", "The upload handler has no timeout."),
-    fingerprint("security", "The upload handler has no timeout."),
-  );
-});
-
-test("normalizeMessage: strips paths and numbers, keeps the identifiers that carry meaning", () => {
-  assert.equal(
-    normalizeMessage(
-      "`addAlbumsBatch` in packages/curator/ui/src/api.ts:42 retries 3 times.",
-    ),
-    "addalbumsbatch in <path>:<n> retries <n> times.",
-  );
-});
-
-test("readLedger: a half-written final line is reported, never silently dropped", () => {
-  // What a crash or a kill mid-append leaves behind. Dropping it quietly would mean the ledger
-  // could lose history while still printing a confident table — the silent-green class
-  // dev-harness §11 exists to forbid.
-  const text =
-    '{"kind":"run","sha":"a"}\n' +
-    '{"kind":"finding","sha":"a","verdict":"accepted"}\n' +
-    '{"kind":"finding","sha":"a","verd';
-  const { records, skipped } = readLedger(text);
-  assert.equal(records.length, 2);
-  assert.equal(skipped, 1);
-});
-
-test("readLedger: blank lines and a missing trailing newline are not corruption", () => {
-  // merge=union can leave blank lines behind; a hand-edited file may lack a final newline.
-  const { records, skipped } = readLedger(
-    '{"kind":"run","sha":"a"}\n\n\n{"kind":"run","sha":"b"}',
-  );
-  assert.equal(records.length, 2);
-  assert.equal(skipped, 0);
-  assert.deepEqual(readLedger("").records, []);
-  assert.deepEqual(readLedger(undefined).records, []);
-});
-
-test("serializeRecords: every line is newline-terminated so appends cannot fuse two records", () => {
-  const out = serializeRecords([{ a: 1 }, { b: 2 }]);
-  assert.ok(out.endsWith("\n"));
-  assert.equal(
-    readLedger(out + serializeRecords([{ c: 3 }])).records.length,
-    3,
-  );
-  assert.equal(serializeRecords([]), ""); // an empty append must not write a stray newline
-});
-
-const finding = (over = {}) => ({
-  specialist: "runtime",
-  severity: "blocking",
-  file: "packages/curator/src/a.ts",
-  line: 10,
-  message: "No timeout.",
-  ...over,
-});
-
-const ledgerOf = (verdicts, specialist = "runtime") =>
-  verdicts.map((verdict, i) =>
-    findingRecord({
-      sha: "abc",
-      finding: finding({ specialist, line: i, message: `Finding ${i}.` }),
-      verdict,
-      ts: "2026-08-13T00:00:00Z",
-    }),
-  );
-
-test("computeStats: wont-fix is excluded from both sides of precision", () => {
-  // The distinction is the whole reason the ledger types its dismissals: a real finding you chose
-  // not to act on says nothing about whether the reviewer is calibrated. Counting it as a miss
-  // would punish a correct reviewer; counting it as a hit would flatter a wrong one.
-  const verdicts = [
-    ...Array(6).fill("accepted"),
-    ...Array(2).fill("wrong"),
-    ...Array(9).fill("wont-fix"),
-  ];
-  const { specialists } = computeStats(ledgerOf(verdicts));
-  const runtime = specialists.find((s) => s.id === "runtime");
-  assert.equal(runtime.triaged, 17);
-  assert.equal(runtime.judged, 8); // 6 + 2, not 17
-  assert.equal(runtime.wontFix, 9);
-  assert.equal(runtime.precision, 6 / 8);
-});
-
-test("computeStats: below the sample threshold there is no ratio, only null", () => {
-  // dev-harness §11 applied to this instrument: "100% precision (n=1)" is a confident nothing.
-  const thin = computeStats(ledgerOf(["accepted"]));
-  assert.equal(thin.specialists[0].precision, null);
-  assert.equal(thin.specialists[0].judged, 1);
-
-  const enough = computeStats(ledgerOf(Array(MIN_SAMPLE).fill("accepted")));
-  assert.equal(enough.specialists[0].precision, 1);
-
-  // A ledger of nothing but wont-fix has no judged findings at all — still null, never 0/0 = NaN.
-  const abstained = computeStats(ledgerOf(Array(20).fill("wont-fix")));
-  assert.equal(abstained.specialists[0].precision, null);
-});
-
-test("formatStats: an unmeasured specialist reads as 'insufficient data', never as a percentage", () => {
-  const text = formatStats(computeStats(ledgerOf(["accepted", "wrong"])));
-  assert.match(text, /insufficient data \(n=2\)/);
-  assert.ok(!/\d+%/.test(text.split("PRECISION is")[0]));
-});
-
-test("formatStats: an empty ledger says so and says what to run, rather than printing zeroes", () => {
-  const text = formatStats(computeStats([]));
-  assert.match(text, /no triaged findings yet/);
-  assert.match(text, /--triage/);
-});
-
-test("formatStats: unparseable lines are surfaced above the numbers they undermine", () => {
-  const text = formatStats(computeStats(ledgerOf(["accepted"])), {
-    skipped: 3,
-  });
-  assert.match(text, /\[WARN \] 3 unparseable ledger line\(s\)/);
-});
-
-test("computeStats: repeat classes are counted across files, with their verdicts", () => {
-  const records = ["accepted", "accepted", "wrong"].map((verdict, i) =>
-    findingRecord({
-      sha: "abc",
-      finding: finding({
-        file: `packages/curator/src/file${i}.ts`,
-        line: i,
-        message: `Line ${i} spawns ffmpeg with no timeout.`,
-      }),
-      verdict,
-      ts: "2026-08-13T00:00:00Z",
-    }),
-  );
-  const { repeats } = computeStats(records);
-  assert.equal(repeats.length, 1); // three files, one class
-  assert.equal(repeats[0].count, 3);
-  assert.equal(repeats[0].accepted, 2);
-  assert.equal(repeats[0].wrong, 1);
-});
-
-test("computeStats: run records supply the denominator, including specialists that found nothing", () => {
-  // A reviewer that never fires is as interesting as one that fires wrongly — §12 retires both.
-  const emptyRun = {
-    sha: "abc",
-    specialists: [
-      { id: "runtime", status: "ran", durationMs: 80_000 },
-      { id: "security", status: "no-findings", durationMs: 10_000 },
-    ],
-    findings: [finding()],
-  };
-  const { specialists } = computeStats([
-    runRecord({ report: emptyRun, ts: "2026-08-13T00:00:00Z" }),
-  ]);
-  const security = specialists.find((s) => s.id === "security");
-  assert.equal(security.runs, 1);
-  assert.equal(security.fired, 0);
-  assert.equal(security.triaged, 0);
-  assert.equal(security.precision, null);
-  assert.equal(specialists.find((s) => s.id === "runtime").fired, 1);
-});
-
-// --- triage --------------------------------------------------------------------------------------
-
-const triageReport = {
-  sha: "abc",
-  base: "def",
-  specialists: [{ id: "runtime", status: "ran", durationMs: 1000 }],
-  findings: [finding({ line: 1 }), finding({ line: 2 }), finding({ line: 3 })],
-};
-
-/** Drive runTriage with a scripted set of keystrokes, collecting what it appends. */
-async function triageWith(keys, { records = [] } = {}) {
-  const appended = [];
-  const queue = [...keys];
-  const result = await runTriage({
-    report: triageReport,
-    records,
-    ask: async () => queue.shift() ?? "q",
-    append: (recs) => appended.push(...recs),
-    now: () => "2026-08-13T00:00:00Z",
-    log: () => {},
-  });
-  return { result, appended, leftover: queue };
-}
-
-test("runTriage: appends after every verdict, so an interrupted pass keeps what it judged", async () => {
-  // The failure this guards against is a triage that batches to the end: quit halfway through a
-  // twelve-finding run and the harness remembers nothing, which is the state we started in.
-  const { result, appended } = await triageWith(["a", "q"]);
-  assert.equal(result.judged, 1);
-  assert.ok(result.quit);
-  const findings = appended.filter((r) => r.kind === "finding");
-  assert.equal(findings.length, 1);
-  assert.equal(findings[0].verdict, "accepted");
-});
-
-test("runTriage: the run record is written once, before any verdict", async () => {
-  const { appended } = await triageWith(["q"]);
-  const runs = appended.filter((r) => r.kind === "run");
-  assert.equal(runs.length, 1);
-  assert.equal(runs[0].sha, "abc");
-  // It carries the fire count per specialist, which findings alone cannot supply.
-  assert.equal(runs[0].specialists[0].findings, 3);
-
-  // A second triage of the same report must not double-count the run.
-  const { appended: again } = await triageWith(["q"], { records: appended });
-  assert.equal(again.filter((r) => r.kind === "run").length, 0);
-});
-
-test("runTriage: resumes, asking only about findings not already in the ledger", async () => {
-  const { appended } = await triageWith(["a", "q"]);
-  const { result, leftover } = await triageWith(
-    ["w", "because it is guarded upstream", "q"],
-    { records: appended },
-  );
-  assert.equal(result.alreadyDone, 1);
-  assert.equal(result.judged, 1);
-  assert.equal(leftover.length, 0); // the note prompt was consumed — 'wrong' asks why
-});
-
-test("runTriage: only 'wrong' is asked for a reason", async () => {
-  // The reason is what a prompt fix gets argued from; asking on every verdict would slow the
-  // common case, and a triage nobody runs measures nothing.
-  const { appended } = await triageWith([
-    "w",
-    "the helper already bounds this",
-    "q",
-  ]);
-  const rec = appended.find((r) => r.kind === "finding");
-  assert.equal(rec.verdict, "wrong");
-  assert.equal(rec.note, "the helper already bounds this");
-
-  const { appended: acc } = await triageWith(["a", "q"]);
-  assert.equal(acc.find((r) => r.kind === "finding").note, "");
-});
-
-test("runTriage: an unrecognised key skips instead of guessing a verdict", async () => {
-  // A mistyped verdict in an append-only log is worse than being asked again next time.
-  const { result, appended } = await triageWith(["z", "s", "x"]);
-  assert.equal(result.skipped, 2);
-  assert.equal(result.judged, 1);
-  assert.equal(
-    appended.filter((r) => r.kind === "finding")[0].verdict,
-    "wont-fix",
-  );
-});
-
-test("runTriage: a report with no findings still records that the run happened", async () => {
-  const appended = [];
-  const result = await runTriage({
-    report: { ...triageReport, findings: [] },
-    records: [],
-    ask: async () => "q",
-    append: (recs) => appended.push(...recs),
-    now: () => "2026-08-13T00:00:00Z",
-    log: () => {},
-  });
-  assert.equal(result.judged, 0);
-  assert.equal(appended.length, 1);
-  assert.equal(appended[0].kind, "run");
-});
-
-test("pendingFindings: identity spans specialist, file, line and message", () => {
-  const records = [
-    findingRecord({
-      sha: "abc",
-      finding: finding({ line: 2 }),
-      verdict: "accepted",
-      ts: "t",
-    }),
-  ];
-  const pending = pendingFindings(triageReport, records);
-  assert.deepEqual(
-    pending.map((f) => f.line),
-    [1, 3],
-  );
-  // The same message at the same line of a *different* sha is a fresh finding, not a duplicate.
-  assert.equal(
-    pendingFindings({ ...triageReport, sha: "zzz" }, records).length,
-    3,
-  );
-});
-
-test("renderFinding: severity is spelled out, and a null line degrades to the file alone", () => {
-  const text = renderFinding(finding({ line: null }), 0, 2);
-  assert.match(text, /\[blocking\]/);
-  assert.match(text, /packages\/curator\/src\/a\.ts/);
-  assert.ok(!text.includes("a.ts:null"));
-  assert.match(text, /1\/2/);
-});
-
-test("every verdict the ledger defines is reachable from a triage keystroke", () => {
-  // A verdict with no key can never be recorded, so its category would read as empty in the stats
-  // rather than as unreachable — a check that measures nothing, in miniature (dev-harness §11).
-  assert.deepEqual([...CHOICES.values()].sort(), [...VERDICTS].sort());
-});
-
-test("runTriage: end of input quits instead of throwing on a half-finished pass", async () => {
-  // Ctrl+D closes stdin and readline answers with nothing. Everything judged so far is already on
-  // disk by then; losing the session to a stack trace would be the worst moment for one.
-  const appended = [];
-  const answers = ["a", undefined];
-  const result = await runTriage({
-    report: triageReport,
-    records: [],
-    ask: async () => answers.shift(),
-    append: (recs) => appended.push(...recs),
-    now: () => "2026-08-13T00:00:00Z",
-    log: () => {},
-  });
-  assert.equal(result.judged, 1);
-  assert.ok(result.quit);
-  assert.equal(appended.filter((r) => r.kind === "finding").length, 1);
-});
-
-test("runTriage: two reviews of the same commit are two runs, not one", async () => {
-  // Found by dogfooding on 2026-08-13, before this ever reached main. `--staged` and
-  // `--base HEAD~3` both write `report-<sha>.json` for the *same* HEAD, so the second review
-  // overwrites the first's report — but the run record was keyed on sha alone, so triage decided
-  // the run was already recorded and skipped it. The observed result was a stats table that
-  // contradicted itself: `consistency` showed FIRED=0 next to an accepted finding, and
-  // `spec-adherence` showed RUNS=0 while having triaged one. An instrument whose whole job is
-  // honest measurement must not do that (dev-harness §11).
-  const runA = {
-    sha: "abc",
-    base: "abc",
-    createdAt: "2026-08-13T21:00:14.975Z",
-    specialists: [
-      { id: "consistency", status: "no-findings", durationMs: 23185 },
-    ],
-    findings: [],
-  };
-  const runB = {
-    sha: "abc", // same commit …
-    base: "HEAD~3", // … different diff, so a different review
-    createdAt: "2026-08-13T21:05:48.215Z",
-    specialists: [
-      { id: "consistency", status: "ran", durationMs: 30000 },
-      { id: "spec-adherence", status: "ran", durationMs: 40000 },
-    ],
-    findings: [finding({ specialist: "spec-adherence", line: 20 })],
-  };
-
-  const appended = [];
-  const drive = async (report, keys) => {
-    const queue = [...keys];
-    await runTriage({
-      report,
-      records: [...appended],
-      ask: async () => queue.shift() ?? "q",
-      append: (recs) => appended.push(...recs),
-      now: () => "2026-08-13T00:00:00Z",
-      log: () => {},
-    });
-  };
-
-  await drive(runA, ["q"]);
-  await drive(runB, ["a"]);
-
-  const runs = appended.filter((r) => r.kind === "run");
-  assert.equal(runs.length, 2, "the second review must record its own run");
-  assert.deepEqual(
-    runs.map((r) => r.runId),
-    [runA.createdAt, runB.createdAt],
-  );
-
-  // And the table that comes out of it is now internally consistent: the specialist that fired
-  // is counted as having fired, and the one that only ran in the second review is not at zero runs.
-  const { specialists } = computeStats(appended);
-  const specAdherence = specialists.find((s) => s.id === "spec-adherence");
-  assert.equal(specAdherence.runs, 1);
-  assert.equal(specAdherence.fired, 1);
-  assert.equal(specAdherence.triaged, 1);
-});
-
-test("runTriage: re-triaging the same report still does not duplicate its run", async () => {
-  // The resume path depends on this: quit halfway, come back, and the run must not be recorded
-  // twice or every duration and fire count is double-counted.
-  const appended = [];
-  const drive = async (keys) => {
-    const queue = [...keys];
-    await runTriage({
-      report: triageReport,
-      records: [...appended],
-      ask: async () => queue.shift() ?? "q",
-      append: (recs) => appended.push(...recs),
-      now: () => "2026-08-13T00:00:00Z",
-      log: () => {},
-    });
-  };
-  await drive(["a", "q"]);
-  await drive(["a", "q"]);
-  assert.equal(appended.filter((r) => r.kind === "run").length, 1);
-});
-
-test("runIdOf: a report with no createdAt still distinguishes runs by its base", () => {
-  // Reports written before runId existed have no createdAt. Falling back to sha alone would
-  // recreate the exact bug for them, so the fallback carries the base too.
-  assert.notEqual(
-    runIdOf({ sha: "abc", base: "abc" }),
-    runIdOf({ sha: "abc", base: "HEAD~3" }),
-  );
-  assert.equal(
-    runIdOf({ sha: "abc", base: "abc" }),
-    runIdOf({ sha: "abc", base: "abc" }),
-  );
-  // createdAt wins when present — it identifies the run exactly.
-  assert.equal(runIdOf({ sha: "abc", base: "x", createdAt: "T" }), "T");
-});
-
-test("computeStats: findings recorded before runId existed still count", () => {
-  // The ledger is append-only, so the two real findings triaged on 2026-08-13 keep their original
-  // shape. They must not be dropped or crash the stats just because they predate the field.
-  const legacy = {
-    kind: "finding",
-    sha: "abc",
-    specialist: "consistency",
-    severity: "info",
-    file: "packages/deploy/src/exec.ts",
-    line: 33,
-    message: "Naming drift.",
-    fingerprint: "2077ebaa2d95",
-    verdict: "accepted",
-    note: "",
-  };
-  const { specialists } = computeStats([legacy]);
-  assert.equal(specialists[0].triaged, 1);
-  assert.equal(specialists[0].accepted, 1);
-});
-
 // --- issue #192, applied to a new trigger surface (null-result) ---------------------------------
 
 /** Every CI workflow on disk, discovered rather than listed. */
@@ -1261,29 +779,6 @@ test("null-result does not trigger on ordinary product source", () => {
   }
 });
 
-test("doc-coherence triggers on docs anywhere, and on files that cite an ADR", () => {
-  // Two routes on purpose. The glob catches documentation; `triggerImports` catches the #236 shape,
-  // where six *source* files carried a comment citing the wrong ADR — a doc problem living in .ts.
-  const config = specialistConfig("doc-coherence");
-  for (const doc of [
-    "docs/specs/curator-spec.md",
-    "docs/adrs/0085-a-harness-edit-is-validated-against-a-frozen-case-set.md",
-    "CLAUDE.md",
-    "packages/stylus/README.md",
-    "review-agents/eval/README.md",
-  ]) {
-    assert.equal(
-      matchesAny(doc, config.triggerGlobs),
-      true,
-      `${doc} is documentation`,
-    );
-  }
-  assert.ok(
-    config.triggerImports?.length,
-    "doc-coherence needs the import route for ADR citations in source",
-  );
-});
-
 // --- concurrency (ADR 0087) --------------------------------------------------------------------
 
 test("resolveConcurrency: three by default, overridable, bad input falls back", () => {
@@ -1342,22 +837,6 @@ test("mapWithConcurrency: one slow item does not hold up the ones behind it", as
   assert.deepEqual(order, [1, 2, 0], "the fast items finish first");
 });
 
-test("--fast selects exactly the triggered blocking specialists", () => {
-  // The tier is defined by what can stop a push, so it must be derived from `blocking` rather than
-  // from a hand-maintained list that would drift the next time a reviewer changes severity.
-  const roster = loadSpecialists();
-  const blocking = roster.filter((s) => s.blocking).map((s) => s.id);
-  const info = roster.filter((s) => !s.blocking).map((s) => s.id);
-  assert.ok(blocking.length >= 4, "the fast tier must not be empty");
-  assert.ok(info.length >= 2, "and must actually skip something");
-  // The two rosters partition it — nothing is in neither, nothing is in both.
-  assert.equal(blocking.length + info.length, roster.length);
-  assert.deepEqual(
-    blocking.filter((id) => info.includes(id)),
-    [],
-  );
-});
-
 test("runSpecialist: a rejected spawn is a failure, not an unhandled rejection", async () => {
   // A promise-returning spawn can reject where the synchronous one could only return an error
   // object. Left unhandled that would take down the whole run rather than one specialist.
@@ -1367,177 +846,6 @@ test("runSpecialist: a rejected spawn is a failure, not an unhandled rejection",
   await assert.rejects(() =>
     runSpecialist({ prompt: "p" }, { spawn, retries: 0 }),
   );
-});
-
-// --- union aggregation (ADR 0088) --------------------------------------------------------------
-
-test("unionOutcome: one run finding it is enough, because a union is not a vote", () => {
-  // The measured shape: cases land at 2/5, not 0/5. A majority throws away exactly the findings a
-  // sampled review would surface, which is the whole reason this mode exists.
-  assert.equal(
-    unionOutcome(["miss", "miss", "hit", "miss", "miss"]).outcome,
-    "hit",
-  );
-  assert.equal(unionOutcome(["miss", "miss", "miss"]).outcome, "miss");
-  assert.deepEqual(unionOutcome(["hit", "miss", "miss"]), {
-    outcome: "hit",
-    hits: 1,
-    runs: 3,
-  });
-});
-
-test("unionOutcome: a must-not-find case is clean only if every run stayed quiet", () => {
-  // The other half of the trade, and the reason union is not free: a union collects each run's
-  // false positives too. Scoring it any other way would advertise the recall and hide the cost.
-  const kind = "must-not-find";
-  assert.equal(unionOutcome(["hit", "hit", "hit"], { kind }).outcome, "hit");
-  assert.equal(unionOutcome(["hit", "miss", "hit"], { kind }).outcome, "miss");
-  // Under majority that same case would have passed, 2 of 3.
-  assert.equal(majorityOutcome(["hit", "miss", "hit"]).outcome, "hit");
-});
-
-test("unionOutcome: a structural outcome still cannot be voted away", () => {
-  assert.equal(unionOutcome(["not-triggered"]).outcome, "not-triggered");
-  assert.equal(unionOutcome(["hit", "not-installed"]).outcome, "not-installed");
-  assert.equal(unionOutcome([]).outcome, "miss");
-});
-
-test("outcomeFromCounts: aggregation is a pure function of hits and runs", () => {
-  // This is what lets `--aggregate union` re-score a cached run exactly rather than re-running it —
-  // the cache stores the measurement, not the verdict, so the mode is chosen after the sessions are
-  // spent. The cache key must therefore not include the mode.
-  assert.equal(
-    outcomeFromCounts({ hits: 2, runs: 5 }, { mode: "majority" }),
-    "miss",
-  );
-  assert.equal(
-    outcomeFromCounts({ hits: 2, runs: 5 }, { mode: "union" }),
-    "hit",
-  );
-  assert.equal(
-    outcomeFromCounts({ hits: 3, runs: 5 }, { mode: "majority" }),
-    "hit",
-  );
-  assert.equal(
-    outcomeFromCounts(
-      { hits: 4, runs: 5 },
-      { mode: "union", kind: "must-not-find" },
-    ),
-    "miss",
-  );
-  assert.equal(
-    outcomeFromCounts(
-      { hits: 5, runs: 5 },
-      { mode: "union", kind: "must-not-find" },
-    ),
-    "hit",
-  );
-  assert.equal(outcomeFromCounts({ hits: 0, runs: 0 }), "miss");
-});
-
-test("outcomeFromCounts: reproduces the measured 1/4 → 4/4 on the real baseline numbers", () => {
-  // The four runtime must-find cases as actually measured at --repeat 5: 2, 2, 2 and 4 hits.
-  const measured = [2, 2, 2, 4];
-  const byMajority = measured.filter(
-    (hits) =>
-      outcomeFromCounts({ hits, runs: 5 }, { mode: "majority" }) === "hit",
-  ).length;
-  const byUnion = measured.filter(
-    (hits) => outcomeFromCounts({ hits, runs: 5 }, { mode: "union" }) === "hit",
-  ).length;
-  assert.equal(byMajority, 1);
-  assert.equal(byUnion, 4);
-});
-
-test("resolveSamples: three by default, overridable, bad input falls back", () => {
-  assert.equal(resolveSamples({}), 3);
-  assert.equal(resolveSamples({ REVIEW_SAMPLES: "1" }), 1);
-  assert.equal(resolveSamples({ REVIEW_SAMPLES: "5" }), 5);
-  for (const bad of ["0", "-1", "many", "2.5", ""])
-    assert.equal(resolveSamples({ REVIEW_SAMPLES: bad }), 3);
-});
-
-// --- folding samples into one specialist result -------------------------------------------------
-
-const sample = (over = {}) => ({
-  id: "runtime",
-  blocking: true,
-  status: "ran",
-  durationMs: 1000,
-  findings: [],
-  ...over,
-});
-const f = (message, over = {}) => ({
-  specialist: "runtime",
-  severity: "info",
-  file: "a.ts",
-  line: 1,
-  message,
-  ...over,
-});
-
-test("foldSamples: findings are unioned across samples, not voted on", () => {
-  const folded = foldSamples(
-    "runtime",
-    true,
-    [
-      sample({ findings: [f("no timeout")] }),
-      sample({ findings: [], status: "no-findings" }),
-      sample({ findings: [f("unbounded retry")] }),
-    ],
-    dedupe,
-  );
-  assert.equal(folded.findings.length, 2);
-  assert.equal(folded.status, "ran");
-  assert.equal(folded.samples, 3);
-  assert.equal(folded.durationMs, 3000, "cost is the sum of the samples");
-});
-
-test("foldSamples: the same finding twice collapses, and blocking survives the collapse", () => {
-  const folded = foldSamples(
-    "runtime",
-    true,
-    [
-      sample({ findings: [f("no timeout")] }),
-      sample({ findings: [f("no timeout", { severity: "blocking" })] }),
-    ],
-    dedupe,
-  );
-  assert.equal(folded.findings.length, 1);
-  // A finding raised as blocking by even one sample must still block.
-  assert.equal(folded.findings[0].severity, "blocking");
-});
-
-test("foldSamples: every sample failing is unavailable, not a quiet pass", () => {
-  // RA-3's rule survives sampling: a dimension that produced no verdict is a hole in the review.
-  // Sampling must not let two failures and one empty reply read as "reviewed and found nothing".
-  const folded = foldSamples(
-    "runtime",
-    true,
-    [
-      sample({ status: "unavailable", reason: "timeout", findings: [] }),
-      sample({ status: "unavailable", reason: "timeout", findings: [] }),
-    ],
-    dedupe,
-  );
-  assert.equal(folded.status, "unavailable");
-  assert.equal(folded.findings.length, 0);
-});
-
-test("foldSamples: one surviving sample is a verdict, and the failures are counted", () => {
-  const folded = foldSamples(
-    "runtime",
-    true,
-    [
-      sample({ status: "unavailable", reason: "timeout", findings: [] }),
-      sample({ findings: [f("no timeout")] }),
-      sample({ status: "unavailable", reason: "timeout", findings: [] }),
-    ],
-    dedupe,
-  );
-  assert.equal(folded.status, "ran");
-  assert.equal(folded.findings.length, 1);
-  assert.equal(folded.failedSamples, 2);
 });
 
 // --- the prompt must arrive intact (the truncation hypothesis, refuted 2026-08-14) --------------
@@ -1603,136 +911,4 @@ test("spawnOnce: a child that overruns its budget reports ETIMEDOUT, so RA-2 can
     shell: process.platform === "win32",
   });
   assert.equal(res.error?.code, "ETIMEDOUT");
-});
-
-// --- RA-8 / issue #330: two reviews of one commit must both survive to be triaged -------------
-
-/** Write `reports` into a fresh temp dir using the harness's own naming, oldest first. */
-function reportDirOf(reports) {
-  const dir = mkdtempSync(join(tmpdir(), "marquee-reports-"));
-  for (const r of reports)
-    writeFileSync(join(dir, reportFileName(r)), JSON.stringify(r));
-  return dir;
-}
-
-const reviewOf = (over = {}) => ({
-  sha: "abc",
-  base: "abc",
-  createdAt: "2026-08-16T00:00:00.000Z",
-  specialists: [{ id: "runtime", status: "ran", durationMs: 1 }],
-  findings: [finding()],
-  ...over,
-});
-
-test("reportFileName: two reviews of one commit are two files, not one", () => {
-  // The bug (#330). `report-${sha}.json` keyed on sha alone, so reviewing the same commit twice —
-  // which is what CLAUDE.md's "run it in the inner loop, iterating to green" asks you to do —
-  // overwrote the first review's findings before anyone could judge them. This is RA-6's other
-  // half: that fixed run identity *in the ledger*, leaving the file that feeds it still colliding.
-  const first = reviewOf({ createdAt: "2026-08-16T00:00:00.000Z" });
-  const second = reviewOf({ createdAt: "2026-08-16T00:30:00.000Z" });
-
-  assert.notEqual(reportFileName(first), reportFileName(second));
-  // Still resolvable by the orchestrator's glob, and legal on Windows — `createdAt` has colons in
-  // it, so the run identity has to be hashed rather than pasted into the name.
-  for (const name of [reportFileName(first), reportFileName(second)]) {
-    assert.match(name, /^report-.*\.json$/);
-    assert.doesNotMatch(name, /[:<>"|?*]/);
-  }
-  // Same review, same name — re-writing a report must not litter the directory.
-  assert.equal(reportFileName(first), reportFileName(reviewOf()));
-});
-
-test("resolveReports: every untriaged review is offered, oldest first", () => {
-  // The other half of #330: even when both reports survived, `resolveReport` returned exactly one
-  // — the newest — so the earlier one could never be reached. Triage has to walk all of them, in
-  // the order they happened, or the workflow is "judge the last round and lose the rest".
-  const early = reviewOf({
-    createdAt: "2026-08-16T00:00:00.000Z",
-    findings: [finding({ message: "Early finding." })],
-  });
-  const late = reviewOf({
-    createdAt: "2026-08-16T00:30:00.000Z",
-    findings: [finding({ message: "Late finding." })],
-  });
-  const dir = reportDirOf([late, early]); // written out of order on purpose
-
-  const resolved = resolveReports(dir, "abc", []);
-  assert.equal(resolved.length, 2);
-  assert.deepEqual(
-    resolved.map((r) => r.report.findings[0].message),
-    ["Early finding.", "Late finding."],
-  );
-});
-
-test("resolveReports: a review already in the ledger is not offered again", () => {
-  // Resuming must not re-ask. `pendingFindings` already does this per report; the walk has to
-  // respect it, or a second triage pass replays everything you judged in the first.
-  const done = reviewOf({ createdAt: "2026-08-16T00:00:00.000Z" });
-  const todo = reviewOf({
-    createdAt: "2026-08-16T00:30:00.000Z",
-    findings: [finding({ message: "Not yet judged." })],
-  });
-  const dir = reportDirOf([done, todo]);
-
-  const records = [
-    runRecord({ report: done, ts: "t" }),
-    findingRecord({
-      sha: done.sha,
-      finding: done.findings[0],
-      verdict: "accepted",
-      ts: "t",
-      runId: runIdOf(done),
-    }),
-  ];
-
-  const resolved = resolveReports(dir, "abc", records);
-  assert.equal(resolved.length, 1);
-  assert.equal(resolved[0].report.findings[0].message, "Not yet judged.");
-});
-
-test("resolveReports: a findings-free review is still offered, so its run is counted", () => {
-  // A clean review is a real data point — it is the denominator that makes a fire rate mean
-  // anything. Skipping it because it has nothing to judge would bias every rate upward.
-  const clean = reviewOf({ findings: [] });
-  const dir = reportDirOf([clean]);
-
-  assert.equal(resolveReports(dir, "abc", []).length, 1);
-  // …but once its run is recorded, there is nothing left to offer.
-  const records = [runRecord({ report: clean, ts: "t" })];
-  assert.equal(resolveReports(dir, "abc", records).length, 0);
-});
-
-test("resolveReports: reports written before this fix are still resolvable", () => {
-  // `report-<sha>.json` files predate the rename and have no `createdAt` in some cases. They must
-  // not become unreachable — the ledger's whole value is that it accumulates.
-  const dir = mkdtempSync(join(tmpdir(), "marquee-reports-"));
-  const legacy = {
-    sha: "abc",
-    base: "abc",
-    specialists: [],
-    findings: [finding()],
-  };
-  writeFileSync(join(dir, "report-abc.json"), JSON.stringify(legacy));
-
-  const resolved = resolveReports(dir, "abc", []);
-  assert.equal(resolved.length, 1);
-  assert.equal(resolved[0].forCurrentSha, true);
-});
-
-test("resolveReports: a corrupt report is skipped and named, not fatal", () => {
-  // The walk reads every report, so one truncated file — what killing a review mid-write leaves —
-  // would take down a triage pass that could still have judged everything else. Skipping silently
-  // would be worse: a directory quietly losing reports still prints a clean table (dev-harness §11).
-  const good = reviewOf({ createdAt: "2026-08-16T00:30:00.000Z" });
-  const dir = reportDirOf([good]);
-  writeFileSync(join(dir, "report-abc-truncat.json"), '{"sha":"abc","findi');
-
-  const skipped = [];
-  const resolved = resolveReports(dir, "abc", [], (p) => skipped.push(p));
-
-  assert.equal(resolved.length, 1);
-  assert.equal(resolved[0].report.createdAt, good.createdAt);
-  assert.equal(skipped.length, 1);
-  assert.match(skipped[0], /truncat/);
 });

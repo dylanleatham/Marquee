@@ -1,7 +1,0 @@
-{
-  "id": "clean-ambiguous-album-match",
-  "source": "commit:a8af25c (forward)",
-  "kind": "must-not-find",
-  "specialist": "runtime",
-  "notes": "A large clean feature merge (19 files, contracts + server + UI) that shipped and stayed shipped. runtime emitting a blocking finding here is a false positive."
-}

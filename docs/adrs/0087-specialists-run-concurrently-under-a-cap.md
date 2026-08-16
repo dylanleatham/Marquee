@@ -5,7 +5,7 @@
 **Supersedes:** nothing. Reverses a deliberate choice recorded in
 [review-agents/README.md](../../review-agents/README.md) ("the call is a blocking `spawnSync`, so
 specialists run **one at a time**") and amends [dev-harness.md](../specs/dev-harness.md) §6
-(orchestration). Implements [harness-self-improvement.md](../specs/harness-self-improvement.md) §4.4,
+(orchestration). Implements `harness-self-improvement.md` (deleted 2026-08-16 by [ADR 0092](0092-the-harness-is-three-reviewers-and-one-command.md); in git history at `af1dde0`) §4.4,
 Phase 4.
 **Issues:** none — this is harness latency, not a defect.
 
