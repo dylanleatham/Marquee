@@ -62,6 +62,23 @@ export interface JobResult {
       media: { transferred: number; unchanged: number; skipped: number };
       failures: Array<{ curatorId: string; error: string }>;
     };
+    /**
+     * The tag-writing queue as written to a Flipper on USB. A **discriminated** result rather than
+     * presence-or-absence: "no Flipper on the desk" is the ordinary case here, not a failure, and it
+     * has to be tellable from "wrote an empty list because nothing is awaiting a tag" — the same
+     * distinction issue #187 drew for Backdrop. `overflowed` counts rows past the FAP's own cap,
+     * which the device would otherwise drop without saying so.
+     */
+    flipper?:
+      | {
+          attached: true;
+          albums: number;
+          overflowed: number;
+          port: string;
+          bytes: number;
+          path: string;
+        }
+      | { attached: false; reason: string };
   };
 }
 

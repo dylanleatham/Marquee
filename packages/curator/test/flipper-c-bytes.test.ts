@@ -12,6 +12,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { ndefUriTlv, tagUri, TAG_OBJECTS } from "../src/tags/flipper-nfc.js";
+import { MAX_ALBUMS_ON_DEVICE } from "../src/tags/flipper-push.js";
 
 const repoRoot = new URL("../../../", import.meta.url);
 const C_SOURCE = fileURLToPath(
@@ -136,6 +137,18 @@ describe("the FAP's NDEF compose matches Route A byte for byte (#68)", () => {
     expect(source).toMatch(/TagKindSleeve,\s*TagKindCard,\s*TagKindDemo,/);
     expect(source).toContain("MENU_KIND_DEMO");
     expect(source).toContain('"Demo (one song)"');
+  });
+
+  /**
+   * The other number shared across the two languages. The FAP stops parsing at `MAX_ALBUMS` and the
+   * menu just ends — no glyph, no log the user can see — so Curator has to know the same cap to be
+   * able to say "the last N didn't fit". A C-side bump that Curator never hears about turns that
+   * report into a lie in the safe direction; a TS-side bump turns it into silence.
+   */
+  it("caps the album list at the same number Curator reports overflow against", () => {
+    const cap = source.match(/#define MAX_ALBUMS (\d+)/);
+    expect(cap, "MAX_ALBUMS not found in the C source").not.toBeNull();
+    expect(Number(cap![1])).toBe(MAX_ALBUMS_ON_DEVICE);
   });
 
   it("lays the TLV into the same pages Route A does", () => {

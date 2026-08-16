@@ -186,6 +186,14 @@ a CLIP pattern; check `journalctl -u marquee-conductor` for `streaming … faile
      Conductor**, the **library projection to Backdrop**, and — with `media_transfer = "push"` — the
      **videos** too. It returns `202` with a job; poll `GET /api/jobs/:id` for progress, or
      `POST /api/jobs/:id/cancel` to stop it. One album alone: `POST /api/albums/:curatorId/push`.
+   - **Last leg: the Flipper**, if one is on USB. The same tag-writing queue the Queue's "Send list
+     to Flipper" button sends (`awaiting_tag_write`, alphabetical) is written to the card, so you
+     don't press two buttons. **No Flipper plugged in is not a failure** — the leg reports
+     `flipper: { attached: false, reason }` in the job result and the sync still finishes clean; the
+     same goes for a port held by qFlipper. It **replaces** the on-device list, so records tagged
+     since the last sync drop off the card, and an empty queue writes an empty list. The one thing to
+     know: an album you added from a Ship tab while it was _not_ awaiting a tag write is dropped by
+     the next sync — use the Ship tab button again after it, or mark the album's state.
    - **Prerequisites, both one-time:** Curator needs `CONDUCTOR_URL` (or `[conductor] url`) set
      explicitly — the localhost default deliberately does not enable the push — and **Amp's
      `album_assets_dir` must equal Conductor's**, or card scans read a directory nothing writes.
