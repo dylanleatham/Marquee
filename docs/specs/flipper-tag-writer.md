@@ -64,11 +64,16 @@ Curator exposes the albums awaiting a tag write (issue #67):
 
 - `GET /api/tags/pending` → `{ pending: [{ curatorId, name, artist }] }`.
 
-The FAP has no network, so Curator puts the list on the card. Three ways in, all writing
+The FAP has no network, so Curator puts the list on the card. Four ways in, all writing
 `/ext/apps_data/marquee_tag_writer/pending.csv`:
 
 - **`POST /api/tags/push-to-flipper`** — the Queue's "Send list to Flipper" button. **Replaces** the
   list with the whole `awaiting_tag_write` queue.
+- **`POST /api/runtime/sync`** — the System page's "Sync everything" button, as its **last leg**.
+  Writes exactly what the button above writes, so the card keeps up with the room without a second
+  press. A Flipper is a thing on the desk rather than a configured service, so **its absence is not a
+  failure**: the leg reports `flipper: { attached: false, reason }` and the sync still finishes
+  clean. See [runtime-overview §Sync everything](runtime-overview.md).
 - **`POST /api/albums/:curatorId/push-to-flipper`** — the Ship tab's "Add this album to Flipper".
   **Merges** one album in, keyed on `curatorId`, so pressing it twice does not duplicate a row.
 - **`GET /api/tags/pending.csv`** — download it and copy it across by hand (qFlipper), for when

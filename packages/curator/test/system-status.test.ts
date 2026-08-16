@@ -6,7 +6,7 @@ import type { AddressInfo } from "node:net";
 import Fastify from "fastify";
 import { AssetStore } from "../src/store/asset-store.js";
 import { buildServer } from "../src/server.js";
-import { fakeRoadie, fakeProber, makeAsset } from "./helpers.js";
+import { fakeRoadie, fakeProber, makeAsset, noFlipper } from "./helpers.js";
 import {
   buildSystemStatus,
   LIGHTS_CAVEAT,
@@ -378,6 +378,8 @@ describe("GET /api/system/status", () => {
       store,
       roadie: fakeRoadie(store),
       prober: fakeProber(),
+      // This file drives /api/runtime/sync, whose last leg is the Flipper — see `noFlipper`.
+      flipperPush: noFlipper,
       config: { conductor: { url: "http://127.0.0.1:1" }, ...over },
     }).app;
 

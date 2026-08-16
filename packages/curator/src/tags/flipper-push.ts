@@ -331,6 +331,14 @@ export async function openSerialCli(
   };
 }
 
+/**
+ * How many rows the FAP will actually show. `MAX_ALBUMS` in `marquee_tag_writer.c` — the parse loop
+ * stops there and the menu simply ends, with nothing on the 128px screen to say it was cut. A push
+ * that silently drops the tail is worse than one that says so, so callers that can overflow this
+ * report it; `flipper-c-bytes.test.ts` keeps the two numbers equal.
+ */
+export const MAX_ALBUMS_ON_DEVICE = 64;
+
 /** How the route gets at the hardware; swapped for a fake in tests. */
 export type FlipperPusher = (
   contents: string,

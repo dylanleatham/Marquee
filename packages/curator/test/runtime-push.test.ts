@@ -15,8 +15,10 @@ import {
   buildMultipart,
   jpegBytes,
   pngBytes,
+  noFlipper,
 } from "./helpers.js";
 import { deriveStatus, type AlbumAsset } from "../src/albums/asset.js";
+import type { FlipperPusher } from "../src/tags/flipper-push.js";
 
 const SECRET = "s3cr3t";
 
@@ -58,13 +60,16 @@ describe("runtime push — Curator is the one place data leaves the workstation"
     await conductor.app.close();
   });
 
-  const server = (pushAssets = true) =>
+  const server = (pushAssets = true, flipperPush: FlipperPusher = noFlipper) =>
     buildServer({
       store,
       roadie: fakeRoadie(store),
       prober: fakeProber(),
       // The palette routes in the edit table below need a generator; every other test here ignores it.
       generate: fakeGenerate,
+      // The sync's last leg is the Flipper. Default to an empty desk so these tests neither
+      // enumerate real COM ports nor write to a device that happens to be plugged in.
+      flipperPush,
       config: {
         conductor: { url, sharedSecret: SECRET, pushAssets },
       },
@@ -392,6 +397,174 @@ describe("runtime push — Curator is the one place data leaves the workstation"
         url: `/api/jobs/${started.json().id}/cancel`,
       });
       expect(cancelled.json().status).toBe("cancelled");
+    });
+
+    /**
+     * The Flipper leg. A Flipper is a thing on the desk rather than a configured service, so every
+     * one of these is really the same assertion: the sync tells you what happened to the card, and
+     * the card never decides whether the sync succeeded.
+     */
+    describe("the Flipper leg", () => {
+      /** Records what reached the "device" and answers like a real push. */
+      const fakeFlipper = () => {
+        const written: string[] = [];
+        const push: FlipperPusher = async (contents) => {
+          written.push(contents);
+          return { port: "COM7", bytes: contents.length, path: "/ext/x.csv" };
+        };
+        return { written, push };
+      };
+
+      const pending = (id: string, name: string) => {
+        const a = makeAsset(id, name, "Prince");
+        a.roadie.state = "awaiting_tag_write";
+        return a;
+      };
+
+      it("writes the tag queue to an attached Flipper", async () => {
+        store.save(pending("flip0001", "Purple Rain"));
+        const flipper = fakeFlipper();
+        const app = server(true, flipper.push);
+
+        const started = await app.inject({
+          method: "POST",
+          url: "/api/runtime/sync",
+        });
+        const job = await awaitJob(app, started.json().id);
+
+        expect(job.status).toBe("done");
+        expect(
+          (job.result!.runtimeSync as { flipper: unknown }).flipper,
+        ).toMatchObject({
+          attached: true,
+          albums: 1,
+          overflowed: 0,
+          port: "COM7",
+        });
+        expect(flipper.written).toEqual([
+          "curatorId,name,artist\nflip0001,Purple Rain,Prince\n",
+        ]);
+      });
+
+      /**
+       * The card is a work queue, not a catalogue — the whole reason the scope is the queue and not
+       * `store.list()`. An album that isn't awaiting a tag write must not reach it.
+       */
+      it("sends only albums awaiting a tag write, alphabetically", async () => {
+        store.save(pending("flip0002", "Purple Rain"));
+        store.save(pending("flip0003", "Aja"));
+        store.save(makeAsset("flip0004", "Kind of Blue", "Miles")); // awaiting_review
+        const flipper = fakeFlipper();
+        const app = server(true, flipper.push);
+
+        const started = await app.inject({
+          method: "POST",
+          url: "/api/runtime/sync",
+        });
+        await awaitJob(app, started.json().id);
+
+        expect(flipper.written[0]).toBe(
+          "curatorId,name,artist\n" +
+            "flip0003,Aja,Prince\n" +
+            "flip0002,Purple Rain,Prince\n",
+        );
+      });
+
+      /**
+       * The point of the whole leg: not having a Flipper plugged in is the ordinary case, and a sync
+       * that pushed the room correctly must not report failure because of it.
+       */
+      it("finishes clean when no Flipper is on the desk, saying why", async () => {
+        store.save(pending("flip0005", "Purple Rain"));
+        const app = server(); // noFlipper
+
+        const started = await app.inject({
+          method: "POST",
+          url: "/api/runtime/sync",
+        });
+        const job = await awaitJob(app, started.json().id);
+
+        expect(job.status).toBe("done");
+        expect(
+          (job.result!.runtimeSync as { conductor: { pushed: number } })
+            .conductor.pushed,
+        ).toBe(1);
+        expect(
+          (job.result!.runtimeSync as { flipper: unknown }).flipper,
+        ).toEqual({
+          attached: false,
+          reason:
+            "No Flipper found on USB. Plug it in, unlock it, and try again.",
+        });
+      });
+
+      /** A port held by qFlipper is the other everyday failure, and it is equally not the sync's. */
+      it("survives a Flipper whose port is busy", async () => {
+        store.save(pending("flip0006", "Purple Rain"));
+        const app = server(true, async () => {
+          throw new Error("Could not open COM7: Access denied.");
+        });
+
+        const started = await app.inject({
+          method: "POST",
+          url: "/api/runtime/sync",
+        });
+        const job = await awaitJob(app, started.json().id);
+
+        expect(job.status).toBe("done");
+        expect(
+          (job.result!.runtimeSync as { flipper: { reason: string } }).flipper
+            .reason,
+        ).toContain("Access denied");
+      });
+
+      /**
+       * An empty queue writes an empty list rather than leaving a stale one — that is what makes the
+       * card stop accumulating records you have already tagged.
+       */
+      it("clears the card when nothing is awaiting a tag write", async () => {
+        store.save(makeAsset("flip0007"));
+        const flipper = fakeFlipper();
+        const app = server(true, flipper.push);
+
+        const started = await app.inject({
+          method: "POST",
+          url: "/api/runtime/sync",
+        });
+        await awaitJob(app, started.json().id);
+
+        expect(flipper.written).toEqual(["curatorId,name,artist\n"]);
+      });
+
+      /**
+       * Cancel means stop — the card is not worth one more device write.
+       *
+       * Honest about its reach: with no Backdrop configured here, a cancel always lands during the
+       * Conductor leg and the route's *earlier* return is what spares the card. The `signal.aborted`
+       * guard on the Flipper leg covers the other window — a cancel arriving during a long Backdrop
+       * push — and that window is **not** covered by this suite, which has no Backdrop stub. Verified
+       * by hand: removing the guard leaves this test green.
+       */
+      it("does not touch the Flipper when the sync was cancelled", async () => {
+        store.save(pending("flip0008", "Purple Rain"));
+        const flipper = fakeFlipper();
+        const app = server(true, flipper.push);
+
+        const started = await app.inject({
+          method: "POST",
+          url: "/api/runtime/sync",
+        });
+        await app.inject({
+          method: "POST",
+          url: `/api/jobs/${started.json().id}/cancel`,
+        });
+        const job = await awaitJob(app, started.json().id);
+
+        // Asserted first so a job that outran the cancel fails as "never cancelled" rather than as a
+        // confusing extra device write.
+        expect(job.status).toBe("cancelled");
+        expect(flipper.written).toEqual([]);
+      });
     });
   });
 

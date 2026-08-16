@@ -1023,6 +1023,11 @@ unreachable, which is a fault).
 Also on the page: what is playing (screen / lights / sound / **the stand**), jobs in flight with a
 count as well as a bar, and one **Sync everything** button.
 
+**Sync everything** pushes Conductor, then Backdrop, then — last — the tag-writing queue to a Flipper
+if one is on USB. The Flipper leg is deliberately quiet: no Flipper is the ordinary case, so it never
+turns the sync red, and today its outcome is carried in the job result rather than drawn on this page.
+Nothing on the System page yet says whether the card was written.
+
 **A job streaming a file says which file, and how far.** Under the job's own row, indented and
 quieter, sits the visualizer currently uploading: the album's name, bytes sent of bytes total, an
 estimate of the time left once there is enough history to make one honestly, and the same bar +

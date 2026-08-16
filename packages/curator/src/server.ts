@@ -71,6 +71,7 @@ import {
   FileJobStore,
   type GenerationJob,
   type JobKind,
+  type JobResult,
 } from "./jobs/manager.js";
 import {
   flipperNfcFile,
@@ -84,6 +85,7 @@ import {
   pushToFlipper,
   appendToFlipper,
   FLIPPER_PENDING_PATH,
+  MAX_ALBUMS_ON_DEVICE,
   type FlipperPusher,
   type FlipperAppender,
 } from "./tags/flipper-push.js";
@@ -2554,6 +2556,41 @@ export function buildServer(opts: BuildOptions = {}) {
    * Progress is albums, not bytes — the per-video byte progress belongs to each `mediaTransfer` job,
    * which the status page shows alongside this one.
    */
+  /**
+   * The tag-writing queue, onto a Flipper if one is on USB — the last leg of "Sync everything".
+   *
+   * **Never throws.** A Flipper is a thing on the desk, not a configured service: not having one
+   * plugged in is the normal case, and it must not fail a sync that pushed the room correctly. The
+   * two failures `connect()` distinguishes — no device, or a port held by qFlipper — are both
+   * reported as `attached: false` with the message that says which, since neither is actionable from
+   * here. Bounded by the same `withTimeout`/`oneAtATime` every other push goes through, so a
+   * half-enumerated device cannot wedge the job.
+   *
+   * Sends the same `pendingRows()` the Queue's button sends: `awaiting_tag_write`, alphabetical. This
+   * **replaces** the on-device list, which is the point — a record tagged since the last sync drops
+   * off the card instead of lingering there for good, and an empty queue writes an empty list rather
+   * than leaving a stale one. The cost is that an album put on the card from the Ship tab while it
+   * was *not* awaiting a tag write (that route allows it deliberately) is dropped by the next sync.
+   */
+  const syncFlipper = async (): Promise<
+    NonNullable<NonNullable<JobResult["runtimeSync"]>["flipper"]>
+  > => {
+    const rows = pendingRows();
+    try {
+      const { port, bytes, path } = await flipperPush(pendingCsv(rows));
+      return {
+        attached: true,
+        albums: rows.length,
+        overflowed: Math.max(0, rows.length - MAX_ALBUMS_ON_DEVICE),
+        port,
+        bytes,
+        path,
+      };
+    } catch (err) {
+      return { attached: false, reason: (err as Error).message };
+    }
+  };
+
   app.post("/api/runtime/sync", async (_req, reply) => {
     if (!conductorSync.enabled && !backdrop.enabled)
       return reply
@@ -2596,6 +2633,7 @@ export function buildServer(opts: BuildOptions = {}) {
         runtimeSync: {
           conductor,
           ...(backdropRes ? { backdrop: backdropRes } : {}),
+          ...(ctx.signal.aborted ? {} : { flipper: await syncFlipper() }),
         },
       };
     });

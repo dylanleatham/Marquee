@@ -205,6 +205,22 @@ export const makeAsset = (
     now: () => "2026-07-11T00:00:00.000Z",
   });
 
+/**
+ * An empty desk: the `FlipperPusher` a test gets when no Flipper is meant to be involved, rejecting
+ * with the message `connect()` really uses.
+ *
+ * **Pass this to `buildServer` in any suite that hits `POST /api/runtime/sync`.** That route pushes
+ * the tag queue to a Flipper as its last leg, so a suite that leaves the default in place drives the
+ * *real* serial stack — enumerating the developer's COM ports, and writing a temp store's test
+ * albums onto an actually-attached device. Injecting here keeps the suite hermetic and keeps
+ * `pnpm test` from touching hardware on the desk.
+ */
+export const noFlipper = async (): Promise<never> => {
+  throw new Error(
+    "No Flipper found on USB. Plug it in, unlock it, and try again.",
+  );
+};
+
 /** Build a multipart/form-data body for Fastify inject (no form-data dependency needed). */
 export function buildMultipart(
   fields: Record<string, string>,
