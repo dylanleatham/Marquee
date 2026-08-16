@@ -133,8 +133,7 @@ async function triage() {
     for (const [i, resolved] of owed.entries()) {
       if (!resolved.forCurrentSha)
         console.log(
-          `
-review-agents: report ${i + 1}/${owed.length} — ${resolved.path}` +
+          `\nreview-agents: report ${i + 1}/${owed.length} — ${resolved.path}` +
             ` (sha ${String(resolved.report.sha).slice(0, 12)}, not the current commit)`,
         );
       // Re-read the ledger each time: the previous report's verdicts are already on disk, and
@@ -152,10 +151,8 @@ review-agents: report ${i + 1}/${owed.length} — ${resolved.path}` +
     }
     if (judged || skippedFindings)
       console.log(
-        `
-review-agents: ${judged} judged, ${skippedFindings} skipped` +
-          `. Ledger: review-agents/ledger.jsonl — commit it.
-` +
+        `\nreview-agents: ${judged} judged, ${skippedFindings} skipped` +
+          `. Ledger: review-agents/ledger.jsonl — commit it.\n` +
           `Run \`pnpm run review:stats\` to see what it adds up to.`,
       );
   } finally {
