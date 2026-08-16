@@ -144,7 +144,9 @@ nearest the corner/SD card**, odd numbers down the side nearest the board edge:
 **Status LED** (optional): LED long leg (anode) → **330Ω resistor** → **GPIO 17 (pin 11)**; short leg
 (cathode) → any GND. Configurable via `[led].gpio_pin`.
 
-**On/off switch** (optional, §7.1): one leg → **GPIO 27 (pin 13)**, the other → any GND. No resistor
+**On/off switch** (optional, §7.1) — _if your stand is already built and running, don't use this
+document: [runbook B1](../../docs/runbook.md) is the retrofit, ordered so the code lands before the
+hardware._ One leg → **GPIO 27 (pin 13)**, the other → any GND. No resistor
 — Stylus enables the pin's internal pull-up, so a _closed_ switch reads low. That is the default
 `[switch].live_when = "low"`, i.e. closed means the stand is live; if the switch ends up mounted the
 other way round, change that setting to `"high"` rather than rewiring. Either orientation is fine as
