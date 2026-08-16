@@ -1,9 +1,14 @@
 # ADR 0088 — A review samples each specialist and unions the findings
 
+> **Superseded 2026-08-16 by [ADR 0092](0092-the-harness-is-three-reviewers-and-one-command.md).**
+> A review now runs each reviewer **once**; sampling and the union fold are deleted. The measurement recorded here is not disputed; what changed is that the harness it served
+> was cut to three reviewers and one command, and this machinery cost more attention than the
+> reviewers it governed. The code is in git history at `af1dde0`.
+
 **Date:** 2026-08-13
 **Status:** Accepted
 **Supersedes:** nothing, but **replaces the intervention proposed in**
-[harness-self-improvement.md](../specs/harness-self-improvement.md) §4.5 (refute-or-promote), which
+`harness-self-improvement.md` (deleted 2026-08-16 by [ADR 0092](0092-the-harness-is-three-reviewers-and-one-command.md); in git history at `af1dde0`) §4.5 (refute-or-promote), which
 measurement contradicted before it was built. Builds on
 [ADR 0085](0085-a-harness-edit-is-validated-against-a-frozen-case-set.md) (the eval that measured
 this) and [ADR 0087](0087-specialists-run-concurrently-under-a-cap.md) (the concurrency that makes

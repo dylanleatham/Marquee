@@ -29,5 +29,5 @@ reviewers are deliberately not in `pre-push` for the same reason.
 ## Editing these
 
 A skill is documentation that gets executed, so it drifts like documentation. When you change how
-something works, grep here too — `doc-coherence` reviews `*.md` anywhere in the tree, including this
-directory, but it detects about half the time, so do the grep.
+something works, grep here too — `spec-adherence` reviews `*.md` anywhere in the tree, including
+this directory, but it detects about half the time, so do the grep.

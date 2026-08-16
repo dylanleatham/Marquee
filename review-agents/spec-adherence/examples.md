@@ -30,7 +30,40 @@ Conductor uses port 4738.
 ]
 ```
 
-## False positive to avoid
+## Good finding (info) — doc ↔ doc
 
-A stub file with `export {}` and a `// TODO: implement per spec` comment is incomplete, not
-divergent. Respond `[]`.
+The diff updates the Pi 5's address in `deploy-runbook.md`; `parts-list.md` still carries the old
+one.
+
+```json
+[
+  {
+    "severity": "info",
+    "file": "docs/specs/parts-list.md",
+    "line": 44,
+    "message": "This change moved the Pi 5 to 192.168.1.42 in the runbook, but parts-list.md still says 192.168.1.40.",
+    "suggestion": "Update parts-list.md, or say in the runbook which one is authoritative."
+  }
+]
+```
+
+## Good finding (info) — a status word left behind
+
+```json
+[
+  {
+    "severity": "info",
+    "file": "docs/specs/curator-spec.md",
+    "line": 212,
+    "message": "This change implements cover upload, but curator-spec still lists it under 'Deferred'.",
+    "suggestion": "Move it out of the deferred list."
+  }
+]
+```
+
+## False positives to avoid
+
+- A stub file with `export {}` and a `// TODO: implement per spec` comment is incomplete, not
+  divergent. Respond `[]`.
+- "There may be other places that mention this" — if you cannot name the file and the sentence,
+  it is not a finding. Respond `[]`.

@@ -72,9 +72,9 @@ Their conventions differ from `packages/`, so judge them by their own neighbours
 - Tests are **`node:test`** in a colocated `lib/<name>.test.mjs`, not vitest under `test/`.
 - These are mostly pure functions — parsing, scoring, glob matching. That is the high-value target,
   and it is easy to test, so the bar is if anything higher than for UI glue.
-- A change to a specialist's `system-prompt.md`, `examples.md` or `config.json` is not code and needs
-  no unit test. It is gated by the eval instead (`pnpm run review:eval`), which is a different
-  mechanism — do not ask for a test file there.
+- A change to a reviewer's `system-prompt.md`, `examples.md` or `config.json` is not code and needs
+  no unit test — do not ask for a test file there. Routing and context assembly (`config.json` globs
+  reaching the right files) _is_ code and is tested in `lib/lib.test.mjs`.
 
 ## How to reason
 

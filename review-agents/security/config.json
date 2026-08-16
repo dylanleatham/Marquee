@@ -1,6 +1,0 @@
-{
-  "id": "security",
-  "blocking": true,
-  "model": "sonnet",
-  "triggerAll": true
-}

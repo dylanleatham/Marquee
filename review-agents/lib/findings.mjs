@@ -1,7 +1,7 @@
 // Findings: the shared shape every specialist emits, plus parsing + dedupe.
 //
 // Finding = {
-//   specialist: string,               // "contract-guardian"
+//   specialist: string,               // "test-auditor"
 //   severity: "blocking" | "info",
 //   file: string,                     // repo-relative path
 //   line: number | null,

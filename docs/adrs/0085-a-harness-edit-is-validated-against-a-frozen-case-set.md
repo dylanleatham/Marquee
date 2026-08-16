@@ -1,11 +1,16 @@
 # ADR 0085 — A harness edit is validated against a frozen case set
 
+> **Superseded 2026-08-16 by [ADR 0092](0092-the-harness-is-three-reviewers-and-one-command.md).**
+> The frozen case set and `pnpm run review:eval` are deleted. The measurement recorded here is not disputed; what changed is that the harness it served
+> was cut to three reviewers and one command, and this machinery cost more attention than the
+> reviewers it governed. The code is in git history at `af1dde0`.
+
 **Date:** 2026-08-13
 **Status:** Accepted
 **Supersedes:** nothing. Amends [dev-harness.md](../specs/dev-harness.md) §11 (the "prompt
 regression signals" bullet stops being aspirational) and §6 (editing a specialist now has a gate).
-Implements [harness-self-improvement.md](../specs/harness-self-improvement.md) §4.2, Phase 2, and
-builds on §4.1's ledger ([ADR-less, shipped 2026-08-13](../specs/harness-self-improvement.md)).
+Implements `harness-self-improvement.md` (deleted 2026-08-16 by [ADR 0092](0092-the-harness-is-three-reviewers-and-one-command.md); in git history at `af1dde0`) §4.2, Phase 2, and
+builds on §4.1's ledger (ADR-less, shipped 2026-08-13).
 
 ## Context
 

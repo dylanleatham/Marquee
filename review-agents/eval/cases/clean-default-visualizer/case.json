@@ -1,7 +1,0 @@
-{
-  "id": "clean-default-visualizer",
-  "source": "commit:107c171 (reversed)",
-  "kind": "must-not-find",
-  "specialist": "contract-guardian",
-  "notes": "Forward diff of 107c171, a clean merge that changed packages/contracts properly and updated its consumers in the same change. contract-guardian blocking here is a false positive."
-}

@@ -1,21 +1,21 @@
 // Finding the files a change might contradict, when a glob can't name them.
 //
-// Every specialist until now reads context chosen by `contextGlobs` — a fixed list, decided when
-// the reviewer was written. That works when the relevant context is known in advance
-// (`contract-guardian` always wants the schemas). It cannot work for `doc-coherence`, whose whole
-// question is *"which other copies of this fact are now wrong?"*: the answer is "whichever of 80+
+// A reviewer normally reads context chosen by `contextGlobs` — a fixed list, decided when the
+// reviewer was written. That works when the relevant context is known in advance (a schema reviewer
+// always wants the schemas). It cannot work for `spec-adherence`'s doc↔doc half, whose whole
+// question is *"which other copies of this fact are now wrong?"*: the answer is "whichever of 90+
 // ADRs and 17 specs happen to mention what this diff touched", which is a search, not a glob.
 //
-// So `contextRelated` resolves context by keyword overlap, bounded on every axis
-// (docs/specs/harness-self-improvement.md §4.3, ADR 0086). The alternative considered and rejected
-// was letting the specialist grep for itself: cheaper to build, but it would make one reviewer
+// So `contextRelated` resolves context by keyword overlap, bounded on every axis (ADR 0086). The
+// alternative considered and rejected was letting the reviewer grep for itself: cheaper to build,
+// but it would make one reviewer
 // tool-using when every other reads a fixed prompt, put an unbounded amount of work behind a fixed
 // timeout, and make the context invisible to `--explain` — which is how false positives get
 // diagnosed today.
 //
 // Everything here is deterministic. Two runs over the same tree must select the same files in the
-// same order, or the eval's cache key would be meaningless and a "regression" could be nothing but
-// a reshuffle.
+// same order, or a reviewer's context reshuffles between runs and two reviews of one diff cannot be
+// compared at all.
 
 import { join } from "node:path";
 import { filesMatching, readTruncated } from "./util.mjs";

@@ -1,7 +1,0 @@
-{
-  "id": "clean-pinned-deploy",
-  "source": "commit:cfb9177 (reversed)",
-  "kind": "must-not-find",
-  "specialist": "security",
-  "notes": "Forward diff of cfb9177, a clean deploy feature. Chosen for security because it touches SSH, hosts and a pinned commit \u2014 the vocabulary most likely to trip a secrets reviewer that pattern-matches rather than reads."
-}
