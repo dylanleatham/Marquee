@@ -41,6 +41,39 @@ To promote any of these to a GitHub issue, the text below is paste-ready.
 
 ### Resolved
 
+- **RA-8 — a second review of the same commit destroyed the first one's findings.** Fixed
+  2026-08-15 ([issue #330](https://github.com/dylanleatham/Marquee/issues/330)). The orchestrator
+  wrote `.review-agents/report-${sha}.json`, keyed on `currentSha()` alone. On a branch with no
+  commits yet — the normal state while working, and exactly what CLAUDE.md's "run it in the inner
+  loop, iterating to green" asks for — every run resolved to the same base SHA and overwrote the
+  last report. `resolveReport` then returned exactly one report, the newest, so even a survivor
+  could not be reached.
+  This was **RA-6's other half**: that fixed run identity _in the ledger_ (`runIdOf` keys on
+  `createdAt`, and its doc comment states the collision plainly) and left the file feeding it still
+  colliding, so the input was destroyed before the ledger ever saw it.
+  Measured on the branch behind [#329](https://github.com/dylanleatham/Marquee/pull/329): four
+  reviews, findings 2 → 1 → 9 → 0, only the last surviving, so `--triage` had nothing to judge and
+  **12 findings went unrecorded** — two of them `accepted` ones that had caught real bugs. The bias
+  ran the wrong way: acting on a finding is what makes you re-run, so the findings you act on are
+  exactly the ones that disappear, and the verdicts most likely to reach `review:stats` are the ones
+  nobody did anything about.
+  Fixed by keying the report file on the **review** rather than the commit (`reportFileName`, a
+  hashed `runIdOf` — the run id is an ISO timestamp and `:` is not legal in a Windows filename), and
+  by replacing `resolveReport` with `resolveReports`, which returns every review still owing a
+  verdict, oldest first. `--triage` walks all of them in one pass, re-reading the ledger between
+  each so a finding raised by two rounds is not asked twice. A findings-free review is still
+  offered, because its run is the denominator that makes a fire rate mean anything.
+  Widened while fixing: `resolveReports` reads _every_ report, so one truncated file — what killing
+  a review mid-write leaves — would have taken down a whole triage pass. `readReport` now returns
+  `null` instead of throwing, and the skipped path is **named** rather than swallowed.
+  Regression tests: `reportFileName: two reviews of one commit are two files, not one`,
+  `resolveReports: every untriaged review is offered, oldest first`,
+  `resolveReports: a review already in the ledger is not offered again`,
+  `resolveReports: a findings-free review is still offered, so its run is counted`,
+  `resolveReports: reports written before this fix are still resolvable`, and
+  `resolveReports: a corrupt report is skipped and named, not fatal` — all in
+  `lib/lib.test.mjs`.
+
 - **RA-7 — `test-auditor` could not see the harness's own code.** Fixed 2026-08-15
   ([issue #327](https://github.com/dylanleatham/Marquee/issues/327)). Its `triggerGlobs` were
   `packages/**/src/**` and `packages/stylus/stylus/**`, which excluded `review-agents/` (22 source

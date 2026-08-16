@@ -45,7 +45,13 @@ import {
   VERDICTS,
   runIdOf,
 } from "./ledger.mjs";
-import { runTriage, renderFinding, CHOICES } from "./triage.mjs";
+import {
+  runTriage,
+  renderFinding,
+  CHOICES,
+  reportFileName,
+  resolveReports,
+} from "./triage.mjs";
 import { unionOutcome, majorityOutcome, outcomeFromCounts } from "./eval.mjs";
 import { loadSpecialists, buildContext, specsFor } from "./specialists.mjs";
 
@@ -1597,4 +1603,136 @@ test("spawnOnce: a child that overruns its budget reports ETIMEDOUT, so RA-2 can
     shell: process.platform === "win32",
   });
   assert.equal(res.error?.code, "ETIMEDOUT");
+});
+
+// --- RA-8 / issue #330: two reviews of one commit must both survive to be triaged -------------
+
+/** Write `reports` into a fresh temp dir using the harness's own naming, oldest first. */
+function reportDirOf(reports) {
+  const dir = mkdtempSync(join(tmpdir(), "marquee-reports-"));
+  for (const r of reports)
+    writeFileSync(join(dir, reportFileName(r)), JSON.stringify(r));
+  return dir;
+}
+
+const reviewOf = (over = {}) => ({
+  sha: "abc",
+  base: "abc",
+  createdAt: "2026-08-16T00:00:00.000Z",
+  specialists: [{ id: "runtime", status: "ran", durationMs: 1 }],
+  findings: [finding()],
+  ...over,
+});
+
+test("reportFileName: two reviews of one commit are two files, not one", () => {
+  // The bug (#330). `report-${sha}.json` keyed on sha alone, so reviewing the same commit twice —
+  // which is what CLAUDE.md's "run it in the inner loop, iterating to green" asks you to do —
+  // overwrote the first review's findings before anyone could judge them. This is RA-6's other
+  // half: that fixed run identity *in the ledger*, leaving the file that feeds it still colliding.
+  const first = reviewOf({ createdAt: "2026-08-16T00:00:00.000Z" });
+  const second = reviewOf({ createdAt: "2026-08-16T00:30:00.000Z" });
+
+  assert.notEqual(reportFileName(first), reportFileName(second));
+  // Still resolvable by the orchestrator's glob, and legal on Windows — `createdAt` has colons in
+  // it, so the run identity has to be hashed rather than pasted into the name.
+  for (const name of [reportFileName(first), reportFileName(second)]) {
+    assert.match(name, /^report-.*\.json$/);
+    assert.doesNotMatch(name, /[:<>"|?*]/);
+  }
+  // Same review, same name — re-writing a report must not litter the directory.
+  assert.equal(reportFileName(first), reportFileName(reviewOf()));
+});
+
+test("resolveReports: every untriaged review is offered, oldest first", () => {
+  // The other half of #330: even when both reports survived, `resolveReport` returned exactly one
+  // — the newest — so the earlier one could never be reached. Triage has to walk all of them, in
+  // the order they happened, or the workflow is "judge the last round and lose the rest".
+  const early = reviewOf({
+    createdAt: "2026-08-16T00:00:00.000Z",
+    findings: [finding({ message: "Early finding." })],
+  });
+  const late = reviewOf({
+    createdAt: "2026-08-16T00:30:00.000Z",
+    findings: [finding({ message: "Late finding." })],
+  });
+  const dir = reportDirOf([late, early]); // written out of order on purpose
+
+  const resolved = resolveReports(dir, "abc", []);
+  assert.equal(resolved.length, 2);
+  assert.deepEqual(
+    resolved.map((r) => r.report.findings[0].message),
+    ["Early finding.", "Late finding."],
+  );
+});
+
+test("resolveReports: a review already in the ledger is not offered again", () => {
+  // Resuming must not re-ask. `pendingFindings` already does this per report; the walk has to
+  // respect it, or a second triage pass replays everything you judged in the first.
+  const done = reviewOf({ createdAt: "2026-08-16T00:00:00.000Z" });
+  const todo = reviewOf({
+    createdAt: "2026-08-16T00:30:00.000Z",
+    findings: [finding({ message: "Not yet judged." })],
+  });
+  const dir = reportDirOf([done, todo]);
+
+  const records = [
+    runRecord({ report: done, ts: "t" }),
+    findingRecord({
+      sha: done.sha,
+      finding: done.findings[0],
+      verdict: "accepted",
+      ts: "t",
+      runId: runIdOf(done),
+    }),
+  ];
+
+  const resolved = resolveReports(dir, "abc", records);
+  assert.equal(resolved.length, 1);
+  assert.equal(resolved[0].report.findings[0].message, "Not yet judged.");
+});
+
+test("resolveReports: a findings-free review is still offered, so its run is counted", () => {
+  // A clean review is a real data point — it is the denominator that makes a fire rate mean
+  // anything. Skipping it because it has nothing to judge would bias every rate upward.
+  const clean = reviewOf({ findings: [] });
+  const dir = reportDirOf([clean]);
+
+  assert.equal(resolveReports(dir, "abc", []).length, 1);
+  // …but once its run is recorded, there is nothing left to offer.
+  const records = [runRecord({ report: clean, ts: "t" })];
+  assert.equal(resolveReports(dir, "abc", records).length, 0);
+});
+
+test("resolveReports: reports written before this fix are still resolvable", () => {
+  // `report-<sha>.json` files predate the rename and have no `createdAt` in some cases. They must
+  // not become unreachable — the ledger's whole value is that it accumulates.
+  const dir = mkdtempSync(join(tmpdir(), "marquee-reports-"));
+  const legacy = {
+    sha: "abc",
+    base: "abc",
+    specialists: [],
+    findings: [finding()],
+  };
+  writeFileSync(join(dir, "report-abc.json"), JSON.stringify(legacy));
+
+  const resolved = resolveReports(dir, "abc", []);
+  assert.equal(resolved.length, 1);
+  assert.equal(resolved[0].forCurrentSha, true);
+});
+
+test("resolveReports: a corrupt report is skipped and named, not fatal", () => {
+  // The walk reads every report, so one truncated file — what killing a review mid-write leaves —
+  // would take down a triage pass that could still have judged everything else. Skipping silently
+  // would be worse: a directory quietly losing reports still prints a clean table (dev-harness §11).
+  const good = reviewOf({ createdAt: "2026-08-16T00:30:00.000Z" });
+  const dir = reportDirOf([good]);
+  writeFileSync(join(dir, "report-abc-truncat.json"), '{"sha":"abc","findi');
+
+  const skipped = [];
+  const resolved = resolveReports(dir, "abc", [], (p) => skipped.push(p));
+
+  assert.equal(resolved.length, 1);
+  assert.equal(resolved[0].report.createdAt, good.createdAt);
+  assert.equal(skipped.length, 1);
+  assert.match(skipped[0], /truncat/);
 });

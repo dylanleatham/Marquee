@@ -261,7 +261,13 @@ result.
 
 ### `code-review.yml` — the agent gate
 
-Verifies that the pre-push review agent report exists and matches the current commit SHA. Doesn't run agents itself (they ran locally on your workstation via the pre-push hook). Blocks merge if the report is missing or stale — see §6 for how the pre-push hook produces it.
+> **Never built, and superseded.** `.github/workflows/` contains `ci.yml` and `nightly.yml`; there
+> is no `code-review.yml`. The gate it describes cannot exist either, because the report it would
+> check is gitignored and the pre-push hook does not run the agents — see the superseded "CI
+> enforcement mode" block below for the whole design and why it was dropped. The reviewers run **on
+> demand**, and the committed evidence is `review-agents/ledger.jsonl`, not a report file.
+
+The design was: verify that the pre-push review agent report exists and matches the current commit SHA. It would not run agents itself (they ran locally on your workstation via the pre-push hook), and would block merge if the report were missing or stale.
 
 ### Caching
 
@@ -437,16 +443,24 @@ Findings return as JSON matching a shared schema (finding severity, file/line, m
 
 **Setup**: nothing new. You already have Claude Code installed. Configure the workspace to know where Claude Code is (`.env` has `CLAUDE_CODE_PATH`, defaulting to your existing binary location).
 
-### CI enforcement mode
+### CI enforcement mode — designed, then abandoned
 
-Agents run as a **pre-push hook**. Their findings are written to a report file that gets committed as part of the push; CI verifies the report exists and covers the current commit hash, but doesn't re-run agents itself.
+> **Superseded. Not what the harness does.** Recorded because the reasoning still explains the
+> shape of `--ci`, which survives as a flag. Three of this section's claims were false by the time
+> anyone checked ([#330](https://github.com/dylanleatham/Marquee/issues/330) touched the line and
+> found them): `.husky/pre-push` says in its own comment that the review agents are **not** run
+> there, `.review-agents/` is **gitignored** so no report is ever committed, and the
+> `code-review.yml` workflow named below **does not exist**. What is actually true is §4.1's rule —
+> the reviewers run **on demand**, and the only thing committed is `review-agents/ledger.jsonl`.
+
+The design was: agents run as a **pre-push hook**, their findings written to a report file committed as part of the push; CI verifies the report exists and covers the current commit hash, but doesn't re-run agents itself.
 
 - Setup: `.husky/pre-push` invokes `pnpm run review --ci`. The invocation blocks the push until Claude Code sessions complete.
-- Behavior: every push waits for local agents (typical 30–90 seconds for the full roster in parallel). Report is committed as `.review-agents/report-<sha>.json`. CI's `code-review.yml` workflow just checks the report is present and matches the pushed SHA.
+- Behavior: every push waits for local agents (typical 30–90 seconds for the full roster in parallel). The report was to be committed alongside the push, and CI's `code-review.yml` workflow would check it is present and matches the pushed SHA.
 - Cost: your existing Claude Code subscription; no per-PR API tokens.
 - Escape hatch: `--no-verify` bypasses the hook for genuine emergencies. Report absence is caught by CI, so bypassed pushes still fail the check.
 
-This mode trades the "agents ran automatically on the merge machine" property for simplicity — no self-hosted runner to maintain, no runner-inherited auth to manage. If you skip the hook via `--no-verify`, CI catches you, and you either fix the missing report or explicitly acknowledge the bypass.
+It traded the "agents ran automatically on the merge machine" property for simplicity — no self-hosted runner to maintain, no runner-inherited auth to manage. It was dropped because a hook that fires 4–6 real Claude Code sessions makes every push cost minutes; the pre-push hook says so where it explains what it deliberately does not run.
 
 ### Local invocation
 
@@ -686,6 +700,9 @@ Order matters. Some things unblock others.
    records the bootstrap order that was actually followed, not the layout to build today.)
 7. **Add `ci.yml`**: lint, type-check, empty test suite. Green build extended.
 8. **First code review agent**: Contract Guardian. Its whole job at this point is "the contracts package changed — did we test it?" Baby steps. Wire it into the pre-push hook + `code-review.yml` report check.
+   (Historical: the second half never happened. `code-review.yml` was never built and the pre-push
+   hook deliberately does not run the agents — see §5 and the superseded CI-enforcement block in
+   §12. The reviewers run on demand.)
 9. **`packages/palette-press/` scaffolded.** Test infra, first fixture album, first golden test. Now you have a real thing to test and a real thing to review.
 
 By end of week one: a repo where a PR touching `packages/contracts/` triggers the Contract Guardian, contract validation runs, and everything else fails cleanly because it's empty. That's a working harness. Everything else is filling in.
