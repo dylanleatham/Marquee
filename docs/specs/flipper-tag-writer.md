@@ -74,6 +74,17 @@ The FAP has no network, so Curator puts the list on the card. Three ways in, all
 - **`GET /api/tags/pending.csv`** — download it and copy it across by hand (qFlipper), for when
   Curator isn't on the machine the Flipper is plugged into.
 
+**The list is alphabetical**, by album name, then artist, then `curatorId` — the order the FAP renders
+verbatim (§4.2). All three paths write it, including the merge, which re-sorts the whole file rather
+than appending: a card built up one album at a time reads the same as one written by the batch push,
+and a card left unsorted by an older Curator is repaired by the next add. The sort is on the
+_sanitized_ fields, so it matches the label on screen; it is case- and accent-insensitive and orders
+numbers by value (`Vol. 2` before `Vol. 10`), pinned to the `en` collation so the bytes don't depend
+on the host locale. A leading `The` sorts under T. The order is total (`curatorId` breaks the last
+tie), because re-sending an unchanged list must produce identical bytes for `pushFile`'s read-back
+comparison to mean anything. Newest-first, which is what the store's own `list()` gives, is the wrong
+default for a d-pad scroll through a list mixing records already tagged with records still to do.
+
 The push talks the Flipper's plain-text serial CLI (`storage write_chunk`), not the protobuf RPC.
 Two behaviours of that CLI are load-bearing and cost a hardware round-trip each to find:
 
@@ -89,8 +100,8 @@ The file:
 
 ```
 curatorId,name,artist
-2k7bxq9m,Purple Rain,Prince
 aaaa1111,1999,Prince
+2k7bxq9m,Purple Rain,Prince
 ```
 
 Commas, quotes and newlines are stripped from `name` and `artist` at the source, so the reader's
@@ -118,8 +129,10 @@ Marquee Tag Writer
    says which kind was written. A kind chosen once and then forgotten is how you write forty wrong
    tags. **The FAP does not choose the demo track** — that lives on the album asset and is picked in
    Curator, so a demo tag written today keeps working when you change your mind about the song.
-2. **Album** — a Submenu of `name - artist` from the CSV (curatorId carried per item). ASCII only —
-   the Flipper font has no glyphs for UTF-8, so non-ASCII is replaced with `?`.
+2. **Album** — a Submenu of `name - artist` in CSV order (curatorId carried per item), which Curator
+   writes alphabetically by name (§3). The FAP does not sort: one order, decided where the names are
+   still whole strings, rather than a second collation in C that could disagree with the first. ASCII
+   only — the Flipper font has no glyphs for UTF-8, so non-ASCII is replaced with `?`.
 3. **Write** — compose the NDEF (§2) and write the user pages, then read back and compare before
    claiming success.
 4. **Confirm** — "&lt;Kind&gt; tag written", naming the kind from the same table the hold screen and list

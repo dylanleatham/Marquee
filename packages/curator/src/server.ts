@@ -79,7 +79,7 @@ import {
   TAG_OBJECTS,
   type TagObject,
 } from "./tags/flipper-nfc.js";
-import { pendingCsv } from "./tags/pending-csv.js";
+import { pendingCsv, sortPendingRows } from "./tags/pending-csv.js";
 import {
   pushToFlipper,
   appendToFlipper,
@@ -698,15 +698,20 @@ export function buildServer(opts: BuildOptions = {}) {
   // Flipper Zero tag authoring (issue #67, "Route A"): download a ready-to-write `.nfc` for an album,
   // and list the albums awaiting a tag write so you know which to fetch. Drop the `.nfc` on the
   // Flipper's SD card and write it to a blank NTAG213 via the stock NFC app (Saved → Write).
+  // Alphabetical, not the store's newest-first: this list is read on a 128px screen you scroll with a
+  // d-pad, and `sortPendingRows` is the same order the merge path writes, so however the card was
+  // built the menu reads the same.
   const pendingRows = () =>
-    store
-      .list()
-      .filter((a) => a.roadie.state === "awaiting_tag_write")
-      .map((a) => ({
-        curatorId: a.curatorId,
-        name: a.metadata.name,
-        artist: a.metadata.artist,
-      }));
+    sortPendingRows(
+      store
+        .list()
+        .filter((a) => a.roadie.state === "awaiting_tag_write")
+        .map((a) => ({
+          curatorId: a.curatorId,
+          name: a.metadata.name,
+          artist: a.metadata.artist,
+        })),
+    );
 
   app.get("/api/tags/pending", async () => ({ pending: pendingRows() }));
 

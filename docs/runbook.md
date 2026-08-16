@@ -346,7 +346,8 @@ URI its on-device NDEF editor is firmware-dependent, so the reliable pattern is 
 
 Curator can emit a ready-to-write Flipper file per album, so you never type an id (issue #67):
 
-- `GET http://localhost:4739/api/tags/pending` → the albums awaiting a tag (`curatorId`, name, artist).
+- `GET http://localhost:4739/api/tags/pending` → the albums awaiting a tag (`curatorId`, name,
+  artist), alphabetically by name.
 - `GET http://localhost:4739/api/albums/<curatorId>/tag.nfc` → downloads `<curatorId>.nfc` with the
   `curator:album:<id>` NDEF pre-laid into an NTAG213.
 - Copy the `.nfc` files onto the Flipper's SD card (`/ext/nfc/…` via qFlipper), then **NFC → Saved →
