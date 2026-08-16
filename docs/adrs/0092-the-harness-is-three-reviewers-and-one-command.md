@@ -57,7 +57,7 @@ decision:
 **The harness is three reviewers, one command, one screen of output.**
 
 ```bash
-pnpm run review    # ~1-2 minutes
+pnpm run review    # 1-5 minutes, one round
 ```
 
 1. **Roster of three**, each encoding a class of defect that has escaped _this repo_ more than once
@@ -92,7 +92,8 @@ pnpm run review    # ~1-2 minutes
 
 **Good**
 
-- A review is ~1-2 minutes and 3 sessions instead of ~10 minutes and 24. It is now cheap enough to
+- A review is 1-5 minutes and 3 sessions instead of ~10 minutes and 24 (measured on this change:
+  20s / 108s / 299s, run concurrently). It is cheap enough to
   run in the inner loop, which is what every version of this document has asked for and none has got.
 - One command, and the output is the whole result. Nothing to triage, commit, or remember afterwards.
 - 20,393 lines deleted from `review-agents/` (24,082 → 3,689 tracked lines; most of the bulk was the

@@ -60,7 +60,7 @@ is "someone remembering", it is not closed.
 ## 5. Before the PR
 
 ```bash
-pnpm run review    # three reviewers, ~1-2 min
+pnpm run review    # three reviewers, 1-5 min depending on the diff
 ```
 
 The bar is **no `[FIX ]` findings left unanswered**, not zero findings. There is nothing to record

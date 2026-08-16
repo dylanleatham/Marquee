@@ -2,7 +2,7 @@
   "id": "spec-adherence",
   "blocking": false,
   "model": "sonnet",
-  "timeoutMs": 300000,
+  "timeoutMs": 420000,
   "triggerGlobs": [
     "packages/**/src/**",
     "packages/stylus/stylus/**",

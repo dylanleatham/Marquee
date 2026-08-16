@@ -1,8 +1,14 @@
 # Review agents
 
 Three Claude Code reviewers that read a diff and surface things worth thinking about. Run them on
-demand — `pnpm run review`, about a minute — ideally before the first commit, not as a gate before
-the PR. They are deliberately NOT in `pre-push`. Design: `docs/specs/dev-harness.md §6`.
+demand — `pnpm run review` — ideally before the first commit, not as a gate before the PR. They are
+deliberately NOT in `pre-push`. Design: `docs/specs/dev-harness.md §6`.
+
+**How long it takes:** all three run at once, so the wall clock is the slowest one, and that is
+always `spec-adherence` — it reads the most context. Measured: 20s (`test-auditor`) / 108s
+(`null-result`) / 299s (`spec-adherence`) on a 29-file docs-heavy diff, so **1-5 minutes** depending
+on what changed. `spec-adherence` gets a 420s budget because that run came within a second of its
+old 300s one, and a reviewer that times out is a dimension nobody reviewed.
 
 Each one encodes something a general-purpose reviewer cannot know about this repo. Generic review —
 correctness bugs, security, style — is what `/code-review` and `/security-review` are for, and they
@@ -127,7 +133,7 @@ actually needs (issue #325).
 **`contextRelated`** exists for a reviewer whose context cannot be named in advance
 ([ADR 0086](../docs/adrs/0086-a-specialist-may-be-given-context-found-by-search.md)).
 `spec-adherence` asks "which other copies of this fact are now wrong?", and the answer is whichever
-of 90-odd ADRs and 16 specs happen to mention what the diff touched — a search, not a glob. Files are
+of 90-odd ADRs and 17 specs happen to mention what the diff touched — a search, not a glob. Files are
 scored by how many distinct keywords from the change they contain, and appear in the prompt under
 `# Possibly related`, worded so the reviewer treats them as a lead rather than as authority.
 

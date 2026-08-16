@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Review-agent orchestrator. See review-agents/README.md and docs/specs/dev-harness.md §6.
 //
-// Three reviewers, one run each, ~1-2 minutes. Everything it knows is on stdout when it finishes;
+// Three reviewers, one run each, concurrently: 1-5 minutes. Everything it knows is on stdout;
 // there is nothing to triage afterwards and no state it keeps between runs.
 //
 // Usage:

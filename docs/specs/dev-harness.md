@@ -354,7 +354,8 @@ back.
 reviewers are triggered by the changed files, runs them **concurrently under a cap**
 (`REVIEW_CONCURRENCY`, default 3 — [ADR 0087](../adrs/0087-specialists-run-concurrently-under-a-cap.md)),
 parses each reply into findings, dedupes by file+line+message, and prints them. With three reviewers
-and a cap of three, a review is one round: about a minute.
+and a cap of three, a review is one round — 1-5 minutes, set by the slowest reviewer
+(`spec-adherence`, which reads the most context).
 
 Each reviewer is a directory of three files — `config.json`, `system-prompt.md`, `examples.md` — and
 the orchestrator auto-discovers any directory containing a `config.json`. There is no routing table

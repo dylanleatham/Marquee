@@ -40,7 +40,7 @@ and close the blind spot. Full workflow:
 ## Definition of done
 
 ```bash
-pnpm run review    # three reviewers, ~1-2 min
+pnpm run review    # three reviewers, 1-5 min depending on the diff
 ```
 
 Run it **before the first commit**, not as a gate before the PR — it is a linter you answer in the
