@@ -40,6 +40,10 @@ The app reads `/ext/apps_data/marquee_tag_writer/pending.csv`. Curator puts it t
 **"Add this album to Flipper"** on an album's Ship tab (merges one in). `GET /api/tags/pending.csv`
 downloads the same file if you'd rather copy it across with qFlipper.
 
+The list arrives alphabetical by album name, and the merge re-sorts the whole file, so adding records
+one at a time still gives you a menu you can scroll to a letter in. The app renders CSV order as-is —
+if the on-device order looks wrong, the fix is in Curator's `sortPendingRows`, not in this C.
+
 With no CSV on the card the menu shows one entry labelled `DEMO:` so the write path is still testable.
 
 ## Changing this app — read first

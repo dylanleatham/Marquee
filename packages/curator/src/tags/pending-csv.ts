@@ -47,9 +47,44 @@ export function parsePendingCsv(text: string): PendingRow[] {
 }
 
 /**
+ * The order the on-device menu is read in: by album name, then artist, then `curatorId`. The list is
+ * a mix of records already tagged and records still to do, and it grows to `MAX_ALBUMS` (64) — long
+ * enough that "where is this record" needs an answer better than "somewhere". Alphabetical gives one:
+ * you know where to scroll before you start.
+ *
+ * Sorted on the *sanitized* fields, so the order matches the `name - artist` label the FAP actually
+ * draws rather than the raw metadata behind it. `Intl.Collator` with an explicit locale rather than
+ * bare `localeCompare`: case- and accent-insensitive (`the beatles` files with `The Beatles`),
+ * numeric so `Vol. 2` precedes `Vol. 10`, and pinned to `en` so the bytes don't depend on the host's
+ * locale. Straight alphabetical — a leading `The` sorts under T, because the alternative is a
+ * stop-word list that has to agree with what the screen shows.
+ *
+ * `curatorId` breaks the final tie so the output is a total order: two pressings of "send" on an
+ * unchanged list must produce identical bytes, or the read-back comparison in `pushFile` is noise.
+ */
+const collator = new Intl.Collator("en", {
+  sensitivity: "base",
+  numeric: true,
+});
+
+export function sortPendingRows(rows: readonly PendingRow[]): PendingRow[] {
+  return [...rows].sort(
+    (a, b) =>
+      collator.compare(sanitize(a.name), sanitize(b.name)) ||
+      collator.compare(sanitize(a.artist), sanitize(b.artist)) ||
+      collator.compare(a.curatorId, b.curatorId),
+  );
+}
+
+/**
  * Add `additions` to an existing list, keyed by `curatorId` — pressing "send" twice must not put an
  * album on the Flipper twice. An album already present is **updated in place** (so a renamed album
- * refreshes) and keeps its position, so the on-device menu doesn't reshuffle under you.
+ * refreshes).
+ *
+ * The result is re-sorted by `sortPendingRows`, so a card built up one album at a time from the Ship
+ * tab reads the same as one written by the batch push, and an unsorted list already on the card is
+ * repaired by the next add. Position is stable under a re-send of the same album — only a rename
+ * moves a row, which is the point.
  */
 export function mergePendingCsv(
   existing: string,
@@ -61,7 +96,7 @@ export function mergePendingCsv(
     if (at === -1) merged.push(row);
     else merged[at] = row;
   }
-  return pendingCsv(merged);
+  return pendingCsv(sortPendingRows(merged));
 }
 
 /**

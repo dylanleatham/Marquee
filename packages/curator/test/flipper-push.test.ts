@@ -269,9 +269,10 @@ describe("append round trip", () => {
     ]);
     await pushFile(cli, FLIPPER_PENDING_PATH, merged);
 
+    // Alphabetical, so the added row lands where you'd look for it rather than at the end.
     expect(parsePendingCsv(cli.files[FLIPPER_PENDING_PATH]!)).toEqual([
-      { curatorId: ID, name: "Purple Rain", artist: "Prince" },
       { curatorId: "7v3mn2xd", name: "Kind of Blue", artist: "Miles Davis" },
+      { curatorId: ID, name: "Purple Rain", artist: "Prince" },
     ]);
   });
 
