@@ -41,10 +41,11 @@ _None currently._
   a review mid-write leaves — would have taken down a whole triage pass. `readReport` now returns
   `null` instead of throwing, and the skipped path is **named** rather than swallowed.
   Regression tests: `reportFileName: two reviews of one commit are two files, not one`,
-  `resolveReports: every untriaged review is offered, oldest first`, `resolveReports: a review
-already in the ledger is not offered again`, `resolveReports: a findings-free review is still
-offered, so its run is counted`, `resolveReports: reports written before this fix are still
-resolvable`, and `resolveReports: a corrupt report is skipped and named, not fatal` — all in
+  `resolveReports: every untriaged review is offered, oldest first`,
+  `resolveReports: a review already in the ledger is not offered again`,
+  `resolveReports: a findings-free review is still offered, so its run is counted`,
+  `resolveReports: reports written before this fix are still resolvable`, and
+  `resolveReports: a corrupt report is skipped and named, not fatal` — all in
   `lib/lib.test.mjs`.
 
 - **RA-7 — `test-auditor` could not see the harness's own code.** Fixed 2026-08-15

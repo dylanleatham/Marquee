@@ -261,11 +261,11 @@ result.
 
 ### `code-review.yml` — the agent gate
 
-**Never built, and superseded.** `.github/workflows/` contains `ci.yml` and `nightly.yml`; there is
-no `code-review.yml`. The gate it describes cannot exist either, because the report it would check
-is gitignored and the pre-push hook does not run the agents — see the superseded "CI enforcement
-mode" block below for the whole design and why it was dropped. The reviewers run **on demand**, and
-the committed evidence is `review-agents/ledger.jsonl`, not a report file.
+> **Never built, and superseded.** `.github/workflows/` contains `ci.yml` and `nightly.yml`; there
+> is no `code-review.yml`. The gate it describes cannot exist either, because the report it would
+> check is gitignored and the pre-push hook does not run the agents — see the superseded "CI
+> enforcement mode" block below for the whole design and why it was dropped. The reviewers run **on
+> demand**, and the committed evidence is `review-agents/ledger.jsonl`, not a report file.
 
 The design was: verify that the pre-push review agent report exists and matches the current commit SHA. It would not run agents itself (they ran locally on your workstation via the pre-push hook), and would block merge if the report were missing or stale.
 
