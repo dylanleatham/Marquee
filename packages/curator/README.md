@@ -78,6 +78,20 @@ pnpm --filter @marquee/curator dev     # API: tsx watch, http://127.0.0.1:4739 (
 pnpm --filter @marquee/curator dev:ui  # UI: Vite on :4738, proxies /api → :4739  → open :4738
 ```
 
+The masthead mark comes from `ui/src/assets/marquee-mark.svg`, and so do two generated files: the
+desktop app's window/taskbar icon, and a favicon for the two cases where Curator is opened in an
+actual browser — the dev server above, and `:4739` hit directly. (The packaged app has no tab; its
+icon comes from Electron. See [curator-ui-ux.md](../../docs/specs/curator-ui-ux.md) §2 and
+[ADR 0091](../../docs/adrs/0091-the-app-icon-and-the-masthead-mark-are-the-logo.md).) Edit the mark
+and the masthead follows immediately; the generated pair does not, so regenerate them:
+
+```bash
+pnpm --filter @marquee/curator favicon   # → ui/public/favicon.svg
+pnpm --filter @marquee/desktop icon      # → packages/desktop/build/icon.png
+```
+
+A test in each package fails if you forget, since neither generator runs in CI.
+
 Video attach needs **ffmpeg** (`ffprobe` + `ffmpeg`) on `PATH`, or point at them with
 `FFPROBE_PATH` / `FFMPEG_PATH`. So does the card-art print render, unless the art is already exactly
 card-sized — that case is only a metadata stamp and needs nothing

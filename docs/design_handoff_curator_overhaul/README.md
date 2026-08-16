@@ -69,6 +69,13 @@ codebase already uses — in Curator's case, classes in `styles.css`.
 - `Curator - Pressing Plant.dc.html` is **high fidelity**. Final colours,
   typography, spacing, copy and interaction. Recreate this precisely. All the
   design-token values in this README are taken from it.
+  **One exception, 2026-08-15:** its masthead still builds the brand mark by cropping
+  `marquee-logo.jpeg` (`width:130px`, `left:-38px`, `mix-blend-mode:multiply`) — the
+  prototype shortcut the Assets section below asked to replace. That crop is **gone**
+  from the app; the mark is now a vector, `packages/curator/ui/src/assets/marquee-mark.svg`
+  ([ADR 0091](../adrs/0091-the-app-icon-and-the-masthead-mark-are-the-logo.md)).
+  Do not recreate it. The mockup is left as delivered — it is a record of the handoff,
+  not a living file.
 - `Curator - Screen walkthrough.dc.html` is **low fidelity** — sixteen annotated
   wireframe plates covering every screen including ones the hi-fi file doesn't
   render (first run, the toast in context, the Discogs triage list). Use it as the
@@ -242,7 +249,8 @@ and should have.
 A single flex row of four regions, each separated by `1px solid #D8D2C4`:
 
 1. **Brand block** (`flex:none`, `padding:13px 20px`) — the Marquee disc mark at
-   52×52, then a stacked lockup: "CURATOR" in Archivo Black 21px uppercase, and
+   52px tall (it is slightly narrower than it is tall; height is what's fixed),
+   then a stacked lockup: "CURATOR" in Archivo Black 21px uppercase, and
    "MARQUEE COLLECTION" in Plex Mono 9px with `.2em` tracking, `#6F6A5C`.
 2. **Nav** — COLLECTION · ADD A RECORD · DISCOGS · SYSTEM · SETTINGS. Active item
    is ink background, paper text. Inactive is transparent with `#6F6A5C` text.
@@ -643,14 +651,20 @@ Flag these before building:
 
 - **`marquee-logo.jpeg`** — the user's Marquee logo: a hand-inked disc with sound
   waves, a tonearm and a grid, over the hand-lettered word MARQUEE, on off-white
-  paper. Supplied by the user; it is the project's real logo.
-  In the masthead only the **disc mark** is used, cropped out of the file: a 52×52
-  overflow-hidden box containing the image at `width:130px`, offset
-  `left:-38px; top:-8px`, with `mix-blend-mode:multiply` so the paper texture
-  merges into `#F2EFE8`.
-  **Ask the user for a mark-only asset** (ideally SVG, transparent) and replace the
-  crop — cropping a JPEG is a prototype shortcut, not a shippable approach. The
-  logo needs no restyling: it is already ink on warm paper and matches the theme.
+  paper. Supplied by the user; it is the project's real logo. Kept here as the
+  original.
+  **Done (2026-08-15):** the request below was answered. The user supplied the disc
+  alone as an SVG, and it now lives at
+  `packages/curator/ui/src/assets/marquee-mark.svg` — one file, drawn inline in the
+  masthead in `currentColor` and rasterized into the desktop app icon
+  ([ADR 0091](../adrs/0091-the-app-icon-and-the-masthead-mark-are-the-logo.md)).
+  The 52×52 crop of the JPEG, its `left:-38px` offset and its
+  `mix-blend-mode:multiply` are gone.
+  <br>*Original request, kept for the record:* in the masthead only the **disc
+  mark** was used, cropped out of the JPEG. **Ask the user for a mark-only asset**
+  (ideally SVG, transparent) and replace the crop — cropping a JPEG is a prototype
+  shortcut, not a shippable approach. The logo needs no restyling: it is already ink
+  on warm paper and matches the theme.
 - **Album artwork** is a placeholder everywhere: a 45° two-tone stripe built from
   each record's palette (`repeating-linear-gradient(135deg, c0 0 7px, c1 7px 14px)`).
   Real covers replace it. Keep the ink `outline` treatment.
@@ -664,7 +678,7 @@ Flag these before building:
 
 | File | What it is |
 |---|---|
-| `Curator - Pressing Plant.dc.html` | **The target.** Hi-fi, interactive, all screens. |
+| `Curator - Pressing Plant.dc.html` | **The target.** Hi-fi, interactive, all screens. Its masthead mark is the superseded JPEG crop — see the note above. |
 | `Curator - Screen walkthrough.dc.html` | 16 annotated wireframe plates. The behavioural spec. |
 | `Curator - Current UI.dc.html` | The app as it stands today, for diffing. |
 | `Curator - Theme directions.dc.html` | The three theme options. Pressing Plant is `3b`; the other two are context. |

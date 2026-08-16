@@ -12,6 +12,7 @@
     "start": "node dist/server.js",
     "build": "tsc -b && vite build ui",
     "build:ui": "vite build ui",
+    "favicon": "node scripts/make-favicon.mjs",
     "type-check": "tsc --noEmit && tsc --noEmit -p ui/tsconfig.json",
     "test": "vitest run",
     "test:unit": "vitest run",
