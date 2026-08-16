@@ -1,3 +1,5 @@
+import logging
+
 from stylus.app import StylusApp
 from stylus.config import Config, ReaderConfig
 from stylus.led import Pattern
@@ -469,3 +471,60 @@ def test_the_watchdog_is_still_fed_while_the_stand_is_off():
     for _ in range(5):
         app.tick()
     assert len(beats) == 5
+
+
+# --- what the stand says about itself (#337) ------------------------------------------------------
+
+
+def test_every_published_event_is_logged(caplog):
+    """regression: #337 — the stand published 7 events in a day and logged none of them.
+
+    Diagnosing a stop/start cycle meant reconstructing the sequence from *Amp's* HTTP response
+    times on another host, because Stylus' own journal held one line for the whole day. The event
+    the stand fired is the single most useful thing its log can contain.
+    """
+    app, reader, _, _ = build()
+    with caplog.at_level(logging.INFO, logger="stylus.app"):
+        play_a(app, reader)
+        reader.clear()
+        app.tick()
+        app.tick()
+
+    published = [r.getMessage() for r in caplog.records if "publish" in r.getMessage()]
+    assert any("start" in m and URI_A in m for m in published), published
+    assert any("stop" in m for m in published), published
+
+
+def test_losing_a_playing_tag_is_logged_with_how_long_it_was_blind(caplog):
+    """The dropout itself, named. A gap shorter than the removal debounce produces no event at
+    all, so without this line it is invisible in every signal the system has — which is exactly
+    the case that says the coupling is marginal and the stand is about to start cycling."""
+    app, reader, pub, _ = build()
+    with caplog.at_level(logging.INFO, logger="stylus.app"):
+        play_a(app, reader)
+        reader.clear()
+        app.tick()  # one dropped read; removal_debounce_polls is 2 here, so no stop yet
+        reader.set_tag("A", URI_A)
+        app.tick()
+
+    assert [e["event"] for e in pub.events] == ["start"], "a sub-debounce gap must publish nothing"
+    messages = " | ".join(r.getMessage() for r in caplog.records)
+    assert "lost" in messages, messages
+    assert "re-acquired" in messages and "1" in messages, messages
+
+
+def test_switching_the_stand_off_is_not_reported_as_a_lost_tag(caplog):
+    """The switch masks the tag deliberately ([ADR 0093]) — that is not the reader faltering, and
+    logging it as such would put a scary line in the journal every time someone flips the switch."""
+    sw = SimulatedSwitch()
+    app, reader, _, _ = build(switch=sw)
+    play_a(app, reader)
+    with caplog.at_level(logging.INFO, logger="stylus.app"):
+        # Both at once, and that combination is the point: switching off alone leaves the *raw*
+        # tag in the field (the masking happens at `observe`), so it never reaches this branch.
+        # Lifting the card while the stand is off is what does — and it is an ordinary thing to do.
+        sw.set_live(False)
+        reader.clear()
+        app.tick()
+
+    assert "lost the tag" not in " | ".join(r.getMessage() for r in caplog.records)

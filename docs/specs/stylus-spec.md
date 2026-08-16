@@ -172,7 +172,7 @@ Rationale: fast enough that placing a sleeve feels instant, slow enough that a h
 
 > **The decoded-URI cache lives for one placement** (2026-08-02). The reader caches successful
 > decodes per UID so a settled sleeve costs one NDEF read rather than one every 200ms; that cache is
-> **cleared whenever the field goes empty**, so lifting the sleeve guarantees the next placement
+> **cleared once the field is confirmed empty**, so lifting the sleeve guarantees the next placement
 > re-reads the tag.
 >
 > Writing NDEF to a tag does not change its UID. Until this date the cache was cleared only by
@@ -180,8 +180,18 @@ Rationale: fast enough that placing a sleeve feels instant, slow enough that a h
 > previous album indefinitely** — the Flipper showed the new URI, `/status` showed the old one, and
 > re-placing the sleeve did not help. This is the same UID-stability trap as
 > [#176](https://github.com/dylanleatham/Marquee/issues/176) (which fixed it for cached _misses_),
-> seen from the hit side. A dropped read on a motionless sleeve also clears the cache and costs one
-> re-read — cheap, and invisible to playback behind the removal debounce.
+> seen from the hit side.
+>
+> **"Confirmed empty" means `removal_debounce_polls`, not one missed poll** (2026-08-16,
+> [#337](https://github.com/dylanleatham/Marquee/issues/337)). It was one missed poll until this
+> date, described here as costing "one re-read — cheap, and invisible to playback behind the removal
+> debounce". On real hardware it is neither. A marginally-coupled tag drops the occasional read
+> while sitting perfectly still, and each of those forced a full NDEF re-read — up to 40 pages × 3
+> attempts — on the very next sighting, precisely when the tag was already reading badly. The
+> reported symptom was a card that replayed from track 1 every ~20s. The threshold is now the same
+> `removal_debounce_polls` the state machine publishes `stop` on, wired from config so the two
+> cannot drift apart: a placement ends in exactly one place. A real lift is orders of magnitude
+> longer than the debounce, so the re-write guarantee above is untouched.
 >
 > Residual, by design: a tag re-written **without leaving the field** is not noticed, because §7
 > `PLAYING` treats a matching UID as "same sleeve, no change" and never re-inspects the URI.
@@ -434,6 +444,12 @@ If you find range is insufficient with a chosen stand geometry, PN532 modules wi
   > ~~**A hang in the poll loop is still uncovered**~~ — **closed 2026-08-13** ([#308](https://github.com/dylanleatham/Marquee/issues/308), [ADR 0077](../adrs/0077-the-poll-loop-proves-it-is-alive.md)). A one-shot bound is the wrong shape for a loop; what a loop can offer is a signal that keeps arriving. The unit is now `Type=notify` with `WatchdogSec=30`, Stylus sends `READY=1` once the reader is up and the status port is listening, and `WATCHDOG=1` every `WatchdogSec/2`. A loop blocked in a driver call stops pinging, systemd kills it, and `Restart=always` recovers it — the same conversion #307 does for init, applied to the loop.
   >
   > **The hard part is the false positive, not the false negative.** `publish` runs _inside_ the poll tick and legitimately blocks for tens of seconds when a downstream is down (§8's retry window, [#173](https://github.com/dylanleatham/Marquee/issues/173) — a full outage costs ~43s per publish, ~87s on a swap). A heartbeat sent once per tick would read a **Conductor** outage as a Stylus hang and kill Stylus for it, which fixes nothing. So #308 threaded the heartbeat into the publisher's retry loop as well. [#173](https://github.com/dylanleatham/Marquee/issues/173) then removed the stall entirely by moving publishing onto a worker thread, which both retired that workaround and **inverted** the hazard: a heartbeat on the worker would now let a healthy publisher vouch for a wedged reader. The poll loop is therefore the only heartbeat source, `Publisher` no longer accepts one at all, and the gap `WatchdogSec` must clear is one poll interval rather than a downstream timeout.
+
+- **A motionless card that replays from the start every ~20s.** The reader is losing it and finding it again: the removal debounce is met, `stop` fans out, the tag is re-acquired, `start` fans out, and the room restarts. Nothing has crashed — every service shows `NRestarts=0` — which is what makes it read as "the system restarted" ([#337](https://github.com/dylanleatham/Marquee/issues/337)).
+
+  > Stylus now says so itself. `reader lost the tag it was playing (<uid>)` at WARNING on the first blind poll, `reader re-acquired the tag after N blind poll(s)` at INFO when it comes back, and `publishing start|stop <uri>` at INFO for **every** event it fans out. Before 2026-08-16 the stand published in total silence, so the only way to see a stop/start cycle was to read _Amp's_ HTTP response times on another host and infer the event kinds from how long each took. A gap shorter than the removal debounce publishes nothing at all, so that INFO line is the only place a marginal mount is visible before it starts cycling.
+  >
+  > Where to look next, in order: the blind-poll count (a handful is a marginal mount; tens is a wedged chip — see the hang bullet above), then `[rf] gsn_on`/`cw_gsp` against `/status`'s `rf` block, since [ADR 0075](../adrs/0075-stylus-drives-the-pn532-below-its-default-power.md)'s sweep is **not monotonic** and the shipped `0x84`/`0x18` may sit near an edge ([#322](https://github.com/dylanleatham/Marquee/issues/322)).
 
 - **I2C address collisions.** PN532 defaults to `0x24`. If you add another I2C device later, check its address doesn't clash.
 - **Ghost reads.** A sleeve moved past the reader on its way to the turntable might trigger a scan you didn't intend. The insertion debounce (400ms) helps but doesn't fully solve it. If it's annoying in practice, extend `insertion_debounce_polls` to 4 (800ms). Trade-off is slight lag on real scans.

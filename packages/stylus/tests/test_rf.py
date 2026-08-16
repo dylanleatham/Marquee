@@ -130,6 +130,55 @@ def test_built_reader_reports_an_empty_field_as_none():
     assert reader.poll() is None
 
 
+def _counting_pages(fake: FakePn532) -> list[int]:
+    """Record every page the reader actually pulls off the tag."""
+    pages: list[int] = []
+    inner = fake.ntag2xx_read_block
+    fake.ntag2xx_read_block = lambda page: (pages.append(page), inner(page))[1]  # type: ignore[method-assign]
+    return pages
+
+
+def test_a_built_reader_keeps_its_decode_across_a_dropped_poll():
+    """regression: #337 — a card that never moved replayed from track 1 every ~20s.
+
+    Asserted through the *factory* rather than on ``UriCache`` alone, because the factory is the
+    seam that has repeatedly shipped unwired here (#303, #307, #232): a threshold that never
+    reaches the cache would leave the unit tests green and the stand still cycling.
+    """
+    fake = FakePn532(uid=b"\x04\x48\x33", pages=_tag_pages(CARD))
+    pages = _counting_pages(fake)
+    reader = build_pn532_reader(fake, RfConfig(), forget_after_absent_polls=10)
+
+    assert reader.poll().uri == CARD
+    settled = len(pages)
+    assert settled > 0, "the first sighting has to actually read the tag"
+
+    fake._uid = None  # one marginal poll — the card is still sitting on the stand
+    assert reader.poll() is None
+    fake._uid = b"\x04\x48\x33"
+
+    assert reader.poll().uri == CARD
+    assert len(pages) == settled, "a sub-debounce dropout must not force an NDEF re-read"
+
+
+def test_a_built_reader_re_reads_once_the_removal_debounce_is_met():
+    """The boundary's other side: a real lift must still invalidate, or #232 comes back."""
+    fake = FakePn532(uid=b"\x04\x48\x33", pages=_tag_pages(CARD))
+    pages = _counting_pages(fake)
+    reader = build_pn532_reader(fake, RfConfig(), forget_after_absent_polls=10)
+
+    assert reader.poll().uri == CARD
+    settled = len(pages)
+
+    fake._uid = None
+    for _ in range(10):
+        assert reader.poll() is None
+    fake._uid = b"\x04\x48\x33"
+
+    assert reader.poll().uri == CARD
+    assert len(pages) > settled, "a confirmed removal must drop the cached decode"
+
+
 # --- the config knob --------------------------------------------------------------------------------
 
 
