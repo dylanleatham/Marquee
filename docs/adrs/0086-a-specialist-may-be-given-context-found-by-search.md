@@ -1,5 +1,11 @@
 # ADR 0086 — A specialist may be given context found by search
 
+> **Amended 2026-08-16 by [ADR 0092](0092-the-harness-is-three-reviewers-and-one-command.md).**
+> `doc-coherence`, the reviewer this ADR introduced `contextRelated` for, was merged into
+> `spec-adherence`, and `null-result` — the other reviewer added here — is unchanged. The mechanism
+> decided below (context resolved by keyword search, bounded on four axes) is kept and is now used by
+> `spec-adherence`.
+
 **Date:** 2026-08-13
 **Status:** Accepted
 **Supersedes:** nothing. Amends [dev-harness.md](../specs/dev-harness.md) §6 (the roster gains two
@@ -79,7 +85,7 @@ Two constraints on the implementation, both load-bearing:
   would be meaningless and a re-ordering could read as a regression.
 
 `doc-coherence` ships **info**, not blocking. Promotion waits on ledger evidence that its precision
-holds, which is [ADR-less §4.1](../specs/harness-self-improvement.md) paying for itself.
+holds, which is the ledger (ADR-less §4.1) paying for itself.
 
 ## Consequences
 

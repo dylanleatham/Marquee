@@ -1,7 +1,0 @@
-{
-  "id": "clean-own-cover-palette-control",
-  "source": "commit:d39a9a0 (reversed)",
-  "kind": "must-not-find",
-  "specialist": "spec-adherence",
-  "notes": "Forward diff of d39a9a0 (ADR 0084), a clean merge that shipped and stayed shipped. spec-adherence raising a blocking finding here is a false positive."
-}

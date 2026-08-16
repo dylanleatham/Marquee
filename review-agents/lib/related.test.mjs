@@ -1,6 +1,6 @@
-// Tests for keyword-resolved context (ADR 0086, docs/specs/harness-self-improvement.md §4.3).
+// Tests for keyword-resolved context (ADR 0086).
 //
-// The point of `contextRelated` is that `doc-coherence` cannot name its context in advance — the
+// The point of `contextRelated` is that `spec-adherence` cannot name its doc context in advance — the
 // question "which other copies of this fact are now wrong?" is a search. The risk of a search is
 // that it is unbounded and non-deterministic, so that is what these pin.
 
