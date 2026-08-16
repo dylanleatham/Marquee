@@ -530,17 +530,28 @@ a:hover {
 .statband__bar--hot {
   background: var(--pp-accent);
 }
+/* One label per bar, same cells and same gap as the bars above, so the two rows stay in register. */
 .statband__bar-labels {
   display: flex;
   gap: 5px;
   margin-top: 5px;
 }
+/*
+ * A cell here is narrow — six of them share the rotator, about 35px each on an 864px window — and
+ * the data is genre names, which are not. `overflow-wrap: anywhere` is what keeps a long one in its
+ * own column: "Electronic" is one unbreakable word, and a centred box with nowhere to break spills
+ * out of *both* sides and prints over its neighbours. Measured before the fix: 16.3px of spill and
+ * 4.2px of overlap onto "Rock". Breaking mid-word is ugly at 8.5px; two labels printed on top of
+ * each other is unreadable, which is worse. Ten other rules had the same hole — see issue #339 and
+ * the gate in styles.test.ts.
+ */
 .statband__bar-label {
   flex: 1;
   min-width: 0;
   font: 500 8.5px/1.3 var(--pp-mono);
   color: var(--pp-ink-muted);
   text-align: center;
+  overflow-wrap: anywhere;
 }
 .statband__big {
   font: 400 21px/1.1 var(--pp-display);
@@ -1307,6 +1318,7 @@ a:hover {
   min-width: 0;
   font: 400 12px/1.4 var(--pp-body);
   color: var(--pp-ink-faint);
+  overflow-wrap: anywhere;
 }
 .lights__moves {
   display: flex;
@@ -1439,6 +1451,7 @@ a:hover {
 .bdstrip__text {
   flex: 1;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 .bdstrip__bar {
   width: 80px;
@@ -1513,6 +1526,7 @@ a:hover {
   min-width: 0;
   font: 400 11.5px/1.5 var(--pp-body);
   color: #4a4638;
+  overflow-wrap: anywhere;
 }
 .drafts__copy {
   flex: none;
@@ -1705,6 +1719,7 @@ a:hover {
 .demotrack__name {
   flex: 1;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 .demotrack__len {
   font: 500 12px/1 var(--pp-mono);
@@ -1798,6 +1813,7 @@ a:hover {
   min-width: 0;
   font: 400 13px/1.3 var(--pp-body);
   color: var(--pp-ink);
+  overflow-wrap: anywhere;
 }
 
 /* ---- the tags panel --------------------------------------------------------------------------- */
@@ -2388,6 +2404,7 @@ a:hover {
   margin: 0;
   font: 400 16px/1.15 var(--pp-display);
   letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
 }
 .batch__bar {
   height: 5px;
@@ -2857,6 +2874,7 @@ a:hover {
   flex: 1;
   min-width: 0;
   font: 400 13px/1.4 var(--pp-body);
+  overflow-wrap: anywhere;
 }
 .unmatched__why {
   color: var(--pp-accent-text);
@@ -2983,6 +3001,7 @@ a:hover {
 .inflight__what {
   flex: 1;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 .inflight__scope {
   color: var(--pp-ink-faint);
@@ -3063,6 +3082,7 @@ a:hover {
 .nowrow__now {
   flex: 1;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 /* Same hairline-outline idiom as the service list's RETRY, in ink rather than accent — this is a
    control you may well press when nothing is wrong, not a repair for a failure. */
@@ -3084,6 +3104,7 @@ a:hover {
 .nowrow__album {
   flex: 1;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 .nowrow__problem {
   font: 500 10px/1.5 var(--pp-mono);
@@ -3345,6 +3366,7 @@ a:hover {
 .account__name {
   flex: 1;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 .account__change {
   font: 500 9.5px/1 var(--pp-mono);

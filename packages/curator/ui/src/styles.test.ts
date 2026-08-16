@@ -132,6 +132,128 @@ export function definedClasses(): Set<string> {
   );
 }
 
+/** Every declaration block in the stylesheet, as `{ selector, body }`. Comments stripped first. */
+export function cssRules(): Array<{ selector: string; body: string }> {
+  const css = readFileSync(join(SRC, "styles.css"), "utf8").replace(
+    /\/\*[\s\S]*?\*\//g,
+    " ",
+  );
+  return [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
+    selector: (m[1] ?? "").trim().replace(/\s+/g, " "),
+    body: m[2] ?? "",
+  }));
+}
+
+/**
+ * A flex item that has given up its `min-width` has to be able to break its own text ([#339]).
+ *
+ * `min-width: 0` is how a flex item is allowed to be narrower than its content — it is what makes
+ * the stat band's six genre columns equal, and what stops one long service name from shoving a
+ * whole row sideways. It is also the removal of the *only* thing keeping text inside the box.
+ * Past that point a single unbreakable word does not widen its cell, does not clip, and does not
+ * scroll: it paints straight over whatever is next to it.
+ *
+ * That is what shipped in the genre chart. "Electronic" spilled 16.3px out of a 34.7px column and
+ * printed 4.2px of itself on top of "Rock". Sweeping the stylesheet for the same shape turned up
+ * ten more, each measured spilling onto its neighbour in headless Chrome before the fix:
+ * `.unmatched__what` by 199px at 300px wide, `.inflight__what` by 206px, `.batch__head h2` by 181px.
+ * All eleven hold text from outside this codebase — album titles, track names, Spotify account
+ * details, LLM draft text, Hue room names — so "our own strings are short" was never the guard.
+ *
+ * jsdom computes no geometry, so `pnpm test` renders every one of those overlaps and asserts clean
+ * (see `render-ui-before-claiming-done`). What *is* checkable from here is the declaration that
+ * prevents it, and this list is exhaustive by construction: every rule that says `min-width: 0`
+ * either declares a break, or is named below as something that holds no text of its own.
+ *
+ * [#339]: https://github.com/dylanleatham/Marquee/issues/339
+ */
+const NO_TEXT_OF_ITS_OWN: Record<string, string> = {
+  // Layout boxes. Each one's text lives in child elements with their own rules, and those children
+  // are where the break belongs — declaring it here would be inherited, but it would also be a
+  // claim about text this rule does not own.
+  ".statband__cell": "wraps a label, a count and a caption",
+  ".statband__rotator":
+    "the rotating stat's button — head and body are children",
+  ".tile": "an album tile: sleeve, title and byline are children",
+  ".stuck__body": "wraps .stuck__title and .stuck__why",
+  ".record__main": "the record page's right-hand column",
+  ".lights__source": "a panel holding a label, a bar and a caption",
+  ".viz__main": "the visualizer panel's stage column",
+  ".tagobj": "a tag card: art plus .tagobj__body",
+  ".tagobj__body": "wraps the card's own heading and lines",
+  ".toast__body": "wraps .toast__title and .toast__sub",
+  ".addgrid__cell": "a search result: art plus its own text children",
+  ".arrival": "a row of children, none of them loose text",
+  ".svc": "a service row: dot plus .svc__body",
+  ".svc__body": "wraps the service name and its detail line",
+
+  // Not text at all.
+  ".statband__bar": "a bar in the chart — a coloured box, no content",
+  ".record__strip span": "a colour swatch, aria-hidden",
+  ".lights__source-bar span": "a colour swatch, aria-hidden",
+
+  // The one real exception: a single-line <input> scrolls its value rather than painting outside
+  // itself, so `overflow-wrap` would do nothing. Measured at 300px and 420px wide with a full
+  // Spotify URL in it: 0px spill, both times.
+  ".demo__uri-input":
+    "an <input> — a single-line field scrolls, it never overflows",
+};
+
+const GAVE_UP_MIN_WIDTH = /min-width:\s*0/;
+
+/**
+ * Whether a rule actually keeps its text inside its own box. Values matter, not property names:
+ * `word-break: keep-all` *forbids* the break, and `text-overflow: ellipsis` is a no-op unless
+ * something clips, so either would sail past a check that only asked whether the property appeared.
+ * There are exactly two ways out — break the line, or clip it.
+ */
+const canBreak = (body: string): boolean =>
+  /overflow-wrap:\s*(anywhere|break-word)/.test(body) ||
+  /word-break:\s*(break-all|break-word)/.test(body) ||
+  /overflow:\s*hidden/.test(body);
+
+describe("text cannot escape a flex item that gave up its min-width", () => {
+  it("gives every min-width: 0 rule either a break or a reason", () => {
+    const naked = cssRules()
+      .filter(
+        (r) =>
+          GAVE_UP_MIN_WIDTH.test(r.body) &&
+          !canBreak(r.body) &&
+          !(r.selector in NO_TEXT_OF_ITS_OWN),
+      )
+      .map((r) => r.selector);
+
+    expect(
+      naked,
+      "`min-width: 0` lets this item be narrower than its content, and nothing else here stops " +
+        "the content painting over its neighbour. Add `overflow-wrap: anywhere` if it holds text (or " +
+        "clip it with `overflow: hidden`) — or, if it only holds child elements, add it to " +
+        "NO_TEXT_OF_ITS_OWN with the reason.",
+    ).toEqual([]);
+  });
+
+  it("keeps the list honest — an entry that grew a break rule is no longer text-free", () => {
+    const contradicted = cssRules()
+      .filter((r) => r.selector in NO_TEXT_OF_ITS_OWN && canBreak(r.body))
+      .map((r) => r.selector);
+    expect(contradicted).toEqual([]);
+  });
+
+  it("keeps the list honest — an entry no rule declares is dead", () => {
+    const selectors = new Set(cssRules().map((r) => r.selector));
+    expect(
+      Object.keys(NO_TEXT_OF_ITS_OWN).filter((s) => !selectors.has(s)),
+    ).toEqual([]);
+  });
+
+  it("still recognises the shape it is guarding — the genre chart's labels", () => {
+    const label = cssRules().find((r) => r.selector === ".statband__bar-label");
+    expect(label, ".statband__bar-label is gone or renamed").toBeDefined();
+    expect(GAVE_UP_MIN_WIDTH.test(label!.body)).toBe(true);
+    expect(canBreak(label!.body)).toBe(true);
+  });
+});
+
 describe("styles.css covers the classes components use", () => {
   it("defines every class name reached from a .tsx", () => {
     const defined = definedClasses();
