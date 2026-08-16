@@ -146,3 +146,48 @@ def test_init_timeout_rejects_a_bound_of_zero():
     # 0 would fail every init instantly and crash-loop the service forever.
     with pytest.raises(ValueError):
         config_from_dict({"reader": {"init_timeout_ms": 0}})
+
+
+# --- the stand's on/off switch ([ADR 0093]) --------------------------------------------------------
+
+
+def test_switch_defaults_to_absent_and_therefore_live():
+    """An absent switch must read as "live". The opposite default would mean every stand that
+    upgrades to this version goes silent until someone edits a config file."""
+    cfg = config_from_dict({})
+    assert cfg.switch.enabled is False
+    assert cfg.switch.gpio_pin == 27
+    assert cfg.switch.live_when == "low"
+
+
+def test_switch_config_is_read():
+    cfg = config_from_dict({"switch": {"enabled": True, "gpio_pin": 22, "live_when": "high"}})
+    assert cfg.switch.enabled is True
+    assert cfg.switch.gpio_pin == 22
+    assert cfg.switch.live_when_low is False
+
+
+def test_live_when_low_is_derived():
+    assert config_from_dict({"switch": {"live_when": "low"}}).switch.live_when_low is True
+
+
+def test_a_nonsense_live_when_is_refused():
+    with pytest.raises(ValueError, match="live_when"):
+        config_from_dict({"switch": {"live_when": "closed"}})
+
+
+@pytest.mark.parametrize("pin,what", [(2, "SDA"), (3, "SCL"), (17, "LED")])
+def test_a_switch_pin_already_owned_by_something_else_is_refused(pin, what):
+    """Half-working hardware reads as a flaky reader, which is the worst kind of bug to chase."""
+    with pytest.raises(ValueError, match="already"):
+        config_from_dict({"switch": {"enabled": True, "gpio_pin": pin}})
+
+
+def test_a_switch_pin_colliding_with_a_non_default_led_pin_is_refused():
+    with pytest.raises(ValueError, match="led.gpio_pin"):
+        config_from_dict({"led": {"gpio_pin": 22}, "switch": {"enabled": True, "gpio_pin": 22}})
+
+
+def test_a_reserved_pin_is_allowed_while_the_switch_is_disabled():
+    # Nothing is wired, so nothing can collide — don't fail a boot over a dormant setting.
+    assert config_from_dict({"switch": {"gpio_pin": 17}}).switch.gpio_pin == 17

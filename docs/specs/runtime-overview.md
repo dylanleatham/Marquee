@@ -154,6 +154,10 @@ Fired to both Conductor (`/api/scan`) and Backdrop (`/api/scan`) in parallel. Bo
 
 **Fan-out over centralization**: there is no central "playback state" service. Conductor and Backdrop each own their own state, driven by the same events. This is a deliberate choice — simpler failure modes, no orchestrator to become a single point of failure, and each service is testable in isolation.
 
+> **The stand has an off switch (2026-08-16, [ADR 0093](../adrs/0093-the-stand-has-a-latching-off-switch.md) / [stylus-spec §7.1](stylus-spec.md)).** A consequence of the paragraph above: since nothing downstream holds shared playback state, an "off" for the whole experience can only live at the point the events originate. A latching switch on the stand's Pi is that point — flipped off, Stylus shows its state machine an **empty stand**, so a normal `stop` fans out and the room returns to its pre-scan state, records placed while off do nothing, and flipping back on picks up the sleeve that's already there. Off therefore means "the room goes back to normal", **not** "the room goes dark". The runtime services are unchanged and know nothing about it, which is the point.
+
+> Curator's room-rehearsal `simulate-scan` posts to the runtime services directly and so bypasses the switch — deliberate; it's an admin action from another room, behind its own room-arm gate ([ADR 0028](../adrs/0028-preview-bench-and-room-modes.md)).
+
 ## 6. The full loop (narrative)
 
 **Setup phase** (once, when adding an album):
@@ -179,6 +183,8 @@ Fired to both Conductor (`/api/scan`) and Backdrop (`/api/scan`) in parallel. Bo
 8. Stylus sees no tag for ~2s, fires `{ event: "stop", at, readerId }`.
 9. Conductor: fades lights back to the snapshotted pre-scan state.
 10. Backdrop: fades video out, idle overlay back in.
+
+Or, when you'd rather the room stayed as it is: flip the stand's off switch (§5 above). Steps 8–10 run exactly as if you'd lifted the sleeve, and steps 1–5 stop happening until you flip it back.
 
 **Safety-net phase** (when things go wrong):
 

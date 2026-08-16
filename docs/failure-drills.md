@@ -313,15 +313,45 @@ worse than no sync tool — you'd stop checking by hand.
 **Polish item**, not a §9 row. **Covered by:** `stylus/tests/test_led.py` proves the pattern
 _timings_; nothing can prove they're legible.
 
-Sit where you'd actually sit. Walk the stand through all four states — idle (nothing on it), reading
-(sleeve going down), playing (sleeve settled), error (D5's fast blink) — and answer one question per
-state: **could you tell what the stand is doing without looking at a terminal?**
+Sit where you'd actually sit. Walk the stand through all five states — idle (nothing on it), reading
+(sleeve going down), playing (sleeve settled), error (D5's fast blink), and switched off (§7.1's
+blip every ~4s) — and answer one question per state: **could you tell what the stand is doing
+without looking at a terminal?**
 
 Tune in `stylus/config.toml`, restart, look again. The patterns are semantic
 (`stylus/led.py`), so a change is a pattern edit, not a rewrite.
 
-**Fails if:** any two states read the same from across the room. Note that idle-breathe degrades to a
-slow blink on a non-PWM pin — if that's what you're seeing, it's cosmetic and expected.
+**Fails if:** any two states read the same from across the room. Two specific confusions to check
+for, since both are states you'd act on wrongly: switched-off vs. **unpowered** (the blip is the only
+thing separating them — if you can't catch it from your seat, the pattern needs a second blip, not a
+brighter one), and switched-off vs. idle. Note that idle-breathe degrades to a slow blink on a
+non-PWM pin — if that's what you're seeing, it's cosmetic and expected, but it does move idle closer
+to the off pattern, so judge that combination on the pin you actually shipped.
+
+---
+
+## D8b — The off switch gives the room back
+
+**§7.1 / [ADR 0093](adrs/0093-the-stand-has-a-latching-off-switch.md).** **Covered by:**
+`stylus/tests/test_app.py` proves the events; only the room can prove the experience.
+
+The failure this guards against is the one the design was chosen to avoid: an "off" that stops new
+scans but leaves the lights frozen on the last record's palette.
+
+1. Play a record. Lights and video up.
+2. Flip the switch off, sleeve still on the stand.
+3. **Observable:** within ~2s the lights fade to their pre-scan state and the display returns to the
+   idle overlay — the same as lifting the sleeve. The stand's LED goes to the off blip.
+4. Put a different record on. **Observable:** nothing happens, anywhere.
+5. Flip the switch back on, leaving that record where it is.
+6. **Observable:** it starts — no lifting and re-placing.
+7. `sudo systemctl restart marquee-stylus` with the switch off. **Observable:** the room stays quiet
+   and `GET /status` reports `switch.live: false`. This is the whole reason the switch is latching;
+   a momentary button would re-arm here.
+
+**Fails if:** step 3 leaves the room lit, step 6 needs the sleeve lifted, or step 7 wakes the room.
+Also check `switch.source` on `/status` reads `gpio` — `unavailable` means the switch is wired but
+Stylus never got hold of the pin, and the stand is silently permanently live.
 
 ---
 
@@ -395,6 +425,7 @@ unrecorded "looked fine to me" is how ADR 0011's open question stays open for an
 | D6 bad JSON asset            |        | ☐      |                     |
 | D7 sync verification         |        | ☐      |                     |
 | D8 LED legibility            |        | ☐      |                     |
+| D8b off switch               |        | ☐      |                     |
 | D9 debounce / removal timing |        | ☐      |                     |
 | D10 loop-seam blend          |        | ☐      |                     |
 

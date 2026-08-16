@@ -163,3 +163,44 @@ def test_close_turns_the_led_off_and_releases_the_pin():
     led.close()
     assert driver.levels[-1] == 0.0
     assert driver.closed
+
+
+# --- the switched-off pattern ([ADR 0093]) ---------------------------------------------------------
+
+
+def test_off_is_a_blip_not_darkness():
+    """"Switched off" and "unpowered" must not look the same — a dark LED is what a dead stand
+    shows, and the whole point of the indicator is telling you the stand is fine, just asleep."""
+    frames = frames_for(Pattern.OFF)
+    assert any(level > 0 for level, _ in frames)
+
+
+def test_off_is_mostly_dark_so_it_cannot_be_mistaken_for_idle():
+    frames = frames_for(Pattern.OFF)
+    lit = sum(hold for level, hold in frames if level > 0)
+    total = sum(hold for _, hold in frames)
+    assert total > 3.0  # a long, slow cycle — nothing like IDLE's 2s breathe
+    assert lit / total < 0.05
+
+
+def test_off_yields_promptly_so_switching_back_on_looks_instant():
+    """`GpioLed.play_once` only tests for interruption between frames, so a single 4s dark frame
+    would leave the LED up to 4s behind the switch. No frame may be long enough to notice."""
+    assert max(hold for _, hold in frames_for(Pattern.OFF)) <= 0.5
+
+
+def test_off_is_not_a_one_shot():
+    assert is_one_shot(Pattern.OFF) is False
+
+
+def test_every_pattern_is_visually_distinct():
+    """`frames_for` ends in an unguarded `return` for START_ACK, so a new Pattern member with no
+    branch of its own silently inherits START_ACK's two blinks — a *wrong* indication rather than a
+    crash, which nothing else here would flag. Asserting distinctness is what closes that: an
+    indicator that duplicates another indicator conveys nothing either way."""
+    seen: dict[tuple, Pattern] = {}
+    for pattern in Pattern:
+        frames = tuple(frames_for(pattern))
+        assert frames, pattern
+        assert frames not in seen, f"{pattern} is indistinguishable from {seen.get(frames)}"
+        seen[frames] = pattern

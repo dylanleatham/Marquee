@@ -23,6 +23,7 @@ That's the whole test. If it passes, the physical concept works and everything d
 - Debounced state machine: idle → playing → idle, with swap handling
 - HTTP publishing to Conductor and Player endpoints
 - Local status LED for visual feedback
+- A physical on/off switch for the stand (§7.1) — the one place a single interruption suppresses lights, video and audio together
 - Config file for endpoints and tuning
 - Runs as a systemd service on boot
 
@@ -44,8 +45,9 @@ That's the whole test. If it passes, the physical concept works and everything d
 | USB-C or micro-USB power supply (5V 2A) | Power                       | ~$8      |
 | 4x jumper wires (or short solder job)   | PN532 → Pi                  | ~$1      |
 | Small LED + 330Ω resistor               | Status indicator            | ~$1      |
+| Latching SPST toggle or rocker switch   | On/off for the stand (§7.1) | ~$2      |
 | Enclosure or 3D-printed mount           | Physical integration        | varies   |
-| **Total**                               |                             | **~$40** |
+| **Total**                               |                             | **~$42** |
 
 **PN532 module selection:** Get one with a switchable interface (I2C / SPI / UART) via DIP switches or solder pads. Set it to **I2C mode**. Adafruit's PN532 Breakout is the gold-standard, but the generic Elechouse or "PN532 NFC HAT" modules on Amazon work fine and are half the price.
 
@@ -61,6 +63,8 @@ That's the whole test. If it passes, the physical concept works and everything d
 Enable I2C on the Pi: `sudo raspi-config` → Interfacing Options → I2C → Enable.
 
 Status LED to GPIO 17 (pin 11) via a 330Ω resistor to ground. GPIO drives HIGH = LED on. Blink patterns per §7.
+
+Optional on/off switch (§7.1) to GPIO 27 (pin 13) and ground — a **latching** SPST toggle or rocker, no external resistor (Stylus enables the internal pull-up). Closed pulls the pin low, which is `live_when = "low"`. Any free pin works; Stylus refuses GPIO 2/3 (the I²C bus above) and the LED's pin, since sharing one half-works in a way that presents as a flaky reader.
 
 **Why Pi Zero 2 W instead of ESP32:**
 Better debugging story than a bare microcontroller. Full Linux, SSH, logs, easy library management, room to grow. If you eventually want to shrink to a tiny appliance form factor, migrating a Python HTTP-publishing loop to ESP32 firmware is a weekend, not a rebuild.
@@ -188,6 +192,35 @@ Rationale: fast enough that placing a sleeve feels instant, slow enough that a h
 - Solid on: PLAYING
 - Fast blink (100ms): error posting to downstream (visible signal something is wrong on the network)
 - Two short blinks then off: a `start` was **read and accepted** (nice touch, gives you a visual "I heard you"). Until 2026-08-13 this meant "successfully published"; publishing is asynchronous since [#173](https://github.com/dylanleatham/Marquee/issues/173), so the delivery result isn't known when the sleeve lands. Waiting for it would put the blink seconds after the gesture — delivery failures still show up, as the fast-blink error pattern.
+- One brief blip every ~4s: the stand is **switched off** (§7.1, 2026-08-16). Deliberately not a dark LED — that is what an unpowered stand looks like, and "switched off" must not share an indication with "dead". This pattern outranks the error blink, since a stand that isn't publishing has nothing useful to say about downstream health.
+
+All five are distinguished by **motion**, never colour: the indicator is a single-channel LED and has no colour to encode with. `test_every_pattern_is_visually_distinct` fails if a new pattern silently inherits another's frames.
+
+### 7.1 The stand's on/off switch
+
+> **Added 2026-08-16 ([ADR 0093](../adrs/0093-the-stand-has-a-latching-off-switch.md)).** Before this, placing a sleeve on the stand was the only way to start the experience _and_ the only way to be in the room with a record on the stand — so the lights and TV changed whether or not that was wanted. Stylus is the only place where one interruption suppresses lights, video and audio at once; the runtime services deliberately share no playback state ([runtime-overview §5](runtime-overview.md)).
+
+An optional **latching** toggle/rocker wired between a GPIO pin and ground (internal pull-up; no external resistor). Its position _is_ the state — read at boot and on every poll, with nothing persisted.
+
+**A switched-off stand shows the state machine an _empty_ stand.** The machine above is unchanged; it is simply told there is no tag. Every behaviour falls out of the debounces already in §7:
+
+| You do this                                 | The machine does                         | You see                                |
+| ------------------------------------------- | ---------------------------------------- | -------------------------------------- |
+| Flip off while a record is playing          | removal debounce → ordinary `stop` (~2s) | the room returns to its pre-scan state |
+| Put a record down while off                 | nothing — an empty stand stays IDLE      | nothing                                |
+| Flip on with a sleeve already sitting there | insertion debounce → ordinary `start`    | it plays; no lift-and-replace needed   |
+| Flick the switch briefly                    | absorbed by the removal debounce         | nothing                                |
+
+Off means **the room goes back to normal, not dark**: Conductor restores its pre-scan snapshot and Backdrop returns to the idle overlay, exactly as when a sleeve is lifted. Turning the Hue lights themselves off is the Hue app's job.
+
+Notes that are easy to get wrong:
+
+- **Absent ⇒ live.** `[switch] enabled` defaults to `false`; a stand with no switch must never be mistaken for one in the off position.
+- **Unreadable ⇒ live.** A GPIO read that throws holds the last known position; a switch that can't be built at all degrades to always-live, logs at ERROR, and reports `switch.source = "unavailable"` on `GET /status`. Without that field, "the switch does nothing" and "the switch is on" are identical over HTTP.
+- **The watchdog is still fed while off** (§12). An off stand is idle, not dead — the heartbeat is the first statement in `tick()`, ahead of the switch read.
+- **`observed` stays honest while off**, because it describes the reader rather than the machine. That is how "is the stand off, or is my tag dead?" gets an answer.
+- **No contact debounce.** A mechanical switch settles well inside the 200ms poll interval, and the debounces above absorb the rest.
+- **Curator's `simulate-scan` bypasses it**, posting to the runtime services directly. That is correct — room rehearsal is a deliberate admin action with its own room-arm gate ([ADR 0028](../adrs/0028-preview-bench-and-room-modes.md)).
 
 > **Implementation note (2026-07-28, build step 11):** patterns are frames of
 > `(brightness, duration)` played on a background thread (`stylus/led.py`); the frame tables are pure
@@ -263,14 +296,15 @@ Small local HTTP server on port 4741:
 
 - `GET /status` → two views, deliberately separate:
 
-  | Field                                      | View        | Meaning                                                                                                                                                                                                   |
-  | ------------------------------------------ | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-  | `state`, `lastUid`, `lastUri`, `lastEvent` | the machine | What is **playing**. Null until a scan actually fired.                                                                                                                                                    |
-  | `observed: { uid, uri, at } \| null`       | the reader  | What is **on the stand right now**, decoded or not. `uri` is null when the NDEF wouldn't read; the whole object is null when the reader sees nothing.                                                     |
-  | `lastBadTag: { uid, uri, at } \| null`     | the reader  | The last tag the machine refused, **kept after the sleeve is lifted**.                                                                                                                                    |
-  | `downstreamHealth`                         | publishing  | Per-downstream result of the last **completed** publish — not necessarily of `lastEvent`, since [#173](https://github.com/dylanleatham/Marquee/issues/173) made publishing asynchronous.                  |
-  | `publishQueue: { depth, dropped } \| null` | publishing  | Backlog of the publish worker. A climbing `depth` or non-zero `dropped` is a downstream being unreachable. Null only if the publisher has no queue — the service always wires one, `--simulate` included. |
-  | `rf: { gsnOn, cwGsp }`                     | the chip    | The PN532 transmit drive in force (§10, [ADR 0075](../adrs/0075-stylus-drives-the-pn532-below-its-default-power.md)). Volatile settings, so this is a different question from what `config.toml` says.    |
+  | Field                                      | View        | Meaning                                                                                                                                                                                                       |
+  | ------------------------------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `state`, `lastUid`, `lastUri`, `lastEvent` | the machine | What is **playing**. Null until a scan actually fired.                                                                                                                                                        |
+  | `observed: { uid, uri, at } \| null`       | the reader  | What is **on the stand right now**, decoded or not. `uri` is null when the NDEF wouldn't read; the whole object is null when the reader sees nothing.                                                         |
+  | `lastBadTag: { uid, uri, at } \| null`     | the reader  | The last tag the machine refused, **kept after the sleeve is lifted**.                                                                                                                                        |
+  | `downstreamHealth`                         | publishing  | Per-downstream result of the last **completed** publish — not necessarily of `lastEvent`, since [#173](https://github.com/dylanleatham/Marquee/issues/173) made publishing asynchronous.                      |
+  | `publishQueue: { depth, dropped } \| null` | publishing  | Backlog of the publish worker. A climbing `depth` or non-zero `dropped` is a downstream being unreachable. Null only if the publisher has no queue — the service always wires one, `--simulate` included.     |
+  | `rf: { gsnOn, cwGsp }`                     | the chip    | The PN532 transmit drive in force (§10, [ADR 0075](../adrs/0075-stylus-drives-the-pn532-below-its-default-power.md)). Volatile settings, so this is a different question from what `config.toml` says.        |
+  | `switch: { live, source }`                 | the stand   | The on/off switch (§7.1). `source` is `gpio`, `simulated`, `none` (no switch wired) or `unavailable` (configured but its hardware isn't there — so it does nothing, and this is the only place that says so). |
 
   > **Why both.** Until 2026-08-01 only the machine's view existed, so a sleeve sitting on the reader
   > being rejected — an unwritten tag, a garbled NDEF, a URI for another scheme — made `/status`
@@ -284,6 +318,7 @@ Small local HTTP server on port 4741:
 
 - `GET /healthz` → 200 if the PN532 is responding
 - `POST /simulate` → dev-only endpoint to inject fake tag events without physical hardware. Very useful during Player/Conductor testing.
+- `POST /switch` → dev-only: flip the §7.1 on/off switch, `{ "live": false }`. Available only under `--simulate-switch`; otherwise `409`, because on the stand the latching switch is the sole authority and an HTTP toggle it would snap back on the next poll is a control that lies.
 
 ## 9. Configuration
 
@@ -327,6 +362,14 @@ listen_port = 4741
 [led]
 gpio_pin = 17
 enabled = true
+
+# The stand's on/off switch (§7.1, ADR 0093). Latching toggle between the pin and ground.
+# `enabled = false` means no switch is wired, which reads as permanently live.
+# `live_when` is which pin level means on: with this wiring a *closed* switch pulls the pin low.
+[switch]
+enabled = false
+gpio_pin = 27
+live_when = "low"
 ```
 
 Shared secret is sent as `X-Trigger-Secret` header; downstream services reject requests without it. Prevents the (unlikely) case of someone on your LAN spamming your Conductor with fake scans.

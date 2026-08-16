@@ -73,3 +73,25 @@ listen_port = 4741
 [led]
 gpio_pin = 17
 enabled = true
+
+# The stand's on/off switch (spec §7.1, ADR 0093). A **latching** toggle/rocker between the pin and
+# ground — no external resistor, the internal pull-up does it. Flipped off, the stand stops driving
+# the room: the machine is shown an empty stand, so the ordinary removal debounce fires a normal
+# `stop` and the lights/video/Sonos go back to how they were. Records placed while off do nothing;
+# flipping back on with a sleeve already sitting there starts it, no lift-and-replace needed.
+#
+# `enabled = false` is the default and means "no switch is wired", which reads as permanently live —
+# an absent switch must never be mistaken for one in the off position.
+#
+# The switch is latching precisely so its position survives a reboot: Stylus reads the pin at boot,
+# so a stand you switched off stays off through a power cut, a `systemctl restart`, and the §12
+# watchdog killing a wedged poll loop. A momentary button would have needed a state file to promise
+# the same, and a file that disagrees with the thing on the front of the stand is worse than nothing.
+#
+# `live_when` is which pin level you decided means on when you mounted it. With this wiring a
+# *closed* switch pulls the pin low, so "low" means closed = live; flip it to "high" if you mounted
+# the switch the other way round rather than rewiring.
+[switch]
+enabled = false
+gpio_pin = 27       # free: 2/3 are the PN532's I²C bus and 17 is the LED — Stylus refuses those
+live_when = "low"

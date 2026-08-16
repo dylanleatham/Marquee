@@ -13,8 +13,9 @@ The full service, testable and demoable **with no PN532 attached**:
 - `publisher.py` — fan-out HTTP publisher over stdlib `urllib` with the §8 retry window
   (immediate, +500ms, +2s) and the `X-Trigger-Secret` header.
 - `reader.py` — `SimulatedReader` (bench) + `create_pn532_reader` (Pi, lazy `adafruit` import).
-- `led.py` — semantic LED patterns (idle/playing/error/ack); logs on the bench.
-- `status_server.py` — `GET /status`, `GET /healthz`, `POST /simulate` (§8.3).
+- `led.py` — semantic LED patterns (idle/playing/error/ack/off); logs on the bench.
+- `switch.py` — the stand's §7.1 on/off switch, behind the same seam as the LED.
+- `status_server.py` — `GET /status`, `GET /healthz`, `POST /simulate`, `POST /switch` (§8.3).
 - `app.py` / `__main__.py` — the poll loop and entrypoint.
 
 The core is **stdlib-only** so it runs anywhere (the Pi's `adafruit`/hardware libs are never imported
@@ -28,6 +29,14 @@ python -m stylus --simulate --config config.example.toml
 curl -X POST localhost:4741/simulate -d '{"uid":"04:A1:B2","uri":"curator:album:2k7bxq9m"}'
 curl localhost:4741/status
 curl -X POST localhost:4741/simulate -d '{"clear":true}'
+```
+
+To exercise the §7.1 off switch with no GPIO, add `--simulate-switch` and flip it over HTTP:
+
+```sh
+python -m stylus --simulate --simulate-switch --config config.example.toml
+curl -X POST localhost:4741/switch -d '{"live":false}'   # the stand stops driving the room
+curl -X POST localhost:4741/switch -d '{"live":true}'    # …and picks the sleeve back up
 ```
 
 `--simulate` uses the fake reader; `POST /simulate` injects tags. The events fan out to whatever
@@ -52,6 +61,12 @@ Deploy runbook: **[DEPLOY.md](DEPLOY.md)** (wiring, I²C, venv install, systemd,
   [ADR 0076](../../docs/adrs/0076-a-hung-pn532-init-becomes-a-restart.md)).
 - `create_led(enabled, gpio_pin)` drives a real LED through Blinka — PWM where available (so IDLE
   actually breathes), degrading to on/off, and to logging when the hardware libs are absent.
+- `create_switch(enabled, gpio_pin, live_when_low)` reads the stand's latching on/off switch, and
+  degrades the same way — to always-live, since a stand that silently refuses to react is
+  indistinguishable from a broken one. `switch.source` on `/status` is what tells the two apart
+  ([ADR 0093](../../docs/adrs/0093-the-stand-has-a-latching-off-switch.md)). Switched off, the app
+  hands the state machine `None` instead of the tag, so `stop`/`start` come from the ordinary
+  debounces rather than from a second code path.
 - `stylus/watchdog.py` — `sd_notify` in about forty lines: `READY=1` at startup, `WATCHDOG=1` while
   the loop runs. A poll loop wedged in a driver call stops pinging and systemd kills it (§12,
   [ADR 0077](../../docs/adrs/0077-the-poll-loop-proves-it-is-alive.md)). The poll loop is the
