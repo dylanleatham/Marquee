@@ -67,6 +67,41 @@ class LedConfig:
 
 
 @dataclass(frozen=True)
+class SwitchConfig:
+    """The stand's latching on/off switch (stylus-spec §7.1, [ADR 0093]).
+
+    Disabled by default: the stand shipped without one, and an absent switch must read as "live"
+    rather than as "off". ``live_when`` is which pin level you decided means on when you mounted it
+    — with the documented wiring (switch to ground, internal pull-up) ``"low"`` means a *closed*
+    switch is live.
+    """
+
+    enabled: bool = False
+    gpio_pin: int = 27
+    live_when: str = "low"
+
+    def __post_init__(self) -> None:
+        if self.live_when not in ("low", "high"):
+            raise ValueError(f'switch.live_when must be "low" or "high" (got {self.live_when!r})')
+        # GPIO 2/3 are the PN532's I²C bus and 17 is the LED (§4). Sharing one would half-work in a
+        # way that reads as a flaky reader, so refuse it here rather than at 1am on the stand.
+        if self.enabled and self.gpio_pin in _RESERVED_GPIO:
+            raise ValueError(
+                f"switch.gpio_pin {self.gpio_pin} is already used by "
+                f"{_RESERVED_GPIO[self.gpio_pin]} — pick a free pin"
+            )
+
+    @property
+    def live_when_low(self) -> bool:
+        return self.live_when == "low"
+
+
+# What else on this Pi already owns a pin. The LED's is configurable, so this covers its default;
+# a non-default LED pin colliding is caught by `config_from_dict`, which knows both numbers.
+_RESERVED_GPIO = {2: "the PN532's I²C SDA", 3: "the PN532's I²C SCL", 17: "the status LED"}
+
+
+@dataclass(frozen=True)
 class RfConfig:
     """PN532 transmit drive (stylus-spec §10, [ADR 0075]).
 
@@ -97,6 +132,7 @@ class Config:
     status_listen_port: int = 4741
     led: LedConfig = field(default_factory=LedConfig)
     rf: RfConfig = field(default_factory=RfConfig)
+    switch: SwitchConfig = field(default_factory=SwitchConfig)
 
 
 # The downstreams, in fan-out order: lights, then video, then audio. `player` is accepted as a
@@ -161,6 +197,15 @@ def config_from_dict(raw: dict[str, Any]) -> Config:
         gsn_on=int(rf_raw.get("gsn_on", RfConfig.gsn_on)),
         cw_gsp=int(rf_raw.get("cw_gsp", RfConfig.cw_gsp)),
     )
+    switch_raw = raw.get("switch", {})
+    switch = SwitchConfig(
+        enabled=bool(switch_raw.get("enabled", False)),
+        gpio_pin=int(switch_raw.get("gpio_pin", SwitchConfig.gpio_pin)),
+        live_when=str(switch_raw.get("live_when", SwitchConfig.live_when)),
+    )
+    # `SwitchConfig` can only guard the LED's *default* pin; here both numbers are in hand.
+    if switch.enabled and switch.gpio_pin == led.gpio_pin:
+        raise ValueError(f"switch.gpio_pin {switch.gpio_pin} is already led.gpio_pin")
     status_raw = raw.get("status", {})
     return Config(
         reader=reader,
@@ -168,6 +213,7 @@ def config_from_dict(raw: dict[str, Any]) -> Config:
         status_listen_port=int(status_raw.get("listen_port", 4741)),
         led=led,
         rf=rf,
+        switch=switch,
     )
 
 

@@ -2,6 +2,7 @@ from stylus.app import StylusApp
 from stylus.config import Config, ReaderConfig
 from stylus.led import Pattern
 from stylus.reader import SimulatedReader
+from stylus.switch import SimulatedSwitch
 
 URI_A = "curator:album:aaaa1111"
 URI_B = "curator:album:bbbb2222"
@@ -25,12 +26,20 @@ class RecordingLed:
         self.patterns.append(pattern)
 
 
-def build(health=None):
+def build(health=None, switch=None, heartbeat=None):
     cfg = Config(reader=ReaderConfig(insertion_debounce_polls=2, removal_debounce_polls=2))
     reader = SimulatedReader()
     pub = FakePublisher(health)
     led = RecordingLed()
-    app = StylusApp(cfg, reader, pub, led, now=lambda: "2026-07-21T00:00:00Z")
+    app = StylusApp(
+        cfg,
+        reader,
+        pub,
+        led,
+        now=lambda: "2026-07-21T00:00:00Z",
+        switch=switch,
+        **({"heartbeat": heartbeat} if heartbeat else {}),
+    )
     return app, reader, pub, led
 
 
@@ -292,3 +301,171 @@ def test_a_stale_failure_does_not_suppress_the_ack_for_a_fresh_scan():
     app.tick()
     assert Pattern.START_ACK in led.patterns, "the scan was accepted; say so"
     assert led.patterns[-1] is Pattern.ERROR, "and still report the unhealthy downstream"
+
+
+# --- the stand's on/off switch ([ADR 0093]) --------------------------------------------------------
+#
+# The behaviour these pin down is the reason the design masks the *tag* rather than the *publish*:
+# switching off has to give back the room, and switching on has to give it back without making you
+# lift and re-place the sleeve. Both fall out of the existing debounces, so both need proving.
+
+
+def play_a(app, reader):
+    """Get to PLAYING with sleeve A on the stand."""
+    reader.set_tag("A", URI_A)
+    app.tick()
+    app.tick()
+    return app
+
+
+def test_switching_off_while_playing_publishes_stop():
+    """The point of the whole feature: the room goes back to how it was, it doesn't freeze on the
+    last record's palette."""
+    sw = SimulatedSwitch()
+    app, reader, pub, led = build(switch=sw)
+    play_a(app, reader)
+    pub.events.clear()
+
+    sw.set_live(False)
+    app.tick()  # absent 1 of 2 — the sleeve is still physically there, the machine just can't see it
+    assert pub.events == []
+    app.tick()  # removal debounce met → the ordinary stop
+    assert pub.events == [
+        {"event": "stop", "readerId": "primary", "at": "2026-07-21T00:00:00Z"}
+    ]
+    assert app.status()["state"] == "idle"
+
+
+def test_a_switched_off_stand_publishes_nothing_for_a_new_record():
+    app, reader, pub, _ = build(switch=SimulatedSwitch(live=False))
+    reader.set_tag("A", URI_A)
+    for _ in range(10):
+        app.tick()
+    assert pub.events == []
+    assert app.status()["state"] == "idle"
+
+
+def test_switching_back_on_with_a_sleeve_still_there_starts_it():
+    """No lift-and-replace: the insertion debounce sees the sleeve arrive the moment the stand can
+    look at it again."""
+    sw = SimulatedSwitch(live=False)
+    app, reader, pub, _ = build(switch=sw)
+    reader.set_tag("A", URI_A)
+    app.tick()
+    app.tick()
+    assert pub.events == []
+
+    sw.set_live(True)
+    app.tick()
+    app.tick()  # insertion debounce met → start
+    assert [e["event"] for e in pub.events] == ["start"]
+    assert pub.events[-1]["uri"] == URI_A
+
+
+def test_a_swap_while_off_publishes_nothing_then_starts_the_new_one_on():
+    sw = SimulatedSwitch()
+    app, reader, pub, _ = build(switch=sw)
+    play_a(app, reader)
+    sw.set_live(False)
+    app.tick()
+    app.tick()  # stop
+    pub.events.clear()
+
+    reader.set_tag("B", URI_B)  # swapped records in the dark
+    app.tick()
+    app.tick()
+    assert pub.events == []
+
+    sw.set_live(True)
+    app.tick()
+    app.tick()
+    assert [e["event"] for e in pub.events] == ["start"]
+    assert pub.events[-1]["uri"] == URI_B
+
+
+def test_a_flick_of_the_switch_shorter_than_the_debounce_does_not_interrupt():
+    """Contact bounce is sub-millisecond against a 200ms poll, but this is the property that makes
+    that reasoning safe: one off poll in the middle of playback changes nothing."""
+    sw = SimulatedSwitch()
+    app, reader, pub, _ = build(switch=sw)
+    play_a(app, reader)
+    pub.events.clear()
+
+    sw.set_live(False)
+    app.tick()  # 1 of 2 absent
+    sw.set_live(True)
+    app.tick()
+    app.tick()
+    assert pub.events == []
+    assert app.status()["state"] == "playing"
+
+
+def test_a_switched_off_stand_still_reports_the_sleeve_it_can_see():
+    """`observed` is the reader's view, not the machine's — it has to stay honest while off, or
+    "is the stand off, or is my tag dead?" has no answer."""
+    app, reader, _, _ = build(switch=SimulatedSwitch(live=False))
+    reader.set_tag("A", URI_A)
+    app.tick()
+    assert app.status()["observed"]["uid"] == "A"
+    assert app.status()["observed"]["uri"] == URI_A
+
+
+def test_a_switched_off_stand_never_flags_a_bad_tag():
+    app, reader, _, led = build(switch=SimulatedSwitch(live=False))
+    reader.set_tag("JUNK", "https://example.com")
+    for _ in range(5):
+        app.tick()
+    assert app.status()["lastBadTag"] is None
+    assert Pattern.ERROR not in led.patterns
+
+
+def test_the_off_led_pattern_is_shown_while_off():
+    sw = SimulatedSwitch()
+    app, reader, _, led = build(switch=sw)
+    play_a(app, reader)
+    sw.set_live(False)
+    app.tick()
+    assert led.patterns[-1] is Pattern.OFF
+
+
+def test_off_outranks_a_stale_downstream_error_on_the_led():
+    sw = SimulatedSwitch()
+    app, reader, _, led = build(health={"conductor": False}, switch=sw)
+    play_a(app, reader)
+    assert led.patterns[-1] is Pattern.ERROR
+    sw.set_live(False)
+    app.tick()
+    assert led.patterns[-1] is Pattern.OFF
+
+
+def test_booting_with_the_switch_off_never_shows_the_ready_led():
+    """A restart is exactly when the room must not wake itself up — not even for one poll."""
+    _, _, _, led = build(switch=SimulatedSwitch(live=False))
+    assert led.patterns == [Pattern.OFF]
+
+
+def test_status_reports_the_switch():
+    sw = SimulatedSwitch()
+    app, _, _, _ = build(switch=sw)
+    assert app.status()["switch"] == {"live": True, "source": "simulated"}
+    sw.set_live(False)
+    app.tick()
+    assert app.status()["switch"] == {"live": False, "source": "simulated"}
+
+
+def test_no_switch_configured_reads_as_permanently_live():
+    app, reader, pub, _ = build()
+    assert app.status()["switch"] == {"live": True, "source": "none"}
+    play_a(app, reader)
+    assert [e["event"] for e in pub.events] == ["start"]
+
+
+def test_the_watchdog_is_still_fed_while_the_stand_is_off():
+    """systemd kills a loop that stops pinging (§12). An off stand is idle, not dead, so if the
+    heartbeat rode along with the tag masking the switch would become a 30-second restart loop."""
+    beats = []
+    app, reader, _, _ = build(switch=SimulatedSwitch(live=False), heartbeat=lambda: beats.append(1))
+    reader.set_tag("A", URI_A)
+    for _ in range(5):
+        app.tick()
+    assert len(beats) == 5

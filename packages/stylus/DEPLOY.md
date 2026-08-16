@@ -27,6 +27,9 @@ this — see the [README](README.md) "Run it on the bench".
 - **microSD card**, 16GB+, and a micro-USB 5V/2A supply
 - **4× female-female jumper wires**
 - Optional: an LED + **330Ω** resistor for the status light
+- Optional: a **latching** SPST toggle or rocker switch for the stand's on/off switch (§7.1) — two
+  more wires, no resistor. Latching, not momentary: the position is the state, so an off stand stays
+  off across a reboot
 - Your Wi-Fi name/password, and the **shared secret** the rest of Marquee uses
 
 The reader talks I²C, so the module must be _switched_ to I²C — see step 5.
@@ -141,6 +144,12 @@ nearest the corner/SD card**, odd numbers down the side nearest the board edge:
 **Status LED** (optional): LED long leg (anode) → **330Ω resistor** → **GPIO 17 (pin 11)**; short leg
 (cathode) → any GND. Configurable via `[led].gpio_pin`.
 
+**On/off switch** (optional, §7.1): one leg → **GPIO 27 (pin 13)**, the other → any GND. No resistor
+— Stylus enables the pin's internal pull-up, so a _closed_ switch reads low. That is the default
+`[switch].live_when = "low"`, i.e. closed means the stand is live; if the switch ends up mounted the
+other way round, change that setting to `"high"` rather than rewiring. Either orientation is fine as
+long as you know which way is on, because it is the position you'll be reading from the sofa.
+
 Power the Pi back on and SSH in.
 
 ## 6. Get the code and install
@@ -232,7 +241,9 @@ shared_secret = "the-same-secret-everything-else-uses"
 
 Leave `[reader]` debounce at defaults for now — step 11 is where you tune them. Keep
 `[led].gpio_pin = 17` unless you wired the LED elsewhere; set `[led].enabled = false` if you didn't
-wire one. Save with **Ctrl+O, Enter, Ctrl+X**.
+wire one. Set `[switch].enabled = true` **only if you wired the on/off switch** — left `false`, the
+stand is permanently live, which is the right reading for a stand that hasn't got one. Save with
+**Ctrl+O, Enter, Ctrl+X**.
 
 > `config.toml` is gitignored — the secret never gets committed. Only `config.example.toml` is in git.
 
@@ -336,6 +347,8 @@ That's issue #52 done.
 | Service is `active (running)` but the log is silent and no tag ever reads                                                | Since #307 and #308 both landed, this should no longer be reachable — an init hang exits, and a poll-loop hang trips the watchdog. If you see it anyway, the watchdog isn't armed: check `systemctl show marquee-stylus -p Type -p WatchdogUSec` (expect `notify` and `30000000`). A stale unit file is the usual cause — `sudo systemctl daemon-reload` after re-copying. If the journal has no `bringing up the PN532` line at all, the service never reached the reader; look further up for a config error. |
 | Nothing after a reboot until you SSH in                                                                                  | Wi-Fi came up after Stylus. The unit has `Wants=network-online.target`, but confirm `systemctl is-enabled systemd-networkd-wait-online` (or NetworkManager's equivalent) is on.                                                                                                                                                                                                                                                                                                                                 |
 | The LED never lights                                                                                                     | It's optional and Stylus degrades to logging when GPIO isn't available — `journalctl` will say `LED disabled: …`. Check the 330Ω resistor and that the **long** leg goes to GPIO 17 (pin 11). `[led].enabled = false` silences it entirely.                                                                                                                                                                                                                                                                     |
+| Nothing reacts, and the LED blips once every ~4s                                                                         | The stand is **switched off** (§7.1) — that pattern is what off looks like, deliberately distinct from a dark LED. Flip the switch. `GET /status` confirms it: `switch.live: false`.                                                                                                                                                                                                                                                                                                                            |
+| The on/off switch does nothing — the room reacts whichever way it's flipped                                              | Check `switch.source` on `GET /status`. `unavailable` means `[switch].enabled = true` but Stylus couldn't get the pin (`journalctl` logs it at ERROR) — the stand falls back to permanently live on purpose, since a stand that silently refuses to react looks broken. `none` means `[switch].enabled` is still `false`. `gpio` means it's working, so suspect the wiring or `live_when`.                                                                                                                      |
 
 ## 13. Updating Stylus later
 

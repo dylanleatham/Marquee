@@ -1,6 +1,6 @@
 """Status LED (stylus-spec §7).
 
-The app speaks in *semantic* patterns — idle, playing, error, start-ack — not raw GPIO. Three
+The app speaks in *semantic* patterns — idle, playing, error, start-ack, off — not raw GPIO. Three
 implementations behind one seam, so the app loop is identical everywhere:
 
 * :class:`NoopLed` — the LED is disabled in config.
@@ -28,6 +28,7 @@ class Pattern(Enum):
     PLAYING = "playing"  # solid on
     ERROR = "error"  # fast blink (downstream post failed)
     START_ACK = "start_ack"  # two short blinks: "I heard you"
+    OFF = "off"  # one short blip every 4s: the stand is switched off but alive
 
 
 class Led(Protocol):
@@ -78,6 +79,15 @@ def frames_for(pattern: Pattern) -> list[Frame]:
         return [(1.0, 0.5)]  # solid; re-asserted twice a second so a pattern change lands fast
     if pattern is Pattern.ERROR:
         return [(1.0, 0.1), (0.0, 0.1)]  # fast blink, 100ms per §7
+    if pattern is Pattern.OFF:
+        # One brief blip, then ~4s dark: unmistakably not IDLE's continuous breathe, and — the point
+        # — not a dark LED either, which is what an unpowered stand looks like. "Switched off" and
+        # "dead" must not be the same indication.
+        #
+        # The dark stretch is eight 0.5s frames rather than one 4s frame because `play_once` only
+        # tests for interruption between frames: a single long frame would leave the LED up to 4s
+        # behind the switch, so flipping the stand back on would look like it hadn't worked.
+        return [(1.0, 0.05)] + [(0.0, 0.5)] * 8
     # START_ACK — two short blinks then off.
     return [(1.0, 0.08), (0.0, 0.08), (1.0, 0.08), (0.0, 0.08)]
 

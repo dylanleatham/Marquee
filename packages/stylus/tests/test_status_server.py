@@ -1,5 +1,6 @@
 import json
 import threading
+import pytest
 import urllib.request
 
 from stylus.app import StylusApp
@@ -7,6 +8,7 @@ from stylus.config import Config, ReaderConfig
 from stylus.led import NoopLed
 from stylus.reader import SimulatedReader
 from stylus.status_server import StatusService, serve
+from stylus.switch import SimulatedSwitch
 
 URI = "curator:album:2k7bxq9m"
 
@@ -90,3 +92,103 @@ def test_real_http_round_trip():
             assert resp.status == 202
     finally:
         server.shutdown()
+
+
+# --- POST /switch, the bench counterpart of the physical switch ([ADR 0093]) ------------------------
+
+
+def _service_with_sim_switch():
+    sim_switch = SimulatedSwitch()
+    app = StylusApp(
+        Config(reader=ReaderConfig(insertion_debounce_polls=1, removal_debounce_polls=1)),
+        SimulatedReader(),
+        _NullPublisher(),
+        NoopLed(),
+        switch=sim_switch,
+    )
+    return StatusService(app, None, sim_switch), app, sim_switch
+
+
+class _NullPublisher:
+    def publish(self, event):
+        return {}
+
+
+def test_switch_flips_the_simulated_switch():
+    svc, app, _ = _service_with_sim_switch()
+    status, body = svc.handle("POST", "/switch", b'{"live": false}')
+    assert status == 202
+    assert body == {"switch": {"live": False}}
+    app.tick()
+    assert app.status()["switch"]["live"] is False
+
+
+def test_switch_flips_back():
+    svc, app, _ = _service_with_sim_switch()
+    svc.handle("POST", "/switch", b'{"live": false}')
+    svc.handle("POST", "/switch", b'{"live": true}')
+    app.tick()
+    assert app.status()["switch"]["live"] is True
+
+
+def test_switch_is_refused_without_a_simulated_switch():
+    """On the Pi the latching switch is the sole authority — there is nothing sane for HTTP to do
+    but decline, since it cannot move the thing on the front of the stand."""
+    app = StylusApp(Config(), SimulatedReader(), _NullPublisher(), NoopLed())
+    status, body = StatusService(app).handle("POST", "/switch", b'{"live": false}')
+    assert status == 409
+    assert "physical" in body["error"]
+
+
+def test_switch_rejects_a_missing_live_field():
+    svc, _, _ = _service_with_sim_switch()
+    status, body = svc.handle("POST", "/switch", b"{}")
+    assert status == 400
+    assert "live" in body["error"]
+
+
+def test_switch_rejects_a_non_boolean_live():
+    """`{"live": "false"}` is the obvious hand-typed mistake, and truthiness would make it mean the
+    exact opposite of what was typed."""
+    svc, _, _ = _service_with_sim_switch()
+    status, _ = svc.handle("POST", "/switch", b'{"live": "false"}')
+    assert status == 400
+
+
+def test_switch_rejects_invalid_json():
+    svc, _, _ = _service_with_sim_switch()
+    status, _ = svc.handle("POST", "/switch", b"{oops")
+    assert status == 400
+
+
+def test_status_still_reports_the_switch_when_there_is_none():
+    app = StylusApp(Config(), SimulatedReader(), _NullPublisher(), NoopLed())
+    status, body = StatusService(app).handle("GET", "/status", b"")
+    assert body["switch"] == {"live": True, "source": "none"}
+
+
+# --- valid JSON that isn't an object -----------------------------------------------------------
+#
+# `json.loads` happily returns a list, a number, a string or None, none of which have `.get`. Both
+# POST handlers called `.get` straight off the parse, so a body like `[1,2]` raised AttributeError
+# out of `handle()` and killed that request's handler thread — a 500-with-no-body from a *bad
+# request*, and one dead thread per attempt. Caught by the runtime reviewer on the /switch endpoint;
+# /simulate had carried the same latent gap since it was written, so both are fixed at the shared
+# parse step rather than one branch at a time.
+
+
+@pytest.mark.parametrize("body", [b"[1,2]", b"42", b'"hi"', b"null", b"true"])
+def test_switch_rejects_valid_json_that_is_not_an_object(body):
+    svc, _, _ = _service_with_sim_switch()
+    status, payload = svc.handle("POST", "/switch", body)
+    assert status == 400
+    assert "object" in payload["error"]
+
+
+@pytest.mark.parametrize("body", [b"[1,2]", b"42", b'"hi"', b"null", b"true"])
+def test_simulate_rejects_valid_json_that_is_not_an_object(body):
+    sim = SimulatedReader()
+    app = StylusApp(Config(), sim, _NullPublisher(), NoopLed())
+    status, payload = StatusService(app, sim).handle("POST", "/simulate", body)
+    assert status == 400
+    assert "object" in payload["error"]

@@ -17,6 +17,7 @@ from .led import Led, Pattern
 from .publisher import EventPublisher, QueueReporting
 from .reader import TagReader
 from .state_machine import BadTag, DetectionMachine, Start, State, Stop, Swap
+from .switch import AlwaysLive, Switch
 
 log = logging.getLogger("stylus.app")
 
@@ -32,6 +33,7 @@ class StylusApp:
         now: Callable[[], str] = now_iso,
         sleep: Callable[[float], None] = time.sleep,
         heartbeat: Callable[[], None] = lambda: None,
+        switch: Switch | None = None,
     ) -> None:
         self._cfg = config
         self._reader = reader
@@ -40,6 +42,9 @@ class StylusApp:
         self._now = now
         self._sleep = sleep
         self._heartbeat = heartbeat
+        # No switch wired ⇒ always live, so every existing caller behaves exactly as before.
+        self._switch = switch if switch is not None else AlwaysLive()
+        self._live = True
         self._machine = DetectionMachine(config.reader)
         self._reader_id = config.reader.id
         self._running = False
@@ -54,7 +59,11 @@ class StylusApp:
         # empty stand, which is the one case you need it for (issue #198's bring-up debugging).
         self._observed: dict[str, Any] | None = None
         self._last_bad_tag: dict[str, Any] | None = None
-        self._led.set(Pattern.IDLE)
+        # Read at construction rather than waiting for the first tick, so a stand that boots with
+        # the switch already off never shows a breathing "ready" LED — not even for one poll. This
+        # is the case that matters: a restart is exactly when the room must not wake itself up.
+        self._live = self._switch.is_live()
+        self._led.set(Pattern.IDLE if self._live else Pattern.OFF)
 
     # --- one poll cycle ---------------------------------------------------------------------------
     def tick(self):
@@ -62,17 +71,32 @@ class StylusApp:
         # already spent as little of the watchdog deadline as possible (§12, #308). It lives here
         # rather than in `run()` because this is the unit the tests drive — `run()` is a bare loop.
         self._heartbeat()
+        self._read_switch()
         tag = self._reader.poll()
         # Recorded before the machine runs, and regardless of what it decides: a tag the machine
-        # ignores is exactly the one worth reporting.
+        # ignores is exactly the one worth reporting. That includes a switched-off stand — the whole
+        # point of `observed` is telling an empty stand from one that is choosing not to react.
         self._observed = (
             None if tag is None else {"uid": tag.uid, "uri": tag.uri, "at": self._now()}
         )
-        action = self._machine.observe(tag)
+        # A switched-off stand shows the machine an *empty* stand ([ADR 0093]). Everything then
+        # falls out of debounce logic that already exists and is already tested: flipping off while
+        # playing runs the ordinary removal debounce, so a normal `stop` fires and the room returns
+        # to its pre-scan state rather than freezing on the last record's palette; flipping back on
+        # with a sleeve still sitting there runs the ordinary insertion debounce, so a normal
+        # `start` fires. No resume path, no suppressed-event bookkeeping, no third machine state.
+        action = self._machine.observe(tag if self._live else None)
         if action is not None:
             self._handle(action)
         self._apply_steady_led()
         return action
+
+    def _read_switch(self) -> None:
+        live = self._switch.is_live()
+        if live != self._live:
+            # At INFO because this is the first thing to check when the stand "stopped working".
+            log.info("stand switched %s", "live" if live else "off")
+            self._live = live
 
     def _handle(self, action) -> None:
         if isinstance(action, Start):
@@ -114,7 +138,12 @@ class StylusApp:
         self._downstream_health = self._publisher.publish(event)
 
     def _apply_steady_led(self) -> None:
-        if self._last_publish_failed():
+        # OFF outranks ERROR: while the stand is off it publishes nothing, so a stale unhealthy
+        # downstream from before the flip isn't something the LED should still be shouting about —
+        # and "why is my stand blinking angrily" has a much better answer than "check the network".
+        if not self._live:
+            self._led.set(Pattern.OFF)
+        elif self._last_publish_failed():
             self._led.set(Pattern.ERROR)
         elif self._machine.state is State.PLAYING:
             self._led.set(Pattern.PLAYING)
@@ -144,6 +173,11 @@ class StylusApp:
         return {
             "state": self._machine.state.value,
             "readerId": self._reader_id,
+            # The stand's on/off switch ([ADR 0093]). `source` is here because an unwired or broken
+            # switch degrades to "always live" (see stylus/switch.py) — without it, a switch that
+            # does nothing and a switch that is simply on report identically, and the failure you'd
+            # be debugging is "I flipped it and the room kept going".
+            "switch": {"live": self._live, "source": self._switch.source},
             # The machine's view: what is *playing*. Null until a scan actually fired.
             "lastUid": self._machine.current_uid,
             "lastUri": self._machine.current_uri,

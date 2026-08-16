@@ -41,11 +41,12 @@ _Consolidated shopping list to build the physical setup for Marquee. Total: ~$18
 
 ### For debugging and setup convenience
 
-| Item                                     | Notes                                                                                                                | Est. Cost |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | --------- |
-| USB-C to Ethernet adapter                | Wire the Pis in during initial setup; move to WiFi once configured. Saves you from wireless-config-over-serial pain. | $15       |
-| USB keyboard + micro-HDMI adapter        | For initial Pi setup when SSH isn't up yet. Or just use headless setup via Pi Imager (skip this).                    | $0–20     |
-| Status LED + 330Ω resistor + heat shrink | For the Stylus's LED indicator per the spec. Total pennies from any kit you probably already have.                   | $1        |
+| Item                                      | Notes                                                                                                                                                                                                                                                                                                                                                      | Est. Cost |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| USB-C to Ethernet adapter                 | Wire the Pis in during initial setup; move to WiFi once configured. Saves you from wireless-config-over-serial pain.                                                                                                                                                                                                                                       | $15       |
+| USB keyboard + micro-HDMI adapter         | For initial Pi setup when SSH isn't up yet. Or just use headless setup via Pi Imager (skip this).                                                                                                                                                                                                                                                          | $0–20     |
+| Status LED + 330Ω resistor + heat shrink  | For the Stylus's LED indicator per the spec. Total pennies from any kit you probably already have.                                                                                                                                                                                                                                                         | $1        |
+| **Latching** SPST toggle or rocker switch | The stand's on/off switch ([stylus-spec §7.1](stylus-spec.md)) — put a record down without the room reacting. Wires between a free GPIO pin and ground; no resistor needed. **Latching, not momentary**: the position is the state, so a stand you switched off stays off across a reboot. A momentary pushbutton would need a state file to promise that. | $2        |
 
 ### For future-proofing / feels-nice
 
