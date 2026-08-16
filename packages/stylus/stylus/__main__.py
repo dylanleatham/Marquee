@@ -55,7 +55,13 @@ def main() -> None:  # pragma: no cover - entrypoint glue
         # Logged *before* the call, not after: this is the one step that can hang, and a line that
         # only prints on success tells you nothing about a boot that never got past it (#307).
         log.info("bringing up the PN532 (bound: %dms)", config.reader.init_timeout_ms)
-        reader = create_pn532_reader(config.rf, init_timeout_ms=config.reader.init_timeout_ms)
+        reader = create_pn532_reader(
+            config.rf,
+            init_timeout_ms=config.reader.init_timeout_ms,
+            # The cache's idea of "the sleeve is gone" must be the machine's idea of it, or a
+            # tuned-up removal debounce would leave the cache still invalidating early (#337).
+            forget_after_absent_polls=config.reader.removal_debounce_polls,
+        )
         log.info(
             "PN532 transmit drive: GsNOn=0x%02X CWGsP=0x%02X (chip defaults overcouple — #303)",
             config.rf.gsn_on,

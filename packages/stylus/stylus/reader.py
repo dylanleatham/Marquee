@@ -127,18 +127,37 @@ class UriCache:
     handful of I²C page reads against a tag nobody is waiting on, versus a working sleeve that
     silently never fires.
 
-    **Hits are scoped to one placement**, cleared by :meth:`forget_all` when the field empties (see
-    :func:`decode_poll`). That UID-stability cuts the other way too: *rewriting* a sticker doesn't
-    change its UID either, so a hit that outlives the placement outlives the album it decoded — the
-    Flipper shows the new record, the cache keeps serving the old one, and nothing short of a service
-    restart dislodges it. Lifting the sleeve is the operator saying "this may be a different record
-    now", which makes it the natural invalidation point and costs exactly one NDEF read per
+    **Hits are scoped to one placement**, cleared by :meth:`forget_all` once the field is *confirmed*
+    empty (see :func:`decode_poll`). That UID-stability cuts the other way too: *rewriting* a sticker
+    doesn't change its UID either, so a hit that outlives the placement outlives the album it decoded
+    — the Flipper shows the new record, the cache keeps serving the old one, and nothing short of a
+    service restart dislodges it. Lifting the sleeve is the operator saying "this may be a different
+    record now", which makes it the natural invalidation point and costs exactly one NDEF read per
     placement — the saving the cache was for in the first place.
+
+    **A placement ends at ``forget_after_absent_polls``, not at one missed poll**
+    ([#337](https://github.com/dylanleatham/Marquee/issues/337)). Those are very different questions
+    on real hardware: a marginally-coupled tag drops the occasional read while sitting perfectly
+    still, and invalidating on the first of those forced a full NDEF re-read — up to 40 pages x 3
+    attempts — on the very next sighting, precisely when the tag was already struggling. The cost
+    was a card that replayed from track 1 every ~20s. The reader already has an answer for "is it
+    really gone": ``removal_debounce_polls``, which is what the state machine publishes ``stop`` on,
+    so the cache defaults to the same threshold and the two agree by construction. A dropout short
+    enough that the room never noticed must not cost a re-read either.
     """
 
-    def __init__(self, max_size: int = 8) -> None:
+    def __init__(
+        self,
+        max_size: int = 8,
+        forget_after_absent_polls: int = ReaderConfig.removal_debounce_polls,
+    ) -> None:
         self._max_size = max_size
+        # Clamped rather than validated: a nonsensical value should degrade to the old
+        # invalidate-immediately behaviour, never to a cache nothing can dislodge.
+        self._forget_after = max(1, forget_after_absent_polls)
         self._hits: dict[str, str] = {}
+        # Consecutive polls that saw an empty field — the cache's half of the removal debounce.
+        self._absent = 0
 
     def get_or_read(self, uid: str, read_ndef: Callable[[], bytes]) -> str | None:
         """Return the cached URI for ``uid``, else decode one via ``read_ndef`` (cached if found)."""
@@ -156,6 +175,21 @@ class UriCache:
         """Drop every cached decode — the next sight of any UID re-reads the tag."""
         self._hits.clear()
 
+    def note_present(self) -> None:
+        """A poll that saw a tag: the placement is ongoing, so any absent streak is over."""
+        self._absent = 0
+
+    def note_absent(self) -> int:
+        """A poll that saw an empty field. Forgets every decode once the streak confirms a removal.
+
+        Returns the streak length, so the caller can say how blind it has been rather than leaving
+        a dropout to be inferred from its downstream effects (#337).
+        """
+        self._absent += 1
+        if self._absent >= self._forget_after:
+            self.forget_all()
+        return self._absent
+
 
 def decode_poll(
     cache: UriCache, uid: str | None, read_ndef: Callable[[], bytes]
@@ -163,19 +197,28 @@ def decode_poll(
     """One poll's decode: ``uid`` is what the PN532 saw (``None`` = empty field).
 
     Pure but for the two callables, so the caching *policy* is testable without a PN532 — the
-    hardware factory below is left as nothing but wiring. An empty field invalidates the cache, so a
-    sticker rewritten between placements is decoded afresh rather than served from the last read.
+    hardware factory below is left as nothing but wiring. A *confirmed* empty field invalidates the
+    cache, so a sticker rewritten between placements is decoded afresh rather than served from the
+    last read.
 
-    A dropped read on a sleeve that never moved also lands here and costs one re-read; that is the
-    cheap side of the trade, and the removal debounce (§7) means it doesn't disturb playback.
+    "Confirmed" is the whole of #337: a dropped read on a sleeve that never moved also lands here,
+    and treating that as a removal made the next sighting pay for a full NDEF re-read on a tag that
+    was already reading badly. See :class:`UriCache` for why the threshold is the removal debounce.
     """
     if uid is None:
-        cache.forget_all()
+        cache.note_absent()
         return None
+    cache.note_present()
     return TagRead(uid=uid, uri=cache.get_or_read(uid, read_ndef))
 
 
-def build_pn532_reader(pn532, rf: RfConfig, uid_cache_size: int = 8) -> TagReader:
+def build_pn532_reader(
+    pn532,
+    rf: RfConfig,
+    uid_cache_size: int = 8,
+    *,
+    forget_after_absent_polls: int = ReaderConfig.removal_debounce_polls,
+) -> TagReader:
     """Configure an already-constructed PN532 and wrap it as a :class:`TagReader`.
 
     Split out of :func:`create_pn532_reader` so the *setup sequence* is testable with a fake chip.
@@ -189,7 +232,7 @@ def build_pn532_reader(pn532, rf: RfConfig, uid_cache_size: int = 8) -> TagReade
     pn532.SAM_configuration()
     configure_tx_drive(pn532.call_function, rf.gsn_on, rf.cw_gsp)
 
-    cache = UriCache(uid_cache_size)
+    cache = UriCache(uid_cache_size, forget_after_absent_polls)
 
     class _Pn532Reader:
         def poll(self) -> TagRead | None:
@@ -208,6 +251,7 @@ def open_pn532_reader(
     uid_cache_size: int = 8,
     *,
     init_timeout_s: float = ReaderConfig.init_timeout_ms / 1000,
+    forget_after_absent_polls: int = ReaderConfig.removal_debounce_polls,
     exit_: Callable[[int], None] = os._exit,
 ) -> TagReader:
     """Bring up a PN532 under a time bound: ``connect()`` builds the chip, then it's configured.
@@ -223,7 +267,9 @@ def open_pn532_reader(
     gets a fresh chance to answer. See :mod:`stylus.bounded` for why it can't be recovered in-place.
     """
     return run_or_die(
-        lambda: build_pn532_reader(connect(), rf, uid_cache_size),
+        lambda: build_pn532_reader(
+            connect(), rf, uid_cache_size, forget_after_absent_polls=forget_after_absent_polls
+        ),
         init_timeout_s,
         stage="PN532 init",
         exit_=exit_,
@@ -234,6 +280,7 @@ def create_pn532_reader(  # pragma: no cover - hardware imports only; see open_p
     rf: RfConfig | None = None,
     uid_cache_size: int = 8,
     init_timeout_ms: int = ReaderConfig.init_timeout_ms,
+    forget_after_absent_polls: int = ReaderConfig.removal_debounce_polls,
 ) -> TagReader:
     """Build the real PN532 reader. Raises a clear error off-Pi (no ``adafruit_pn532``).
 
@@ -257,5 +304,9 @@ def create_pn532_reader(  # pragma: no cover - hardware imports only; see open_p
         return PN532_I2C(busio.I2C(board.SCL, board.SDA), debug=False)
 
     return open_pn532_reader(
-        connect, rf or RfConfig(), uid_cache_size, init_timeout_s=init_timeout_ms / 1000
+        connect,
+        rf or RfConfig(),
+        uid_cache_size,
+        init_timeout_s=init_timeout_ms / 1000,
+        forget_after_absent_polls=forget_after_absent_polls,
     )

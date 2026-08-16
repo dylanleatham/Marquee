@@ -1,3 +1,4 @@
+from stylus.config import ReaderConfig
 from stylus.ndef import parse_uri
 from stylus.reader import SimulatedReader, UriCache, assemble_ntag_ndef, decode_poll
 from stylus.state_machine import TagRead
@@ -162,8 +163,67 @@ def test_decode_poll_clears_the_cache_when_the_field_empties():
     content[0] = _ndef_text(b"curator:album:9xj2b4kd")
     assert decode_poll(cache, "04:AA", read).uri == "curator:album:2k7bxq9m"  # still on the stand
 
-    assert decode_poll(cache, None, read) is None  # lifted
+    # Lifted. A *placement* ends where the removal debounce says it does, not at the first missed
+    # poll (#337) — so the lift has to be held long enough for the machine to publish `stop`, which
+    # is what physically lifting a sleeve does many times over.
+    for _ in range(ReaderConfig.removal_debounce_polls):
+        assert decode_poll(cache, None, read) is None
     assert decode_poll(cache, "04:AA", read) == TagRead("04:AA", "curator:album:9xj2b4kd")
+
+
+def test_a_dropped_read_on_a_sleeve_that_never_moved_keeps_its_decode():
+    # regression: #337 — a card that was never touched replayed from the start every ~20s. The
+    # reader drops a poll or two on a marginally-coupled tag; that cleared the cache, which forced
+    # a full NDEF re-read (up to 40 pages x 3 attempts) on the very next sighting — precisely when
+    # the tag is already struggling. `UriCache` scopes hits to "one placement", but a *placement*
+    # ends at `removal_debounce_polls`, not at one missed poll: that is the whole reason the removal
+    # debounce exists, and the cache has to agree with it.
+    reads = []
+
+    def read():
+        reads.append(1)
+        return WRITTEN
+
+    cache = UriCache()
+    assert decode_poll(cache, "04:AA", read) == TagRead("04:AA", "curator:album:2k7bxq9m")
+    assert len(reads) == 1
+
+    decode_poll(cache, None, read)  # one dropped read — the card is still sitting there
+    assert decode_poll(cache, "04:AA", read) == TagRead("04:AA", "curator:album:2k7bxq9m")
+    assert len(reads) == 1, "a sub-debounce dropout must not force an NDEF re-read"
+
+
+def test_the_last_poll_before_the_debounce_still_serves_the_cache():
+    # The boundary itself, asserted from the working side: N-1 misses is still one placement.
+    reads = []
+
+    def read():
+        reads.append(1)
+        return WRITTEN
+
+    cache = UriCache()
+    decode_poll(cache, "04:AA", read)
+    for _ in range(ReaderConfig.removal_debounce_polls - 1):
+        decode_poll(cache, None, read)
+    decode_poll(cache, "04:AA", read)
+    assert len(reads) == 1
+
+
+def test_the_absent_streak_resets_when_the_tag_is_seen_again():
+    # Nine misses, a sighting, nine more misses: never 10 in a row, so the placement never ended.
+    reads = []
+
+    def read():
+        reads.append(1)
+        return WRITTEN
+
+    cache = UriCache()
+    decode_poll(cache, "04:AA", read)
+    for _ in range(2):
+        for _ in range(ReaderConfig.removal_debounce_polls - 1):
+            decode_poll(cache, None, read)
+        assert decode_poll(cache, "04:AA", read).uri == "curator:album:2k7bxq9m"
+    assert len(reads) == 1
 
 
 def test_decode_poll_serves_a_settled_sleeve_from_cache():

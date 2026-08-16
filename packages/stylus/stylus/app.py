@@ -59,6 +59,10 @@ class StylusApp:
         # empty stand, which is the one case you need it for (issue #198's bring-up debugging).
         self._observed: dict[str, Any] | None = None
         self._last_bad_tag: dict[str, Any] | None = None
+        # Consecutive polls the reader saw nothing while the machine was PLAYING (#337). Only for
+        # the log line — the removal debounce itself lives in the machine, and duplicating it here
+        # is exactly the drift that would make the two disagree.
+        self._blind_polls = 0
         # Read at construction rather than waiting for the first tick, so a stand that boots with
         # the switch already off never shows a breathing "ready" LED — not even for one poll. This
         # is the case that matters: a restart is exactly when the room must not wake itself up.
@@ -85,11 +89,36 @@ class StylusApp:
         # to its pre-scan state rather than freezing on the last record's palette; flipping back on
         # with a sleeve still sitting there runs the ordinary insertion debounce, so a normal
         # `start` fires. No resume path, no suppressed-event bookkeeping, no third machine state.
+        # Before `observe`, so the state consulted is the one the reader's sighting applies to.
+        self._note_reader_gap(tag)
         action = self._machine.observe(tag if self._live else None)
         if action is not None:
             self._handle(action)
         self._apply_steady_led()
         return action
+
+    def _note_reader_gap(self, tag) -> None:
+        """Say when the reader loses a tag it was playing, and how long it stayed lost (#337).
+
+        A gap *shorter* than the removal debounce publishes nothing, so it is invisible in every
+        other signal the system has — and it is the one worth seeing, because it is what says the
+        coupling has gone marginal shortly before the stand starts cycling stop/start. A gap that
+        does reach the debounce gets this line as well as the `stop`, which is what turns "the room
+        restarted" into "the reader went blind for 12 polls".
+
+        A switched-off stand is skipped: masking the tag is [ADR 0093] working as designed, not the
+        reader faltering, and a scary line on every flip of the switch would train you to ignore it.
+        """
+        if not self._live or self._machine.state is not State.PLAYING:
+            self._blind_polls = 0
+            return
+        if tag is None:
+            self._blind_polls += 1
+            if self._blind_polls == 1:
+                log.warning("reader lost the tag it was playing (%s)", self._machine.current_uid)
+        elif self._blind_polls:
+            log.info("reader re-acquired the tag after %d blind poll(s)", self._blind_polls)
+            self._blind_polls = 0
 
     def _read_switch(self) -> None:
         live = self._switch.is_live()
@@ -134,6 +163,12 @@ class StylusApp:
         self._led.set(Pattern.START_ACK)
 
     def _publish(self, event: dict[str, Any]) -> None:
+        # Every event, at INFO (#337). The stand used to publish in total silence, so reconstructing
+        # a stop/start cycle meant reading *Amp's* HTTP response times on another host and inferring
+        # the event kinds from how long each took. The stand's own journal should not be the last
+        # place that knows what the stand did.
+        uri = event.get("uri")
+        log.info("publishing %s%s", event["event"], f" {uri}" if uri else "")
         self._last_event = event
         self._downstream_health = self._publisher.publish(event)
 
