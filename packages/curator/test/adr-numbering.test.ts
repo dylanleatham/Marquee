@@ -116,21 +116,34 @@ describe("ADR numbering", () => {
   // citations this repo makes; they record what some file said at some commit, and were correct
   // relative to where that file lived. A renumber sweep must not rewrite them, which is the same
   // reason the guard must not require them to resolve. Everything else under eval/ is still scanned.
+  //
+  // Proven against a throwaway repo, not this one (#340). It used to name real paths here, and
+  // ADR 0092 (#334) deleted `review-agents/eval/` along with the rest of the self-measuring layer —
+  // so the assertion went red on `main` for everyone, `CI_ENABLED=false` meant nothing said so, and
+  // the next person to touch a package found out from `pre-push`. A test of a *rule* that reaches
+  // into the working tree for its example is really a test of that tree. The rule still holds if
+  // the directory comes back, which is the whole point of keeping it.
   it("skips frozen eval fixtures, but nothing else under review-agents/eval", () => {
-    const repoRoot = join(adrDir, "..", "..");
-    const scanned = new Set(citingSources(repoRoot));
-    const patches = [...scanned].filter(
-      (f) => f.includes("eval") && f.endsWith(".patch"),
-    );
-    expect(patches).toEqual([]);
+    const repo = gitFixture({
+      "review-agents/eval/README.md": "How an eval run works.\n",
+      "review-agents/eval/cases/clean-needs-chip/case.json": '{"id":"x"}\n',
+      "review-agents/eval/cases/clean-needs-chip/diff.patch":
+        "--- a/docs/adrs/0001-x.md\n+++ b/docs/adrs/0001-x.md\n",
+    });
+    const scanned = new Set(citingSources(repo));
+
+    expect([...scanned].filter((f) => f.endsWith(".patch"))).toEqual([]);
+    expect(scanned).toContain(join(repo, "review-agents", "eval", "README.md"));
     expect(scanned).toContain(
-      join(repoRoot, "review-agents", "eval", "README.md"),
-    );
-    expect(
-      [...scanned].some((f) =>
-        f.endsWith(join("cases", "clean-needs-chip", "case.json")),
+      join(
+        repo,
+        "review-agents",
+        "eval",
+        "cases",
+        "clean-needs-chip",
+        "case.json",
       ),
-    ).toBe(true);
+    );
   });
 
   // `driftFromBaseIn` is deliberately *not* run against the real origin/main here. CI checks out at
@@ -164,6 +177,20 @@ function fixture(files: Record<string, string>): string {
     writeFileSync(path, body);
   }
   return dir;
+}
+
+/**
+ * The same, as a real git repo. `citingSources` asks `git ls-files` what is tracked, so a plain
+ * directory of files is invisible to it. Staged is enough — nothing that reads it needs a commit.
+ */
+function gitFixture(files: Record<string, string>): string {
+  const repo = fixture(files);
+  const run = (...args: string[]) =>
+    execFileSync("git", args, { cwd: repo, encoding: "utf8", timeout: 30_000 });
+  run("init", "--quiet", "--initial-branch=base");
+  run("config", "core.autocrlf", "false"); // else git warns on every LF file, on Windows
+  run("add", "-A");
+  return repo;
 }
 
 /**
