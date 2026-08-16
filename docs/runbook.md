@@ -597,6 +597,144 @@ That is the single most useful check after a Backdrop update, because a stale or
 invisible from the service status. For a colour-free read of the kiosk's own view, open the SPA with
 `?debug=1` and look for the `ws online` pill.
 
+### B1. Retrofit — adding the stand's on/off switch
+
+Fitting the §7.1 switch to a stand that is already built and running
+([ADR 0093](adrs/0093-the-stand-has-a-latching-off-switch.md)). Part A's
+[Stylus DEPLOY](../packages/stylus/DEPLOY.md) covers the same wiring as part of an unboxing; this is
+the version where the stand currently works and you would like it to keep working.
+
+**~20 minutes**, most of it waiting for a Pi to reboot. You need the switch, two lengths of wire, and
+whatever mounts it.
+
+Set this once — the blocks below all use it, and per the note above it wants the Pi Zero's **IP**,
+not `marquee-pizero.local`:
+
+```
+$ PIZERO=192.168.1.66      # ← your stand Pi's address
+```
+
+> **Nothing here needs `pip`.** The switch is stdlib plus the `digitalio` already installed with the
+> hardware extra, so the Zero's slow dependency step — normally the risky part of touching this host —
+> doesn't run at all. If you find yourself compiling anything, you are in the wrong procedure.
+
+#### The order matters: code first, hardware second
+
+Deploy before wiring, not after. `[switch] enabled` defaults to `false`, so the new code is a
+**no-op** on a stand with no switch — which makes step 1 a clean answer to "did the update break
+anything?" before there is any hardware to blame. Debugging both at once is how a loose wire becomes
+a suspected regression.
+
+**1. Deploy, and confirm nothing changed.**
+
+```
+$ pnpm run deploy
+$ curl -s $PIZERO:4741/status | jq '{state, switch}'
+```
+
+Expect `"switch": { "live": true, "source": "none" }` — the stand is live because no switch is
+configured, which is the correct reading for a stand that hasn't got one. Put a sleeve on it and
+confirm the room still reacts exactly as it did yesterday. **Stop here if it doesn't**; that is a
+deploy problem, and it has nothing to do with the part in your hand.
+
+**2. Power the Pi Zero down properly.**
+
+```
+$ ssh pi@$PIZERO 'sudo shutdown -h now'
+```
+
+Wait for the green LED to stop blinking, then unplug it. Do not wire a live header.
+
+**3. Wire the switch — two wires, and you cannot get them backwards.**
+
+| Switch leg | Pi Zero 2 W pin      |
+| ---------- | -------------------- |
+| either one | **GPIO 27** (pin 13) |
+| the other  | **GND** (pin 14)     |
+
+Pins 13 and 14 are adjacent, so a 2-pin socket seats on both at once. No resistor — Stylus enables
+the pin's internal pull-up. The switch is a plain open/closed contact, so the two legs are
+interchangeable; there is no polarity to get wrong and nothing to damage by trying.
+
+> **Don't mount it yet.** Leave the switch dangling on its wires until step 6 has proved it works.
+> Drilling the stand is the one irreversible step in this procedure and it is also the last one that
+> needs doing.
+
+**4. Power up and enable it.**
+
+```
+$ ssh pi@$PIZERO
+$ nano ~/Marquee/packages/stylus/config.toml
+```
+
+```toml
+[switch]
+enabled = true
+gpio_pin = 27
+live_when = "low"
+```
+
+```
+$ sudo systemctl restart marquee-stylus
+```
+
+**5. The one check that matters.**
+
+```
+$ curl -s $PIZERO:4741/status | jq .switch
+```
+
+| `source`      | Means                                                                                                                                                                                                                       |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gpio`        | Wired and working. Continue.                                                                                                                                                                                                |
+| `none`        | `enabled` is still `false` — the edit didn't take, or you edited a different file.                                                                                                                                          |
+| `unavailable` | `enabled = true` but Stylus couldn't get the pin. `journalctl -u marquee-stylus` logs why, at ERROR. **The stand is permanently live in this state** — deliberately, since one that silently refuses to react looks broken. |
+
+`unavailable` is the failure worth naming, because everything else about the stand keeps working
+perfectly while the switch does nothing at all.
+
+**6. Find out which way is "on" — don't reason about it, look.**
+
+Flip the switch to whichever position you intend to mean _on_, then:
+
+```
+$ curl -s $PIZERO:4741/status | jq .switch.live
+```
+
+`true` means you guessed right. `false` means the switch is mounted the other way round from the
+default — **change `live_when` to `"high"` and restart**, rather than rewiring or remounting:
+
+```toml
+live_when = "high"
+```
+
+Then re-check both positions. This is the step to get right before drilling, because the lever's
+position is what you will actually be reading from the sofa — the LED confirms it, but you shouldn't
+have to look at the LED to know whether the stand is armed.
+
+**7. Mount it, then run the drill.**
+
+Now drill and fit. Then walk [failure-drill D8b](failure-drills.md) — five checks, including the
+restart-with-the-switch-off one that is the entire reason this is a latching switch and not a button.
+Expect the room to come back about **two seconds** after you flip it off; that is the removal
+debounce, the same delay as lifting a sleeve.
+
+#### If you want it faster or slower
+
+`removal_debounce_polls` in `[reader]` is the knob — 10 polls × 200ms ≈ 2s. Halving it to `5` halves
+the delay, at the cost of making a jostled sleeve likelier to register as a removal. Restart Stylus
+after changing it. Tune this on the real mount, alongside [D9](failure-drills.md).
+
+#### Backing it out
+
+```toml
+[switch]
+enabled = false
+```
+
+Restart, and the stand is permanently live again with the switch still physically attached and
+ignored. The wires can stay; nothing else in the system knows the switch exists.
+
 ### Common operations
 
 - **Pair / re-pair the Hue bridge:** on the Pi, `pnpm --filter @marquee/hue-conductor pair`, press the

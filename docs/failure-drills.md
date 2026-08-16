@@ -333,7 +333,8 @@ to the off pattern, so judge that combination on the pin you actually shipped.
 ## D8b — The off switch gives the room back
 
 **§7.1 / [ADR 0093](adrs/0093-the-stand-has-a-latching-off-switch.md).** **Covered by:**
-`stylus/tests/test_app.py` proves the events; only the room can prove the experience.
+`stylus/tests/test_app.py` proves the events; only the room can prove the experience. Fitting the
+switch in the first place is [runbook B1](runbook.md), which ends by sending you here.
 
 The failure this guards against is the one the design was chosen to avoid: an "off" that stops new
 scans but leaves the lights frozen on the last record's palette.
