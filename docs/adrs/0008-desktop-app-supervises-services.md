@@ -63,7 +63,10 @@ runtime-overview §7 changes; this is only a new way to launch the config side.
 >   (`GET`/`PUT /api/settings/spotify`). They apply on the next launch (the Spotify client + Roadie
 >   are built at boot).
 > - **App icon**: a generated amber-bulb `build/icon.png` (`scripts/make-icon.mjs`), converted to the
->   Windows `.ico` by electron-builder.
+>   Windows `.ico` by electron-builder. **Superseded 2026-08-15** — the icon is now the real Marquee
+>   mark in paper on an ink tile, rasterized from the same SVG the Curator masthead uses
+>   ([ADR 0091](0091-the-app-icon-and-the-masthead-mark-are-the-logo.md)). The generator and the
+>   electron-builder path are unchanged; only what it draws is.
 > - **ffmpeg**: the app bundles `ffmpeg-static` + `ffprobe-static`; the desktop main points Curator's
 >   `FFMPEG_PATH`/`FFPROBE_PATH` at them (`resources/ffmpeg/*` packaged, the static packages in dev),
 >   so no system ffmpeg is required. It adds ~145 MB to the installer — the cost of self-containment.

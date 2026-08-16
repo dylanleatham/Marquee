@@ -48,6 +48,17 @@ pnpm --filter @marquee/desktop dist   # → packages/desktop/release/ (Windows N
 
 This bundles each server with esbuild (`scripts/bundle-servers.mjs` → `staged/`), then packages with
 [electron-builder.yml](electron-builder.yml). The installer drops a **Desktop + Start-Menu shortcut**.
+
+The **app icon** — the one in the taskbar and on those shortcuts — is `build/icon.png`, generated
+from Curator's copy of the Marquee mark by `scripts/make-icon.mjs`
+([ADR 0091](../../docs/adrs/0091-the-app-icon-and-the-masthead-mark-are-the-logo.md)). `dist` runs
+it, but so should you after editing the mark, because a test compares the committed PNG against a
+fresh render:
+
+```bash
+pnpm --filter @marquee/desktop icon
+```
+
 It's **unsigned**, so Windows SmartScreen warns on first run — choose "More info → Run anyway"
 (personal use; code-signing is a later step).
 

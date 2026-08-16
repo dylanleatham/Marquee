@@ -1,7 +1,11 @@
 import { NavLink, Link } from "react-router-dom";
 import type { AlbumSummary } from "../api";
 import { collectionCounts } from "../collection";
-import discMark from "../assets/marquee-disc.jpg";
+// Inlined rather than linked as an `<img>`: the mark is drawn in `currentColor`, and an SVG loaded
+// through `<img>` is a separate document that cannot see this one's colour. Inline, it is ink here
+// and would reverse to paper anywhere the brand block does. The file is a build-time repo asset —
+// there is no user input on this path (ADR 0091).
+import markSvg from "../assets/marquee-mark.svg?raw";
 
 /**
  * The persistent masthead (ADR 0052): four regions in one flex row, each divided by a hairline —
@@ -37,11 +41,13 @@ export function Masthead({
   return (
     <header className="masthead">
       <Link to="/" className="masthead__brand">
-        {/* The disc mark, cropped out of the full logo. A mark-only asset would replace the crop —
-            see ADR 0052; cropping a JPEG is a prototype shortcut, not a shippable approach. */}
-        <span className="masthead__mark" aria-hidden="true">
-          <img src={discMark} alt="" />
-        </span>
+        {/* The Marquee mark. It is decoration beside a wordmark that already says "Curator" and
+            "MARQUEE COLLECTION", so it is hidden from assistive tech rather than described twice. */}
+        <span
+          className="masthead__mark"
+          aria-hidden="true"
+          dangerouslySetInnerHTML={{ __html: markSvg }}
+        />
         <span>
           <span className="masthead__wordmark">Curator</span>
           <span className="masthead__sub">MARQUEE COLLECTION</span>

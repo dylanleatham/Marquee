@@ -5,6 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Curator</title>
     <!--
+      For the dev server on :4738 and for anyone pointing a browser at the served UI on :4739. The
+      packaged app has no tab (curator-ui-ux §2) and takes its window icon from Electron; this is
+      the Marquee mark in the same paper-on-ink treatment so the two match wherever both show up
+      (ADR 0091). Generated into ui/public/ from the one mark SVG by `pnpm run favicon`; a test fails
+      if it goes stale. Vite copies public/ to the root of dist-ui, which Fastify serves.
+    -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!--
       Pressing Plant uses two webfonts (ADR 0052): Archivo Black for display, IBM Plex Mono for
       anything counted. Helvetica is a system stack and is never loaded. Both have real fallbacks in
       styles.css, so a launch with no network degrades to system type rather than to nothing —

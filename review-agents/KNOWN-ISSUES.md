@@ -11,7 +11,33 @@ To promote any of these to a GitHub issue, the text below is paste-ready.
 
 ### Open
 
-_None currently._
+- **RA-8 — a second review of the same commit destroys the first one's findings.** The orchestrator
+  writes `.review-agents/report-${sha}.json`, keyed on `currentSha()` alone. On a branch with no
+  commits yet — the normal state while working, and exactly what CLAUDE.md's "run it in the inner
+  loop, iterating to green" asks for — every run resolves to the same base SHA and overwrites the
+  last report. Fix what a review found, run it again, and the evidence that it found anything is
+  gone.
+
+  This is **RA-6's other half**. That entry fixed run _identity_ in the ledger, because `--staged`
+  and `--base HEAD~3` on one commit were being counted as one run; `runIdOf` now keys on
+  `createdAt`, and its doc comment states the collision plainly. The report _file_ was left keyed on
+  sha, so the same collision still deletes the input before the ledger ever sees it.
+
+  Measured on the branch that became the ADR 0091 logo work: four full reviews on an uncommitted
+  branch, findings 2 → 1 → 9 → 0. Only the last survived on disk, so `--triage` had nothing to
+  judge and **12 findings went unrecorded**, including two `accepted` ones that had caught real bugs
+  (a path-command tokenizer that silently dropped unsupported commands, and a `.toUpperCase()` that
+  drew relative curves as absolute). Losing accepted findings biases the ledger in the worst
+  direction available: the verdicts most likely to survive to `review:stats` are the ones nobody
+  acted on, which is the same inversion `resolveReport`'s fallback comment already warns about one
+  layer up.
+
+  **The fix**: name the report for the run, not the commit — `report-${sha}-${hash(runIdOf)}.json`
+  or equivalent — and have `resolveReport` walk _every_ untriaged report rather than only the newest,
+  so an interrupted session can still be judged later. The durable half is a regression test in
+  `lib/lib.test.mjs`: two reports written for one sha with different `base`/`createdAt` must both
+  still be resolvable. Until then the workaround is procedural and easy to forget — triage between
+  rounds, or commit between them.
 
 ### Resolved
 

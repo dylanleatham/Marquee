@@ -94,6 +94,20 @@ describe("Masthead", () => {
     expect(screen.queryByText("ROADIE WORKING")).toBeNull();
   });
 
+  it("draws the brand mark inline, and keeps it out of the accessibility tree", () => {
+    // Inline SVG rather than an <img>, so the mark takes the brand block's ink (ADR 0091). It sits
+    // beside a wordmark that already reads "Curator" / "MARQUEE COLLECTION", so announcing it again
+    // would just be the brand said twice.
+    show([]);
+    const brand = screen.getByRole("link", { name: /curator/i });
+    const mark = brand.querySelector(".masthead__mark");
+    expect(mark).toBeTruthy();
+    expect(mark!.getAttribute("aria-hidden")).toBe("true");
+    expect(mark!.querySelector("svg")).toBeTruthy();
+    // The old crop pointed an <img> at the logo JPEG and offset it inside an overflow box.
+    expect(mark!.querySelector("img")).toBeNull();
+  });
+
   it("no longer offers the command palette or a needs-you count", () => {
     // Both were removed with the keyboard layer (ADR 0052); a stray reintroduction would show here.
     show([album({ curatorId: "a" })]);
