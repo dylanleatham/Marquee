@@ -97,8 +97,9 @@ async function triage() {
   const owed = resolveReports(REPORT_DIR, currentSha(), records, (p) =>
     skipped.push(p),
   );
+  // console.log, not console.error: this file reserves stderr for the paths that then exit(1).
   for (const path of skipped)
-    console.error(
+    console.log(
       `review-agents: skipping unreadable report ${path} — delete it, or keep it if you want to know why.`,
     );
 
