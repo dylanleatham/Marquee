@@ -16,8 +16,7 @@
 // shape as the batch palette sweep
 // ([ADR 0029](../../../../docs/adrs/0029-batch-work-runs-as-a-library-job.md)): the work is
 // minutes-to-hours of Roadie time and must not sit on an HTTP request.
-import type { AssetStore } from "../store/asset-store.js";
-import type { Roadie } from "../roadie/worker.js";
+import type { NewAlbumDeps } from "./publish.js";
 import type {
   DiscogsClient,
   DiscogsCollectionItem,
@@ -109,9 +108,7 @@ export interface SyncLogger {
   warn(msg: string): void;
 }
 
-export interface DiscogsSyncDeps {
-  store: AssetStore;
-  roadie: Roadie;
+export interface DiscogsSyncDeps extends NewAlbumDeps {
   discogs: DiscogsClient;
   /** Resolves the collection owner — configured username, else the token's identity. */
   resolveUsername: () => Promise<string>;
@@ -295,7 +292,12 @@ export function discogsSyncRunner(deps: DiscogsSyncDeps) {
       }
       try {
         const { curatorId } = await addDiscogsAlbum(
-          { store: deps.store, roadie: deps.roadie, index },
+          {
+            store: deps.store,
+            roadie: deps.roadie,
+            announce: deps.announce,
+            index,
+          },
           {
             releaseId: item.releaseId,
             title: item.title,

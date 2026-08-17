@@ -1,6 +1,6 @@
 import { generateCuratorId } from "../ids.js";
 import type { AssetStore } from "../store/asset-store.js";
-import type { Roadie } from "../roadie/worker.js";
+import { publishNewAlbum, type NewAlbumDeps } from "./publish.js";
 import { discogsUri } from "../discogs/client.js";
 import {
   buildFreshAsset,
@@ -108,7 +108,7 @@ export interface DiscogsAddInput {
  * overwrites them with the authoritative release metadata.
  */
 export async function addDiscogsAlbum(
-  deps: { store: AssetStore; roadie: Roadie; index?: DiscogsIndex },
+  deps: NewAlbumDeps & { index?: DiscogsIndex },
   input: DiscogsAddInput,
 ): Promise<{ curatorId: string; asset: AlbumAsset }> {
   const releaseId = Number(input.releaseId);
@@ -138,8 +138,9 @@ export async function addDiscogsAlbum(
   };
 
   const asset = buildFreshAsset({ curatorId, metadata });
-  deps.store.save(asset);
+  // Indexed before publishing, so the in-memory dedup index can never be behind the saved album —
+  // the sweep consults it for the very next row, and a window where the asset exists but is
+  // unindexed is a second copy of the same release.
   deps.index?.add(uri, curatorId);
-  deps.roadie.enqueue(curatorId);
-  return { curatorId, asset };
+  return publishNewAlbum(deps, asset);
 }

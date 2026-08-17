@@ -285,6 +285,14 @@ shell, deliberately not a CI check
 > _rewrites_ the entry instead of deleting it and removal is reserved for the album ceasing to exist.
 > The old shape left Backdrop unable to tell an unfinished record from a tag nothing knows.
 
+> **Amended again 2026-08-16 ([ADR 0094](../adrs/0094-adding-an-album-is-a-projection-change.md)).**
+> **Album creation is on this list too.** ADR 0073 changed _what_ projects without changing _when_
+> Curator pushes, so an album added since the last full reconcile was simply absent from Backdrop:
+> on the stand it played nothing and flashed `video not in library`, the tag-nothing-knows indicator
+> the amendment above had just reclaimed ([#343](https://github.com/dylanleatham/Marquee/issues/343)).
+> Every creation path now announces through `albums/publish.ts`, and `announce` is a required
+> dependency rather than an optional one so the next creation path inherits it by construction.
+
 - **Curator → Backdrop videos**: streamed by Curator over HTTP (`PUT /api/media/:fileId`, `media_transfer = "push"` — [ADR 0038](../adrs/0038-curator-pushes-media-over-http.md)), skipping files whose `contentHash` Backdrop already reports; or `rsync`/`syncthing` out of band (`media_transfer = "none"`, the default). Big files, tolerant of long-running transfer.
 - **Curator → Conductor asset store**: HTTP push, `PUT /api/album-assets/:curatorId` ([ADR 0045](../adrs/0045-curator-pushes-album-assets-to-conductor.md)). Fires on a video change, on **verify**, on the per-album `POST /api/albums/:curatorId/push`, for the whole library from `POST /api/runtime/sync` (a background job), and — since 2026-08-12, [ADR 0081](../adrs/0081-an-edit-that-changes-what-the-room-plays-pushes-it.md) — on **every edit that changes what the room plays**: the demo cut, the album's Spotify URI, the palette, the motion override, and the cover. **Amp reads the same directory** and is served by the same push. The push has a **list** of targets since 2026-08-13 ([ADR 0079](../adrs/0079-the-asset-push-has-more-than-one-target.md)), because more than one host reads the store — a desktop shell's own Conductor and the runtime Pi's, at once. `rsync` still works for a bulk first load, but is no longer required.
 

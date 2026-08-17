@@ -8,7 +8,7 @@ import { DiscogsClient } from "../src/discogs/client.js";
 import { addDiscogsAlbum } from "../src/albums/add-discogs.js";
 import { DuplicateAlbumError } from "../src/albums/add-spotify.js";
 import { ValidationError } from "../src/albums/add-manual.js";
-import { fakeRoadie } from "./helpers.js";
+import { fakeRoadie, noAnnounce } from "./helpers.js";
 
 const RELEASE_ID = 249504;
 const store = () => new AssetStore(mkdtempSync(join(tmpdir(), "curator-dg-")));
@@ -34,7 +34,7 @@ describe("addDiscogsAlbum", () => {
     const s = store();
     const roadie = fakeRoadie(s, { discogs: client(fd) });
     const { curatorId, asset } = await addDiscogsAlbum(
-      { store: s, roadie },
+      { store: s, roadie, announce: noAnnounce },
       { releaseId: RELEASE_ID, title: "Purple Rain", artist: "Prince" },
     );
 
@@ -65,11 +65,17 @@ describe("addDiscogsAlbum", () => {
     const fd = createFakeDiscogs([release()]);
     const s = store();
     const roadie = fakeRoadie(s, { discogs: client(fd) });
-    await addDiscogsAlbum({ store: s, roadie }, { releaseId: RELEASE_ID });
+    await addDiscogsAlbum(
+      { store: s, roadie, announce: noAnnounce },
+      { releaseId: RELEASE_ID },
+    );
     await roadie.drain();
 
     await expect(
-      addDiscogsAlbum({ store: s, roadie }, { releaseId: RELEASE_ID }),
+      addDiscogsAlbum(
+        { store: s, roadie, announce: noAnnounce },
+        { releaseId: RELEASE_ID },
+      ),
     ).rejects.toBeInstanceOf(DuplicateAlbumError);
   });
 
@@ -77,7 +83,7 @@ describe("addDiscogsAlbum", () => {
     const s = store();
     const roadie = fakeRoadie(s, { discogs: client(createFakeDiscogs()) });
     await expect(
-      addDiscogsAlbum({ store: s, roadie }, {
+      addDiscogsAlbum({ store: s, roadie, announce: noAnnounce }, {
         releaseId: 0,
       } as { releaseId: number }),
     ).rejects.toBeInstanceOf(ValidationError);
@@ -91,7 +97,7 @@ describe("addDiscogsAlbum", () => {
     const s = store();
     const roadie = fakeRoadie(s, { discogs: client(fd) });
     const { curatorId } = await addDiscogsAlbum(
-      { store: s, roadie },
+      { store: s, roadie, announce: noAnnounce },
       { releaseId: RELEASE_ID },
     );
     // A different-source album with no discogsUri must not collide.

@@ -1391,6 +1391,45 @@ export function buildServer(opts: BuildOptions = {}) {
     (await syncAlbumToRuntime(asset)).transferJob;
 
   /**
+   * ★sync-on-add ([#343](https://github.com/dylanleatham/Marquee/issues/343)) — the announce every
+   * album-creation path runs through `publishNewAlbum`.
+   *
+   * Adding an album became a projection change with [ADR 0073](../../../docs/adrs/0073-a-record-with-no-visualizer-plays-the-default.md):
+   * every album Curator holds now projects as an entry, `usesDefault` until it has a visualizer.
+   * [ADR 0015](../../../docs/adrs/0015-backdrop-sync-triggered-at-projection-changes.md)'s trigger
+   * list still began at video attach, so a record added since the last full reconcile was unknown to
+   * Backdrop and played nothing on the stand — under `video not in library`, the indicator that is
+   * supposed to mean a tag nothing recognises.
+   *
+   * **Backdrop only, deliberately not `syncAlbumToRuntime`.** Backdrop's projection is
+   * `{ uri, usesDefault }` — nothing in it changes as Roadie fills the album in, so an entry pushed
+   * at creation is true from that moment and stays true until a video attaches, where the existing
+   * ★sync takes over. Conductor's projection is the *whole asset*, which at creation is a shell with
+   * no palette; pushing that would publish a placeholder and then need re-pushing at every step of
+   * Roadie's pipeline. That is a different question from this bug, and ADR 0015 §3 keeps the two
+   * legs independent precisely so it can be answered separately.
+   *
+   * **Never throws** — the contract `publishNewAlbum` relies on. By the time this runs the album is
+   * saved and queued; a Pi that is off must not turn a successful add into a 500 the user retries
+   * into a duplicate. `syncMetadata` already records its own failure as the album's syncIssues, so a
+   * failed announce is visible in the UI rather than silent, and the catch here is the backstop for
+   * the case where recording *that* is what failed.
+   */
+  const announceToRuntime = async (asset: AlbumAsset): Promise<void> => {
+    try {
+      await backdrop.syncMetadata(asset);
+    } catch (err) {
+      app.log.warn(
+        { curatorId: asset.curatorId, err },
+        "could not announce the new album to Backdrop; it will be picked up by the next reconcile",
+      );
+    }
+  };
+
+  /** The deps every album-creation path takes. Built once so no add path can be wired without one. */
+  const newAlbumDeps = { store, roadie, announce: announceToRuntime };
+
+  /**
    * ★sync after an edit that changes **what the room plays** ([#304](https://github.com/dylanleatham/Marquee/issues/304)).
    *
    * Conductor's directory is the copy Amp reads at scan time (ADR 0045), so a choice that lands only
@@ -3142,8 +3181,7 @@ export function buildServer(opts: BuildOptions = {}) {
       "discogsSync",
       undefined,
       discogsSyncRunner({
-        store,
-        roadie,
+        ...newAlbumDeps,
         discogs,
         resolveUsername: resolveDiscogsUsername,
         logger: {
@@ -3313,19 +3351,16 @@ export function buildServer(opts: BuildOptions = {}) {
           if (part.type === "file") artwork = await part.toBuffer();
           else fields[part.fieldname] = String(part.value);
         }
-        const { curatorId, asset } = await addManualAlbum(
-          { store, roadie },
-          {
-            name: fields.name ?? "",
-            artist: fields.artist ?? "",
-            year: fields.year ? Number(fields.year) : undefined,
-            genres: fields.genres
-              ?.split(",")
-              .map((s) => s.trim())
-              .filter(Boolean),
-            artwork: artwork ?? Buffer.alloc(0),
-          },
-        );
+        const { curatorId, asset } = await addManualAlbum(newAlbumDeps, {
+          name: fields.name ?? "",
+          artist: fields.artist ?? "",
+          year: fields.year ? Number(fields.year) : undefined,
+          genres: fields.genres
+            ?.split(",")
+            .map((s) => s.trim())
+            .filter(Boolean),
+          artwork: artwork ?? Buffer.alloc(0),
+        });
         return created(reply, curatorId, asset);
       } catch (err) {
         if (err instanceof ValidationError)
@@ -3357,19 +3392,16 @@ export function buildServer(opts: BuildOptions = {}) {
       if (!discogs)
         return reply.code(503).send({ error: "Discogs not configured" });
       try {
-        const { curatorId, asset } = await addDiscogsAlbum(
-          { store, roadie },
-          {
-            releaseId,
-            ...(body.title !== undefined ? { title: body.title } : {}),
-            ...(body.artist !== undefined ? { artist: body.artist } : {}),
-            ...(body.year !== undefined ? { year: body.year } : {}),
-            ...(body.genres !== undefined ? { genres: body.genres } : {}),
-            ...(body.coverImage !== undefined
-              ? { coverImage: body.coverImage }
-              : {}),
-          },
-        );
+        const { curatorId, asset } = await addDiscogsAlbum(newAlbumDeps, {
+          releaseId,
+          ...(body.title !== undefined ? { title: body.title } : {}),
+          ...(body.artist !== undefined ? { artist: body.artist } : {}),
+          ...(body.year !== undefined ? { year: body.year } : {}),
+          ...(body.genres !== undefined ? { genres: body.genres } : {}),
+          ...(body.coverImage !== undefined
+            ? { coverImage: body.coverImage }
+            : {}),
+        });
         return created(reply, curatorId, asset);
       } catch (err) {
         if (err instanceof DuplicateAlbumError)
@@ -3390,10 +3422,7 @@ export function buildServer(opts: BuildOptions = {}) {
       });
     }
     try {
-      const { curatorId, asset } = await addSpotifyAlbum(
-        { store, roadie },
-        body,
-      );
+      const { curatorId, asset } = await addSpotifyAlbum(newAlbumDeps, body);
       return created(reply, curatorId, asset);
     } catch (err) {
       if (err instanceof DuplicateAlbumError)
@@ -3422,7 +3451,7 @@ export function buildServer(opts: BuildOptions = {}) {
       });
     const { items } = (req.body ?? {}) as { items?: BatchAddItem[] };
     try {
-      return await addAlbumsBatch({ store, roadie }, items as BatchAddItem[]);
+      return await addAlbumsBatch(newAlbumDeps, items as BatchAddItem[]);
     } catch (err) {
       if (err instanceof ValidationError)
         return reply.code(400).send({ error: err.message });

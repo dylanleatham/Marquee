@@ -17,7 +17,7 @@ import {
   addDiscogsAlbum,
   buildDiscogsIndex,
 } from "../src/albums/add-discogs.js";
-import { fakeRoadie, makeAsset } from "./helpers.js";
+import { fakeRoadie, makeAsset, noAnnounce, spyAnnounce } from "./helpers.js";
 
 const store = () =>
   new AssetStore(mkdtempSync(join(tmpdir(), "curator-sync-")));
@@ -47,17 +47,21 @@ function harness(count: number, opts: { username?: string } = {}) {
   const s = store();
   const discogs = client(fd);
   const roadie = fakeRoadie(s, { discogs });
+  // The sweep is the highest-volume creation path there is, and the one that produced #343 in the
+  // field — so it records what it announced rather than dropping it on the floor.
+  const { announce, announced } = spyAnnounce();
   const run = (extra: Parameters<typeof discogsSyncRunner>[0] | null = null) =>
     discogsSyncRunner({
       store: s,
       roadie,
+      announce,
       discogs,
       resolveUsername: async () => username,
       sleep: async () => {},
       rand: () => 0,
       ...(extra ?? {}),
     });
-  return { fd, store: s, discogs, roadie, releases, run };
+  return { fd, store: s, discogs, roadie, releases, run, announced };
 }
 
 const ctx = (signal = new AbortController().signal) => ({
@@ -98,6 +102,33 @@ describe("discogsSyncRunner", () => {
     for (const asset of h.store.list())
       expect(asset.roadie.state).toBe("fetching_metadata");
     expect(discogsSync.added).toBe(3);
+  });
+
+  /**
+   * The sweep is how [#343](https://github.com/dylanleatham/Marquee/issues/343) reached the room:
+   * four records arrived in one unattended poll tick, none reached Backdrop, and putting one on the
+   * stand played nothing under `video not in library`. Queueing with Roadie is what makes an album
+   * *finished*; announcing is what makes it *playable*, and the sweep owes both on every record it
+   * adds — the whole point of ADR 0073 is that an unfinished record still does something.
+   */
+  it("announces every album it adds, so a swept record plays something", async () => {
+    const h = harness(3);
+
+    const { discogsSync } = await h.run()(ctx());
+
+    expect(discogsSync.added).toBe(3);
+    expect(h.announced).toEqual(discogsSync.curatorIds);
+  });
+
+  it("announces nothing on a re-run that adds nothing", async () => {
+    const h = harness(3);
+    await h.run()(ctx());
+    const first = [...h.announced];
+
+    await h.run()(ctx());
+
+    // A duplicate is not a new record; re-announcing every sweep would be a push per album per tick.
+    expect(h.announced).toEqual(first);
   });
 
   it("re-running adds only what's new — the refresh case", async () => {
@@ -164,7 +195,8 @@ describe("discogsSyncRunner", () => {
     const s = store();
     const { discogsSync } = await discogsSyncRunner({
       store: s,
-      roadie: fakeRoadie(s, { discogs }),
+      roadie: fakeRoadie(s, { discogs, announce: noAnnounce }),
+      announce: noAnnounce,
       discogs,
       resolveUsername: async () => "digger",
       sleep: async () => {},
@@ -207,6 +239,7 @@ describe("discogsSyncRunner", () => {
       roadie,
       discogs: h.discogs,
       resolveUsername: async () => "digger",
+      announce: noAnnounce,
     })(ctx());
     await roadie.drain();
 
@@ -318,6 +351,7 @@ describe("discogsSyncRunner", () => {
       resolveUsername: async () => "digger",
       sleep,
       rand: () => 0,
+      announce: noAnnounce,
     })(ctx());
 
     expect(discogsSync.truncated).toBe(true);
@@ -399,7 +433,7 @@ describe("discogsSyncRunner", () => {
         injected = true;
         // A release on page 3, added the manual way — no index, straight to the store.
         await addDiscogsAlbum(
-          { store: h.store, roadie },
+          { store: h.store, roadie, announce: noAnnounce },
           { releaseId: 1240, title: "Album 1240", artist: "Artist 1240" },
         );
       }
@@ -426,6 +460,7 @@ describe("discogsSyncRunner", () => {
       roadie: h.roadie,
       discogs: h.discogs,
       resolveUsername,
+      announce: noAnnounce,
     })(ctx());
 
     expect(resolveUsername).toHaveBeenCalledTimes(1);

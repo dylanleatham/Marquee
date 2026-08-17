@@ -1,6 +1,5 @@
 import { generateCuratorId } from "../ids.js";
-import type { AssetStore } from "../store/asset-store.js";
-import type { Roadie } from "../roadie/worker.js";
+import { publishNewAlbum, type NewAlbumDeps } from "./publish.js";
 import {
   buildFreshAsset,
   type AlbumAsset,
@@ -34,7 +33,7 @@ export function parseAlbumId(input: {
  * downloads art, and generates the palette off the request path (roadie-spec §6).
  */
 export async function addSpotifyAlbum(
-  deps: { store: AssetStore; roadie: Roadie },
+  deps: NewAlbumDeps,
   input: { spotifyUri?: string; spotifyId?: string },
 ): Promise<{ curatorId: string; asset: AlbumAsset }> {
   const spotifyId = parseAlbumId(input);
@@ -56,7 +55,5 @@ export async function addSpotifyAlbum(
   };
 
   const asset = buildFreshAsset({ curatorId, metadata });
-  deps.store.save(asset);
-  deps.roadie.enqueue(curatorId);
-  return { curatorId, asset };
+  return publishNewAlbum(deps, asset);
 }
