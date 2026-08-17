@@ -12,6 +12,36 @@ export const CONTRACTS_VERSION = 1 as const;
 // contract tests (which validate real payloads against the schemas). When schema→TS
 // codegen is wired (scripts/gen-schemas.mjs), these get replaced by generated exports.
 
+/**
+ * Why Roadie parked a record ([#345](https://github.com/dylanleatham/Marquee/issues/345)).
+ *
+ * A cross-package shape because it genuinely is one: Curator's steps write these strings onto
+ * `roadie.lastError.reason`, and the UI turns each into the sentence a human reads on the Stuck row.
+ * They lived as two hand-maintained lists with nothing joining them, and they drifted apart
+ * completely — the UI had sentences for four reasons no step has ever thrown, while four of the five
+ * that *are* thrown fell through to a raw server message. Nothing was red, because nothing compared
+ * the lists.
+ *
+ * Here they are one list. `RoadieFailureReason` types the throwing side, and `failureSentence`'s map
+ * is a total `Record` over it on the reading side, so **adding a reason without a sentence is a type
+ * error** rather than a record that explains itself in developer English.
+ *
+ * `errored` records carry no reason — a config fault is Roadie's problem, not the record's, and the
+ * System page shows the raw text there deliberately (curator-ui-ux §11).
+ */
+export const ROADIE_FAILURE_REASONS = [
+  "album_not_on_spotify",
+  "release_not_on_discogs",
+  "invalid_spotify_uri",
+  "invalid_discogs_release",
+  "art_unavailable",
+] as const;
+
+export type RoadieFailureReason = (typeof ROADIE_FAILURE_REASONS)[number];
+
+export const isRoadieFailureReason = (s: string): s is RoadieFailureReason =>
+  (ROADIE_FAILURE_REASONS as readonly string[]).includes(s);
+
 export type PaletteRole = "primary" | "secondary" | "accent";
 
 export interface PaletteColor {

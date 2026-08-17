@@ -10,16 +10,26 @@ import {
   screen,
   cleanup,
   fireEvent,
+  waitFor,
   within,
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import type { AlbumSummary } from "../api";
+
+// The grid is presentational except for one act: re-enqueueing a stuck record (roadie-spec §8).
+// `artworkUrl` is real because the tiles build their `src` from it.
+vi.mock("../api", async (orig) => ({
+  ...(await orig<typeof import("../api")>()),
+  api: { retry: vi.fn().mockResolvedValue({ retried: "ok" }) },
+}));
+
+import { api, type AlbumSummary } from "../api";
 import { resetRoadieLog } from "../roadieLog";
 import { Collection } from "./Collection";
 
 afterEach(() => {
   cleanup();
   resetRoadieLog();
+  vi.clearAllMocks();
 });
 
 const album = (over: Partial<AlbumSummary> & { curatorId: string }) =>
@@ -85,7 +95,7 @@ const LIBRARY: AlbumSummary[] = [
     title: "Rachel's Greatest Hits",
     artist: "Unknown",
     state: "errored",
-    lastError: { message: "no match", reason: "spotify_lookup_failed" },
+    lastError: { message: "no match", reason: "album_not_on_spotify" },
   }),
 ];
 
@@ -353,6 +363,48 @@ describe("Collection — a chip per state", () => {
     expect(screen.getByText(/Roadie couldn't find this anywhere/)).toBeTruthy();
     expect(screen.getByRole("link", { name: "FIX IT" })).toBeTruthy();
     expect(screen.queryByText("Purple Rain")).toBeNull();
+  });
+
+  /**
+   * The retry roadie-spec §8 has promised all along
+   * ([#345](https://github.com/dylanleatham/Marquee/issues/345)): "any album in `errored` or
+   * `needs_manual` can be re-enqueued by the human via a UI button". The button went missing when
+   * ADR 0052 replaced the nine-state queue with this screen — `api.retry` survived, wired to
+   * nothing — so for two months a stuck record's only listed way out was a link to a page that
+   * could not un-stick it either.
+   */
+  it("lets you re-enqueue a stuck record without leaving the collection", async () => {
+    show();
+    fireEvent.click(chip(/STUCK · 1/));
+    fireEvent.click(screen.getByRole("button", { name: "TRY AGAIN" }));
+    await waitFor(() => expect(api.retry).toHaveBeenCalledWith("0z4rjc6y"));
+  });
+
+  it("says so when the hand-back fails, on the record it failed for", async () => {
+    // `AsyncButton` cannot show a failure — it is a <button> — so a handler that doesn't catch
+    // leaves it settling back with no explanation, which this repo has taken as a review finding
+    // three times. The sentence goes on the row that already explains itself.
+    vi.mocked(api.retry).mockRejectedValueOnce(new Error("Roadie is paused"));
+    show();
+    fireEvent.click(chip(/STUCK · 1/));
+    fireEvent.click(screen.getByRole("button", { name: "TRY AGAIN" }));
+    const row = document.querySelector(".stuck") as HTMLElement;
+    await waitFor(() =>
+      expect(within(row).getByText(/Roadie is paused/)).toBeTruthy(),
+    );
+    // The record's own sentence is still there — the failure is appended, not a replacement.
+    expect(within(row).getByText(/couldn't find this anywhere/)).toBeTruthy();
+  });
+
+  it("keeps FIX IT beside it — the two answer different failures", () => {
+    // A transient failure ("try again in a minute") wants the button; a record that will never
+    // resolve upstream wants the page, to be given the artifact by hand. Offering only one of them
+    // is what left `art_unavailable` with no way out at all.
+    show();
+    fireEvent.click(chip(/STUCK · 1/));
+    const row = document.querySelector(".stuck") as HTMLElement;
+    expect(within(row).getByRole("button", { name: "TRY AGAIN" })).toBeTruthy();
+    expect(within(row).getByRole("link", { name: "FIX IT" })).toBeTruthy();
   });
 
   it("hides STUCK entirely when nothing is stuck", () => {

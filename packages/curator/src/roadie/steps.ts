@@ -1,9 +1,10 @@
 // The Roadie-driven sub-steps (roadie-spec §6). Each step mutates the in-memory asset and returns
 // the next state; the worker owns persistence, history, and retry classification. Every step is
 // idempotent (roadie-spec §15) so a crash-restart can safely re-run it from where it left off.
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { generatePalette } from "@marquee/palette-press";
+import type { RoadieFailureReason } from "@marquee/contracts";
 import type { AssetStore } from "../store/asset-store.js";
 import type { SpotifyClient } from "../spotify/client.js";
 import { SpotifyError } from "../spotify/client.js";
@@ -53,7 +54,10 @@ export interface StepDeps {
 export type Step = (asset: AlbumAsset, deps: StepDeps) => Promise<RoadieState>;
 
 /** Translate a Spotify HTTP error into a Roadie failure class. */
-function classifySpotify(err: SpotifyError, notFoundReason: string): never {
+function classifySpotify(
+  err: SpotifyError,
+  notFoundReason: RoadieFailureReason,
+): never {
   if (err.status === 404) throw new PermanentError(err.message, notFoundReason);
   if (err.status === 401 || err.status === 403)
     throw new ConfigError(`Spotify auth problem: ${err.message}`, err);
@@ -62,7 +66,10 @@ function classifySpotify(err: SpotifyError, notFoundReason: string): never {
 }
 
 /** Translate a Discogs HTTP error into a Roadie failure class (parallel to `classifySpotify`). */
-function classifyDiscogs(err: DiscogsError, notFoundReason: string): never {
+function classifyDiscogs(
+  err: DiscogsError,
+  notFoundReason: RoadieFailureReason,
+): never {
   if (err.status === 404) throw new PermanentError(err.message, notFoundReason);
   if (err.status === 401 || err.status === 403)
     throw new ConfigError(`Discogs auth problem: ${err.message}`, err);
@@ -284,11 +291,28 @@ const downloadDiscogsArt: Step = async (asset, deps) => {
 /**
  * downloading_art → generating_palette. Dispatches on source; manual albums arrive with art already
  * saved and never enter this step.
+ *
+ * **A cover already in force is a cover** ([#345](https://github.com/dylanleatham/Marquee/issues/345)).
+ * `albums/artwork.ts` states the rule for readers — the active cover is the override when there is
+ * one — and this is the writer's half of it. Without it the step went looking for a URL it had no
+ * reason to want, which broke the manual recovery roadie-spec §8 promises in exactly the case that
+ * has no other way out: a release with no image parks at `needs_manual` saying "provide art
+ * manually", and the retry after you provided it re-parked on the same missing URL, forever.
+ *
+ * The file check is not ceremony: the flag and the file are written together by
+ * `applyArtworkOverride`, so a set flag with no file means a half-written override, and skipping to
+ * `generating_palette` there would trade this honest failure for a more confusing one two steps on.
  */
-const downloadArt: Step = async (asset, deps) =>
-  asset.metadata.source === "discogs"
+const downloadArt: Step = async (asset, deps) => {
+  if (
+    asset.artwork?.overrideActive &&
+    existsSync(resolvedArtworkFile(deps.store, asset))
+  )
+    return "generating_palette";
+  return asset.metadata.source === "discogs"
     ? downloadDiscogsArt(asset, deps)
     : downloadSpotifyArt(asset, deps);
+};
 
 /**
  * generating_palette → awaiting_review. Reads the saved cover, runs Palette Press. Insufficient

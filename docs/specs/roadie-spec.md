@@ -195,6 +195,19 @@ awaiting_verify → verified` needs `physicallyVerifiedAt`. `preview/approve`, `
 >
 > A Spotify **error** here is `none`, never `ambiguous` — "look again later" is true of an outage and false of an ambiguity.
 
+> **A cover already in force short-circuits this step (2026-08-16, [#345](https://github.com/dylanleatham/Marquee/issues/345)).** When `artwork.overrideActive` is set and the override file is on
+> disk, the step returns `generating_palette` without asking either source for a URL. Two reasons,
+> both load-bearing: a re-download would re-point `artwork` at the fetched slot and silently discard
+> the human's cover, which is the loss [ADR 0084](../adrs/0084-your-own-cover-is-a-palette-control.md)'s
+> override exists to prevent; and without it the **manual retry** promised in §8 could never clear an
+> `art_unavailable` park, because the retry re-entered this step and failed on the same missing URL
+> forever. `albums/artwork.ts` states the rule for readers — the active cover is the override when
+> there is one — and this is the writer's half of it.
+>
+> The file check is not ceremony. `applyArtworkOverride` writes the flag and the file together, so a
+> set flag with no file means a half-written override; proceeding there would trade this step's
+> honest failure for a more confusing one in `generating_palette`.
+
 - Success: transition to `generating_palette`
 - Failure: retry with backoff; after 3 fails, `errored` with reason
 
@@ -468,6 +481,20 @@ Failure classes:
 | **Unexpected**   | Truly unknown                              | Log the full context, transition to `errored`, do not retry automatically       |
 
 **Manual retry**: any album in `errored` or `needs_manual` can be re-enqueued by the human via a UI button or `POST /api/agent/retry/:curatorId`. Retries reset the retry counter and start over from the current sub-step (idempotent).
+
+> **The UI button is the Stuck row's `TRY AGAIN` (2026-08-16, [#345](https://github.com/dylanleatham/Marquee/issues/345)).** It went missing when [ADR 0052](../adrs/0052-curator-is-three-places-not-a-nine-state-queue.md) replaced the
+> nine-state queue with the collection — `api.retry` survived the overhaul wired to nothing, so for
+> two months this paragraph was false and a stuck record's only offered way out was a link to a page
+> that could not un-stick it either. See [curator-ui-ux.md](curator-ui-ux.md) §10 for the row.
+
+**Every `reason` owes the reader a sentence.** The permanent reasons are enumerated once, as
+`ROADIE_FAILURE_REASONS` in `@marquee/contracts`, and the UI's `failureSentence` is a total `Record`
+over that union — so a new reason does not compile until it has plain English to show. They were two
+hand-maintained lists until 2026-08-16 and had drifted completely apart: the UI carried sentences for
+four reasons no step has ever thrown, while four of the five real ones fell through to raw server
+text. `art_unavailable` was among them, which is how a record spent two months telling its owner to
+"provide art manually" from a screen with no way to provide it
+([#345](https://github.com/dylanleatham/Marquee/issues/345)).
 
 **Backoff shape**: exponential (1s, 4s, 15s, 60s) with jitter. Long tail so a Spotify outage doesn't hammer the API; short first-try so the common recoverable case (WiFi hiccup) resolves in seconds.
 
