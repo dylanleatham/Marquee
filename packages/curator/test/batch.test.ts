@@ -22,6 +22,7 @@ import {
   fakeGenerate,
   fakePayload,
   makeAsset,
+  noAnnounce,
 } from "./helpers.js";
 
 const uri = (id: string) => `spotify:album:${id}`;
@@ -66,14 +67,20 @@ describe("addAlbumsBatch", () => {
   it("reports an outcome per item — added, already present, and junk", async () => {
     const s = store();
     const roadie = fakeRoadie(s);
-    const first = await addAlbumsBatch({ store: s, roadie }, [uri("AAA111")]);
+    const first = await addAlbumsBatch(
+      { store: s, roadie, announce: noAnnounce },
+      [uri("AAA111")],
+    );
 
-    const report = await addAlbumsBatch({ store: s, roadie }, [
-      uri("BBB222"),
-      uri("AAA111"), // added by the previous call
-      "not-a-uri",
-      uri("CCC333"),
-    ]);
+    const report = await addAlbumsBatch(
+      { store: s, roadie, announce: noAnnounce },
+      [
+        uri("BBB222"),
+        uri("AAA111"), // added by the previous call
+        "not-a-uri",
+        uri("CCC333"),
+      ],
+    );
 
     expect(report.added).toBe(2);
     expect(report.duplicate).toBe(1);
@@ -93,10 +100,10 @@ describe("addAlbumsBatch", () => {
 
   it("catches a line repeated inside the same paste", async () => {
     const s = store();
-    const report = await addAlbumsBatch({ store: s, roadie: fakeRoadie(s) }, [
-      uri("DUP999"),
-      uri("DUP999"),
-    ]);
+    const report = await addAlbumsBatch(
+      { store: s, roadie: fakeRoadie(s), announce: noAnnounce },
+      [uri("DUP999"), uri("DUP999")],
+    );
     expect(report.added).toBe(1);
     expect(report.duplicate).toBe(1);
     // The second line points at the album the first line just created, not at nothing.
@@ -105,10 +112,10 @@ describe("addAlbumsBatch", () => {
 
   it("accepts the documented object form as well as a bare line", async () => {
     const s = store();
-    const report = await addAlbumsBatch({ store: s, roadie: fakeRoadie(s) }, [
-      { mode: "spotify", spotifyUri: uri("OBJ111") },
-      { spotifyId: "OBJ222" },
-    ]);
+    const report = await addAlbumsBatch(
+      { store: s, roadie: fakeRoadie(s), announce: noAnnounce },
+      [{ mode: "spotify", spotifyUri: uri("OBJ111") }, { spotifyId: "OBJ222" }],
+    );
     expect(report.added).toBe(2);
     expect(report.items.map((i) => i.input)).toEqual([
       uri("OBJ111"),
@@ -119,7 +126,7 @@ describe("addAlbumsBatch", () => {
   it("rejects a malformed envelope rather than reporting it per item", async () => {
     const s = store();
     const roadie = fakeRoadie(s);
-    const deps = { store: s, roadie };
+    const deps = { store: s, roadie, announce: noAnnounce };
     await expect(
       addAlbumsBatch(deps, undefined as never),
     ).rejects.toBeInstanceOf(ValidationError);

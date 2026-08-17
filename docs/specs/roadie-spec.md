@@ -117,7 +117,14 @@ The album onboarding workflow already defined per-album states. Roadie doesn't i
                             │           ▼         │
                             └─────────────────────┘
 
-  ★ = Roadie sync triggers on human-driven transitions (see §6):
+  ★ = runtime sync triggers (see §6). ★sync and ★verify fire on human-driven
+      transitions; ★announce fires on creation, which is not one:
+      ★announce = the moment the album exists, before this diagram starts — put it
+                in Backdrop's library as `usesDefault` so an unfinished record
+                plays the default clip instead of nothing (ADR 0073, ADR 0094).
+                Backdrop only: its projection is `{ uri, usesDefault }` and needs
+                no metadata, while Conductor's is the whole asset, which at this
+                point has no palette yet.
       ★sync   = push the album asset to Conductor — which Amp reads from the same
                 directory (ADR 0045) — and get the video file onto Backdrop's SD
                 card, pushed over HTTP, copied locally, or left to rsync, per
@@ -270,6 +277,20 @@ awaiting_verify → verified` needs `physicallyVerifiedAt`. `preview/approve`, `
 > album from track 1. These pushes are Conductor-only and skip Backdrop deliberately (its projection
 > carries none of those fields, and the Backdrop path cancels in-flight media transfers). Library
 > sweeps still do not push per album — see ADR 0075 for the boundary and the exclusions.
+>
+> **Update (2026-08-16, [ADR 0094](../adrs/0094-adding-an-album-is-a-projection-change.md)): ★ fires
+> on **album creation** too, and "the trigger points themselves are unchanged" in the ADR 0073 note
+> above is what turned out to be wrong.** Once every album projects an entry, the entry has to appear
+> when the album does; leaving the list starting at _video attach_ meant a record added since the last
+> full reconcile was absent from Backdrop, so putting it on the stand played nothing under
+> `video not in library` — the indicator ADR 0073 had just finished disambiguating
+> ([#343](https://github.com/dylanleatham/Marquee/issues/343): four albums from one Discogs sweep).
+> Every creation path — manual, Spotify, Discogs, the pasted batch, the collection sweep — now runs
+> through `albums/publish.ts`, which saves, enqueues with Roadie, and announces to Backdrop. The
+> announce is a **required** field of `NewAlbumDeps` rather than an optional one, so a new creation
+> path cannot be written without deciding what announcing means: this list going stale is the failure
+> being designed out, so the trigger is a type rather than another entry here. **Backdrop only** —
+> Conductor's projection is the whole asset, which at creation is a palette-less shell.
 
 Curator synchronizes Backdrop at two human-driven transitions. _(Original step-5 design below; the
 mechanism was revised by [ADR 0015](../adrs/0015-backdrop-sync-triggered-at-projection-changes.md) —

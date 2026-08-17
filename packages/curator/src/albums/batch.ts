@@ -19,6 +19,7 @@ import {
   parseAlbumId,
 } from "./add-spotify.js";
 import { resolvedArtworkFile } from "./artwork.js";
+import type { NewAlbumDeps } from "./publish.js";
 import {
   regeneratePalette,
   PaletteConflictError,
@@ -76,8 +77,10 @@ const toInput = (
   typeof item === "string" ? { spotifyUri: item } : item;
 
 /**
- * Add a list of Spotify albums, one outcome per item. Sequential and synchronous-ish: `addSpotifyAlbum`
- * dedups on the URI and hands off to Roadie without fetching, so the whole batch is local writes.
+ * Add a list of Spotify albums, one outcome per item. Sequential: `addSpotifyAlbum` dedups on the URI
+ * and hands off to Roadie without fetching, so each item is local writes plus one small announce to
+ * the runtime ([#343](https://github.com/dylanleatham/Marquee/issues/343)) — the pasted list reaches
+ * Backdrop as it lands, rather than at whenever the next full reconcile happens to run.
  *
  * Duplicates *within* the batch fall out for free — the first add is saved before the second is
  * checked, so the second reports `duplicate` against the id the first just got.
@@ -86,7 +89,7 @@ const toInput = (
  * needs an artwork upload, so neither has a meaningful list form; curator-spec §8 is narrowed to match.
  */
 export async function addAlbumsBatch(
-  deps: { store: AssetStore; roadie: Roadie },
+  deps: NewAlbumDeps,
   items: BatchAddItem[],
 ): Promise<BatchAddReport> {
   if (!Array.isArray(items))

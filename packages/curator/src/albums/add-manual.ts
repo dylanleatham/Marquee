@@ -2,8 +2,7 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import type { GeneratedPalettePayload } from "@marquee/palette-press";
 import { generateCuratorId } from "../ids.js";
-import type { AssetStore } from "../store/asset-store.js";
-import type { Roadie } from "../roadie/worker.js";
+import { publishNewAlbum, type NewAlbumDeps } from "./publish.js";
 import {
   buildFreshAsset,
   type AlbumAsset,
@@ -37,7 +36,7 @@ export class ValidationError extends Error {}
  * path in Roadie's worker (roadie-spec §6); the response returns as soon as the album is queued.
  */
 export async function addManualAlbum(
-  deps: { store: AssetStore; roadie: Roadie },
+  deps: NewAlbumDeps,
   input: ManualAlbumInput,
 ): Promise<{ curatorId: string; asset: AlbumAsset }> {
   const name = input.name?.trim();
@@ -73,7 +72,5 @@ export async function addManualAlbum(
       contentHash,
     },
   });
-  deps.store.save(asset);
-  deps.roadie.enqueue(curatorId);
-  return { curatorId, asset };
+  return publishNewAlbum(deps, asset);
 }

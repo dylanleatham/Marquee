@@ -7,7 +7,7 @@ import { createFakeSpotify, type FakeAlbum } from "@marquee/fake-spotify";
 import { AssetStore } from "../src/store/asset-store.js";
 import { SpotifyClient } from "../src/spotify/client.js";
 import { addSpotifyAlbum, parseAlbumId } from "../src/albums/add-spotify.js";
-import { fakeRoadie } from "./helpers.js";
+import { fakeRoadie, noAnnounce } from "./helpers.js";
 
 const ID = "1C2h7mLntPSeVYciMRTF4a";
 const here = dirname(fileURLToPath(import.meta.url));
@@ -42,7 +42,7 @@ describe("addSpotifyAlbum", () => {
     const s = store();
     const roadie = fakeRoadie(s, { spotify: client(fs) });
     const { curatorId, asset } = await addSpotifyAlbum(
-      { store: s, roadie },
+      { store: s, roadie, announce: noAnnounce },
       { spotifyUri: `spotify:album:${ID}` },
     );
 
@@ -73,12 +73,15 @@ describe("addSpotifyAlbum", () => {
     const s = store();
     const roadie = fakeRoadie(s, { spotify: client(fs) });
     const first = await addSpotifyAlbum(
-      { store: s, roadie },
+      { store: s, roadie, announce: noAnnounce },
       { spotifyId: ID },
     );
     await roadie.drain();
     await expect(
-      addSpotifyAlbum({ store: s, roadie }, { spotifyId: ID }),
+      addSpotifyAlbum(
+        { store: s, roadie, announce: noAnnounce },
+        { spotifyId: ID },
+      ),
     ).rejects.toMatchObject({
       name: "DuplicateAlbumError",
       curatorId: first.curatorId,
@@ -90,7 +93,7 @@ describe("addSpotifyAlbum", () => {
     const s = store();
     const roadie = fakeRoadie(s, { spotify: client(fs) });
     const { curatorId } = await addSpotifyAlbum(
-      { store: s, roadie },
+      { store: s, roadie, announce: noAnnounce },
       { spotifyId: "doesnotexist1" },
     );
     await roadie.drain();
@@ -106,7 +109,7 @@ describe("addSpotifyAlbum", () => {
     const s = store();
     const roadie = fakeRoadie(s, { spotify: client(fs), generate: undefined });
     const { curatorId } = await addSpotifyAlbum(
-      { store: s, roadie },
+      { store: s, roadie, announce: noAnnounce },
       { spotifyId: ID },
     );
     await roadie.drain();

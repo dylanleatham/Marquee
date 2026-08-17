@@ -191,6 +191,28 @@ export const fakeRoadie = (
     ...opts,
   });
 
+/**
+ * The `announce` every album-creation path requires
+ * ([#343](https://github.com/dylanleatham/Marquee/issues/343)), for the suites that are about
+ * something else. Required rather than optional in `NewAlbumDeps` on purpose — a new creation path
+ * has to say what announcing means, which is the question the Backdrop trigger list stopped asking.
+ */
+export const noAnnounce = async (): Promise<void> => {};
+
+/** Records the curatorIds announced, for the suites that *are* about the announce. */
+export const spyAnnounce = (): {
+  announce: (asset: AlbumAsset) => Promise<void>;
+  announced: string[];
+} => {
+  const announced: string[] = [];
+  return {
+    announce: async (asset: AlbumAsset) => {
+      announced.push(asset.curatorId);
+    },
+    announced,
+  };
+};
+
 export const makeAsset = (
   curatorId: string,
   name = "N",

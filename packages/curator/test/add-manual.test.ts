@@ -5,7 +5,12 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AssetStore } from "../src/store/asset-store.js";
 import { addManualAlbum, ValidationError } from "../src/albums/add-manual.js";
-import { fakeGenerate, fakePayload, fakeRoadie } from "./helpers.js";
+import {
+  fakeGenerate,
+  fakePayload,
+  fakeRoadie,
+  noAnnounce,
+} from "./helpers.js";
 
 const store = () => new AssetStore(mkdtempSync(join(tmpdir(), "curator-add-")));
 const hexToRgb = (hex: string): [number, number, number] => {
@@ -18,7 +23,7 @@ describe("addManualAlbum", () => {
     const s = store();
     const roadie = fakeRoadie(s);
     const { curatorId, asset } = await addManualAlbum(
-      { store: s, roadie },
+      { store: s, roadie, announce: noAnnounce },
       {
         name: "Purple Rain",
         artist: "Prince",
@@ -59,13 +64,13 @@ describe("addManualAlbum", () => {
     const roadie = fakeRoadie(s);
     await expect(
       addManualAlbum(
-        { store: s, roadie },
+        { store: s, roadie, announce: noAnnounce },
         { name: "", artist: "A", artwork: Buffer.from("x") },
       ),
     ).rejects.toThrow(ValidationError);
     await expect(
       addManualAlbum(
-        { store: s, roadie },
+        { store: s, roadie, announce: noAnnounce },
         { name: "N", artist: "A", artwork: Buffer.alloc(0) },
       ),
     ).rejects.toThrow(/artwork/);
@@ -83,7 +88,7 @@ describe("addManualAlbum", () => {
     });
     const roadie = fakeRoadie(s, { generate: insufficient });
     const { curatorId } = await addManualAlbum(
-      { store: s, roadie },
+      { store: s, roadie, announce: noAnnounce },
       { name: "Metallica", artist: "Metallica", artwork: Buffer.from("x") },
     );
     await roadie.drain();
@@ -107,7 +112,7 @@ describe("addManualAlbum", () => {
     const roadie = fakeRoadie(s, { generate: undefined });
 
     const { curatorId } = await addManualAlbum(
-      { store: s, roadie },
+      { store: s, roadie, announce: noAnnounce },
       { name: "Purple Rain", artist: "Prince", year: 1984, artwork: art },
     );
     await roadie.drain();

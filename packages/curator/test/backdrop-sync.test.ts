@@ -10,8 +10,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import Fastify from "fastify";
+import { createFakeSpotify } from "@marquee/fake-spotify";
+import { createFakeDiscogs } from "@marquee/fake-discogs";
 import { AssetStore } from "../src/store/asset-store.js";
 import { buildServer } from "../src/server.js";
+import { SpotifyClient } from "../src/spotify/client.js";
+import { DiscogsClient } from "../src/discogs/client.js";
 import { BackdropClient } from "../src/backdrop/client.js";
 import { BackdropSync, localCopyTransfer } from "../src/backdrop/sync.js";
 import {
@@ -556,7 +560,7 @@ describe("server routes trigger Backdrop sync", () => {
     await backdrop.app.close();
   });
 
-  const server = () =>
+  const server = (extra: Partial<Parameters<typeof buildServer>[0]> = {}) =>
     buildServer({
       store,
       roadie: fakeRoadie(store),
@@ -569,7 +573,29 @@ describe("server routes trigger Backdrop sync", () => {
           syncMediaLocally: true,
         },
       },
+      ...extra,
     }).app;
+
+  /** A server whose Spotify adds resolve against a fake, for the add-path triggers. */
+  const spotifyServer = (id: string) => {
+    const fake = createFakeSpotify([
+      {
+        id,
+        name: "Cherry Bomb",
+        artist: { id: "tyler1", name: "Tyler, The Creator" },
+        year: 2015,
+        genres: ["hip hop"],
+        artwork: Buffer.from("IMG"),
+      },
+    ]);
+    return server({
+      spotify: new SpotifyClient({
+        clientId: "id",
+        clientSecret: "s",
+        fetch: fake.fetch,
+      }),
+    });
+  };
 
   const uploadVideo = (app: ReturnType<typeof server>, curatorId: string) => {
     const mp = buildMultipart(
@@ -786,6 +812,160 @@ describe("server routes trigger Backdrop sync", () => {
       ok: false,
       discrepancies: ["curator:album:veri0001 not in the library"],
     });
+  });
+
+  /**
+   * ★sync-on-add ([#343](https://github.com/dylanleatham/Marquee/issues/343)).
+   *
+   * Adding an album *is* a projection change now. Under ADR 0073 every album Curator holds projects
+   * as an entry — `usesDefault` until it has a visualizer — so the entry appears the moment the album
+   * does. Before that ADR a video-less album projected as `null` and there was genuinely nothing to
+   * push, which is why [ADR 0015](../../../docs/adrs/0015-backdrop-sync-triggered-at-projection-changes.md)'s
+   * trigger list starts at video attach.
+   *
+   * Leaving it there meant a record added since the last full reconcile was unknown to Backdrop, so
+   * putting it on the stand played nothing and flashed `video not in library` — the mis-written-tag
+   * indicator, back to meaning two things, which is the exact confusion ADR 0073 removed.
+   */
+  const addedEntry = (curatorId: string) =>
+    backdrop.entries[`curator:album:${curatorId}`];
+
+  it("adding a manual album puts it in Backdrop's library, on the default", async () => {
+    const mp = buildMultipart(
+      { name: "Riot!", artist: "Paramore" },
+      {
+        field: "artwork",
+        filename: "cover.jpg",
+        contentType: "image/jpeg",
+        data: Buffer.from("JPEGBYTES"),
+      },
+    );
+    const res = await server().inject({
+      method: "POST",
+      url: "/api/albums",
+      headers: { "content-type": mp.contentType },
+      payload: mp.body,
+    });
+
+    expect(res.statusCode).toBe(201);
+    // No visualizer yet, so the record plays the shared default clip rather than nothing.
+    expect(addedEntry(res.json().curatorId)).toEqual({ usesDefault: true });
+  });
+
+  it("adding a Spotify album puts it in Backdrop's library", async () => {
+    const res = await spotifyServer("1C2h7mLntPSeVYciMRTF4a").inject({
+      method: "POST",
+      url: "/api/albums",
+      payload: { spotifyUri: "spotify:album:1C2h7mLntPSeVYciMRTF4a" },
+    });
+
+    expect(res.statusCode).toBe(201);
+    // A Spotify add is queued with empty name/artist until Roadie fetches them — and the entry is
+    // still correct, because Backdrop's projection is `{ uri, usesDefault }` and carries no metadata
+    // at all. That is exactly why the announce can happen at creation rather than at the end of the
+    // pipeline.
+    expect(addedEntry(res.json().curatorId)).toEqual({ usesDefault: true });
+  });
+
+  it("adding a Discogs album puts it in Backdrop's library", async () => {
+    const fake = createFakeDiscogs([
+      {
+        id: 4242,
+        title: "Riot!",
+        artist: "Paramore",
+        year: 2007,
+        genres: ["Rock"],
+        styles: ["Emo"],
+        artwork: Buffer.from("IMG"),
+      },
+    ]);
+    const app = server({
+      discogs: new DiscogsClient({
+        token: "t",
+        fetch: fake.fetch,
+        minIntervalMs: 0,
+      }),
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/albums",
+      payload: { releaseId: 4242, title: "Riot!", artist: "Paramore" },
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(addedEntry(res.json().curatorId)).toEqual({ usesDefault: true });
+  });
+
+  it("a pasted batch puts every album in Backdrop's library", async () => {
+    const ids = ["AAA111", "BBB222", "CCC333"];
+    const fake = createFakeSpotify(
+      ids.map((id) => ({
+        id,
+        name: id,
+        artist: { id: "a", name: "A" },
+        year: 2000,
+        genres: [],
+        artwork: Buffer.from("IMG"),
+      })),
+    );
+    const app = server({
+      spotify: new SpotifyClient({
+        clientId: "id",
+        clientSecret: "s",
+        fetch: fake.fetch,
+      }),
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/albums/batch",
+      payload: {
+        items: ids.map((id) => ({
+          mode: "spotify",
+          spotifyUri: `spotify:album:${id}`,
+        })),
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const { curatorIds } = res.json() as { curatorIds: string[] };
+    expect(curatorIds).toHaveLength(3);
+    // Every line of the paste, not just the first — a partial announce would leave a shelf where
+    // some records play and some do not, with nothing to tell them apart.
+    for (const id of curatorIds)
+      expect(addedEntry(id)).toEqual({ usesDefault: true });
+  });
+
+  /**
+   * The announce is best-effort (ADR 0015 §3). A Pi that is off must not turn a successful add into
+   * a 500 — the album is already saved and queued by then, so failing the request would report "not
+   * added" for a record that was, and the natural retry makes a duplicate.
+   */
+  it("still adds the album when Backdrop is unreachable", async () => {
+    await backdrop.app.close(); // nothing listening on `url` any more
+    const mp = buildMultipart(
+      { name: "Petal", artist: "Ariana Grande" },
+      {
+        field: "artwork",
+        filename: "cover.jpg",
+        contentType: "image/jpeg",
+        data: Buffer.from("JPEGBYTES"),
+      },
+    );
+
+    const res = await server().inject({
+      method: "POST",
+      url: "/api/albums",
+      headers: { "content-type": mp.contentType },
+      payload: mp.body,
+    });
+
+    expect(res.statusCode).toBe(201);
+    const saved = store.read(res.json().curatorId)!;
+    expect(saved).toBeTruthy();
+    // And the failure is visible rather than silent — the same syncIssue every other push records.
+    expect(saved.roadie.syncIssues?.join(" ")).toMatch(/Backdrop/i);
   });
 
   it("backdrop routes 409 when no Backdrop is configured", async () => {
