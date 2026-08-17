@@ -1,6 +1,7 @@
 // What a record still needs (ADR 0052). The derivation is the model the whole overhaul rests on —
 // if it drifts, the collection and the record page start disagreeing about the same record.
 import { describe, it, expect } from "vitest";
+import { ROADIE_FAILURE_REASONS } from "@marquee/contracts";
 import type { AlbumAsset, AlbumSummary, RoadieState } from "./api";
 import {
   failureSentence,
@@ -146,7 +147,7 @@ describe("recordState", () => {
     const s = recordState(
       album({
         state: "errored",
-        lastError: { message: "boom", reason: "spotify_lookup_failed" },
+        lastError: { message: "boom", reason: "album_not_on_spotify" },
       }),
     );
     expect(s.kind).toBe("stuck");
@@ -171,7 +172,7 @@ describe("the vocabulary", () => {
 
   it("turns a raw error code into a sentence with a way out", () => {
     expect(
-      failureSentence({ message: "x", reason: "spotify_lookup_failed" }),
+      failureSentence({ message: "x", reason: "album_not_on_spotify" }),
     ).toBe(
       "Roadie couldn't find this anywhere — try a different name, or type the details in yourself",
     );
@@ -182,6 +183,42 @@ describe("the vocabulary", () => {
       "The disk is full",
     );
     expect(failureSentence(null)).toMatch(/try it again/i);
+    // A retired code from an asset an older build wrote still reads as its message, not a crash.
+    expect(failureSentence({ message: "boom", reason: "long_gone" })).toBe(
+      "boom",
+    );
+  });
+
+  /**
+   * The gate that would have caught #345 (see `FAILURE_SENTENCE`). The map and the reasons Roadie
+   * throws were two hand-written lists, and they drifted until four of the five real reasons had no
+   * sentence — including `art_unavailable`, which is how a record ended up telling its owner to
+   * "provide art manually" on a screen with no way to provide it.
+   *
+   * The `Record<RoadieFailureReason, …>` type is the real gate and catches a missing sentence at
+   * compile time. These assert what a type cannot: that the sentence is *the record's own*, and
+   * that it names something you can actually do.
+   */
+  it("has a distinct sentence for every reason Roadie can park a record with", () => {
+    const said = ROADIE_FAILURE_REASONS.map((reason) =>
+      failureSentence({ message: "raw server text", reason }),
+    );
+    // Nothing falls through to the message, and no two reasons share a sentence — a duplicate
+    // means one of them is being explained as if it were the other.
+    expect(said).not.toContain("raw server text");
+    expect(new Set(said).size).toBe(ROADIE_FAILURE_REASONS.length);
+    for (const s of said) {
+      expect(s).not.toMatch(/_/); // never the code itself
+      expect(s.length).toBeGreaterThan(20); // a sentence, not a label
+    }
+  });
+
+  it("points a record with no cover at the upload that now exists", () => {
+    // The reported bug, as a sentence: this is the one reason with no upstream fix, so the way out
+    // has to be the human's own file — and since #345 the record page actually offers it.
+    expect(
+      failureSentence({ message: "x", reason: "art_unavailable" }),
+    ).toMatch(/upload your own/i);
   });
 
   it("narrates what Roadie is doing in words, not state names", () => {

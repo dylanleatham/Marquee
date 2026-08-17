@@ -9,7 +9,8 @@ import { SpotifyError, type SpotifyClient } from "../src/spotify/client.js";
 import type { DiscogsClient } from "../src/discogs/client.js";
 import { GeminiClient } from "../src/gemini/client.js";
 import { createFakeGemini } from "@marquee/fake-gemini";
-import { fakeGenerate, fakePayload } from "./helpers.js";
+import { applyArtworkOverride } from "../src/albums/artwork.js";
+import { fakeGenerate, fakePayload, pngBytes } from "./helpers.js";
 
 const store = () =>
   new AssetStore(mkdtempSync(join(tmpdir(), "curator-roadie-")));
@@ -619,6 +620,96 @@ describe("Roadie retry + failure classification", () => {
     roadie.enqueue("gggg7777");
     await roadie.drain();
     expect(s.read("gggg7777")!.roadie.state).toBe("errored");
+  });
+});
+
+/**
+ * A cover the human supplied is a cover ([#345](https://github.com/dylanleatham/Marquee/issues/345)).
+ *
+ * `art_unavailable` is the one failure the source can never fix on a retry: the release has no image
+ * and never will. Roadie-spec §8 answers it with "provide art?" — so the manual retry it promises in
+ * the same section has to be able to *see* that art. It could not: `downloadArt` demanded a URL and
+ * ignored `art_override_active`, so a record given a cover by hand re-parked at `needs_manual` on
+ * every retry, forever.
+ *
+ * The rule `albums/artwork.ts` states for readers — the active cover is the override when there is
+ * one — is stated here for the writer.
+ */
+describe("Roadie honours a cover supplied by hand", () => {
+  /** A Discogs release with no image, which is the case that has no way out without this. */
+  const artlessDiscogs = () =>
+    fakeDiscogs({
+      getRelease: (async (id: number) => ({
+        releaseId: id,
+        discogsUri: `discogs:release:${id}`,
+        title: "Cruel Summer",
+        artist: "Various",
+        year: 2012,
+        genres: ["hip hop"],
+        // no artUrl — the release carries no cover image
+      })) as DiscogsClient["getRelease"],
+    });
+
+  it("takes an overridden cover as the download, and un-sticks on retry", async () => {
+    const s = store();
+    const id = seedDiscogs(s);
+    const discogs = artlessDiscogs();
+    const roadie = roadieFor(s, { discogs });
+
+    roadie.enqueue(id);
+    await roadie.drain();
+    // The state the user reported: stuck for want of a cover nothing upstream has.
+    expect(s.read(id)!.roadie.state).toBe("needs_manual");
+    expect(s.read(id)!.roadie.lastError?.reason).toBe("art_unavailable");
+
+    // The human provides one, which is exactly what the failure sentence asked for.
+    applyArtworkOverride(s, id, pngBytes());
+
+    expect(roadie.retry(id).ok).toBe(true);
+    await roadie.drain();
+
+    const done = s.read(id)!;
+    expect(done.roadie.state).toBe("awaiting_review");
+    expect(done.roadie.lastError).toBeNull();
+    // The cover it finished with is the human's, not a re-fetch that overwrote it.
+    expect(done.artwork?.overrideActive).toBe(true);
+    expect(done.palette?.colors.length).toBeGreaterThan(0);
+  });
+
+  it("does not spend a download on a record that already has its cover", async () => {
+    // Not just an optimisation: re-downloading would re-point `artwork` at the fetched slot and
+    // silently drop the human's cover — the loss ADR 0084's override exists to prevent.
+    const s = store();
+    const id = seedDiscogs(s);
+    let downloads = 0;
+    const discogs = fakeDiscogs({
+      downloadArt: (async () => {
+        downloads++;
+        return Buffer.from("discogs-art");
+      }) as DiscogsClient["downloadArt"],
+    });
+    applyArtworkOverride(s, id, pngBytes());
+
+    const roadie = roadieFor(s, { discogs });
+    roadie.enqueue(id);
+    await roadie.drain();
+
+    expect(downloads).toBe(0);
+    expect(s.read(id)!.roadie.state).toBe("awaiting_review");
+    expect(s.read(id)!.artwork?.overrideActive).toBe(true);
+  });
+
+  it("still fails honestly when there is no cover from anywhere", async () => {
+    // The guard is "a cover is already in force", not "stop asking for art" — a record with neither
+    // an override nor a source image must keep saying so.
+    const s = store();
+    const id = seedDiscogs(s);
+    const roadie = roadieFor(s, { discogs: artlessDiscogs() });
+    roadie.enqueue(id);
+    await roadie.drain();
+
+    expect(s.read(id)!.roadie.state).toBe("needs_manual");
+    expect(s.read(id)!.roadie.lastError?.reason).toBe("art_unavailable");
   });
 });
 

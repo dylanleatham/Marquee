@@ -402,6 +402,33 @@ and the raw `{"transitionMs":…,"holdMs":…}` JSON.
 > it left the screen offering two answers to "these colours are wrong" — re-extract, or use the
 > feeling palette — while the most direct one, _the picture it extracted from is a bad scan_, had no
 > control at all. The other three stay dropped.
+>
+> **And it is reachable with no palette, from 2026-08-16**
+> ([#345](https://github.com/dylanleatham/Marquee/issues/345)). The panel answered a record with no
+> palette with one sentence — "Roadie hasn't pulled the lights for this record yet" — and nothing
+> else, which put the app's only cover control behind a palette that is _derived from the cover_. So
+> the records that needed the upload were exactly the ones that could not reach it: a record whose
+> sleeve Roadie never found read "provide art manually" on a screen with no way to provide it. The
+> classification error above, one layer down — the guard was treating the input as an output. That
+> branch now carries the sentence **and** the upload.
+>
+> It reads **`UPLOAD A COVER`** there, not `UPLOAD A DIFFERENT COVER`, and its tooltip drops "the
+> sleeve it found". Different from _what_, on a record that has none — and Roadie found no sleeve to
+> pull colours instead of. Copy that describes a state the reader is not in is the same mistake as
+> the failure sentence that sent them to this screen, one step on.
+>
+> Only that control. Everything else on the panel reads `asset.palette` — the rows, both source
+> cards, `BACK TO ROADIE'S ORIGINAL` — so an invented empty palette would put an editor for three
+> blank swatches in front of a record with nothing to edit.
+>
+> **And `USE THE COVER ROADIE FOUND` is gated on there being one.** Reaching this branch means a
+> record can now arrive at the full panel having never had a cover of its own, and the revert
+> control would then name a cover that does not exist and, pressed, delete the one its owner just
+> supplied — returning the record to the state they dug it out of. It and its reassurance sentence
+> are shown only when `metadata.spotifyArtUrl` or `metadata.discogsArtUrl` is set; otherwise the
+> sentence says the user's cover is the only one this record has. The test is one-directional by
+> construction — only the URLs are on the asset, so it hides the button where there is _certainly_
+> nothing behind it, and a URL that existed but failed to download still shows it.
 
 **Moved, not dropped: how the lights _move_.** The Motion picker
 ([ADR 0039](../adrs/0039-one-motion-picker-clip-patterns-are-selectable.md), driving
@@ -947,8 +974,21 @@ SIGN-OFF · n · READY · n · NOT STARTED · n · STUCK · n`, then a search ov
 - **The grid** — gutters are **borders, not gaps**. Selecting _Not complete_ regroups it under one
   heading per need, **first-need** so each sleeve appears exactly once; **empty groups are not
   rendered at all**. Stuck records get their own row on `--pp-accent-wash` — below the groups under
-  _Not complete_, and as the whole page under _Stuck_ — with the sentence and a `FIX IT` button. A
-  failure is not a missing artifact and never draws as a tile.
+  _Not complete_, and as the whole page under _Stuck_ — with the sentence and **two** buttons,
+  `TRY AGAIN` and `FIX IT`. A failure is not a missing artifact and never draws as a tile.
+
+  **Both, because they answer different failures**
+  ([#345](https://github.com/dylanleatham/Marquee/issues/345)). `TRY AGAIN` hands the record back to
+  Roadie (roadie-spec §8's manual retry) and is the whole answer to a bad minute — Discogs timing
+  out, the network dropping. `FIX IT` opens the record, which is what a failure no retry can clear
+  needs: a release with no cover image will never grow one, so the way out is to give it your own.
+  The row had only `FIX IT` until 2026-08-16, and the record page had nothing to offer once you
+  arrived, which left an `art_unavailable` record with no way out anywhere in the app.
+
+  The retry does not re-poll — the collection refreshes every 3s, so the row redraws itself once
+  Roadie takes the record. A retry that **fails** appends its reason to that record's own sentence,
+  keyed by id so a collection with several stuck records cannot label the wrong one.
+
 - **Roadie's log** — a strip **docked to the bottom of the window** with the newest entry, expanding
   into a panel that opens _upward_ and is bounded at `45vh`
   ([ADR 0055](../adrs/0055-roadies-log-is-docked-to-the-window-not-to-the-page.md); it was a footer

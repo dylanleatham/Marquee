@@ -1,7 +1,8 @@
 import { useMemo, useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { type AgentStatus, type AlbumSummary } from "../api";
-import { artworkSrc } from "../components/common";
+import { api, type AgentStatus, type AlbumSummary } from "../api";
+import { artworkSrc, AsyncButton } from "../components/common";
+import { errorMessage } from "../errors";
 import {
   collectionCounts,
   densityColumns,
@@ -197,6 +198,11 @@ export function Collection({
   const [statOffset, setStatOffset] = useState(() =>
     Math.floor(Math.random() * 5),
   );
+  /** A failed hand-back, against the record it failed for. See `retry` below. */
+  const [retryProblem, setRetryProblem] = useState<{
+    id: string;
+    why: string;
+  } | null>(null);
 
   const filter = parseFilter(params.get("filter"));
   const query = params.get("q") ?? "";
@@ -222,6 +228,23 @@ export function Collection({
       stuckTiles(visibleTiles(albums ?? [], { filter: "all", query, seed })),
     [albums, query, seed],
   );
+
+  /**
+   * Hand a stuck record back to Roadie (roadie-spec §8). `AsyncButton` cannot show a failure — it is
+   * a `<button>` — so the rejection is caught here and appended to that record's own sentence, which
+   * is already the place this row explains itself. Keyed by id so a failure can't label the wrong
+   * record on a collection with several stuck.
+   *
+   * No re-poll: `albums` refreshes every 3s from App, so the row redraws when Roadie takes it.
+   */
+  const retry = async (curatorId: string) => {
+    setRetryProblem(null);
+    try {
+      await api.retry(curatorId);
+    } catch (err) {
+      setRetryProblem({ id: curatorId, why: errorMessage(err) });
+    }
+  };
 
   if (error)
     return (
@@ -384,8 +407,23 @@ export function Collection({
             <p className="stuck__title">{album.title || "Untitled"}</p>
             <p className="stuck__why">
               {state.kind === "stuck" ? state.sentence : ""}
+              {retryProblem?.id === album.curatorId
+                ? ` — ${retryProblem.why}`
+                : ""}
             </p>
           </div>
+          {/* The two answer different failures, so both are here (roadie-spec §8). A record that
+              failed on a bad minute wants the button; one that will never resolve upstream wants
+              the page, to be handed the artifact by hand. There is no re-poll to write: the
+              collection polls every 3s, so the row redraws itself once Roadie picks the record up. */}
+          <AsyncButton
+            className="pp-action"
+            onClick={() => retry(album.curatorId)}
+            pendingLabel="ASKING…"
+            title="Hand it back to Roadie and let it try the whole record again"
+          >
+            TRY AGAIN
+          </AsyncButton>
           <Link to={`/albums/${album.curatorId}`} className="pp-btn">
             FIX IT
           </Link>

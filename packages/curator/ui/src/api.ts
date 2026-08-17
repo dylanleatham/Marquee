@@ -382,6 +382,14 @@ export interface AlbumAsset {
     };
     discogsUri?: string;
     discogsReleaseId?: number;
+    /**
+     * Where Roadie's own cover came from, when it had one to fetch. Read by the Lights panel to
+     * answer "is there a cover to go **back** to" — neither present means Roadie never had a URL,
+     * so there is nothing behind an override of yours
+     * ([#345](https://github.com/dylanleatham/Marquee/issues/345)).
+     */
+    spotifyArtUrl?: string;
+    discogsArtUrl?: string;
   };
   artwork?: {
     resolvedPath: string;

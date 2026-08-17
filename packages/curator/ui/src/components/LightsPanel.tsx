@@ -258,11 +258,61 @@ export function LightsPanel({
       }),
     );
 
+  /**
+   * The palette's *input*, as one control both branches below render.
+   *
+   * The words differ because the records do, and this panel has been bitten once already by copy
+   * that describes a state the reader is not in: "UPLOAD A DIFFERENT COVER" asks *different from
+   * what?* of a record that has no cover, and "the sleeve it found" names a sleeve Roadie never
+   * found. That is the same error as the failure sentence which sent people looking for an upload
+   * that did not exist ([#345](https://github.com/dylanleatham/Marquee/issues/345)) — one screen on.
+   *
+   * Deliberately not an `AsyncButton`, though its neighbour is: this click's own promise settles the
+   * moment the OS file chooser opens, so a spinner bound to it would flash and vanish before any
+   * work started, and the label would lie. `changing` is what the two share instead — it spans the
+   * whole run, including the autosave flush that happens before the dialog is up to intercept
+   * anything.
+   */
+  const coverButton = (label: string, title: string) => (
+    <button
+      type="button"
+      className="pp-action"
+      disabled={changing}
+      onClick={() => pickFile("image/png,image/jpeg", uploadCover)}
+      title={title}
+    >
+      {label}
+    </button>
+  );
+
+  /**
+   * No palette yet — which for most records means Roadie simply hasn't got here, and for some means
+   * it never will: a sleeve it could not find leaves this record with no cover to pull colours from
+   * and no way to get one ([#345](https://github.com/dylanleatham/Marquee/issues/345)).
+   *
+   * This used to be the sentence alone, which put the app's only cover control behind a palette that
+   * is *derived from the cover* — so the records that needed the upload were exactly the ones that
+   * could not reach it, and roadie-spec §8's "provide art?" had no answer anywhere in the UI. The
+   * sentence is still true and still here; it is no longer the whole panel.
+   *
+   * Everything below this line reads `asset.palette` — rows, both source cards, BACK TO ROADIE'S
+   * ORIGINAL — so the branch stays a branch. An invented empty palette would put an editor for three
+   * blank swatches in front of a record with nothing to edit.
+   */
   if (!asset.palette)
     return (
-      <p className="pp-prose">
-        Roadie hasn&apos;t pulled the lights for this record yet.
-      </p>
+      <div className="lights">
+        <p className="pp-prose">
+          Roadie hasn&apos;t pulled the lights for this record yet.
+        </p>
+        <div className="lights__actions">
+          {coverButton(
+            "UPLOAD A COVER",
+            "Roadie pulls this record's colours from the cover you give it",
+          )}
+        </div>
+        <UploadStrip upload={cover.inFlight} />
+      </div>
     );
 
   const candidates = asset.paletteCandidates;
@@ -270,6 +320,22 @@ export function LightsPanel({
   const onFeeling = source === "feeling" || source === "blend";
   // Your own cover is in force, so every sentence on this panel that says "the sleeve" now means it.
   const ownCover = asset.artwork?.overrideActive === true;
+  /**
+   * Is there a cover to go **back** to ([#345](https://github.com/dylanleatham/Marquee/issues/345))?
+   *
+   * Neither art URL means Roadie never had one to fetch, so `USE THE COVER ROADIE FOUND` would name
+   * a cover that does not exist and, pressed, would delete yours and return the record to having no
+   * art at all — the exact state its owner just dug it out of. Records like that could not reach this
+   * panel before the no-palette branch existed, so the button is guarded as the branch lands.
+   *
+   * Deliberately read off the URLs and not "did the file download", because only the URLs are on the
+   * asset. It is therefore one-directional: it hides the button only where there is *certainly*
+   * nothing behind it. A URL that existed and failed to download still shows it, which is no worse
+   * than before and is tracked separately.
+   */
+  const roadieHadACover = Boolean(
+    asset.metadata.spotifyArtUrl ?? asset.metadata.discogsArtUrl,
+  );
   const rows = lightRows(draft);
   // Roadie only writes a note when it has proposed colours from how the record sounds; a plain
   // cover extraction has nothing to say, and inventing a sentence would be worse than the gap.
@@ -389,22 +455,14 @@ export function LightsPanel({
           >
             BACK TO ROADIE&apos;S ORIGINAL
           </AsyncButton>
-          {/* The palette's *input*, next to the two controls that re-derive from it.
-              Deliberately not an `AsyncButton`, though its neighbour is: this click's own promise
-              settles the moment the OS file chooser opens, so a spinner bound to it would flash and
-              vanish before any work started, and the label would lie. `changing` is what the two
-              share instead — it spans the whole run, including the autosave flush that happens
-              before the dialog is up to intercept anything. */}
-          <button
-            type="button"
-            className="pp-action"
-            disabled={changing}
-            onClick={() => pickFile("image/png,image/jpeg", uploadCover)}
-            title="Roadie pulls the colours from this instead of the sleeve it found"
-          >
-            UPLOAD A DIFFERENT COVER
-          </button>
-          {ownCover && (
+          {/* The palette's input, next to the two controls that re-derive from it — you find out
+              the scan is bad while looking at the colours it produced. Built by the helper above,
+              because the no-palette branch offers the same control under different words. */}
+          {coverButton(
+            "UPLOAD A DIFFERENT COVER",
+            "Roadie pulls the colours from this instead of the sleeve it found",
+          )}
+          {ownCover && roadieHadACover && (
             <AsyncButton
               className="pp-action"
               disabled={changing}
@@ -424,14 +482,23 @@ export function LightsPanel({
         {/* Said in words, because with a cover of your own in force BACK TO ROADIE'S ORIGINAL
             re-extracts from *that* — the label is otherwise the only thing on screen still
             promising the sleeve Roadie found. */}
-        {ownCover && (
-          <p className="lights__reassure">
-            Your own cover is the one in force, so both the sleeve colours and
-            BACK TO ROADIE&apos;S ORIGINAL come from it rather than from the
-            cover Roadie found. That cover was never deleted — USE THE COVER
-            ROADIE FOUND brings it back.
-          </p>
-        )}
+        {ownCover &&
+          (roadieHadACover ? (
+            <p className="lights__reassure">
+              Your own cover is the one in force, so both the sleeve colours and
+              BACK TO ROADIE&apos;S ORIGINAL come from it rather than from the
+              cover Roadie found. That cover was never deleted — USE THE COVER
+              ROADIE FOUND brings it back.
+            </p>
+          ) : (
+            /* Same fact, minus the promise of a cover that was never found. Saying "that cover was
+               never deleted" here would be inviting the reader to look for one. */
+            <p className="lights__reassure">
+              Your cover is the only one this record has — Roadie never found
+              one — so the sleeve colours and BACK TO ROADIE&apos;S ORIGINAL
+              both come from it.
+            </p>
+          ))}
       </div>
     </div>
   );

@@ -96,6 +96,39 @@ afterEach(() => {
   cleanup();
 });
 
+/**
+ * Drive the OS file chooser `pickFile` opens. It builds a *detached* input and clicks it — right
+ * for the UI, and unreachable from the rendered tree, so the test intercepts the element at
+ * creation. Same helper as CardPanel.test.tsx, for the same reason. `files` is read-only in jsdom,
+ * hence the defineProperty.
+ *
+ * `finally`, because `click()` throwing is an ordinary event here — it is a `getByRole` away from
+ * the button. Without it a single failure leaves `document.createElement` mocked for the rest of the
+ * file and takes unrelated tests down with it, which turns one red test into a page of them and
+ * points every one of them at the wrong cause.
+ */
+const choose = (file: File, click: () => void) => {
+  const real = document.createElement.bind(document);
+  const spy = vi
+    .spyOn(document, "createElement")
+    .mockImplementation((tag: string) => {
+      const el = real(tag);
+      if (tag === "input") {
+        Object.defineProperty(el, "files", { value: [file] });
+        (el as HTMLInputElement).click = () =>
+          (el as HTMLInputElement).onchange?.(new Event("change"));
+      }
+      return el;
+    });
+  try {
+    click();
+  } finally {
+    spy.mockRestore();
+  }
+};
+
+const cover = () => new File(["png"], "my-scan.png", { type: "image/png" });
+
 const hexField = (n: number) => screen.getByLabelText(`Light ${n} hex`);
 const settle = async () => {
   await act(async () => {
@@ -358,8 +391,20 @@ describe("LightsPanel — the sign-off", () => {
  * the one in force.
  */
 describe("LightsPanel — your own cover", () => {
+  /**
+   * The ordinary case ADR 0084 is about: Roadie found a cover, it turned out to be a bad scan, and
+   * the user replaced it. `spotifyArtUrl` is what makes "the cover Roadie found" a real thing this
+   * record can go back to — without it there is nothing behind the override, which is its own case
+   * below.
+   */
   const overridden = (over: Partial<AlbumAsset> = {}) =>
     asset({
+      metadata: {
+        name: "Purple Rain",
+        artist: "Prince",
+        source: "spotify",
+        spotifyArtUrl: "https://i.scdn.co/image/x",
+      },
       artwork: {
         resolvedPath: "media/artwork/abc12345-override.png",
         contentHash: "deadbeef",
@@ -378,30 +423,6 @@ describe("LightsPanel — your own cover", () => {
       ...over,
     });
 
-  /**
-   * Drive the OS file chooser `pickFile` opens. It builds a *detached* input and clicks it — right
-   * for the UI, and unreachable from the rendered tree, so the test intercepts the element at
-   * creation. Same helper as CardPanel.test.tsx, for the same reason. `files` is read-only in jsdom,
-   * hence the defineProperty.
-   */
-  const choose = (file: File, click: () => void) => {
-    const real = document.createElement.bind(document);
-    const spy = vi
-      .spyOn(document, "createElement")
-      .mockImplementation((tag: string) => {
-        const el = real(tag);
-        if (tag === "input") {
-          Object.defineProperty(el, "files", { value: [file] });
-          (el as HTMLInputElement).click = () =>
-            (el as HTMLInputElement).onchange?.(new Event("change"));
-        }
-        return el;
-      });
-    click();
-    spy.mockRestore();
-  };
-
-  const cover = () => new File(["png"], "my-scan.png", { type: "image/png" });
   const upload = (a: AlbumAsset = asset()) => {
     show(a);
     choose(cover(), () =>
@@ -632,6 +653,56 @@ describe("LightsPanel — your own cover", () => {
     );
   });
 
+  /**
+   * There has to *be* a cover to go back to
+   * ([#345](https://github.com/dylanleatham/Marquee/issues/345)). On a record whose sleeve Roadie
+   * never found, this control names a cover that does not exist and, pressed, deletes the one the
+   * user just supplied — putting the record back in the state they dug it out of. Records like that
+   * could not reach this panel until the no-palette branch existed, so it is guarded here.
+   */
+  describe("when Roadie never found a cover of its own", () => {
+    const noSource = () =>
+      overridden({
+        metadata: { name: "X", artist: "Y", source: "discogs" },
+      } as Partial<AlbumAsset>);
+
+    it("does not offer to go back to a cover that was never found", () => {
+      show(noSource());
+      expect(
+        screen.queryByRole("button", { name: "USE THE COVER ROADIE FOUND" }),
+      ).toBeNull();
+      // The upload itself is still there — this record's cover is replaceable, just not revertible.
+      expect(
+        screen.getByRole("button", { name: "UPLOAD A DIFFERENT COVER" }),
+      ).toBeTruthy();
+    });
+
+    it("does not promise a cover is waiting to come back", () => {
+      show(noSource());
+      expect(screen.queryByText(/never deleted/)).toBeNull();
+      expect(screen.getByText(/Roadie never found one/)).toBeTruthy();
+    });
+
+    it("still offers the way back when Roadie did find one", () => {
+      // The guard is "there is nothing behind it", not "an override is active" — the ordinary
+      // bad-scan case that ADR 0084 is about must keep its way back.
+      show(
+        overridden({
+          metadata: {
+            name: "X",
+            artist: "Y",
+            source: "discogs",
+            discogsArtUrl: "https://img.discogs.test/x.jpg",
+          },
+        } as Partial<AlbumAsset>),
+      );
+      expect(
+        screen.getByRole("button", { name: "USE THE COVER ROADIE FOUND" }),
+      ).toBeTruthy();
+      expect(screen.getByText(/never deleted/)).toBeTruthy();
+    });
+  });
+
   it("stops calling it the sleeve once your own cover is the one in force", () => {
     // Both sentences are load-bearing. The card would otherwise name a cover the record is not
     // using, and BACK TO ROADIE'S ORIGINAL — which now re-extracts from *your* file — would be the
@@ -643,6 +714,83 @@ describe("LightsPanel — your own cover", () => {
     expect(screen.getByText("FROM YOUR COVER")).toBeTruthy();
     expect(screen.queryByText("FROM THE SLEEVE")).toBeNull();
     expect(screen.getByText(/Your own cover is the one in force/)).toBeTruthy();
+  });
+});
+
+/**
+ * A record with no lights yet ([#345](https://github.com/dylanleatham/Marquee/issues/345)).
+ *
+ * The panel used to answer this case with one sentence and nothing else — which put the app's only
+ * cover control behind a palette, and a palette is derived *from the cover*. So the records that
+ * needed the upload were precisely the records that could not reach it: a sleeve Roadie never found
+ * left the user reading "provide art manually" on a screen with no way to provide it.
+ *
+ * ADR 0084 put the control on this panel because a cover is the palette's **input**. The guard had
+ * it backwards, treating it as palette output. The sentence is still true and still shown; it is
+ * simply no longer the whole panel.
+ */
+describe("LightsPanel — a record whose cover never arrived", () => {
+  /** No `palette` key at all, which is what the server sends — not `null`. */
+  const lightless = () => asset({ palette: undefined });
+
+  it("still says there are no lights yet", () => {
+    // The sentence is not the bug — it is accurate, and dropping it would leave the empty panel
+    // unexplained. What was wrong is that it was *all* there was.
+    show(lightless());
+    expect(screen.getByText(/hasn't pulled the lights/)).toBeTruthy();
+  });
+
+  it("offers the cover upload, which is the only way out of this state", () => {
+    show(lightless());
+    expect(screen.getByRole("button", { name: "UPLOAD A COVER" })).toBeTruthy();
+  });
+
+  it("asks for a cover rather than a different one", () => {
+    // "UPLOAD A DIFFERENT COVER" asks *different from what?* of a record that has none, and the
+    // tooltip's "the sleeve it found" names a sleeve Roadie never found. Copy that describes a
+    // state the reader is not in is the same mistake as the failure sentence that sent them here.
+    show(lightless());
+    expect(
+      screen.queryByRole("button", { name: "UPLOAD A DIFFERENT COVER" }),
+    ).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "UPLOAD A COVER" }).title,
+    ).not.toMatch(/it found/);
+  });
+
+  it("sends the picked file", async () => {
+    show(lightless());
+    choose(cover(), () =>
+      fireEvent.click(screen.getByRole("button", { name: "UPLOAD A COVER" })),
+    );
+    await waitFor(() => expect(api.uploadArtworkOverride).toHaveBeenCalled());
+    const [id, file] = vi.mocked(api.uploadArtworkOverride).mock.calls[0]!;
+    expect(id).toBe("abc12345");
+    expect((file as File).name).toBe("my-scan.png");
+  });
+
+  it("asks nothing about a hand-edit there is no palette to have", async () => {
+    // curator-spec §12 protects an edit that exists. With no palette there is nothing to discard,
+    // so a dialog here would be pure ceremony in front of the one act that unblocks the record.
+    show(lightless());
+    choose(cover(), () =>
+      fireEvent.click(screen.getByRole("button", { name: "UPLOAD A COVER" })),
+    );
+    await waitFor(() => expect(api.uploadArtworkOverride).toHaveBeenCalled());
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(vi.mocked(api.uploadArtworkOverride).mock.calls[0]![2]).toBe(true);
+  });
+
+  it("does not draw the palette editor it has no palette for", () => {
+    // The fix is a reachable control, not a fake palette: rows, source cards and BACK TO ROADIE'S
+    // ORIGINAL all read `asset.palette`, and inventing an empty one would put an editor for three
+    // blank swatches in front of a record that has nothing to edit.
+    show(lightless());
+    expect(screen.queryByLabelText("Light 1 hex")).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "BACK TO ROADIE'S ORIGINAL" }),
+    ).toBeNull();
+    expect(screen.queryByText("FROM THE SLEEVE")).toBeNull();
   });
 });
 

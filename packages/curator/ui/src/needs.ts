@@ -6,6 +6,10 @@
 // construction rather than by promise.
 //
 // Pure, no React, no DOM — the derivation is the load-bearing part, so it is unit-tested directly.
+import {
+  isRoadieFailureReason,
+  type RoadieFailureReason,
+} from "@marquee/contracts";
 import type { AlbumAsset, AlbumSummary, LastError, RoadieState } from "./api";
 import { isProcessing } from "./format";
 
@@ -92,30 +96,48 @@ export const isNeedSection = (s: RecordSection): s is Need =>
   NEED_ORDER.includes(s as Need);
 
 /**
- * Plain English for a failure. Raw codes are allowed in exactly one place in the app — the
- * per-service errors on the System screen, where `connect ECONNREFUSED` is the actionable text. A
- * record that failed gets a sentence that says what to do next.
+ * Plain English for every reason Roadie can park a record with
+ * ([#345](https://github.com/dylanleatham/Marquee/issues/345)).
  *
- * Unknown reasons fall back to the server's message, which is at least a sentence written for a
- * human; an unmapped code would otherwise surface as `spotify_lookup_failed` in the Stuck row.
+ * A **total** `Record` over the shared `RoadieFailureReason`, which is the point: this was a
+ * `Record<string, string>` of five hand-written keys, and it drifted from the throwing side until
+ * four of its entries named reasons no step has ever produced, while four of the five real ones fell
+ * through to the raw server message. Nothing failed, because nothing compared the two lists. Now a
+ * new reason does not compile until it has a sentence here.
+ *
+ * **Each sentence names an act the reader can perform on this screen.** That is not decoration —
+ * `art_unavailable` spent two months saying "provide art manually" at a UI with no way to provide
+ * it, which is the bug this issue was filed for. A sentence that asks for something the app cannot
+ * do is worse than the error code, because it sounds like the reader's fault.
+ */
+const FAILURE_SENTENCE: Record<RoadieFailureReason, string> = {
+  album_not_on_spotify:
+    "Roadie couldn't find this anywhere — try a different name, or type the details in yourself",
+  release_not_on_discogs:
+    "This pressing is gone from Discogs — type the details in yourself, or try again in a minute",
+  invalid_spotify_uri:
+    "The Spotify link on this record doesn't point at an album — set it again from the record page",
+  invalid_discogs_release:
+    "The Discogs link on this record doesn't point at a pressing — type the details in yourself",
+  art_unavailable:
+    "There's no cover for this anywhere Roadie can reach — open it and upload your own",
+};
+
+/**
+ * Raw codes are allowed in exactly one place in the app — the per-service errors on the System
+ * screen, where `connect ECONNREFUSED` is the actionable text. A record that failed gets a sentence
+ * that says what to do next.
+ *
+ * A reason outside the union still falls back to the server's message, which is at least written for
+ * a human: an asset written by an older build can carry a retired code, and the reader deserves the
+ * sentence rather than a crash.
  */
 export function failureSentence(err: LastError | null): string {
-  const known: Record<string, string> = {
-    spotify_lookup_failed:
-      "Roadie couldn't find this anywhere — try a different name, or type the details in yourself",
-    album_not_on_spotify:
-      "Roadie couldn't find this anywhere — try a different name, or type the details in yourself",
-    artwork_download_failed:
-      "The sleeve wouldn't download — the cover may have moved. Try again, or upload your own",
-    palette_insufficient:
-      "There isn't enough colour in this sleeve to light a room — pick the lights by hand",
-    discogs_lookup_failed:
-      "Discogs wouldn't answer for this pressing — try again in a minute",
-  };
   if (!err) return "Something went wrong. Try it again";
   return (
-    (err.reason && known[err.reason]) ??
-    known[err.message] ??
+    (err.reason && isRoadieFailureReason(err.reason)
+      ? FAILURE_SENTENCE[err.reason]
+      : undefined) ??
     err.message ??
     "Something went wrong. Try it again"
   );
