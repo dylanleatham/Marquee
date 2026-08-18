@@ -201,6 +201,18 @@ const NO_TEXT_OF_ITS_OWN: Record<string, string> = {
 
 const GAVE_UP_MIN_WIDTH = /min-width:\s*0/;
 
+/** A rule that clips is safe whatever its text does: the box keeps the overflow to itself. */
+const CLIPS = /overflow:\s*hidden/;
+
+/**
+ * `white-space: nowrap` is a *refusal* to break, and it outranks every rule that asks for one
+ * ([#347]). A declaration saying both is not a box that breaks its text — it is a box that does
+ * not, whatever the other half says.
+ *
+ * [#347]: https://github.com/dylanleatham/Marquee/issues/347
+ */
+const REFUSES_TO_WRAP = /white-space:\s*nowrap/;
+
 /**
  * Whether a rule actually keeps its text inside its own box. Values matter, not property names:
  * `word-break: keep-all` *forbids* the break, and `text-overflow: ellipsis` is a no-op unless
@@ -208,9 +220,10 @@ const GAVE_UP_MIN_WIDTH = /min-width:\s*0/;
  * There are exactly two ways out — break the line, or clip it.
  */
 const canBreak = (body: string): boolean =>
-  /overflow-wrap:\s*(anywhere|break-word)/.test(body) ||
-  /word-break:\s*(break-all|break-word)/.test(body) ||
-  /overflow:\s*hidden/.test(body);
+  CLIPS.test(body) ||
+  (!REFUSES_TO_WRAP.test(body) &&
+    (/overflow-wrap:\s*(anywhere|break-word)/.test(body) ||
+      /word-break:\s*(break-all|break-word)/.test(body)));
 
 describe("text cannot escape a flex item that gave up its min-width", () => {
   it("gives every min-width: 0 rule either a break or a reason", () => {
@@ -251,6 +264,89 @@ describe("text cannot escape a flex item that gave up its min-width", () => {
     expect(label, ".statband__bar-label is gone or renamed").toBeDefined();
     expect(GAVE_UP_MIN_WIDTH.test(label!.body)).toBe(true);
     expect(canBreak(label!.body)).toBe(true);
+  });
+});
+
+/**
+ * The class a rule is keyed on — `.pp-action:hover` and `.record__strip span` are both that shape
+ * wearing a suffix, and both are the same shape's business.
+ */
+const leadClass = (selector: string): string | null =>
+  selector.match(/^\.([a-zA-Z][\w-]*)/)?.[1] ?? null;
+
+/** The components that put this rule's class on an element. */
+function screensUsing(
+  selector: string,
+  used: Map<string, Set<string>>,
+): Set<string> {
+  const cls = leadClass(selector);
+  return (cls && used.get(cls)) || new Set<string>();
+}
+
+/**
+ * A control shape used on more than one screen may not refuse to wrap ([#347]).
+ *
+ * `white-space: nowrap` is a promise that the box will never be narrower than its own label. A
+ * component can make that promise about a class it alone uses — it wrote the container too, and
+ * it can see both. A *shared* shape cannot: `.pp-action` is on 13 screens, and one of them is
+ * `.tagobj__body`, a card that declares `min-width: 0` precisely so it can be narrow. There the
+ * promise breaks, and a nowrap child in a box that gave up its min-width does not widen it, does
+ * not clip and does not scroll — it paints over the card beside it. Measured in the running app:
+ * `I’VE WRITTEN THIS ONE` wanted 169.6px of a 130.7px body, put 22.0px past the card’s own
+ * border, and landed 6.0px inside the next card. `.viz__actions` had the same shape on the
+ * visualizer tab — `PICK A FILE` by 36.8px at a 900px window, 151.8px at 800px.
+ *
+ * This is [#339]’s bug through the one door that fix left open. Its gate asked whether the box
+ * that gave up its `min-width` could break its own text; it never asked whether the *child* would
+ * consent to being broken, and `white-space: nowrap` is that child saying no.
+ *
+ * The line is drawn at "more than one screen" because that is exactly where the knowledge runs
+ * out, and it is checkable from here: `usedClasses()` already knows every component that reaches
+ * for a class. Today it separates the two shared button shapes from the eighteen single-owner
+ * nowrap rules — tab strips, the masthead, the room’s controls — each of which sits in a
+ * container its own component wrote.
+ *
+ * Clipping is still a way out, and `.visually-hidden` (on every screen there is) takes it.
+ *
+ * [#339]: https://github.com/dylanleatham/Marquee/issues/339
+ * [#347]: https://github.com/dylanleatham/Marquee/issues/347
+ */
+describe("a shape used on more than one screen cannot refuse to wrap", () => {
+  it("lets every shared nowrap rule be narrower than its label", () => {
+    const used = usedClasses();
+    const shared = cssRules()
+      .filter((r) => REFUSES_TO_WRAP.test(r.body) && !CLIPS.test(r.body))
+      .map((r) => ({
+        selector: r.selector,
+        on: screensUsing(r.selector, used),
+      }))
+      .filter((r) => r.on.size > 1)
+      .map((r) => `${r.selector} — used on ${r.on.size} screens`)
+      .sort();
+
+    expect(
+      shared,
+      "`white-space: nowrap` says this box is never narrower than its own label. A shape this " +
+        "many components reach for cannot know that — one of them will put it in a cell that " +
+        "gave up its min-width, and there the label paints over the neighbour. Let it wrap " +
+        "(`white-space: normal` plus `overflow-wrap: anywhere`), or clip it with `overflow: hidden`.",
+    ).toEqual([]);
+  });
+
+  it("still recognises the shape it is guarding — the shared button shapes", () => {
+    const used = usedClasses();
+    for (const selector of [".pp-action", ".pp-btn"]) {
+      const rule = cssRules().find((r) => r.selector === selector);
+      expect(rule, `${selector} is gone or renamed`).toBeDefined();
+      expect(
+        screensUsing(selector, used).size,
+        `${selector} is no longer shared, so this gate no longer covers it`,
+      ).toBeGreaterThan(1);
+      expect(
+        REFUSES_TO_WRAP.test(rule!.body),
+        `${selector} refuses to wrap again`,
+      ).toBe(false);
+    }
   });
 });
 

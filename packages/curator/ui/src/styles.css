@@ -159,7 +159,14 @@ a:hover {
   color: var(--pp-accent);
 }
 
-/* A filled ink button — the one high-emphasis control shape in the app. */
+/* A filled ink button — the one high-emphasis control shape in the app.
+
+   Both shared shapes wrap rather than refusing to (issue #347). `white-space: nowrap` reads like
+   typography — keep the tracked mono label on one line — but on a shape thirteen screens reach
+   for it is a promise about containers this rule has never seen, and one of them is narrower than
+   the label. See `.pp-action` below for the two-line spill that made the point. Wrapping costs
+   nothing where there is room: the shrink-to-fit width is still the label's, so every button in
+   the app measures exactly as it did, and only a button with nowhere to go takes a second line. */
 .pp-btn {
   font: 500 10px/1 var(--pp-mono);
   letter-spacing: 0.14em;
@@ -168,7 +175,7 @@ a:hover {
   background: var(--pp-ink);
   color: var(--pp-paper);
   cursor: pointer;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .pp-btn:hover {
   background: var(--pp-accent);
@@ -214,6 +221,13 @@ a:hover {
    Blocks used to grow their own (`.drafts__copy`, `.svc__retry`, `.account__change`); this is the
    shared shape those are variations of. Renders as <button>, <a> and <Link>, hence the inline-block
    and the text-decoration reset. */
+/* It wraps rather than refusing to, for the reason above (issue #347). This shape is where the
+   refusal actually bit: I'VE WRITTEN THIS ONE wanted 169.6px inside a 130.7px `.tagobj__body`, so
+   it printed 22.0px past its own card's border and 6.0px into the card beside it — at every
+   window size, the panel being capped at 820px. PICK A FILE did the same in `.viz__actions`, by
+   36.8px at a 900px window. `overflow-wrap: anywhere` is what makes "narrower than its label"
+   actually reachable: without it the shape's minimum is its longest word, which in a flex row is
+   still wide enough to escape. */
 .pp-action {
   display: inline-block;
   font: 500 9.5px/1 var(--pp-mono);
@@ -223,7 +237,7 @@ a:hover {
   border: 1px solid var(--pp-rule-soft);
   color: var(--pp-ink-muted);
   cursor: pointer;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
   text-align: center;
 }
 .pp-action:hover:not(:disabled) {
@@ -1430,10 +1444,16 @@ a:hover {
   letter-spacing: -0.01em;
   color: var(--pp-ink);
 }
+/* Wraps, like every other action row here (issue #347). It was the one that did not, so below
+   about 950px its three buttons had to shrink instead of moving down — which, now that they can
+   be narrower than their labels, would mean REPLACE and REMOVE broken across two lines mid-word.
+   A whole button on the next line is the better answer, and it is the one `.tags__actions` was
+   already giving. */
 .viz__actions {
   display: flex;
   gap: 22px;
   margin-top: 13px;
+  flex-wrap: wrap;
 }
 
 /* All three Backdrop states live here, not just the running one: a transfer that failed used to say

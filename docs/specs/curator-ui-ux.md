@@ -229,6 +229,19 @@ because accent fill alone reads as an ordinary button someone is hovering. Disab
 and softens the hairline — a filled control becomes an outlined one, which survives greyscale;
 `pp-action` goes further and switches its border to dashed.
 
+**A shared shape may not refuse to wrap** (new 2026-08-18,
+[#347](https://github.com/dylanleatham/Marquee/issues/347)). `white-space: nowrap` is a promise that
+a box is never narrower than its own label. A component can make that promise about a class it alone
+uses — it wrote the container too. `pp-btn` and `pp-action` cannot: thirteen screens each reach for
+them, and one of those containers is a card that declares `min-width: 0` precisely so it can be
+narrow. So both shapes wrap (`overflow-wrap: anywhere`, no `nowrap`), which costs nothing where
+there is room — shrink-to-fit is still the label's width, so a button only takes a second line when
+it had nowhere else to go. `ui/src/styles.test.ts` fails any `nowrap` rule whose class is reached
+from more than one component and which does not clip. This is the sibling of
+[#339](https://github.com/dylanleatham/Marquee/issues/339)'s rule that a flex item declaring
+`min-width: 0` must be able to break its own text: that one guards the box, this one guards the
+child that would otherwise refuse to fit in it.
+
 **Every class a component names must exist in `styles.css`.** `ui/src/styles.test.ts` extracts each
 `className` literal from `ui/src/**/*.tsx` and diffs it against the stylesheet; an orphan fails the
 build. A class that is deliberately unstyled — a hook for a test or a JS selector — goes on that
