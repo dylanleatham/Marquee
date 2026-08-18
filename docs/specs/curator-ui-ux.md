@@ -953,8 +953,32 @@ the lights from **Kind of Blue**". A failure reads as a sentence with a way out,
 Four regions:
 
 - **The stat band** — Not complete (accent) · Ready · Not started, each with a one-line detail; then
-  a **rotating statistic** you advance by clicking. The pool is built from the statistics there is
-  data for, so it is four today and becomes five when `label` is stored on an asset.
+  a **rotating statistic** you advance by clicking: `BY DECADE · GENRE BREAKDOWN · TOP ARTIST ·
+OLDEST AND NEWEST · SLEEVE PALETTE · GENRE REACH`, and `TOP LABEL` when `label` is stored on an
+  asset. The pool is built from the statistics there is data for, so a collection short of one is
+  shown one fewer cell rather than an empty one.
+  - **SLEEVE PALETTE** buckets each record's dominant light (`paletteHexes[0]`, the same colour the
+    grid draws a coverless sleeve with) into `RED · AMBER · GOLD · GREEN · BLUE · PLUM · MONO`,
+    drawn in spectrum order with MONO last because it is the absence of a hue rather than a place on
+    the wheel. **The family is named in the bar's label**, never carried by the bar's colour alone —
+    the chart draws in ink and accent like every other one here. A family nothing lands in is
+    dropped, where an empty _decade_ is kept: a decade you own nothing from is a gap in a timeline, a
+    colour you own nothing in is not a gap in anything.
+    - **Every family name is five characters or fewer, which is load-bearing.** All seven present is
+      ordinary for a large collection, and the rotator is drawn for six bars (about 35px a column on
+      an 864px window); a seventh narrows the column to 28.4px, and _that_ is the width the rule is
+      measured against. In a browser at 864px with all seven present: five characters sit on one
+      line, six ("ORANGE", "YELLOW", "PURPLE") break mid-word into ORANG/E — the readability floor of
+      [#339](https://github.com/dylanleatham/Marquee/issues/339), on this chart's only channel for a
+      reader who cannot separate the hues. Below about 800px even five characters wrap (23.8px a
+      column at 768px); nothing spills or overlaps, so it degrades as GENRE BREAKDOWN already does
+      there.
+  - **GENRE REACH** counts every genre on a record where GENRE BREAKDOWN counts only the first, so
+    the pair reads as the collection's centre and the size of its tail. Discogs merges genres and
+    styles into that one list, so the tail is mostly styles.
+  - **The two texture statistics are held to a floor, not merely to "has data"** — palette wants
+    four sleeves with a colour and two families, reach wants three genres. "1 genre, 1 of them on a
+    single record" is true and says nothing, and a chart of one bar is not a chart.
 - **The filter bar** — **one chip per state, one per need, and one per need that is all a record has
   left** (2026-08-10, [ADR 0070](../adrs/0070-the-collection-filters-by-what-a-record-owes.md);
   2026-08-11, [ADR 0071](../adrs/0071-a-chip-for-the-records-one-need-is-all-that-is-left-of.md); it
