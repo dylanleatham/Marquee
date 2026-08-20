@@ -200,12 +200,76 @@ def test_rf_config_rejects_values_that_are_not_one_byte(section):
         config_from_dict({"rf": section})
 
 
-def test_status_reports_the_transmit_drive_in_force():
-    """Diagnosing #303 needed the service stopped, because /status never said what drive was set."""
+
+
+# --- the drive reported is the drive the chip was given (#351) ------------------------------------
+
+
+class _ConfiguredReader:
+    """A reader that was wired to a real chip and remembers what it wrote to it."""
+
+    def __init__(self, gsn_on: int, cw_gsp: int) -> None:
+        self._applied = (gsn_on, cw_gsp)
+
+    def poll(self):
+        return None
+
+    def applied_tx_drive(self) -> tuple[int, int]:
+        return self._applied
+
+
+def test_status_reports_the_drive_the_chip_was_given_not_the_one_in_the_file():
+    """#351: the field exists to answer "what is the chip running", and consulted the config object.
+
+    Reproduced by making the two disagree, which is exactly the state that matters: the config is an
+    *intention*, and the reason this field was added after #303 is that the intention and the chip
+    can come apart. Reading `self._cfg` back is answering the question the field was built to stop
+    people asking.
+    """
+    app = StylusApp(
+        Config(rf=RfConfig(gsn_on=0x84, cw_gsp=0x18)),  # what the file asked for
+        _ConfiguredReader(0x44, 0x08),  # what the chip was actually given
+        _NullPublisher(),
+        _NullLed(),
+    )
+    assert app.status()["rf"] == {"gsnOn": 0x44, "cwGsp": 0x08, "source": "chip"}
+
+
+def test_status_says_when_the_drive_is_only_what_the_file_says():
+    """A bench run configures no chip, so the numbers are an intention and must not read as a fact.
+
+    Same shape as `switch.source` ([ADR 0093]), and for the same reason: without the discriminator,
+    "no chip was ever configured" and "the chip is running this" report identically.
+
+    Supersedes `test_status_reports_the_transmit_drive_in_force`, which asserted this same
+    construction with a bare equality on `{gsnOn, cwGsp}`. That equality is what pinned #351: it
+    froze the body at the two keys, so the field could not grow the one thing that would have said
+    the numbers came from the config file. It carried #303's motivation, which is why that issue is
+    named here — diagnosing #303 meant stopping the service, because nothing reported the drive.
+    """
     app = StylusApp(
         Config(rf=RfConfig(gsn_on=0x44, cw_gsp=0x08)),
         SimulatedReader(),
         _NullPublisher(),
         _NullLed(),
     )
-    assert app.status()["rf"] == {"gsnOn": 0x44, "cwGsp": 0x08}
+    assert app.status()["rf"] == {"gsnOn": 0x44, "cwGsp": 0x08, "source": "config"}
+
+
+def test_the_real_pn532_reader_is_what_reports_source_chip():
+    """The production reader class must satisfy `DriveReporting`, not just a double shaped like it.
+
+    `_ConfiguredReader` above is hand-rolled to match the protocol, so it proves the *app* branches
+    correctly and proves nothing about `build_pn532_reader`'s reader. The `isinstance` check is
+    structural and silent: if `_Pn532Reader` ever stopped carrying `applied_tx_drive`, every field
+    stand would quietly fall back to `source: "config"` and report the config file again — #351
+    exactly, with the tests still green.
+    """
+    reader = build_pn532_reader(FakePn532(), RfConfig(gsn_on=0x44, cw_gsp=0x08))
+    app = StylusApp(
+        Config(rf=RfConfig(gsn_on=0x84, cw_gsp=0x18)),  # the file disagrees, so `chip` must win
+        reader,
+        _NullPublisher(),
+        _NullLed(),
+    )
+    assert app.status()["rf"] == {"gsnOn": 0x44, "cwGsp": 0x08, "source": "chip"}

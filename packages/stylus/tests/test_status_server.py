@@ -31,8 +31,19 @@ def build(with_sim=True):
 
 
 def test_healthz():
+    # Asserted as a subset, not an equality. The equality this used to be is what pinned #350's gap
+    # in place: it froze the body at `{"ok": True}`, so the endpoint could never grow the reader
+    # signal it was documented as carrying without "breaking" a test that was only ever checking a
+    # constant. Callers depend on the 200 and on `ok` — `probeService` in Curator reads `res.ok` and
+    # nothing else — so that is what this pins.
+    status, body = svc_healthz()
+    assert status == 200
+    assert body["ok"] is True
+
+
+def svc_healthz():
     svc, _, _ = build()
-    assert svc.handle("GET", "/healthz", b"") == (200, {"ok": True})
+    return svc.handle("GET", "/healthz", b"")
 
 
 def test_status_reports_state():
@@ -192,3 +203,69 @@ def test_simulate_rejects_valid_json_that_is_not_an_object(body):
     status, payload = StatusService(app, sim).handle("POST", "/simulate", body)
     assert status == 400
     assert "object" in payload["error"]
+
+
+# --- /healthz tells you whether the reader is reading (#350) --------------------------------------
+
+
+def test_healthz_distinguishes_a_stand_that_has_never_read_from_one_that_just_did():
+    """The endpoint the spec calls "200 if the PN532 is responding" must actually vary with that.
+
+    #350's outage: the reader had been blind for 40 hours and `/healthz` was byte-identical to a
+    healthy one, so every check in the system was green while the room stayed dark.
+    """
+    svc, app, reader = build()
+    for _ in range(5):
+        app.tick()
+
+    _, blind = svc.handle("GET", "/healthz", b"")
+    # An empty stand reads nothing and that is not a fault — `ok` must not alarm on a quiet room.
+    assert blind["ok"] is True
+    assert blind["lastReadAt"] is None
+    assert blind["pollsSinceRead"] == 5
+
+    reader.set_tag("A", URI)
+    app.tick()
+    _, reading = svc.handle("GET", "/healthz", b"")
+    assert reading["lastReadAt"] == "t"
+    assert reading["pollsSinceRead"] == 0
+
+
+def test_healthz_counts_a_sighting_the_machine_refuses():
+    """An undecodable tag still proves the antenna is coupling, which is what #350 needs to know.
+
+    Gating the odometer on a successful NDEF parse would report a perfectly healthy reader as blind
+    the first time a blank sticker was set down — the opposite error, and just as misleading.
+    """
+    svc, app, reader = build()
+    reader.set_tag("A", None)  # a real UID, no URI: unwritten sticker
+    app.tick()
+
+    _, body = svc.handle("GET", "/healthz", b"")
+    assert body["lastReadAt"] == "t"
+    assert body["pollsSinceRead"] == 0
+    # ...and the machine did indeed refuse it, so this is the divergence being pinned.
+    assert app.status()["state"] == "idle"
+
+
+def test_healthz_counts_a_sighting_while_the_stand_is_switched_off():
+    """A switched-off stand still has a working reader, and [ADR 0093] must not read as a fault.
+
+    `_live` gates what the *machine* is shown, not what the antenna hears. If the odometer sat
+    behind the switch, every off period would look exactly like the dead reader in #350 — and the
+    stand is switched off precisely when nobody is watching it.
+    """
+    cfg = Config(reader=ReaderConfig(insertion_debounce_polls=1))
+    reader = SimulatedReader()
+    switch = SimulatedSwitch()
+    switch.set_live(False)
+    app = StylusApp(cfg, reader, FakePublisher(), NoopLed(), now=lambda: "t", switch=switch)
+    svc = StatusService(app, reader)
+
+    reader.set_tag("A", URI)
+    app.tick()
+
+    _, body = svc.handle("GET", "/healthz", b"")
+    assert body["lastReadAt"] == "t", "the reader heard the tag; the switch only muted the machine"
+    assert body["pollsSinceRead"] == 0
+    assert app.status()["state"] == "idle"

@@ -15,7 +15,7 @@ from .config import Config
 from .events import now_iso, start_event, stop_event
 from .led import Led, Pattern
 from .publisher import EventPublisher, QueueReporting
-from .reader import TagReader
+from .reader import DriveReporting, TagReader
 from .state_machine import BadTag, DetectionMachine, Start, State, Stop, Swap
 from .switch import AlwaysLive, Switch
 
@@ -59,6 +59,13 @@ class StylusApp:
         # empty stand, which is the one case you need it for (issue #198's bring-up debugging).
         self._observed: dict[str, Any] | None = None
         self._last_bad_tag: dict[str, Any] | None = None
+        # Reader odometer, behind `GET /healthz` (#350). Deliberately *not* `_blind_polls` below:
+        # that one is scoped to PLAYING and resets on every state change, because it exists to log a
+        # dropout mid-record. The 40-hour blind run in #350 happened entirely inside IDLE, where
+        # `_blind_polls` is pinned at zero by design — so the question "has this reader read anything
+        # at all, ever" needs a counter that no state transition clears.
+        self._last_read_at: str | None = None
+        self._polls_since_read = 0
         # Consecutive polls the reader saw nothing while the machine was PLAYING (#337). Only for
         # the log line — the removal debounce itself lives in the machine, and duplicating it here
         # is exactly the drift that would make the two disagree.
@@ -83,6 +90,7 @@ class StylusApp:
         self._observed = (
             None if tag is None else {"uid": tag.uid, "uri": tag.uri, "at": self._now()}
         )
+        self._note_read(tag)
         # A switched-off stand shows the machine an *empty* stand ([ADR 0093]). Everything then
         # falls out of debounce logic that already exists and is already tested: flipping off while
         # playing runs the ordinary removal debounce, so a normal `stop` fires and the room returns
@@ -96,6 +104,24 @@ class StylusApp:
             self._handle(action)
         self._apply_steady_led()
         return action
+
+    def _note_read(self, tag) -> None:
+        """Odometer behind ``GET /healthz`` (#350): when the reader last saw *anything*.
+
+        Counts **sightings, not decodes**. An unwritten or garbled tag still proves the analog front
+        end is coupling, which is the thing that degraded in [#322]; gating this on a successful NDEF
+        parse would call a perfectly healthy reader dead the first time you set a blank sticker down.
+
+        A quiet stand reads nothing and that is not a fault, so nothing here ever fails a health
+        check — see :meth:`reader_health` for why the numbers are reported rather than judged.
+
+        [#322]: https://github.com/dylanleatham/Marquee/issues/322
+        """
+        if tag is None:
+            self._polls_since_read += 1
+        else:
+            self._last_read_at = self._now()
+            self._polls_since_read = 0
 
     def _note_reader_gap(self, tag) -> None:
         """Say when the reader loses a tag it was playing, and how long it stayed lost (#337).
@@ -203,6 +229,31 @@ class StylusApp:
     def stop(self) -> None:
         self._running = False
 
+    # --- health (GET /healthz, §8.3) ---------------------------------------------------------------
+    def reader_health(self) -> dict[str, Any]:
+        """What ``GET /healthz`` can honestly say about the reader (#350).
+
+        It is **not** a chip probe, and that is the whole point. [#322] established that the
+        firmware-version read answers normally — ``firmware=(50, 1, 6, 7)``, five times over — while
+        the reader is hearing nothing at all, so a probe-based health check reports green through
+        exactly the failure you built it for. "Is the chip there" and "can the reader hear a tag" are
+        different questions and only the second one keeps the room lit.
+
+        So this reports the only signal that tracks the fault: whether tags are being *seen*. It
+        deliberately does not judge them. An empty stand polls forever and reads nothing, so a low
+        read count is the normal state of a quiet room and ``ok`` must never alarm on it — what the
+        numbers buy you is the distinction between "nobody has placed a record" and "this reader
+        stopped hearing them 40 hours ago", which is the one #350 could not make.
+
+        [#322]: https://github.com/dylanleatham/Marquee/issues/322
+        """
+        return {
+            "ok": True,
+            "readerId": self._reader_id,
+            "lastReadAt": self._last_read_at,
+            "pollsSinceRead": self._polls_since_read,
+        }
+
     # --- status (GET /status, §8) -----------------------------------------------------------------
     def status(self) -> dict[str, Any]:
         return {
@@ -223,10 +274,12 @@ class StylusApp:
             "observed": self._observed,
             # The last tag the machine refused, remembered across removal.
             "lastBadTag": self._last_bad_tag,
-            # The transmit drive actually in force. Diagnosing #303 meant stopping the service to
-            # read the chip, because nothing reported what it had been configured with — and the
-            # settings are volatile, so "what the config file says" is not the same question.
-            "rf": {"gsnOn": self._cfg.rf.gsn_on, "cwGsp": self._cfg.rf.cw_gsp},
+            # The transmit drive, and where the number comes from. Diagnosing #303 meant stopping
+            # the service to read the chip, because nothing reported what it had been configured
+            # with — and the settings are volatile, so "what the config file says" is not the same
+            # question. This field then answered the config anyway (#351), which is the question it
+            # was built to stop people asking.
+            "rf": self._rf_status(),
             # Backlog of the async publisher (#173). A depth that keeps climbing, or a non-zero
             # `dropped`, is the observable form of "a downstream is unreachable and events are
             # piling up"; without it, "the lights react late" would have no visible cause anywhere.
@@ -234,6 +287,29 @@ class StylusApp:
             # practice that means unit-test wiring that passes a bare publisher.
             "publishQueue": self._publish_queue_stats(),
         }
+
+    def _rf_status(self) -> dict[str, Any]:
+        """The transmit drive, plus a ``source`` saying whether a chip was ever given it (#351).
+
+        ``source: "chip"`` means a PN532 was configured with these values at bring-up;
+        ``"config"`` means nothing was — a bench run on the simulated reader, where the numbers are
+        an intention rather than a fact. Without the discriminator those two report identically,
+        which is the same failure ``switch.source`` exists to prevent ([ADR 0093]).
+
+        **This is the drive written at bring-up, not a read-back.** The PN532 has no command to
+        report its analog settings, and [#322] found no reset pin is wired, so a chip that reset
+        underneath a running process cannot be detected from here — it would keep reporting
+        ``"chip"`` with the values it was given before the reset. Closing that needs a
+        ``ReadRegister`` probe against the CIU registers, verified on real hardware; it is tracked on
+        #351 rather than guessed at here, because a register address guessed wrong prints a
+        confidently wrong number, which is worse than the honest limit.
+
+        [#322]: https://github.com/dylanleatham/Marquee/issues/322
+        """
+        if isinstance(self._reader, DriveReporting):
+            gsn_on, cw_gsp = self._reader.applied_tx_drive()
+            return {"gsnOn": gsn_on, "cwGsp": cw_gsp, "source": "chip"}
+        return {"gsnOn": self._cfg.rf.gsn_on, "cwGsp": self._cfg.rf.cw_gsp, "source": "config"}
 
     def _publish_queue_stats(self) -> dict[str, int] | None:
         p = self._publisher

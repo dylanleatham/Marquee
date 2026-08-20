@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from .bounded import run_or_die
 from .config import ReaderConfig, RfConfig
@@ -27,6 +27,22 @@ class TagReader(Protocol):
     def poll(self) -> TagRead | None:
         """Return the tag currently in the field (uid + decoded URI), or ``None`` if none."""
         ...
+
+
+@runtime_checkable
+class DriveReporting(Protocol):
+    """A reader that configured a real chip and can say what transmit drive it gave it (#351).
+
+    Separate from :class:`TagReader` because only the PN532-backed reader has a chip to configure:
+    folding it into the one protocol would make :class:`SimulatedReader` invent a drive it never
+    applied, which is the exact confusion this exists to remove. Same split, and same reason, as
+    :class:`~stylus.publisher.QueueReporting`.
+
+    What it reports is the drive **written at bring-up**, not a read-back — see
+    :meth:`~stylus.app.StylusApp.status` for the limit that leaves.
+    """
+
+    def applied_tx_drive(self) -> tuple[int, int]: ...
 
 
 class SimulatedReader:
@@ -235,6 +251,14 @@ def build_pn532_reader(
     cache = UriCache(uid_cache_size, forget_after_absent_polls)
 
     class _Pn532Reader:
+        def applied_tx_drive(self) -> tuple[int, int]:
+            """The drive this reader just wrote to its chip — closed over, not re-read from config.
+
+            Taken from the arguments `configure_tx_drive` was actually called with above, so the
+            number `/status` prints cannot drift from the number that went on the wire (#351).
+            """
+            return (rf.gsn_on, rf.cw_gsp)
+
         def poll(self) -> TagRead | None:
             raw = pn532.read_passive_target(timeout=0.05)
             uid = None if raw is None else ":".join(f"{b:02X}" for b in raw)

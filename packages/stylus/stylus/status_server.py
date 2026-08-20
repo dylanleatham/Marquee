@@ -1,6 +1,10 @@
 """The local status HTTP server (stylus-spec §8.3).
 
-* ``GET /healthz``  → 200 when the reader is responding.
+* ``GET /healthz``  → 200, plus whether the reader is actually *seeing* tags (``lastReadAt`` /
+  ``pollsSinceRead``). It used to be a bare static 200 documented as "200 when the reader is
+  responding", which it never checked — a blind reader and a working one were byte-identical here
+  for the 40 hours of [#350]. It still answers 200 on a quiet stand, because an empty stand reads
+  nothing and that is normal; see :meth:`StylusApp.reader_health`.
 * ``GET /status``   → current state, last UID/URI, last event, downstream health.
 * ``POST /simulate``→ dev-only: inject a fake tag so you can drive Conductor/Backdrop with no PN532.
   Only available when running the :class:`SimulatedReader` (the bench setup).
@@ -10,6 +14,8 @@
 
 Routing lives in :class:`StatusService` (pure, ``handle(method, path, body) -> (status, json)``) so
 it's unit-tested without sockets; :func:`serve` is the thin ``http.server`` glue.
+
+[#350]: https://github.com/dylanleatham/Marquee/issues/350
 """
 
 from __future__ import annotations
@@ -52,7 +58,7 @@ class StatusService:
 
     def _route(self, method: str, path: str, body: bytes) -> tuple[int, dict[str, Any]]:
         if method == "GET" and path == "/healthz":
-            return 200, {"ok": True}
+            return 200, self._app.reader_health()
         if method == "GET" and path == "/status":
             return 200, self._app.status()
         if method == "POST" and path == "/simulate":

@@ -306,15 +306,15 @@ Small local HTTP server on port 4741:
 
 - `GET /status` → two views, deliberately separate:
 
-  | Field                                      | View        | Meaning                                                                                                                                                                                                       |
-  | ------------------------------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-  | `state`, `lastUid`, `lastUri`, `lastEvent` | the machine | What is **playing**. Null until a scan actually fired.                                                                                                                                                        |
-  | `observed: { uid, uri, at } \| null`       | the reader  | What is **on the stand right now**, decoded or not. `uri` is null when the NDEF wouldn't read; the whole object is null when the reader sees nothing.                                                         |
-  | `lastBadTag: { uid, uri, at } \| null`     | the reader  | The last tag the machine refused, **kept after the sleeve is lifted**.                                                                                                                                        |
-  | `downstreamHealth`                         | publishing  | Per-downstream result of the last **completed** publish — not necessarily of `lastEvent`, since [#173](https://github.com/dylanleatham/Marquee/issues/173) made publishing asynchronous.                      |
-  | `publishQueue: { depth, dropped } \| null` | publishing  | Backlog of the publish worker. A climbing `depth` or non-zero `dropped` is a downstream being unreachable. Null only if the publisher has no queue — the service always wires one, `--simulate` included.     |
-  | `rf: { gsnOn, cwGsp }`                     | the chip    | The PN532 transmit drive in force (§10, [ADR 0075](../adrs/0075-stylus-drives-the-pn532-below-its-default-power.md)). Volatile settings, so this is a different question from what `config.toml` says.        |
-  | `switch: { live, source }`                 | the stand   | The on/off switch (§7.1). `source` is `gpio`, `simulated`, `none` (no switch wired) or `unavailable` (configured but its hardware isn't there — so it does nothing, and this is the only place that says so). |
+  | Field                                      | View        | Meaning                                                                                                                                                                                                                                                                                              |
+  | ------------------------------------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `state`, `lastUid`, `lastUri`, `lastEvent` | the machine | What is **playing**. Null until a scan actually fired.                                                                                                                                                                                                                                               |
+  | `observed: { uid, uri, at } \| null`       | the reader  | What is **on the stand right now**, decoded or not. `uri` is null when the NDEF wouldn't read; the whole object is null when the reader sees nothing.                                                                                                                                                |
+  | `lastBadTag: { uid, uri, at } \| null`     | the reader  | The last tag the machine refused, **kept after the sleeve is lifted**.                                                                                                                                                                                                                               |
+  | `downstreamHealth`                         | publishing  | Per-downstream result of the last **completed** publish — not necessarily of `lastEvent`, since [#173](https://github.com/dylanleatham/Marquee/issues/173) made publishing asynchronous.                                                                                                             |
+  | `publishQueue: { depth, dropped } \| null` | publishing  | Backlog of the publish worker. A climbing `depth` or non-zero `dropped` is a downstream being unreachable. Null only if the publisher has no queue — the service always wires one, `--simulate` included.                                                                                            |
+  | `rf: { gsnOn, cwGsp, source }`             | the chip    | The PN532 transmit drive (§10, [ADR 0075](../adrs/0075-stylus-drives-the-pn532-below-its-default-power.md)). `source: "chip"` — a PN532 was given these at bring-up; `source: "config"` — none was, so they are what `config.toml` asks for and nothing more. Written, **not read back**: see below. |
+  | `switch: { live, source }`                 | the stand   | The on/off switch (§7.1). `source` is `gpio`, `simulated`, `none` (no switch wired) or `unavailable` (configured but its hardware isn't there — so it does nothing, and this is the only place that says so).                                                                                        |
 
   > **Why both.** Until 2026-08-01 only the machine's view existed, so a sleeve sitting on the reader
   > being rejected — an unwritten tag, a garbled NDEF, a URI for another scheme — made `/status`
@@ -326,7 +326,34 @@ Small local HTTP server on port 4741:
   > there and its NDEF won't decode. A non-null `observed.uri` that never becomes `lastUri` means the
   > tag decoded but carried something the machine won't act on.
 
-- `GET /healthz` → 200 if the PN532 is responding
+  > **`rf` is what Stylus wrote, not what the chip reports.** The PN532 has no command that reads its
+  > analog settings back, and no reset pin is wired
+  > ([#322](https://github.com/dylanleatham/Marquee/issues/322)), so a chip that reset underneath a
+  > running process would keep reporting `source: "chip"` with the drive it was given beforehand.
+  > Closing that needs a `ReadRegister` probe against the CIU registers, verified against real
+  > hardware — tracked on [#351](https://github.com/dylanleatham/Marquee/issues/351). Until then the
+  > field answers "what did Stylus apply", which is the question a soak needs, and the boot log line
+  > `PN532 transmit drive: ...` is the corroborating record.
+
+- `GET /healthz` → `200 { ok, readerId, lastReadAt, pollsSinceRead }` — whether the reader is
+  actually **seeing** tags.
+
+  `ok` is always `true` while the service answers at all, and that is deliberate: an empty stand
+  polls forever and reads nothing, so a quiet room must not raise an alarm. What the two counters
+  buy you is the distinction `ok` cannot make — `lastReadAt: null` with a large `pollsSinceRead`
+  says this reader has never heard a tag, as against "nobody has placed a record."
+
+  > **This used to read "200 if the PN532 is responding", and the handler checked nothing at all** —
+  > it returned a constant. On 2026-08-19 a reader that had been blind for 40 hours answered
+  > `{"ok": true}`, identical to a healthy one, and every health check in the system was green while
+  > the room stayed dark ([#350](https://github.com/dylanleatham/Marquee/issues/350)).
+  >
+  > It is **not** a chip probe, and must not become one.
+  > [#322](https://github.com/dylanleatham/Marquee/issues/322) measured the firmware-version read
+  > answering normally — `firmware=(50, 1, 6, 7)`, five times over — while the reader heard nothing.
+  > "Is the chip there" and "can the reader hear a tag" are different questions, and a probe-based
+  > health check reports green through exactly the failure it was built for.
+
 - `POST /simulate` → dev-only endpoint to inject fake tag events without physical hardware. Very useful during Player/Conductor testing.
 - `POST /switch` → dev-only: flip the §7.1 on/off switch, `{ "live": false }`. Available only under `--simulate-switch`; otherwise `409`, because on the stand the latching switch is the sole authority and an HTTP toggle it would snap back on the next poll is a control that lies.
 
