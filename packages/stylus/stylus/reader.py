@@ -12,6 +12,7 @@ The state machine consumes one :class:`TagRead` (uid + decoded URI) per poll. Tw
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Callable
 from typing import Protocol, runtime_checkable
@@ -21,6 +22,8 @@ from .config import ReaderConfig, RfConfig
 from .ndef import parse_uri
 from .rf import configure_tx_drive
 from .state_machine import TagRead
+
+log = logging.getLogger(__name__)
 
 
 class TagReader(Protocol):
@@ -43,6 +46,18 @@ class DriveReporting(Protocol):
     """
 
     def applied_tx_drive(self) -> tuple[int, int]: ...
+
+
+@runtime_checkable
+class MaintenanceReporting(Protocol):
+    """A reader that keeps its own chip state up and can say how often it has had to (#322).
+
+    Split from :class:`DriveReporting` because they answer different questions — "what drive is the
+    chip on" versus "how much work has keeping it there taken" — and only the second one is a
+    running total that means anything over time.
+    """
+
+    def maintenance_stats(self) -> dict[str, int]: ...
 
 
 class SimulatedReader:
@@ -234,6 +249,7 @@ def build_pn532_reader(
     uid_cache_size: int = 8,
     *,
     forget_after_absent_polls: int = ReaderConfig.removal_debounce_polls,
+    reinit_after_blind_polls: int = ReaderConfig.reinit_after_blind_polls,
 ) -> TagReader:
     """Configure an already-constructed PN532 and wrap it as a :class:`TagReader`.
 
@@ -245,12 +261,72 @@ def build_pn532_reader(
 
     [#303]: https://github.com/dylanleatham/Marquee/issues/303
     """
-    pn532.SAM_configuration()
-    configure_tx_drive(pn532.call_function, rf.gsn_on, rf.cw_gsp)
+    def bring_up() -> None:
+        """The chip's whole setup sequence, in one place so recovery cannot drift from boot.
+
+        `_Pn532Reader` calls this again after a long blind run (#322). If the re-init ever did less
+        than bring-up does, it would "recover" the reader into a state boot never produces — so the
+        two are the same function rather than the same two lines written twice.
+        """
+        pn532.SAM_configuration()
+        configure_tx_drive(pn532.call_function, rf.gsn_on, rf.cw_gsp)
+
+    bring_up()
 
     cache = UriCache(uid_cache_size, forget_after_absent_polls)
 
     class _Pn532Reader:
+        """A PN532 that maintains its own chip state between polls (#322).
+
+        Two maintenance jobs, both here rather than in :class:`~stylus.app.StylusApp` because both
+        are about the chip and nothing above this seam should have to know the chip exists:
+
+        * **Refresh** — re-assert the transmit drive every `rf.refresh_every_polls`. The setting is
+          volatile and was written once at boot; a chip that lost it went deaf with no error.
+        * **Re-init** — after `reinit_after_blind_polls` consecutive empty polls, run `bring_up()`
+          again. That run length cannot overlap a record playing, so it only ever fires on an idle
+          stand.
+        """
+
+        def __init__(self) -> None:
+            self._since_refresh = 0
+            self._blind = 0
+            self._refreshes = 0
+            self._reinits = 0
+
+        def maintenance_stats(self) -> dict[str, int]:
+            """Counters for `GET /status`, so the two jobs are visible rather than inferred.
+
+            The point is correlation: if reads resume immediately after `reinits` ticks up, that is
+            field evidence for the lost-drive explanation in #322 — evidence this service can gather
+            on its own, without anyone sitting next to the stand waiting for it to fail.
+            """
+            return {"driveRefreshes": self._refreshes, "reinits": self._reinits}
+
+        def _maintain(self, saw_tag: bool) -> None:
+            if saw_tag:
+                self._blind = 0
+                return
+            if reinit_after_blind_polls:
+                self._blind += 1
+                if self._blind >= reinit_after_blind_polls:
+                    self._blind = 0
+                    self._reinits += 1
+                    log.warning(
+                        "reader blind for %d polls — re-running bring-up (#322)",
+                        reinit_after_blind_polls,
+                    )
+                    bring_up()
+
+        def _refresh_drive(self) -> None:
+            if not rf.refresh_every_polls:
+                return
+            self._since_refresh += 1
+            if self._since_refresh >= rf.refresh_every_polls:
+                self._since_refresh = 0
+                self._refreshes += 1
+                configure_tx_drive(pn532.call_function, rf.gsn_on, rf.cw_gsp)
+
         def applied_tx_drive(self) -> tuple[int, int]:
             """The drive this reader just wrote to its chip — closed over, not re-read from config.
 
@@ -260,8 +336,12 @@ def build_pn532_reader(
             return (rf.gsn_on, rf.cw_gsp)
 
         def poll(self) -> TagRead | None:
+            # Before the read, so a refresh that was due takes effect on this poll rather than the
+            # next one — the whole point is to be running the tuned drive when a tag arrives.
+            self._refresh_drive()
             raw = pn532.read_passive_target(timeout=0.05)
             uid = None if raw is None else ":".join(f"{b:02X}" for b in raw)
+            self._maintain(raw is not None)
             return decode_poll(
                 cache, uid, lambda: assemble_ntag_ndef(lambda p: pn532.ntag2xx_read_block(p))
             )
@@ -276,6 +356,7 @@ def open_pn532_reader(
     *,
     init_timeout_s: float = ReaderConfig.init_timeout_ms / 1000,
     forget_after_absent_polls: int = ReaderConfig.removal_debounce_polls,
+    reinit_after_blind_polls: int = ReaderConfig.reinit_after_blind_polls,
     exit_: Callable[[int], None] = os._exit,
 ) -> TagReader:
     """Bring up a PN532 under a time bound: ``connect()`` builds the chip, then it's configured.
@@ -292,7 +373,11 @@ def open_pn532_reader(
     """
     return run_or_die(
         lambda: build_pn532_reader(
-            connect(), rf, uid_cache_size, forget_after_absent_polls=forget_after_absent_polls
+            connect(),
+            rf,
+            uid_cache_size,
+            forget_after_absent_polls=forget_after_absent_polls,
+            reinit_after_blind_polls=reinit_after_blind_polls,
         ),
         init_timeout_s,
         stage="PN532 init",
@@ -305,6 +390,7 @@ def create_pn532_reader(  # pragma: no cover - hardware imports only; see open_p
     uid_cache_size: int = 8,
     init_timeout_ms: int = ReaderConfig.init_timeout_ms,
     forget_after_absent_polls: int = ReaderConfig.removal_debounce_polls,
+    reinit_after_blind_polls: int = ReaderConfig.reinit_after_blind_polls,
 ) -> TagReader:
     """Build the real PN532 reader. Raises a clear error off-Pi (no ``adafruit_pn532``).
 
@@ -333,4 +419,5 @@ def create_pn532_reader(  # pragma: no cover - hardware imports only; see open_p
         uid_cache_size,
         init_timeout_s=init_timeout_ms / 1000,
         forget_after_absent_polls=forget_after_absent_polls,
+        reinit_after_blind_polls=reinit_after_blind_polls,
     )

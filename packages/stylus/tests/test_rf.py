@@ -14,7 +14,7 @@ import pytest
 
 from stylus.app import StylusApp
 from stylus.config import Config, RfConfig, config_from_dict
-from stylus.reader import SimulatedReader, build_pn532_reader
+from stylus.reader import SimulatedReader, build_pn532_reader, open_pn532_reader
 from stylus.rf import (
     ANALOG_106A_DEFAULTS,
     ITEM_ANALOG_106A,
@@ -273,3 +273,145 @@ def test_the_real_pn532_reader_is_what_reports_source_chip():
         _NullLed(),
     )
     assert app.status()["rf"] == {"gsnOn": 0x44, "cwGsp": 0x08, "source": "chip"}
+
+
+# --- the reader refreshes its own drive, and re-inits when blind (#322) ----------------------------
+
+
+def _sam_writes(fake):
+    """How many times the chip has been taken through `SAM_configuration` — bring-ups, in short."""
+    return [c[0] for c in fake.calls].count("SAM")
+
+
+def _rf_writes(fake):
+    """Every RFConfiguration analog-settings write the fake chip has received."""
+    return [c for c in fake.calls if c[0] == "call" and c[1] == RFCONFIGURATION]
+
+
+def test_the_drive_is_re_applied_on_a_cadence_not_only_at_boot():
+    """#322: the drive is volatile, written once at boot, and a chip that loses it goes deaf.
+
+    At the chip's power-on drive a tag on this stand reads 0/6 at every distance (#303), which is
+    indistinguishable from dead hardware — and nothing re-asserted the tuned value for as long as the
+    process stayed up. Twice now a restart has been the only thing that fixed a blind reader.
+    """
+    fake = FakePn532()
+    reader = build_pn532_reader(fake, RfConfig(gsn_on=0x84, cw_gsp=0x18, refresh_every_polls=4))
+    assert len(_rf_writes(fake)) == 1, "one write at bring-up"
+
+    for _ in range(4):
+        reader.poll()
+    assert len(_rf_writes(fake)) == 2, "re-applied once the cadence came round"
+    assert _rf_writes(fake)[-1][2] == [ITEM_ANALOG_106A, *analog_106a_params(0x84, 0x18)]
+
+    for _ in range(4):
+        reader.poll()
+    assert len(_rf_writes(fake)) == 3, "and again, every `refresh_every_polls`"
+
+
+def test_a_reader_blind_for_long_enough_re_initialises_the_chip():
+    """The recovery a restart performs, without needing a human to perform the restart.
+
+    A run of blind polls this long cannot be a record playing — the removal debounce publishes `stop`
+    after `removal_debounce_polls` (10 by default) — so this only ever fires on an idle stand, where a re-init costs nothing and nobody
+    notices. That is what makes it safe to do on a timer rather than on a diagnosis: the action is
+    free when it was unnecessary, which is the only way to act on a fault you cannot detect.
+    """
+    fake = FakePn532()  # no uid → every poll is blind
+    reader = build_pn532_reader(
+        fake, RfConfig(refresh_every_polls=0), reinit_after_blind_polls=10
+    )
+    assert _sam_writes(fake) == 1, "one at bring-up"
+
+    for _ in range(10):
+        reader.poll()
+
+    assert _sam_writes(fake) == 2, "SAM re-issued — the same sequence bring-up runs"
+    assert len(_rf_writes(fake)) == 2, "and the drive with it"
+
+
+def test_a_tag_seen_resets_the_blindness_that_would_have_triggered_a_re_init():
+    """A reader that is working must never re-init underneath a record being placed."""
+    fake = FakePn532(uid=b"\x01\x02\x03\x04")
+    reader = build_pn532_reader(
+        fake, RfConfig(refresh_every_polls=0), reinit_after_blind_polls=3
+    )
+    for _ in range(20):
+        assert reader.poll() is not None
+    assert [c for c in fake.calls if c[0] == "SAM"] == [("SAM",)], "never re-initialised"
+
+
+def test_status_reports_the_maintenance_the_reader_has_done():
+    """Correlation is the point: reads resuming right after `reinits` ticks is #322's evidence.
+
+    Without this the two jobs are invisible — a re-init that fixed the stand and a re-init that never
+    ran leave the same trace, which is nothing.
+    """
+    fake = FakePn532()
+    reader = build_pn532_reader(
+        fake, RfConfig(gsn_on=0x84, cw_gsp=0x18, refresh_every_polls=2), reinit_after_blind_polls=5
+    )
+    app = StylusApp(Config(), reader, _NullPublisher(), _NullLed())
+    for _ in range(10):
+        app.tick()
+
+    assert app.status()["readerMaintenance"] == {"driveRefreshes": 5, "reinits": 2}
+
+
+def test_the_reinit_cadence_survives_the_bounded_factory():
+    """`open_pn532_reader` is the path the Pi actually takes; a knob it drops is a silent no-op.
+
+    The bound was added for #307 and forwards its arguments by hand, so a new one is exactly the
+    kind of thing that reaches `build_pn532_reader`'s default instead of the config's value and is
+    never noticed — the stand would simply never re-initialise.
+    """
+    fake = FakePn532()
+    reader = open_pn532_reader(
+        lambda: fake, RfConfig(refresh_every_polls=0), reinit_after_blind_polls=3
+    )
+    for _ in range(3):
+        reader.poll()
+    assert [c[0] for c in fake.calls].count("SAM") == 2, "the config's 3, not the default 3000"
+
+
+def test_the_maintenance_knobs_survive_the_toml(tmp_path):
+    """A knob `config_from_dict` forgets is worse than no knob: it documents a lever that does nothing.
+
+    `config.example.toml` describes both of these, so an operator tuning a stand would set them, see
+    them ignored, and have no way to tell — the dataclass default would win silently. This is the
+    same hand-copied-field seam that drops arguments in `open_pn532_reader`, one layer up.
+    """
+    cfg = config_from_dict(
+        {"reader": {"reinit_after_blind_polls": 42}, "rf": {"refresh_every_polls": 7}}
+    )
+    assert cfg.reader.reinit_after_blind_polls == 42
+    assert cfg.rf.refresh_every_polls == 7
+
+
+def test_the_maintenance_knobs_accept_zero_to_switch_the_job_off():
+    """0 disables rather than being nonsense, so the `>= 1` guard must not reject it."""
+    cfg = config_from_dict(
+        {"reader": {"reinit_after_blind_polls": 0}, "rf": {"refresh_every_polls": 0}}
+    )
+    assert cfg.reader.reinit_after_blind_polls == 0
+    assert cfg.rf.refresh_every_polls == 0
+
+
+@pytest.mark.parametrize(
+    "section", [{"reader": {"reinit_after_blind_polls": -1}}, {"rf": {"refresh_every_polls": -1}}]
+)
+def test_the_maintenance_knobs_reject_negative_values(section):
+    """0 is off and positive is a cadence; negative is a typo that would disable the job in silence."""
+    with pytest.raises(ValueError):
+        config_from_dict(section)
+
+
+def test_a_reader_with_no_chip_reports_no_maintenance():
+    """The spec's "null for a reader with no chip" branch — a bench run has nothing to maintain.
+
+    Worth pinning because the alternative a future edit reaches for is `{}` or zeroed counters, and
+    both would read as "the reader is doing this work and it has never been needed" rather than "the
+    question does not apply here".
+    """
+    app = StylusApp(Config(), SimulatedReader(), _NullPublisher(), _NullLed())
+    assert app.status()["readerMaintenance"] is None

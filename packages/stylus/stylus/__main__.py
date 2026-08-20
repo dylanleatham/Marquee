@@ -61,6 +61,7 @@ def main() -> None:  # pragma: no cover - entrypoint glue
             # The cache's idea of "the sleeve is gone" must be the machine's idea of it, or a
             # tuned-up removal debounce would leave the cache still invalidating early (#337).
             forget_after_absent_polls=config.reader.removal_debounce_polls,
+            reinit_after_blind_polls=config.reader.reinit_after_blind_polls,
         )
         log.info(
             "PN532 transmit drive: GsNOn=0x%02X CWGsP=0x%02X (chip defaults overcouple — #303)",
