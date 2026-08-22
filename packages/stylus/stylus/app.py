@@ -15,7 +15,7 @@ from .config import Config
 from .events import now_iso, start_event, stop_event
 from .led import Led, Pattern
 from .publisher import EventPublisher, QueueReporting
-from .reader import DriveReporting, TagReader
+from .reader import DriveReporting, MaintenanceReporting, TagReader
 from .state_machine import BadTag, DetectionMachine, Start, State, Stop, Swap
 from .switch import AlwaysLive, Switch
 
@@ -280,6 +280,15 @@ class StylusApp:
             # question. This field then answered the config anyway (#351), which is the question it
             # was built to stop people asking.
             "rf": self._rf_status(),
+            # What the reader has had to do to keep its own chip usable (#322). A `reinits` that
+            # climbs while `lastReadAt` on /healthz stays frozen says the re-init is not the cure;
+            # reads resuming right after it ticks says it is. Null for a reader with no chip to
+            # maintain — the simulated one, where the whole question is meaningless.
+            "readerMaintenance": (
+                self._reader.maintenance_stats()
+                if isinstance(self._reader, MaintenanceReporting)
+                else None
+            ),
             # Backlog of the async publisher (#173). A depth that keeps climbing, or a non-zero
             # `dropped`, is the observable form of "a downstream is unreachable and events are
             # piling up"; without it, "the lights react late" would have no visible cause anywhere.

@@ -30,6 +30,18 @@ class ReaderConfig:
     # boot loop, which is a worse failure than the hang it's guarding. Raise it before suspecting
     # it. This is the single definition — `reader.py` reads its fallback off this field.
     init_timeout_ms: int = 10_000
+    # Consecutive blind polls before the reader re-runs its own bring-up sequence (0 disables).
+    # 3000 ≈ 10 minutes at the default interval.
+    #
+    # Deliberately far above `removal_debounce_polls`: a run this long cannot be a record playing,
+    # because the machine published `stop` hundreds of polls ago. So this only fires on an idle
+    # stand, where re-initialising costs nothing and interrupts nobody — which is what makes it safe
+    # to run on a timer instead of on a diagnosis. "Nothing read" is the normal state of an empty
+    # stand and cannot be distinguished from a wedged reader ([#322]), so the only honest move is an
+    # action that is free when it was unnecessary.
+    #
+    # [#322]: https://github.com/dylanleatham/Marquee/issues/322
+    reinit_after_blind_polls: int = 3000
 
     def __post_init__(self) -> None:
         # A zero/negative interval would busy-spin; a debounce < 1 would fire on the first stray
@@ -44,6 +56,9 @@ class ReaderConfig:
         ):
             if getattr(self, name) < 1:
                 raise ValueError(f"reader.{name} must be >= 1")
+        # Separate because 0 is meaningful here — it disables the re-init rather than being nonsense.
+        if self.reinit_after_blind_polls < 0:
+            raise ValueError("reader.reinit_after_blind_polls must be >= 0 (0 disables the re-init)")
 
 
 @dataclass(frozen=True)
@@ -116,6 +131,18 @@ class RfConfig:
 
     gsn_on: int = 0x84
     cw_gsp: int = 0x18
+    # How often to re-assert the drive, in polls (0 disables). ~30s at the default 200ms interval.
+    #
+    # The drive is volatile — it lives in chip registers until something resets them — and it used
+    # to be written exactly once, at bring-up. A chip that lost it fell back to the power-on
+    # `0xF4`/`0x3F`, which on this stand reads 0/6 at every distance from contact to 3cm ([#303]):
+    # deaf, with no error anywhere, and a restart the only known cure ([#322], twice). Re-asserting
+    # it costs one register write per cadence and is idempotent, so it is cheap enough to do without
+    # first proving that is what happened.
+    #
+    # [#303]: https://github.com/dylanleatham/Marquee/issues/303
+    # [#322]: https://github.com/dylanleatham/Marquee/issues/322
+    refresh_every_polls: int = 150
 
     def __post_init__(self) -> None:
         # These go on the wire as single bytes; an overflowing hand-edit would otherwise be
@@ -123,6 +150,8 @@ class RfConfig:
         # guard, borrowed rather than restated so the two can't drift apart.
         for name in ("gsn_on", "cw_gsp"):
             one_byte(name, getattr(self, name))
+        if self.refresh_every_polls < 0:
+            raise ValueError("rf.refresh_every_polls must be >= 0 (0 disables the refresh)")
 
 
 @dataclass(frozen=True)
@@ -186,6 +215,9 @@ def config_from_dict(raw: dict[str, Any]) -> Config:
         removal_debounce_polls=int(reader_raw.get("removal_debounce_polls", 10)),
         swap_debounce_polls=int(reader_raw.get("swap_debounce_polls", 1)),
         init_timeout_ms=int(reader_raw.get("init_timeout_ms", ReaderConfig.init_timeout_ms)),
+        reinit_after_blind_polls=int(
+            reader_raw.get("reinit_after_blind_polls", ReaderConfig.reinit_after_blind_polls)
+        ),
     )
     led_raw = raw.get("led", {})
     led = LedConfig(
@@ -196,6 +228,9 @@ def config_from_dict(raw: dict[str, Any]) -> Config:
     rf = RfConfig(
         gsn_on=int(rf_raw.get("gsn_on", RfConfig.gsn_on)),
         cw_gsp=int(rf_raw.get("cw_gsp", RfConfig.cw_gsp)),
+        refresh_every_polls=int(
+            rf_raw.get("refresh_every_polls", RfConfig.refresh_every_polls)
+        ),
     )
     switch_raw = raw.get("switch", {})
     switch = SwitchConfig(

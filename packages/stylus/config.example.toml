@@ -6,6 +6,16 @@ insertion_debounce_polls = 2
 removal_debounce_polls = 10
 swap_debounce_polls = 1
 
+# Consecutive blind polls before the reader re-runs its own bring-up sequence (0 disables).
+# 3000 ≈ 10 minutes at the interval above.
+#
+# Far above removal_debounce_polls on purpose: a blind run this long cannot be a record playing,
+# because `stop` was published hundreds of polls ago. So it only ever fires on an idle stand, where
+# re-initialising costs nothing and interrupts nobody. That is what makes it safe on a timer rather
+# than on a diagnosis — "nothing read" is also the normal state of an empty stand and the two cannot
+# be told apart (#322), so the only honest move is an action that is free when it was unnecessary.
+reinit_after_blind_polls = 3000
+
 # How long the one-time PN532 bring-up gets before Stylus gives up and exits so systemd restarts it
 # (spec §12, ADR 0076). A healthy init is well under a second; this is generous on purpose. Raise it
 # before suspecting it — too tight a bound turns a slow-but-working module into a boot loop, which
@@ -66,6 +76,15 @@ shared_secret = "change-me-lan-only-secret"
 [rf]
 gsn_on = 0x84   # N-driver conductance, field on (high nibble CWGsN, low nibble ModGsN)
 cw_gsp = 0x18   # P-driver conductance for the continuous wave
+
+# How often to re-assert the two values above, in polls (0 disables). ~30s at a 200ms interval.
+#
+# They are volatile — chip registers, not firmware — and used to be written once, at bring-up. A chip
+# that lost them fell back to the power-on 0xF4/0x3F, which on the built stand reads 0/6 at *every*
+# distance from contact to 3cm: stone deaf, no error logged anywhere, and a service restart the only
+# known cure. That happened twice (issue #322) before anything re-asserted them. One register write
+# per cadence, idempotent, cheap enough not to need proof first.
+refresh_every_polls = 150
 
 [status]
 listen_port = 4741
