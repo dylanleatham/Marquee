@@ -2,6 +2,7 @@
   "name": "@marquee/e2e",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "End-to-end runtime scenarios across all services (runs on merge, not every PR).",
   "scripts": {

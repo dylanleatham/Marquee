@@ -3,6 +3,7 @@ name = "marquee-stylus"
 version = "0.0.0"
 description = "Reads NFC-tagged sleeves and publishes scan events to Conductor + Backdrop. Runs on a Pi Zero 2 W."
 requires-python = ">=3.11"
+license = { text = "MIT" }
 # The core is stdlib-only by design ([ADR 0016]): HTTP over `urllib`, NDEF parsed by hand, config via
 # `tomllib`. That's what lets CI (and your workstation) run the whole service with zero runtime deps.
 # Everything hardware lives in the `hardware` extra below — see `docs/adrs/0016-*.md`.

@@ -2,6 +2,7 @@
   "name": "@marquee/hue-conductor",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "Drives Hue lights from palette+pattern payloads. Headless service on the Pi 5.",
   "main": "./dist/server.js",

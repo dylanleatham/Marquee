@@ -11,6 +11,10 @@ concurrency:
   group: nightly
   cancel-in-progress: true
 
+# Read-only token: the nightly run tests main, it never writes to it.
+permissions:
+  contents: read
+
 jobs:
   # Windows was a leg of ci.yml's matrix, on every PR push. It was 250s of a ~21-minute event and
   # Windows runners bill at **2x** on private repos, so that one job was 10 billable minutes —

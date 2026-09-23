@@ -2,6 +2,7 @@
   "name": "@marquee/fake-discogs",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "Fake Discogs API for Curator/Roadie tests (a fetch-compatible fake).",
   "main": "./src/index.ts",

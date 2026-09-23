@@ -2,6 +2,7 @@
   "name": "@marquee/desktop",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "description": "Desktop app that launches Curator + Conductor in one native window.",
   "main": "dist/main.js",
   "scripts": {

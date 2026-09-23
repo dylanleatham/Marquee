@@ -2,6 +2,7 @@
   "name": "@marquee/fake-hue-bridge",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "Fastify server that speaks the Hue CLIP v2 API for tests.",
   "main": "./dist/index.js",

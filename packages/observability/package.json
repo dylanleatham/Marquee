@@ -2,6 +2,7 @@
   "name": "@marquee/observability",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "Structured log records and stable error fingerprints. Pure library, no I/O.",
   "main": "./dist/index.js",

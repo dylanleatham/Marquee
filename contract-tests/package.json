@@ -2,6 +2,7 @@
   "name": "@marquee/contract-tests",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "Cross-service boundary tests. Validates fixtures + reference payloads against the shared schemas.",
   "scripts": {

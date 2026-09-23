@@ -17,8 +17,10 @@ packages/desktop/release/
 .turbo/
 
 # Env / secrets
-.env
-.env.local
+# Every .env variant — including hand-made backups like `.env.bak-2026-08-08`, which `*.bak` below
+# does not match — except the committed template.
+.env*
+!.env.example
 *.local.toml
 config.toml
 

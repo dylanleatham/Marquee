@@ -2,6 +2,7 @@
   "name": "@marquee/deploy",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "Deterministic deploy driver — puts one pinned commit on every host and verifies it landed (ADR 0080).",
   "main": "./dist/cli.js",
