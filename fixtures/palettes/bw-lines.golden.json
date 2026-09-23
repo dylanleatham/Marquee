@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "source": {
+    "type": "album",
+    "name": "bw-lines"
+  },
+  "palette": {
+    "colors": [],
+    "insufficient": true,
+    "reason": "monochrome"
+  },
+  "pattern": {
+    "type": "static",
+    "params": {}
+  }
+}

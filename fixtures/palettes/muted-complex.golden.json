@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "source": {
+    "type": "album",
+    "name": "muted-complex"
+  },
+  "palette": {
+    "colors": [
+      {
+        "hex": "#AC9B8B",
+        "cie_xy": [
+          0.34528786452819077,
+          0.35234589284412793
+        ],
+        "role": "primary",
+        "sourceSwatch": "LightMuted"
+      },
+      {
+        "hex": "#705C54",
+        "cie_xy": [
+          0.3575939501735453,
+          0.3466577485287914
+        ],
+        "role": "secondary",
+        "sourceSwatch": "DarkMuted"
+      },
+      {
+        "hex": "#C89C78",
+        "cie_xy": [
+          0.39318102347779343,
+          0.37622925664510015
+        ],
+        "role": "accent",
+        "sourceSwatch": "LightVibrant"
+      }
+    ]
+  },
+  "pattern": {
+    "type": "crossfade",
+    "params": {
+      "transitionMs": 12000,
+      "holdMs": 45000
+    }
+  }
+}

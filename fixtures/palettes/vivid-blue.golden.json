@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "source": {
+    "type": "album",
+    "name": "vivid-blue"
+  },
+  "palette": {
+    "colors": [
+      {
+        "hex": "#0C276A",
+        "cie_xy": [
+          0.17396058575076792,
+          0.1285108933399014
+        ],
+        "role": "primary",
+        "sourceSwatch": "DarkVibrant"
+      },
+      {
+        "hex": "#3494D4",
+        "cie_xy": [
+          0.2046618943298387,
+          0.22842311211907346
+        ],
+        "role": "secondary",
+        "sourceSwatch": "Vibrant"
+      },
+      {
+        "hex": "#92C5E8",
+        "cie_xy": [
+          0.25463411216769855,
+          0.28473784665707225
+        ],
+        "role": "accent",
+        "sourceSwatch": "LightVibrant"
+      },
+      {
+        "hex": "#1B567E",
+        "cie_xy": [
+          0.20447897987980498,
+          0.22749315511718898
+        ],
+        "role": "accent",
+        "sourceSwatch": "Muted"
+      }
+    ]
+  },
+  "pattern": {
+    "type": "rotate",
+    "params": {
+      "intervalMs": 1451,
+      "direction": "forward"
+    }
+  }
+}

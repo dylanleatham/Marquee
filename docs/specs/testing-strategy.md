@@ -113,11 +113,13 @@ The fixture album collection is the most important set:
 | A recent color-rich album        | So you know current-era art is handled                                    |
 | A recent grayscale/minimal album | So you know current-era minimalism is handled                             |
 
-Each fixture is: the album ID (as a Spotify URI), a small copy of the artwork (in `fixtures/artwork/`), a golden palette output (in `fixtures/palettes/`), and any relevant metadata.
+Each fixture is: the album ID (as a Spotify URI), a small copy of the artwork (local-only, in `fixtures/artwork/`), a golden palette output (in `fixtures/palettes/`), and any relevant metadata.
 
-Not every test uses every fixture. But every test uses fixtures from this set rather than random or invented ones — because the fixtures are chosen precisely to represent the space of real inputs.
+**Real covers are copyrighted and never committed** ([ADR 0095](../adrs/0095-real-album-covers-are-never-committed.md)). `fixtures/artwork/` is gitignored: drop the real covers there locally and the golden tests run against them. What the repo commits instead is `fixtures/synthetic-covers/` — one generated cover for each of the six named albums above (`vivid-purple`, `vivid-blue`, `near-white`, `mono-black`, `muted-complex`, `bw-lines`), drawn by `packages/palette-press/scripts/gen-synthetic-covers.mjs` to reproduce the album's colour character, not its composition. CI tests those, and each needs a committed golden — a missing golden fails the test rather than being written.
 
-Add a fixture the first time you find a regression that a specific real album caused. Never remove one. The set grows to represent the space of edge cases you've encountered.
+Not every test uses every fixture. But every test uses fixtures from this set rather than random ones — because the fixtures are chosen precisely to represent the space of real inputs.
+
+Add a fixture the first time you find a regression that a specific real album caused: keep the real cover local, and commit a synthetic cover with the same colour character. Never remove one. The set grows to represent the space of edge cases you've encountered.
 
 ### 3.5 Simulation endpoints as test seams
 

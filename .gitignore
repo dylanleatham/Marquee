@@ -52,6 +52,11 @@ media/
 *.mp4
 *.bak
 
+# Real album covers are copyrighted and never committed (ADR 0095). Drop them here locally to run
+# the golden tests against real art; the committed stand-ins live in fixtures/synthetic-covers/.
+fixtures/artwork/*
+!fixtures/artwork/.gitkeep
+
 # OS / editor
 .DS_Store
 Thumbs.db

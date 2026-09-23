@@ -106,7 +106,15 @@ describe("addManualAlbum", () => {
     const s = store();
     const here = dirname(fileURLToPath(import.meta.url));
     const art = readFileSync(
-      join(here, "..", "..", "..", "fixtures", "artwork", "purple-rain.jpg"),
+      join(
+        here,
+        "..",
+        "..",
+        "..",
+        "fixtures",
+        "synthetic-covers",
+        "vivid-purple.jpg",
+      ),
     );
     // No generate override → Roadie runs the real library.
     const roadie = fakeRoadie(s, { generate: undefined });

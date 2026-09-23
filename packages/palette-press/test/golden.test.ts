@@ -1,5 +1,7 @@
-// Golden tests: run generatePalette over the fixture album covers and compare to committed
-// reference JSON. Skips only if no artwork has been dropped into fixtures/artwork/.
+// Golden tests: run generatePalette over the fixture covers and compare to committed reference JSON.
+// Two sources (ADR 0095): the committed synthetic stand-ins in fixtures/synthetic-covers/, which
+// always run (asserted below), and any real album covers dropped into the gitignored
+// fixtures/artwork/ locally. A cover with no committed golden fails; it is never auto-written.
 //
 // Comparison is TOLERANT, not byte-exact (see palette-press-spec §10): the structural parts
 // that define the experience — color count, roles, insufficient+reason, pattern, source —
@@ -27,16 +29,21 @@ import {
 } from "../src/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const artworkDir = join(here, "..", "..", "..", "fixtures", "artwork");
+const coverDirs = ["synthetic-covers", "artwork"].map((d) =>
+  join(here, "..", "..", "..", "fixtures", d),
+);
 const goldenDir = join(here, "..", "..", "..", "fixtures", "palettes");
 
 const MAX_COLOR_DELTA_E = 12; // tolerate OS jitter; catch dramatic shifts
 
-const jpgs = existsSync(artworkDir)
-  ? readdirSync(artworkDir)
-      .filter((f) => /\.jpe?g$/i.test(f))
-      .sort()
-  : [];
+const jpgs = coverDirs.flatMap((dir) =>
+  existsSync(dir)
+    ? readdirSync(dir)
+        .filter((f) => /\.jpe?g$/i.test(f))
+        .sort()
+        .map((f) => join(dir, f))
+    : [],
+);
 
 // meta.generatedAt is a timestamp — exclude it from comparison.
 const stable = (p: GeneratedPalettePayload) => {
@@ -72,20 +79,32 @@ function expectMatchesGolden(payload: Payload, golden: Payload) {
   });
 }
 
-describe.skipIf(jpgs.length === 0)("golden palettes", () => {
+describe("golden palettes", () => {
+  // The synthetic covers are committed, so an empty list means the path broke — and a suite that
+  // silently collects nothing would pass green in CI while testing no palette at all.
+  it("finds the committed synthetic covers", () => {
+    expect(jpgs.filter((j) => j.startsWith(coverDirs[0]!)).length).toBe(6);
+  });
+
   for (const jpg of jpgs) {
     const curatorId = basename(jpg).replace(/\.jpe?g$/i, "");
-    it(`${jpg} matches its golden`, async () => {
-      const art = readFileSync(join(artworkDir, jpg));
+    it(`${basename(jpg)} matches its golden`, async () => {
+      const art = readFileSync(jpg);
       const payload = stable(
         await generatePalette(art, { curatorId, name: curatorId }),
       );
       const goldenPath = join(goldenDir, `${curatorId}.golden.json`);
 
-      if (process.env.UPDATE_GOLDENS === "1" || !existsSync(goldenPath)) {
+      // Goldens are written only on request. Writing a missing one and then comparing against it
+      // would pass by construction — a cover committed without its golden would test nothing.
+      if (process.env.UPDATE_GOLDENS === "1") {
         mkdirSync(goldenDir, { recursive: true });
         writeFileSync(goldenPath, JSON.stringify(payload, null, 2) + "\n");
       }
+      expect(
+        existsSync(goldenPath),
+        `no golden for ${curatorId} — run \`pnpm --filter @marquee/palette-press update-goldens\` and review the diff`,
+      ).toBe(true);
       expectMatchesGolden(
         payload,
         JSON.parse(readFileSync(goldenPath, "utf8")),

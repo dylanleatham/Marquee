@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "source": {
+    "type": "album",
+    "name": "near-white"
+  },
+  "palette": {
+    "colors": [
+      {
+        "hex": "#A2A25D",
+        "cie_xy": [
+          0.37471650211963603,
+          0.4315086279354569
+        ],
+        "role": "primary",
+        "sourceSwatch": "Vibrant"
+      }
+    ],
+    "insufficient": true,
+    "reason": "monochrome"
+  },
+  "pattern": {
+    "type": "static",
+    "params": {}
+  }
+}

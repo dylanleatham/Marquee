@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "source": {
+    "type": "album",
+    "name": "vivid-purple"
+  },
+  "palette": {
+    "colors": [
+      {
+        "hex": "#7C37CC",
+        "cie_xy": [
+          0.22814976713195967,
+          0.12614204326414646
+        ],
+        "role": "primary",
+        "sourceSwatch": "Vibrant"
+      },
+      {
+        "hex": "#94141C",
+        "cie_xy": [
+          0.5946395845016466,
+          0.32283696179943583
+        ],
+        "role": "secondary",
+        "sourceSwatch": "DarkVibrant"
+      },
+      {
+        "hex": "#873C7D",
+        "cie_xy": [
+          0.33520297876459737,
+          0.21596170559580277
+        ],
+        "role": "accent",
+        "sourceSwatch": "DarkMuted"
+      },
+      {
+        "hex": "#D48F4D",
+        "cie_xy": [
+          0.45562364506999764,
+          0.40644299296237774
+        ],
+        "role": "accent",
+        "sourceSwatch": "LightVibrant"
+      }
+    ]
+  },
+  "pattern": {
+    "type": "rotate",
+    "params": {
+      "intervalMs": 1430,
+      "direction": "forward"
+    }
+  }
+}
