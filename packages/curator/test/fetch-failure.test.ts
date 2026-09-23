@@ -77,7 +77,7 @@ describe("describeFetchFailure", () => {
   });
 
   it("reports no route to the host separately from a refusal", () => {
-    const url = "http://192.168.86.51:4740";
+    const url = "http://192.168.1.51:4740";
     expect(describeFetchFailure(systemError("EHOSTUNREACH"), url, 5000)).toBe(
       `no route to ${url}`,
     );
@@ -136,13 +136,13 @@ describe("describeFetchFailure", () => {
       "The operation was aborted due to timeout",
       "TimeoutError",
     );
-    const msg = describeFetchFailure(err, "http://192.168.86.49:4737", 5000);
+    const msg = describeFetchFailure(err, "http://192.168.1.49:4737", 5000);
 
     expect(msg).not.toMatch(/is it running/i);
     expect(msg).not.toMatch(/not reachable|unreachable/i);
     expect(msg).not.toMatch(/is down|not running/i);
     // And it does say the thing that was actually true, including the address to check.
-    expect(msg).toContain("http://192.168.86.49:4737");
+    expect(msg).toContain("http://192.168.1.49:4737");
   });
 });
 

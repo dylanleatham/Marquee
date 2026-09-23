@@ -1,13 +1,14 @@
-# What you need to set up (your side)
+# Setting up Marquee
 
-The scaffold is in place. Here's everything that requires _you_ — accounts, tools, hardware,
-and decisions I can't make. Ordered so nothing blocks you before you need it.
+Everything a fresh install needs — tools, accounts, decisions, and hardware — ordered so nothing
+blocks you before you need it. Most of the system runs and tests without any hardware at all (see
+the end of this page).
 
 ## A. Toolchain on your workstation (needed before any code — build order steps 0–5)
 
 | Tool                   | Why                                            | How (Windows)                                                                            |
 | ---------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| **Node.js 20 LTS**     | All four services + libraries                  | https://nodejs.org — pick 20.x. Verify `node -v` → `v20.x`.                              |
+| **Node.js 22 LTS**     | Every service + library                        | https://nodejs.org — pick 22.x (see `.nvmrc`). Verify `node -v` → `v22.x`.               |
 | **pnpm 9**             | Monorepo package manager                       | `npm install -g pnpm` (or `corepack enable pnpm`)                                        |
 | **Git**                | Version control                                | You have it.                                                                             |
 | **ffmpeg**             | Curator video validation + thumbnails (step 7) | `winget install Gyan.FFmpeg`, or from ffmpeg.org. Needed only when you reach video work. |
@@ -18,7 +19,7 @@ Then, in the repo:
 
 ```bash
 pnpm install       # wires every Node package
-pnpm run setup     # checks toolchain, installs git hooks, seeds .env
+pnpm run setup     # checks toolchain, seeds .env (pnpm install set up the git hooks)
 pnpm run test:fast # should pass the contract tests once deps install
 ```
 
@@ -26,17 +27,14 @@ pnpm run test:fast # should pass the contract tests once deps install
 
 1. **Spotify Developer app** — for Curator/Roadie metadata + art (build order step 4).
    - Go to https://developer.spotify.com/dashboard, create an app.
-   - You mentioned a "Conflicted Lineup" app — reusing those client credentials is fine.
    - Put `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` into `.env` (already gitignored).
    - This uses the client-credentials flow (no user login) for public catalog reads.
 2. **A shared LAN secret** — one random string used by all services (`X-Trigger-Secret`).
    - Generate one: `openssl rand -hex 16` (Git Bash has openssl), put in `.env` as
      `TRIGGER_SHARED_SECRET`, and later into each device's `config.toml`.
-3. **GitHub repo** (dev-harness §13) — create a **private** repo, then:
-   - `git remote add origin …`, push `main`.
-   - Turn on **branch protection** for `main` (require PR, status checks, linear history) per
-     dev-harness §7. Do this early so the discipline sticks.
-   - The CI workflows (`.github/workflows/*.yml`) run automatically once pushed.
+3. **Gemini and Discogs** (optional) — a Gemini API key for drafted visualizer prompts and a
+   Discogs personal token for collection import. Both are entered in Curator's settings screen and
+   stored outside the repo, in Curator's data directory.
 
 ## C. Decisions only you can make
 
@@ -54,13 +52,13 @@ pnpm run test:fast # should pass the contract tests once deps install
 4. **Hostnames** — the specs use `conductor.local`, `backdrop.local`. Decide whether you'll use
    mDNS (`.local`) or static IPs on your LAN. Update `.env` and the `config.toml` files to match.
 
-## D. Fixture assets you provide (for tests — build order steps 0–2)
+## D. Fixture covers (optional)
 
-Drop small copies of these album covers into `fixtures/artwork/` as JPGs (see
-`fixtures/README.md` for the full list and why each one matters). Purple Rain, Kind of Blue,
-The White Album, Metallica (Black), Rumours, Unknown Pleasures, plus one recent color-rich and
-one recent minimal album. The golden palettes get generated once Palette Press runs, then you
-eyeball them once and commit them as the goldens.
+The tests run on committed synthetic covers in `fixtures/synthetic-covers/`. To also run the golden
+tests against real art, drop small JPG copies of the fixture albums into `fixtures/artwork/` —
+Purple Rain, Kind of Blue, The White Album, Metallica (Black), Rumours, Unknown Pleasures (see
+`fixtures/README.md`). That folder is gitignored: real covers are copyrighted and never committed
+([ADR 0095](adrs/0095-real-album-covers-are-never-committed.md)).
 
 ## E. Hardware — buy in phases (don't buy it all now)
 
@@ -91,11 +89,10 @@ Notes:
 
 ---
 
-### What I (Claude) can build without you
+### What runs without hardware
 
-Everything in build-order steps 0–9 that doesn't touch physical hardware: the contracts, fakes,
-Palette Press (given fixture art), Curator + Roadie + its UI, Backdrop's software (testable with
-Playwright + tiny fixture videos), and Conductor's software (testable against `fake-hue-bridge`).
-The only things that fundamentally need you are: the **Hue bridge pairing** (physical button),
-the **Spotify credentials**, the **video files** from your external tool, and all the **Pi/NFC
-hardware** from step 10 on.
+The contracts, Palette Press, Curator + Roadie and its UI, Backdrop's software, and Conductor's
+software all run and test without any devices: external dependencies have hand-written fakes under
+`packages/fakes/` (Hue bridge, Spotify, Discogs, Gemini, the PN532 reader). What genuinely needs you is the
+**Hue bridge pairing** (a physical button), your own **API credentials**, the **video files** from
+your external tool, and the **Pi/NFC hardware** for the stand itself.

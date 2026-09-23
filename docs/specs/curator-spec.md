@@ -106,7 +106,7 @@ Optimized for Windows dev, Node ecosystem, and Claude Code compatibility.
 - **Runtime**: Node.js 20 LTS, TypeScript
 - **Server framework**: Fastify (consistency with other services)
 - **Palette generation**: Palette Press as an internal npm package (or monorepo workspace package)
-- **Spotify Web API**: any thin client library, or bare `fetch` calls. Reuse OAuth credentials from your existing Conflicted Lineup app if convenient.
+- **Spotify Web API**: any thin client library, or bare `fetch` calls.
 - **Video validation + thumbnails**: `fluent-ffmpeg` wrapper + system `ffmpeg` binary
 - ~~**File watching**: `chokidar` for the `/incoming/` folder~~ — _never adopted; there is no watcher (2026-07-25, §9)_
 - **UI**: React + Vite. TanStack Query for data fetching (invalidation semantics matter here). Multi-screen: queue, add-album, album-detail, preview, incoming.

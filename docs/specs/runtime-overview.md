@@ -4,9 +4,9 @@ _The one-page systems doc for **Marquee**, the immersive-jukebox project. Read t
 
 ## 1. What Marquee is
 
-Four services that together turn "you placed a record on the stand" into "the room becomes the record." Each service has one clear job, no visibility into any other service's internals, and can fail without taking the rest down.
+Five services that together turn "you placed a record on the stand" into "the room becomes the record." Each service has one clear job, no visibility into any other service's internals, and can fail without taking the rest down.
 
-## 2. The four services
+## 2. The five services
 
 | #   | Service                     | Job                                                                          | Where it lives                     | Language |
 | --- | --------------------------- | ---------------------------------------------------------------------------- | ---------------------------------- | -------- |
@@ -23,9 +23,8 @@ Four services that together turn "you placed a record on the stand" into "the ro
 > (`curator:album:<id>`) plays lights + video only — you drop the needle on the vinyl. A third kind,
 > **demo** (`curator:demo:<id>`, 2026-08-08,
 > [ADR 0058](../adrs/0058-a-demo-tag-plays-one-chosen-track.md)), streams one chosen track instead of
-> the whole album — see the §5 table. So there are
-> now five services; the four-service prose and diagram below predate Amp (audio was originally out of
-> scope — §11) and are read as "the pre-Amp core." Viability was proven by the spikes under
+> the whole album — see the §5 table. The diagram in §3 predates Amp (audio was originally out of
+> scope — §11) and shows the pre-Amp core. Viability was proven by the spikes under
 > [`spikes/`](../../spikes); Path B (Spotify Connect) was rejected because it can't start an idle
 > speaker (research doc + [ADR 0034](../adrs/0034-amp-sonos-playback-and-card-uri.md)).
 
@@ -309,7 +308,7 @@ shell, deliberately not a CI check
 > behind the workstation for four days with no scan ever driving the lights, and nothing in Curator
 > could say so. The push described above is now real; this note stays as the record of why.
 
-- **Spotify Web API → Curator**: called by Roadie during the album-onboarding pipeline (metadata + art). Read-only. Uses existing OAuth credentials (reuse from your Conflicted Lineup app if convenient).
+- **Spotify Web API → Curator**: called by Roadie during the album-onboarding pipeline (metadata + art). Read-only. Uses app client credentials (client-credentials flow).
 
 ### Error handling philosophy
 
