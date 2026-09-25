@@ -38,7 +38,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Deep enough for the "did anything land?" check below to see a day of commits, shallow
           # enough not to pay for the full history.
@@ -57,9 +57,9 @@ jobs:
             echo "run=false" >> "$GITHUB_OUTPUT"
             echo "No commits in the last 25 hours — skipping the suite."
           fi
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         if: steps.changed.outputs.run == 'true'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: steps.changed.outputs.run == 'true'
         with:
           node-version-file: .nvmrc
