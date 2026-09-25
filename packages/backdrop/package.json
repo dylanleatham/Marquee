@@ -17,19 +17,19 @@
   },
   "dependencies": {
     "@fastify/static": "^8",
-    "@fastify/websocket": "^11.0.1",
+    "@fastify/websocket": "^11.3.1",
     "@marquee/contracts": "workspace:*",
     "@marquee/observability": "workspace:*",
-    "fastify": "^5.1.0",
-    "smol-toml": "^1.3.1"
+    "fastify": "^5.12.5",
+    "smol-toml": "^1.9.0"
   },
   "devDependencies": {
     "@types/node": "^22.7.5",
     "@types/ws": "^8.5.12",
     "fast-check": "^3.22.0",
-    "tsx": "^4.19.1",
+    "tsx": "^4.23.15",
     "typescript": "^5.6.2",
     "vitest": "^2.1.3",
-    "ws": "^8.18.0"
+    "ws": "^8.21.3"
   }
 }
