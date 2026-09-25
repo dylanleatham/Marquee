@@ -2,6 +2,7 @@
   "name": "@marquee/review-agents",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "Claude Code review specialists that gate pushes (dev-harness §6).",
   "scripts": {

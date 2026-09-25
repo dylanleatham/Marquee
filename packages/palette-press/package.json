@@ -2,6 +2,7 @@
   "name": "@marquee/palette-press",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "Presses a Hue-safe palette out of album art. Pure library, no I/O.",
   "main": "./dist/index.js",
@@ -25,6 +26,7 @@
     "@types/node": "^22.7.5",
     "cross-env": "^7.0.3",
     "fast-check": "^3.22.0",
+    "jpeg-js": "^0.4.4",
     "typescript": "^5.6.2",
     "vitest": "^2.1.3"
   }

@@ -2,6 +2,7 @@
   "name": "marquee-spike-desk-audio",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "description": "Throwaway viability spike (#93): which route plays album audio at the workstation for bench preview. No deps.",
   "scripts": {
     "probe": "node probe.js",

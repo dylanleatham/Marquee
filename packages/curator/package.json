@@ -2,6 +2,7 @@
   "name": "@marquee/curator",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "Admin app + source of truth for the collection. Hosts Roadie. Runs on your workstation.",
   "main": "./dist/server.js",

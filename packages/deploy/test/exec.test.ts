@@ -69,7 +69,7 @@ describe("the remote argv", () => {
   // that class of bug from a unit test.
   const remote: Host = {
     name: "pi5",
-    ssh: "pi@192.168.86.59",
+    ssh: "pi@192.168.1.59",
     repo: "/home/pi/Marquee",
     services: {},
     user: "pi",
@@ -148,9 +148,9 @@ describe("the remote argv", () => {
 
   it("targets the host and keeps the hardening options", () => {
     const argv = sshArgv(remote, cmd(["true"]), remote.repo);
-    expect(argv).toContain("pi@192.168.86.59");
+    expect(argv).toContain("pi@192.168.1.59");
     expect(argv).toContain("BatchMode=yes");
-    expect(argv.indexOf("pi@192.168.86.59")).toBeLessThan(argv.indexOf("--"));
+    expect(argv.indexOf("pi@192.168.1.59")).toBeLessThan(argv.indexOf("--"));
   });
 });
 

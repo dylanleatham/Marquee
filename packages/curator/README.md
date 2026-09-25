@@ -153,7 +153,7 @@ curl -s http://127.0.0.1:4739/api/albums/<curatorId>   # metadata + art + palett
 # Manual (cover upload) — starts at "generating_palette" (art + metadata already supplied)
 curl -s -X POST http://127.0.0.1:4739/api/albums \
   -F name="Purple Rain" -F artist="Prince" -F year=1984 \
-  -F artwork=@fixtures/artwork/purple-rain.jpg
+  -F artwork=@fixtures/synthetic-covers/vivid-purple.jpg
 ```
 
 ## Notes

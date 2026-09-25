@@ -2,6 +2,7 @@
   "name": "@marquee/fake-spotify",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "Fake Spotify Web API for Curator/Roadie tests (a fetch-compatible fake).",
   "main": "./src/index.ts",

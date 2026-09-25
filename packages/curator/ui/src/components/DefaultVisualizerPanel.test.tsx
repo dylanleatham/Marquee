@@ -275,7 +275,7 @@ describe("DefaultVisualizerPanel", () => {
           kind: "defaultVisualizerPush",
           status: "failed",
           progress: { done: 0, total: 0 },
-          error: "ECONNREFUSED 192.168.86.59:4740",
+          error: "ECONNREFUSED 192.168.1.59:4740",
         },
         error: null,
         unreachable: false,

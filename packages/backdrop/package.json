@@ -2,6 +2,7 @@
   "name": "@marquee/backdrop",
   "version": "0.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "Plays looping visualizer videos on the display in response to scan events.",
   "main": "./dist/server.js",

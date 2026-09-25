@@ -12,7 +12,15 @@ import { fakeRoadie, noAnnounce } from "./helpers.js";
 const ID = "1C2h7mLntPSeVYciMRTF4a";
 const here = dirname(fileURLToPath(import.meta.url));
 const purpleRain = readFileSync(
-  join(here, "..", "..", "..", "fixtures", "artwork", "purple-rain.jpg"),
+  join(
+    here,
+    "..",
+    "..",
+    "..",
+    "fixtures",
+    "synthetic-covers",
+    "vivid-purple.jpg",
+  ),
 );
 
 const store = () => new AssetStore(mkdtempSync(join(tmpdir(), "curator-sp-")));

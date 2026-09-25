@@ -18,6 +18,11 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Nothing here writes to the repo, so the token gets read access only — least privilege, rather
+# than whatever the repository's default token permissions happen to be.
+permissions:
+  contents: read
+
 # Every job carries `if: ${{ vars.CI_ENABLED != 'false' }}`. When the Actions allowance runs out
 # GitHub doesn't queue jobs, it fails them in 2-4 seconds with no logs — and mails you about each
 # run. Flipping the variable makes the jobs *skip* instead, which neither bills nor notifies:

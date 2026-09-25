@@ -17,8 +17,10 @@ packages/desktop/release/
 .turbo/
 
 # Env / secrets
-.env
-.env.local
+# Every .env variant — including hand-made backups like `.env.bak-2026-08-08`, which `*.bak` below
+# does not match — except the committed template.
+.env*
+!.env.example
 *.local.toml
 config.toml
 
@@ -51,6 +53,11 @@ media/
 !packages/**/src/media/**
 *.mp4
 *.bak
+
+# Real album covers are copyrighted and never committed (ADR 0095). Drop them here locally to run
+# the golden tests against real art; the committed stand-ins live in fixtures/synthetic-covers/.
+fixtures/artwork/*
+!fixtures/artwork/.gitkeep
 
 # OS / editor
 .DS_Store

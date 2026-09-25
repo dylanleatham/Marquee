@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // One-command environment check + bootstrap. `pnpm run setup`.
-import { existsSync, copyFileSync } from "node:fs";
+import { existsSync, copyFileSync, readFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 
 const ok = (m) => console.log(`  ✓ ${m}`);
@@ -10,11 +10,14 @@ let problems = 0;
 console.log("Marquee setup\n");
 
 // Node version
+// Read the pin rather than restating it: this check once hard-coded 20 and went on warning about
+// the correct Node for as long as nobody noticed .nvmrc had moved to 22.
 const major = Number(process.versions.node.split(".")[0]);
-if (major === 20) ok(`Node ${process.versions.node}`);
+const pinned = Number(readFileSync(".nvmrc", "utf8").trim().split(".")[0]);
+if (major === pinned) ok(`Node ${process.versions.node}`);
 else {
   warn(
-    `Node ${process.versions.node} — this project pins Node 20 (see .nvmrc)`,
+    `Node ${process.versions.node} — this project pins Node ${pinned} (see .nvmrc)`,
   );
   problems++;
 }
