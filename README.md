@@ -3,8 +3,9 @@
 _An immersive jukebox. Place a tagged record sleeve on the stand — the lights and the display
 become the record. Lift it — the room returns to normal._
 
-<!-- Demo: a short clip of a sleeve going on the stand, the Hue lights shifting and the visualizer
-starting, belongs here. -->
+![The record cabinet, with the turntable and the lights Marquee drives](docs/images/record-cabinet.jpg)
+
+https://github.com/user-attachments/assets/87092e3c-9a72-40c8-ad9d-9b20dd1c8609
 
 An NFC reader hidden in a record stand identifies the sleeve. The room's Philips Hue lights take on
 a palette pressed from the album's cover art, a TV plays a looping visualizer made for that record,
@@ -13,6 +14,25 @@ record puts the room back exactly how it was.
 
 It is a small distributed system: five services across a Windows workstation, a Raspberry Pi 5 and
 a Raspberry Pi Zero 2 W, in TypeScript and Python, talking over versioned JSON contracts on the LAN.
+
+## In the room
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/record-stand.jpg" alt="The record stand with its electronics exposed"></td>
+    <td width="50%"><img src="docs/images/card-art.jpg" alt="A binder of printed album cards"></td>
+  </tr>
+  <tr>
+    <td>The stand, opened up: the Pi Zero 2 W that runs Stylus, wired to the NFC reader.</td>
+    <td>Album cards with art I designed. Each carries a tag, so scanning a card plays the album
+    over Sonos.</td>
+  </tr>
+</table>
+
+**Curator**, the desktop app where the collection is built — browsing the shelf, tuning a record's
+palette, and previewing it in the room:
+
+https://github.com/user-attachments/assets/8e5b07be-0339-4dca-be6d-f34ab663000e
 
 ## How it works
 
