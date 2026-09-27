@@ -99,7 +99,9 @@ The calls that were mine: the architecture and service boundaries, the testing s
 high-level decisions, the design of the harness and the review of what it produced, and the media
 itself — the card art and the visualizer videos. The [specs](docs/specs/) stayed the source of
 truth throughout: whenever something changed, the spec was amended in the same change and the
-decision recorded as an [ADR](docs/adrs/), so the documents never drifted from the code.
+decision recorded as an [ADR](docs/adrs/), so the documents never drifted from the code. Bug fixes
+are test-first: each starts with a failing test that reproduces the bug, then closes the gap in the
+harness that let it through ([bug-fix-workflow.md](docs/specs/bug-fix-workflow.md)).
 
 The build used [Claude Code](https://claude.com/claude-code) across Claude Opus 4.7, 4.8 and 5.5 —
 which is why many commits carry a co-author trailer — and Claude Design for a later overhaul of the
