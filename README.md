@@ -80,18 +80,50 @@ start there, then the per-service specs in [docs/specs/](docs/specs/).
 - **Decisions on the record.** 95 [architecture decision records](docs/adrs/) and specs that are
   kept in step with the code — when the code deviates, the spec is updated and an ADR says why.
 
+## Why I built it
+
+Marquee started as a way to combine several things I care about — records, immersive art, and
+building things. It became a way to work with technology that was new to me — embedded hardware, a
+Python service on a Raspberry Pi, colour science for real lights, prompting strategies for generated
+video and card art — and an experiment in building my own coding harness around AI agents.
+
 ## How it was built
 
-Spec-first and test-first. Every service has a spec in [docs/specs/](docs/specs/) that is treated
-as the source of truth; every bug fix starts with a failing test that reproduces it, then closes the
-gap in the harness that let it through ([bug-fix-workflow.md](docs/specs/bug-fix-workflow.md)).
+I designed it first. I wrote down the requirements, then built small [spikes](spikes/) to prove the
+risky pieces worked together before committing to an architecture. I had Claude Code turn that into
+a full architecture spec, then reviewed and critiqued it over several rounds — changing parts for
+cost, and cutting or keeping parts depending on what I wanted to build myself — before signing off,
+committing the spec, and having Claude Code build it in phases.
 
-Implementation was pair-programmed with [Claude Code](https://claude.com/claude-code) — which is
-why many commits carry a co-author trailer. The guardrails around that are part of the project:
-[CLAUDE.md](CLAUDE.md) is the working agreement, [review-agents/](review-agents/README.md) are
-three custom reviewers that check things a generic reviewer can't know about this repo (tests that
-silently run nothing, spec drift, missing coverage), and the git hooks and
-[`.claude/`](.claude/README.md) skills enforce the procedures rather than relying on reminders.
+The calls that were mine: the architecture and service boundaries, the testing strategy, the
+high-level decisions, the design of the harness and the review of what it produced, and the media
+itself — the card art and the visualizer videos. The [specs](docs/specs/) stayed the source of
+truth throughout: whenever something changed, the spec was amended in the same change and the
+decision recorded as an [ADR](docs/adrs/), so the documents never drifted from the code.
+
+The build used [Claude Code](https://claude.com/claude-code) across Claude Opus 4.7, 4.8 and 5.5 —
+which is why many commits carry a co-author trailer — and Claude Design for a later overhaul of the
+Curator UI, whose design was then brought back into the codebase and rebuilt. Gemini drafts the
+per-record visualizer prompts. The harness is a set of [agent reviewers](review-agents/README.md),
+plus a practice of filing GitHub issues as hand-offs between Claude Code sessions so I could run
+several agents in parallel. I ran it on a Claude Max subscription and GitHub's free plan, so most
+agent work runs locally rather than in CI, and
+[CI itself is priced per PR](docs/adrs/0064-ci-is-priced-per-pr-expensive-checks-move-to-nightly.md).
+As the only developer, that was a trade I was happy to make.
+
+## What I got wrong
+
+The harness grew heavier than the problems it solved. When I measured it, a single review ran 8
+reviewers three times each — 24 sessions and about ten minutes — and the ledger meant to track
+their value had four entries and had changed no decisions. Models had also improved enough to catch
+most of what several of the reviewers were built for. So I retired those reviewers and the process
+around them, and cut the harness to
+[three reviewers and one command](docs/adrs/0092-the-harness-is-three-reviewers-and-one-command.md).
+
+## What's next
+
+A wishlist: flagging records I want but don't own yet, and exploring my own taste to find new music
+— rather than relying on streaming services' recommendation algorithms.
 
 ## Tech stack
 
