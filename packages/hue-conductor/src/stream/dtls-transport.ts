@@ -44,6 +44,9 @@ export class DtlsStreamTransport implements StreamTransport {
   }
 }
 
+/** The only suite the Hue Entertainment API accepts (Hue Entertainment API docs, §DTLS). */
+const HUE_DTLS_CIPHER = "TLS_PSK_WITH_AES_128_GCM_SHA256";
+
 export interface HueDtlsParams {
   ip: string;
   applicationKey: string;
@@ -69,8 +72,10 @@ export function createHueDtlsSocket(
       type: "udp4",
       address: params.ip,
       port: params.port ?? 2100,
-      // node-dtls-client offers all supported suites by default; the bridge negotiates
-      // TLS_PSK_WITH_AES_128_GCM_SHA256. Pin `ciphers` here if a bridge rejects the handshake.
+      // Pinned to the one suite the Entertainment API speaks. With node-dtls-client's default list
+      // the bridge never answers: every handshake timed out and every streaming effect fell back
+      // to CLIP, so a record set to wave played rotate (issue #360). Pinned, it connects in ~40ms.
+      ciphers: [HUE_DTLS_CIPHER],
       psk: { [params.applicationKey]: Buffer.from(params.clientkey, "hex") },
       timeout: params.timeoutMs ?? 5000,
     });
