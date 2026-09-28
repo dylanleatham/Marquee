@@ -28,7 +28,7 @@ dev = [
     # Pinned to match the CI gate in .github/workflows/ci.yml — a local ruff/mypy from a newer minor
     # than CI's would let drift through (or flag what CI won't), which is exactly the confusion these
     # two steps exist to remove. Bump both places together.
-    "ruff~=0.15.9",
+    "ruff>=0.15.9,<0.17.0",
     "mypy~=2.3.0",
 ]
 
