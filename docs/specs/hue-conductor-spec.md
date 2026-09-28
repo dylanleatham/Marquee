@@ -291,7 +291,11 @@ once. Built across [ADR 0023](../adrs/0023-entertainment-streaming-effect-engine
 - **The transport (`DtlsStreamTransport`, ADR 0024)** encodes each frame as a HueStream v2 datagram
   (`encodeHueStreamFrame`) and sends it over a DTLS/PSK socket (`node-dtls-client`) to UDP 2100. A tiny
   CLIP v2 client (`Clip2Client`) lists entertainment areas (id, name, per-channel positions) and PUTs
-  the area into/out of streaming mode. The DTLS handshake is the only piece verified on hardware.
+  the area into/out of streaming mode. The handshake offers **only** `TLS_PSK_WITH_AES_128_GCM_SHA256`:
+  given the library's default suite list, the bridge never answers, so every handshake timed out and
+  every streaming effect quietly played its CLIP fallback
+  ([#360](https://github.com/dylanleatham/Marquee/issues/360)). The options handed to the library are
+  unit-tested. The handshake itself can only be verified on hardware, and was on 2026-09-27.
 - **The session (`StreamSession`)** ties it together for a scan: snapshot the room (CLIP) → PUT area
   streaming-on → open DTLS → run the engine; `stop` reverses it and restores the snapshot, under the
   same idle-timeout safety net as CLIP. On `/api/scan`, a streaming-effect album with an
