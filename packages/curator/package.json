@@ -43,7 +43,7 @@
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "@vitejs/plugin-react": "^4",
-    "jsdom": "^25",
+    "jsdom": "^30",
     "react": "^18",
     "react-dom": "^18",
     "react-router-dom": "^6",
