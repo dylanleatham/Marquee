@@ -20,10 +20,10 @@
   "dependencies": {
     "@marquee/contracts": "workspace:*",
     "@marquee/observability": "workspace:*",
-    "fastify": "^5.12.5",
+    "fastify": "^5.12.7",
     "node-dtls-client": "^2.0.3",
     "node-hue-api": "^4.0.11",
-    "smol-toml": "^1.9.0"
+    "smol-toml": "^1.9.1"
   },
   "devDependencies": {
     "@types/node": "^22.7.5",
